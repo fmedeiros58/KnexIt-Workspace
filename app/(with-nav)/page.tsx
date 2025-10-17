@@ -1,35 +1,25 @@
-// app/page.tsx
+// app/(with-nav)/page.tsx
 "use client";
 
 import Link from "next/link";
 import Pricing from "@/components/Pricing";
 import Footer from "@/components/Footer";
-
-
-
-/* Usado no Hero e no Countdown */
-import { useEffect, useState } from "react";
+import Countdown from "@/components/Countdown";
 
 /* =============================================================================
-   HERO (compacto) — com comentários de ajuste “🔧”
+   HERO (compacto)
 ============================================================================= */
 
-const HERO_IMAGE = "/images/hero-upgrade.png"; // 🔧 troque aqui o arquivo do hero (fica em /public/images)
+const HERO_IMAGE = "/images/hero-upgrade.png";
 
 function Hero() {
   return (
-    <section
-      className="
-        relative w-full overflow-hidden
-        min-h-[520px]    /* 🔧 ALTURA do hero: ex. 520px → 480px para deixar mais baixo */
-      "
-    >
+    <section className="relative w-full overflow-hidden min-h-[520px]">
       {/* Fundo com imagem + degradê */}
       <div
         className="absolute inset-0 -z-10 bg-cover bg-center"
         style={{
           backgroundImage: `
-            /* 🔧 Degradê: mude o ângulo (90deg) ou a opacidade dos RGBA p/ mais/menos escuridão */
             linear-gradient(
               90deg,
               rgba(0,0,0,.88) 0%,
@@ -42,24 +32,13 @@ function Hero() {
           `,
         }}
       />
-
-      {/* 🔧 mesma régua do Nav: max-w-7xl + px-6
-          Altura vertical via padding: reduza/eleve estes valores p/ “apertar/soltar” o hero */}
       <div className="mx-auto w-full max-w-7xl px-6 py-8 md:py-12">
         <div className="max-w-2xl text-white">
           <p className="text-xs md:text-sm font-semibold text-rose-300">
             ⚡ MAIS DE 130 MIL VAGAS PREVISTAS
           </p>
 
-          <h1
-            className="
-              mt-2 md:mt-3
-              text-[20px] md:text-5xl   /* 🔧 TAMANHO do título: md:text-5xl → md:text-4xl p/ menor */
-              leading-tight
-              font-extrabold tracking-tight
-              filter drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]  /* 🔧 Sombra p/ legibilidade */
-            "
-          >
+          <h1 className="mt-2 md:mt-3 text-[20px] md:text-5xl leading-tight font-extrabold tracking-tight filter drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]">
             <span className="text-white">A CHAVE DE ACESSO</span>
             <br />
             <span className="text-white">PARA SUA </span>
@@ -68,34 +47,23 @@ function Hero() {
             <span className="text-[#ff375f]">AINDA EM 2025</span>
           </h1>
 
-          <p
-            className="
-              mt-2
-              text-white/90
-              text-[14px] md:text-base  /* 🔧 TAMANHO do parágrafo */
-            "
-          >
+          <p className="mt-2 text-white/90 text-[14px] md:text-base">
             Só a única <strong className="text-white">Assinatura ilimitada</strong> de verdade
             oferece preparação completa, com os melhores professores. Alcance sua
             aprovação em uma das 130 mil vagas previstas até o fim do ano.
           </p>
 
-          {/* BLOCO: Contador (timer) */}
-          <div className="mt-3  /* 🔧 Espaço acima do timer */">
+          {/* Contador */}
+          <div className="mt-3">
             <p className="text-xs md:text-sm font-extrabold tracking-wide">
               AS OFERTAS ACABAM EM:
             </p>
-            <Countdown to={hoursFromNow(12)} className="mt-1" />
+            {/* ✅ usa a prop `hours` para evitar dependência de helper */}
+            <Countdown hours={12} className="mt-1" />
           </div>
 
-          {/* BLOCO: Cards de preço */}
-          <div
-            className="
-              mt-3                /* 🔧 Espaço acima dos cards */
-              grid gap-3          /* 🔧 Espaço ENTRE os cards */
-              sm:gap-4 sm:grid-cols-2
-            "
-          >
+          {/* Cards de preço */}
+          <div className="mt-3 grid gap-3 sm:gap-4 sm:grid-cols-2">
             <PriceCard
               badge="ACESSO POR 1 ANO"
               title={["ASSINATURA", "ILIMITADA 1 ANO"]}
@@ -199,47 +167,6 @@ function PriceCard({
   );
 }
 
-/* =============================================================================
-   Countdown — usado no Hero
-============================================================================= */
-function Countdown({ to, className }: { to: Date; className?: string }) {
-  const [now, setNow] = useState<Date>(() => new Date());
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const diff = Math.max(0, to.getTime() - now.getTime());
-  const total = Math.floor(diff / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-
-  const Box = ({ label, value }: { label: string; value: number }) => (
-    <div className="text-center">
-      <div className="text-2xl md:text-3xl font-extrabold tabular-nums">
-        {value.toString().padStart(2, "0")}
-      </div>
-      <div className="text-[10px] md:text-[11px] tracking-wide text-white/80 mt-1">{label}</div>
-    </div>
-  );
-
-  return (
-    <div className={["flex items-center gap-4", className].join(" ")}>
-      <Box label="HORAS" value={h} />
-      <span className="text-xl md:text-2xl -mt-1">:</span>
-      <Box label="MIN" value={m} />
-      <span className="text-xl md:text-2xl -mt-1">:</span>
-      <Box label="SEG" value={s} />
-    </div>
-  );
-}
-
-/* 🔧 Muda a duração do countdown alterando as horas +h */
-function hoursFromNow(h: number) {
-  const d = new Date();
-  d.setHours(d.getHours() + h);
-  return d;
-}
 
 /* =============================================================================
    Seções auxiliares (features/planStrip/blue/faq)
@@ -322,9 +249,8 @@ function FAQ({ items }: { items: { q: string; a: string }[] }) {
 }
 
 /* =============================================================================
-   REGISTRY / CONFIG  (⚠️ sem o 'hero' aqui!)
+   REGISTRY / CONFIG
 ============================================================================= */
-// --- dados separados para ficar limpo ---
 const plansData = [
   { tag: "ACESSO POR 1 ANO", title: "ASSINATURA ILIMITADA 1 ANO", price: "57,90", href: "/pricing" },
   { tag: "ACESSO VITALÍCIO", title: "ASSINATURA ILIMITADA VITALÍCIA", price: "149,90", href: "/pricing" },
@@ -345,7 +271,6 @@ const faqData = [
   { q: "Existe garantia?", a: "7 dias para experimentar. Se não curtir, cancelamos sem burocracia." },
 ];
 
-// --- ESTE É O “registry”: controla a ORDEM das seções ---
 const sections: Array<
   | { type: "hero" }
   | { type: "pricing" }
@@ -355,24 +280,15 @@ const sections: Array<
   | { type: "faq"; items: typeof faqData }
 > = [
   { type: "hero" },
-  { type: "pricing" },                 // ✅ Pricing logo abaixo do Hero
+  { type: "pricing" },
   { type: "plans", plans: plansData },
   { type: "features", items: featuresData },
   { type: "blue" },
   { type: "faq", items: faqData },
 ];
 
-
 /* =============================================================================
-   🔹 PLACEHOLDER — Social Plans (substitua por sua versão completa)
-   - Isto evita erro de compilação até você colar o componente verdadeiro.
-============================================================================= */
-function SocialPlansInline() {
-  return null; // ⬅️ substitua este retorno pelo componente completo dos Planos Sociais
-}
-
-/* =============================================================================
-   HOME — renderiza Hero, Social Plans e depois as demais seções
+   HOME
 ============================================================================= */
 export default function Home() {
   return (
@@ -394,7 +310,6 @@ export default function Home() {
         })}
       </main>
 
-      {/* Footer no final da Home */}
       <Footer
         brand="UPGRADE"
         privacyHref="/privacy"
@@ -407,22 +322,3 @@ export default function Home() {
     </>
   );
 }
-
-
-/* ===================================================================
-   📌 ONDE INSERIR O CÓDIGO COMPLETO DO “SOCIAL PLANS”:
-   - Cole a implementação completa do componente SocialPlansInline
-     **no lugar deste placeholder**, logo acima do export default Home,
-     substituindo:
-
-        function SocialPlansInline() { return null; }
-
-     pelo componente real que te passei (com título, abas, countdown e
-     os 3 cartões: Individual, Dupla e Amigos Social).
-   - Se preferir manter em um arquivo próprio, crie
-     `components/SocialPlans.tsx` e troque o placeholder por:
-
-        import SocialPlansInline from "@/components/SocialPlans";
-
-     mantendo a chamada <SocialPlansInline /> no JSX da Home.
-   =================================================================== */
