@@ -86,7 +86,7 @@ export default function Nav() {
     { title: "Gmail",    href: gmailUrl(email), external: true, icon: <IconGmail className="h-8 w-8" /> },
     { title: "Meet",     href: meetUrl(email),  external: true, icon: <IconMeet className="h-8 w-8" /> },
     { title: "Contatos", href: "/contatos",                       icon: <IconContacts className="h-8 w-8" /> },
-    { title: "Drive",    href: driveUrl(email), external: true,   icon: <IconDrive className="h-8 w-8" /> },
+    { title: "Drive",    href: "/upconect/drive",               icon: <IconDrive className="h-8 w-8" /> },
   ];
 
   const APPS_PRODUCTIVITY: AppItem[] = [

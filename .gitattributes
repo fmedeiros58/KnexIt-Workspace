@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# Treat these as text and ensure LF endings
+*.{js,jsx,ts,tsx,css,scss,md,html} text eol=lf
+

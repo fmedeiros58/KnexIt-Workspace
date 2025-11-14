@@ -1,34 +1,42 @@
-import path from "path";
-import { Llama, LlamaModel, LlamaContext, LlamaChatSession } from "node-llama-cpp";
+import { LETICIA } from "./core/config";
+import { loadThread, append, Msg as ChatMsg } from "./memory";
+import { runNodes } from "./nodes/fusion";
 
-// Caminho do modelo local (.gguf)
-const modelPath = path.resolve(process.cwd(), "models", "mistral-7b-instruct-v0.2.Q4_K_M.gguf");
+export async function ask(sessionId: string, userText: string): Promise<string> {
+  // ✅ aguarde o histórico antes de mapear
+  const msgs: ChatMsg[] = await loadThread(sessionId, 10);
+  const history: string[] = msgs.map((m) => `${m.role}: ${m.content}`);
 
-// Singletons para evitar re-carregar a cada request
-let llama: Llama | null = null;
-let model: LlamaModel | null = null;
-let context: LlamaContext | null = null;
+  if (LETICIA.nodes.enabled) {
+    const { best } = await runNodes(userText, history, LETICIA.nodes.topK);
+    const answer = (best?.text ?? "Não consegui gerar uma resposta no momento.").trim();
 
-// Prompt de sistema da Leticia
-const SYSTEM_PROMPT =
-  "Você é a L.E.T.I.C.I.A., IA nativa do projeto UPgrade. " +
-  "Fale em português do Brasil, seja clara, respeitosa e objetiva. " +
-  "Seja consistente com o contexto quando fornecido.";
+    // ✅ garanta a ordem de persistência
+    await append(sessionId, { role: "user", content: userText });
+    await append(sessionId, { role: "assistant", content: answer });
 
-export async function getLeticiaSession() {
-  if (!llama) {
-    // gpu: "auto" tenta usar GPU se disponível; mude para "cpu" se preferir
-    llama = new Llama({ gpu: "auto" });
+    return answer;
   }
-  if (!model) {
-    model = await llama.loadModel({ modelPath });
-  }
-  if (!context) {
-    context = await model.createContext({ contextSize: 4096 });
-  }
-  const session = new LlamaChatSession({
-    context,
-    systemPrompt: SYSTEM_PROMPT,
-  });
-  return session;
+
+  // ----- fallback via adapter LLM -----
+  const { getLeticiaSession } = await import("./_llmAdapter");
+  const session = await getLeticiaSession();
+
+  const promptText = `Sistema: ${LETICIA.system}
+${history.join("\n")}
+Pergunta: ${userText}`;
+
+  const ans = String(
+    await session.prompt(promptText, {
+      temperature: 0.6,
+      topP: 0.9,
+      repeatPenalty: 1.05,
+      maxTokens: LETICIA.superposition.maxTokens,
+    })
+  ).trim();
+
+  await append(sessionId, { role: "user", content: userText });
+  await append(sessionId, { role: "assistant", content: ans });
+
+  return ans;
 }

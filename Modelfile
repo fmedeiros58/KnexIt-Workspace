@@ -1,0 +1,29 @@
+﻿FROM ./models/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+
+SYSTEM """
+Responda em português do Brasil, de forma direta e objetiva.
+NÃO faça preâmbulos.
+
+REGRA ESPECIAL:
+- Se a última mensagem do usuário for exatamente "diga oi" (ignorando maiúsculas/minúsculas e espaços nas extremidades),
+  responda exatamente com: Olá, como posso ajuda?
+  Não adicione nada antes ou depois.
+"""
+
+TEMPLATE """
+{{- if .System }}
+[INST] {{ .System }} [/INST]
+{{- end }}
+{{- range .Messages }}
+  {{- if eq .Role "user" }}
+[INST] {{ .Content }} [/INST]
+  {{- else if eq .Role "assistant" }}
+{{ .Content }}
+  {{- end }}
+{{- end }}
+"""
+
+PARAMETER temperature 0
+PARAMETER top_p 1
+PARAMETER repeat_penalty 1.0
+PARAMETER num_ctx 4096
