@@ -104,7 +104,8 @@ export default function UpConectSalaPage({ params }: { params: { code: string } 
       // prepara tracks locais respeitando toggles
       const tracks = await createLocalTracks({
         audio: micOn ? { echoCancellation: true, noiseSuppression: true } : false,
-        video: camOn ? { facingMode: "user", width: 1280, height: 720 } : false,
+        // cast to any because the livekit types for VideoCaptureOptions are narrower in this build
+        video: camOn ? ({ facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } as any) : false,
       });
 
       const room = new LKRoom({
@@ -323,7 +324,7 @@ function VideoGrid() {
   return (
     <div className="mt-4">
       <GridLayout tracks={tracks} style={{ height: "60vh" }}>
-        {(t) => <ParticipantTile trackRefs={[t]} />}
+        <ParticipantTile />
       </GridLayout>
     </div>
   );

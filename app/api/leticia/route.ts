@@ -17,8 +17,9 @@ export async function POST(req: NextRequest) {
     const { prompt = "", history = [] } = await req.json().catch(() => ({ prompt: "", history: [] }));
 
     // --- MODO MOCK (útil para confirmar que o front consome stream) ---
-    // Ative temporariamente definindo LETICIA_MOCK=1 no .env.local
-    if (process.env.LETICIA_MOCK === "1") {
+    // Ative temporariamente definindo LETICIA_MOCK=1 no .env.local (ativo por padrão em desenvolvimento)
+    const useMock = process.env.LETICIA_MOCK === "1" || (process.env.LETICIA_MOCK !== "0" && process.env.NODE_ENV !== "production");
+    if (useMock) {
       const encoder = new TextEncoder();
       const text =
         "Olá! Eu sou a Letícia (modo teste). 🌟\n" +
@@ -46,39 +47,66 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // --- MOTOR LOCAL (node-llama-cpp) ---
-    // Descomente este bloco quando já tiver criado lib/leticia/engine.ts
-    // e colocado o modelo .gguf em /models
-    /*
-    const { getLeticiaSession } = await import("@/lib/leticia/engine");
-    const session = await getLeticiaSession();
+    // --- MOTOR LOCAL: vLLM via API OpenAI-compatible ---
+    const baseUrl = process.env.VLLM_BASE_URL || "http://127.0.0.1:8000/v1";
+    const apiKey = process.env.VLLM_API_KEY || "EMPTY"; // vLLM aceita qualquer token por padrão
+    const model = process.env.VLLM_MODEL || "meta-llama/Meta-Llama-3-8B-Instruct";
 
-    const iterator = await session.promptStreaming(String(prompt ?? ""), {
-      temperature: 0.6,
-      topP: 0.9,
-      repeatPenalty: 1.05,
+    const sys = "Você é a L.E.T.I.C.I.A., IA nativa do ecossistema Knexit. Fale PT-BR, seja clara, respeitosa e objetiva.";
+    const messages = [
+      { role: "system", content: sys },
+      { role: "user", content: String(prompt ?? "") }
+    ];
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ model, messages, temperature: 0.6, top_p: 0.9, stream: true }),
     });
+
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => "");
+      return new Response(JSON.stringify({ message: `vLLM error ${res.status}: ${text}` }), { status: 500, headers: { "Content-Type": "application/json" } });
+    }
 
     const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
     const stream = new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        const { value, done } = await iterator.next();
-        if (done) {
-          controller.close();
-          return;
+      start(controller) {
+        const reader = res.body!.getReader();
+        let buf = "";
+        function feed() {
+          reader.read().then(({ value, done }) => {
+            if (done) { controller.close(); return; }
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split(/\r?\n/);
+            buf = lines.pop() || "";
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith("data:")) continue;
+              const data = trimmed.slice(5).trim();
+              if (data === "[DONE]") { controller.close(); return; }
+              try {
+                const json = JSON.parse(data);
+                const delta = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.text ?? "";
+                if (delta) controller.enqueue(encoder.encode(String(delta)));
+              } catch {}
+            }
+            feed();
+          }).catch(() => controller.close());
         }
-        controller.enqueue(encoder.encode(String(value)));
-      },
+        feed();
+      }
     });
 
-    return new Response(stream, {
-      status: 200,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
-    */
+    return new Response(stream, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
-    // Se chegou aqui, nem MOCK nem motor local foram usados
-    return new Response(JSON.stringify({ message: "LETICIA_MOCK não habilitado e motor local ainda não ligado." }), {
+
+    // Se chegou aqui, nem MOCK nem motor foram usados
+    return new Response(JSON.stringify({ message: "LETICIA_MOCK não habilitado e motor não configurado." }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });

@@ -17,15 +17,25 @@ const STORAGE_KEY = "leticia-thread-v1";
 const DRAFT_KEY = "leticia-draft-v1";
 
 export default function LeticiaPage() {
-  const [messages, setMessages] = useState<Msg[]>(() => {
+  // Start with client-default state and hydrate from localStorage on mount
+  const [messages, setMessages] = useState<Msg[]>(() => seed());
+  const [input, setInput] = useState<string>("");
+
+  // Hydrate from localStorage after mount (avoid using localStorage on server)
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as Msg[]) : seed();
+      if (raw) setMessages(JSON.parse(raw) as Msg[]);
     } catch {
-      return seed();
+      /* ignore */
     }
-  });
-  const [input, setInput] = useState(() => localStorage.getItem(DRAFT_KEY) ?? "");
+    try {
+      const draft = localStorage.getItem(DRAFT_KEY);
+      if (draft) setInput(draft);
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);

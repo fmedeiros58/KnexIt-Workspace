@@ -272,7 +272,7 @@ export default function UpConectPage() {
               <div className="p-3">
                 <p className="text-sm text-slate-500">Conectado como</p>
                 <p className="text-sm font-medium text-slate-900 truncate">
-                  usuario@upgrade.com
+                  usuario@knexit.com
                 </p>
               </div>
               <div className="border-t border-slate-200" />

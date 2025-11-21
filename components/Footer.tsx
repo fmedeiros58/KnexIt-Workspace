@@ -14,7 +14,7 @@ type FooterProps = {
 };
 
 export default function Footer({
-  brand = "UPGRADE",
+  brand = "KNEXIT",
   privacyHref = "/privacy",
   termsHref = "/terms",
   cookiesHref = "/cookies",

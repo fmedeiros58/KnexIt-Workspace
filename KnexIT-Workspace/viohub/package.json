@@ -1,0 +1,12 @@
+{
+  "name": "knexit-viohub",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "koa": "^2.15.0"
+  }
+}
+

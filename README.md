@@ -1,4 +1,4 @@
-# Upgrade — Starter estilo Sanar
+# Knexit — Ecossistema central / autenticação / billing / integração / painel único
 
 Template com Next.js 14 + Tailwind + Supabase para autenticação por e-mail (link mágico), páginas base e componentes para vídeo e questões.
 
@@ -25,3 +25,14 @@ Template com Next.js 14 + Tailwind + Supabase para autenticação por e-mail (li
 - `app/globals.css` — Tailwind
 
 > Este é um ponto de partida minimalista. A partir daqui dá para adicionar: planos/assinaturas, trilhas, filtros de questões, perfis, RBAC etc.
+
+
+### Letícia (chat) — modo mock
+- Para testar o streaming sem modelo local, use o modo mock.
+- Já está ativo por padrão em desenvolvimento. Em produção, defina LETICIA_MOCK=1 em variáveis de ambiente, ou configure o motor local.
+
+
+### Motor local com vLLM
+- Suba o servidor: `python -m vllm.entrypoints.openai.api_server --model <modelo> --host 127.0.0.1 --port 8000`
+- Defina env: VLLM_BASE_URL, VLLM_API_KEY (se houver), VLLM_MODEL
+- Em produção, defina LETICIA_MOCK=0 para usar o vLLM.
