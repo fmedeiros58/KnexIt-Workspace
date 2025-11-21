@@ -10,7 +10,7 @@ import Countdown from "@/components/Countdown";
    HERO (compacto)
 ============================================================================= */
 
-const HERO_IMAGE = "/images/hero-upgrade.png";
+const HERO_IMAGE = "/images/hero-knexit.png";
 
 function Hero() {
   return (
@@ -311,7 +311,7 @@ export default function Home() {
       </main>
 
       <Footer
-        brand="UPGRADE"
+        brand="KNEXIT"
         privacyHref="/privacy"
         termsHref="/terms"
         cookiesHref="/cookies"

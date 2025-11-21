@@ -11,24 +11,28 @@ let context: LlamaContext | null = null;
 
 // Prompt de sistema da Leticia
 const SYSTEM_PROMPT =
-  "Você é a L.E.T.I.C.I.A., IA nativa do projeto UPgrade. " +
+  "Você é a L.E.T.I.C.I.A., IA nativa do ecossistema Knexit. " +
   "Fale em português do Brasil, seja clara, respeitosa e objetiva. " +
   "Seja consistente com o contexto quando fornecido.";
 
 export async function getLeticiaSession() {
   if (!llama) {
     // gpu: "auto" tenta usar GPU se disponível; mude para "cpu" se preferir
-    llama = new Llama({ gpu: "auto" });
+    // constructor may be private in the installed types; cast to any to call at runtime if available
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    llama = new (Llama as any)({ gpu: "auto" });
   }
   if (!model) {
-    model = await llama.loadModel({ modelPath });
+    model = await llama!.loadModel({ modelPath });
   }
   if (!context) {
-    context = await model.createContext({ contextSize: 4096 });
+    context = await model!.createContext({ contextSize: 4096 } as any);
   }
-  const session = new LlamaChatSession({
-    context,
+  // LlamaChatSession options typing may differ; cast to any for now
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const session = new (LlamaChatSession as any)({
+    context: context as any,
     systemPrompt: SYSTEM_PROMPT,
-  });
+  } as any);
   return session;
 }

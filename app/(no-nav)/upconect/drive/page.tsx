@@ -1,5 +1,6 @@
-﻿"use client";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+"use client";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabaseClient";
 import {
   deleteRecording,
@@ -8,8 +9,55 @@ import {
   saveRecording,
   saveFolder,
   patchRecording,
+  type DriveRecordingMeta,
 } from "@/lib/recstore";
-import type { DriveRecordingMeta } from "@/types/drive-recording";
+
+type ShareContact = {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  color?: string;
+};
+
+type ShareInvitee = ShareContact & { role: "leitor" | "comentador" | "editor" };
+
+const SHARE_CONTACTS: ShareContact[] = [
+  { id: "francimar", name: "Francimar Medeiros", email: "francimar.medeiros@ufac.br", color: "#2563eb" },
+  { id: "servicos", name: "Serviços Central UFAC", email: "servicos.bcentral@ufac.br", color: "#047857" },
+  { id: "bruna", name: "Bruna Queiroz", email: "bruna.queiroz@ufac.br", color: "#8b5cf6" },
+  { id: "anna", name: "Anna Alice", email: "annaaliceuni@gmail.com", color: "#ec4899" },
+  { id: "ppg", name: "PPG Educacao", email: "ppg.educacao@ufac.br", color: "#0ea5e9" },
+  { id: "dap", name: "Divisão de Atendimento ao Público", email: "dpublico@see.ac.gov.br", color: "#22c55e" },
+];
+const SHARE_COLOR_PALETTE = [
+  "#2563eb",
+  "#0ea5e9",
+  "#10b981",
+  "#f97316",
+  "#ec4899",
+  "#8b5cf6",
+  "#14b8a6",
+  "#ef4444",
+  "#6366f1",
+  "#0f172a",
+];
+function colorFromString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = value.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % SHARE_COLOR_PALETTE.length;
+  return SHARE_COLOR_PALETTE[index];
+}
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+const isValidEmail = (value: string) => emailRegex.test(value);
+const manualContact = (email: string): ShareContact => ({
+  id: email,
+  name: email,
+  email,
+  color: colorFromString(email),
+});
 
 type ViewMode = "grid" | "list";
 type SortKey = "createdAt" | "name" | "size" | "owner";
@@ -49,13 +97,20 @@ export default function DrivePage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activeId, setActiveId] = useState<number | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const [overlayActive, setOverlayActive] = useState(true);
+  const overlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [q, setQ] = useState("");
   const [view, setView] = useState<ViewMode>("grid");
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [showInfo, setShowInfo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const newWrapRef = useRef<HTMLDivElement | null>(null);
+  const previewRequestRef = useRef(0);
   const [newOpen, setNewOpen] = useState(false);
   const [newMoreOpen, setNewMoreOpen] = useState(false);
   const [typeOpen, setTypeOpen] = useState(false);
@@ -75,18 +130,25 @@ export default function DrivePage() {
   const [foldersTop, setFoldersTop] = useState<boolean>(true);
   const [sortOpen, setSortOpen] = useState(false);
   const [rowMenuId, setRowMenuId] = useState<number | null>(null);
-  const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
+const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
   const [rowSubSide, setRowSubSide] = useState<"left" | "right">("left");
   const [shareId, setShareId] = useState<number | null>(null);
-  const [playerOverlayOpen, setPlayerOverlayOpen] = useState(false);
-  const [playerSize, setPlayerSize] = useState<"expanded" | "mini">("expanded");
-  const [appsMenuOpen, setAppsMenuOpen] = useState(false);
-  const playerVideoRef = useRef<HTMLVideoElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [speed, setSpeed] = useState(1);
+  const [playerShareDialogOpen, setPlayerShareDialogOpen] = useState(false);
+  const [playerShareDropdownOpen, setPlayerShareDropdownOpen] = useState(false);
+  const [generalRole, setGeneralRole] = useState<"leitor" | "comentador" | "editor">("leitor");
+  const [generalSearchMode, setGeneralSearchMode] = useState<"searchable" | "linkOnly">("linkOnly");
+  const [generalDropdownOpen, setGeneralDropdownOpen] = useState(false);
+  const [generalDropdownDirection, setGeneralDropdownDirection] = useState<"down" | "up">("down");
+  const [personRole, setPersonRole] = useState<"leitor" | "comentador" | "editor">("editor");
+  const [personDropdownOpen, setPersonDropdownOpen] = useState(false);
+  const [shareLinkFeedback, setShareLinkFeedback] = useState<"idle" | "copied" | "error">("idle");
+  const [shareWizardStep, setShareWizardStep] = useState<"form" | "notify">("form");
+  const [shareInviteQuery, setShareInviteQuery] = useState("");
+  const [shareSelectedPeople, setShareSelectedPeople] = useState<ShareInvitee[]>([]);
+  const [shareNotifyPeople, setShareNotifyPeople] = useState(true);
+  const [shareNotifyMessage, setShareNotifyMessage] = useState("");
+  const [shareRoleDropdownOpen, setShareRoleDropdownOpen] = useState(false);
+  const [shareInviteFocused, setShareInviteFocused] = useState(false);
   const FOLDER_COLORS = [
     "#a57469", "#d94a3a", "#e35d5d", "#f28b1a", "#f6c445",
     "#4c8df6", "#7cc7ff", "#b9e5f4", "#20c997", "#0ea44b", "#9bd47e",
@@ -102,8 +164,15 @@ export default function DrivePage() {
   const modWrapRef = useRef<HTMLSpanElement | null>(null);
   const sourceWrapRef = useRef<HTMLSpanElement | null>(null);
   const sortWrapRef = useRef<HTMLSpanElement | null>(null);
+  const shareControlsRef = useRef<HTMLDivElement | null>(null);
+  const generalAccessRef = useRef<HTMLDivElement | null>(null);
+  const generalDropdownRef = useRef<HTMLDivElement | null>(null);
+  const personAccessRef = useRef<HTMLDivElement | null>(null);
+  const shareRoleDropdownRef = useRef<HTMLDivElement | null>(null);
+  const shareInviteInputRef = useRef<HTMLInputElement | null>(null);
+  const shareInviteBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // estilo dos chips de filtro e ação para limpar todos
+  // estilo dos chips de filtro e a para limpar todos
   const chipCls = (active: boolean) =>
     `inline-flex items-stretch overflow-hidden rounded-lg border text-sm ${
       active
@@ -153,7 +222,7 @@ export default function DrivePage() {
     refresh();
   }, [refresh]);
 
-  // Ler preferÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªncias do usuÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡rio apÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³s hidrataÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o para evitar mismatch SSR/CSR
+  // Ler preferências hidratação para evitar mismatch SSR/CSR
   useEffect(() => {
     try {
       const v = localStorage.getItem("drive:view") as ViewMode | null;
@@ -188,7 +257,7 @@ export default function DrivePage() {
         !(sortWrapRef?.current && sortWrapRef.current.contains(t)) &&
         !insideRowMenu
       ) {
-  // não feche enquanto o calendário nativo de <input type="date"> estiver ativo
+        // nativo de <input type="date"> estiver ativo
         if (!isDateFocusedInsideMod) {
           setTypeOpen(false);
           setPeopleOpen(false);
@@ -204,11 +273,11 @@ export default function DrivePage() {
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
-  // obter email do usuÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡rio (se disponÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­vel) e persistir para saveRecording
+  // obter email do usuário) e persistir para saveRecording
   useEffect(() => {
     const fromLS = typeof localStorage !== "undefined" ? localStorage.getItem("drive:selfEmail") : null;
     if (fromLS) setSelfEmail(fromLS);
-  supabase.auth.getUser().then(({ data }: any) => {
+    supabase.auth.getUser().then(({ data }) => {
       const em = data.user?.email ?? null;
       if (em) {
         setSelfEmail(em);
@@ -235,7 +304,164 @@ export default function DrivePage() {
     };
   }, [previewSrc]);
 
-  // Comparador de ordenaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o usado na lista/grade
+  const scheduleOverlayHide = useCallback(() => {
+    if (overlayTimeoutRef.current) {
+      clearTimeout(overlayTimeoutRef.current);
+    }
+    overlayTimeoutRef.current = setTimeout(() => {
+      setOverlayActive(false);
+      overlayTimeoutRef.current = null;
+    }, 3400);
+  }, []);
+
+  const showOverlay = useCallback(() => {
+    setOverlayActive(true);
+    scheduleOverlayHide();
+  }, [scheduleOverlayHide]);
+
+  const hideOverlay = useCallback(() => {
+    if (overlayTimeoutRef.current) {
+      clearTimeout(overlayTimeoutRef.current);
+      overlayTimeoutRef.current = null;
+    }
+    setOverlayActive(false);
+  }, []);
+
+  useEffect(() => {
+    if (playerOpen) {
+      showOverlay();
+      return;
+    }
+    hideOverlay();
+  }, [playerOpen, showOverlay, hideOverlay]);
+
+  useEffect(() => {
+    return () => {
+      if (overlayTimeoutRef.current) {
+        clearTimeout(overlayTimeoutRef.current);
+        overlayTimeoutRef.current = null;
+      }
+      if (shareInviteBlurTimeoutRef.current) {
+        clearTimeout(shareInviteBlurTimeoutRef.current);
+        shareInviteBlurTimeoutRef.current = null;
+      }
+    };
+  }, []);
+  useEffect(() => {
+    if (shareLinkFeedback === "idle") return;
+    const timeout = setTimeout(() => setShareLinkFeedback("idle"), 2200);
+    return () => clearTimeout(timeout);
+  }, [shareLinkFeedback]);
+  useEffect(() => {
+    if (!shareRoleDropdownOpen) return;
+    function handleClickAway(e: MouseEvent) {
+      if (!shareRoleDropdownRef.current) return;
+      if (!shareRoleDropdownRef.current.contains(e.target as Node)) {
+        setShareRoleDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickAway);
+    return () => document.removeEventListener("mousedown", handleClickAway);
+  }, [shareRoleDropdownOpen]);
+
+  useEffect(() => {
+    function handleShareClickAway(e: MouseEvent) {
+      if (!shareControlsRef.current) return;
+      if (!shareControlsRef.current.contains(e.target as Node)) {
+        setPlayerShareDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleShareClickAway);
+    return () => document.removeEventListener("mousedown", handleShareClickAway);
+  }, []);
+
+  useEffect(() => {
+    if (!generalDropdownOpen) return;
+    function handleGeneralClickAway(e: MouseEvent) {
+      if (!generalAccessRef.current) return;
+      if (!generalAccessRef.current.contains(e.target as Node)) {
+        setGeneralDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleGeneralClickAway);
+    return () => document.removeEventListener("mousedown", handleGeneralClickAway);
+  }, [generalDropdownOpen]);
+
+  useEffect(() => {
+    if (!personDropdownOpen) return;
+    function handlePersonClickAway(e: MouseEvent) {
+      if (!personAccessRef.current) return;
+      if (!personAccessRef.current.contains(e.target as Node)) {
+        setPersonDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePersonClickAway);
+    return () => document.removeEventListener("mousedown", handlePersonClickAway);
+  }, [personDropdownOpen]);
+
+  useLayoutEffect(() => {
+    if (!generalDropdownOpen) return;
+    const updatePlacement = () => {
+      if (!generalAccessRef.current || !generalDropdownRef.current) return;
+      const triggerRect = generalAccessRef.current.getBoundingClientRect();
+      const dropdownHeight = generalDropdownRef.current.offsetHeight;
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - triggerRect.bottom;
+      const spaceAbove = triggerRect.top;
+      if (spaceBelow >= dropdownHeight + 12 || spaceBelow >= spaceAbove) {
+        setGeneralDropdownDirection("down");
+      } else {
+        setGeneralDropdownDirection("up");
+      }
+    };
+    updatePlacement();
+    window.addEventListener("resize", updatePlacement);
+    window.addEventListener("scroll", updatePlacement, true);
+    return () => {
+      window.removeEventListener("resize", updatePlacement);
+      window.removeEventListener("scroll", updatePlacement, true);
+    };
+  }, [generalDropdownOpen]);
+
+  useEffect(() => {
+    if (!playerOpen) {
+      setPlayerShareDialogOpen(false);
+      setPlayerShareDropdownOpen(false);
+      setGeneralDropdownOpen(false);
+      setPersonDropdownOpen(false);
+    }
+  }, [playerOpen]);
+
+  useEffect(() => {
+    if (!playerShareDialogOpen) {
+      setShareWizardStep("form");
+      setShareInviteQuery("");
+      setShareSelectedPeople([]);
+      setShareNotifyPeople(true);
+      setShareNotifyMessage("");
+      setShareRoleDropdownOpen(false);
+    }
+  }, [playerShareDialogOpen]);
+
+  useEffect(() => {
+    if (shareSelectedPeople.length && shareWizardStep === "form") {
+      setShareWizardStep("notify");
+    }
+    if (!shareSelectedPeople.length && shareWizardStep === "notify") {
+      setShareWizardStep("form");
+    }
+  }, [shareSelectedPeople, shareWizardStep]);
+  useEffect(() => {
+    if (shareWizardStep !== "form") {
+      setShareInviteFocused(false);
+      if (shareInviteBlurTimeoutRef.current) {
+        clearTimeout(shareInviteBlurTimeoutRef.current);
+        shareInviteBlurTimeoutRef.current = null;
+      }
+    }
+  }, [shareWizardStep]);
+
+  // Comparador de ordenação usado na lista/grade
   const compareRows = useCallback((a: DriveRecordingMeta, b: DriveRecordingMeta) => {
     if (foldersTop) {
       const af = isFolder(a);
@@ -266,11 +492,11 @@ export default function DrivePage() {
     if (sourceFilter !== "all") rows = rows.filter((r) => matchSource(r, sourceFilter));
     // 3) Busca por texto (opcional)
     if (term) rows = rows.filter((r) => (r.name || "").toLowerCase().includes(term));
-    // 4) OrdenaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o
+    // 4) Ordenação
     rows = rows.sort(compareRows);    return rows;
   }, [items, navFilter, typeFilter, peopleFilter, selfEmail, modFilter, sourceFilter, q, sortKey, sortDir, foldersTop]);
   
-  // Ao trocar a "pasta" (menu lateral), limpar filtros secundÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡rios para evitar confusÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o
+  // Ao trocar a "pasta" (menu lateral), limpar filtros secundário
   useEffect(() => {
     setTypeFilter("all");
     setPeopleFilter({ kind: "all" });
@@ -296,81 +522,44 @@ export default function DrivePage() {
   const selectAll = () => setSelected(new Set(filtered.map((r) => r.id)));
 
   const openPreview = async (id: number) => {
-    const blob = await getRecordingBlob(id);
-    const url = URL.createObjectURL(blob);
-    if (previewSrc) URL.revokeObjectURL(previewSrc);
-    setPreviewSrc(url);
     setActiveId(id);
-    setPlayerOverlayOpen(true);
-    setPlayerSize("expanded");
-    setCurrentTime(0);
-    setDuration(0);
-    setIsPlaying(true);
-  };
-
-  useEffect(() => {
-    const video = playerVideoRef.current;
-    if (!video) return;
-    const onTime = () => setCurrentTime(video.currentTime);
-    const onMeta = () => setDuration(video.duration || 0);
-    const onEnded = () => setIsPlaying(false);
-    video.addEventListener("timeupdate", onTime);
-    video.addEventListener("loadedmetadata", onMeta);
-    video.addEventListener("ended", onEnded);
-    video.volume = volume;
-    video.playbackRate = speed;
-    return () => {
-      video.removeEventListener("timeupdate", onTime);
-      video.removeEventListener("loadedmetadata", onMeta);
-      video.removeEventListener("ended", onEnded);
-    };
-  }, [previewSrc, speed, volume]);
-
-  const togglePlay = () => {
-    const video = playerVideoRef.current;
-    if (!video) return;
-    if (video.paused) {
-      video.play();
-      setIsPlaying(true);
-    } else {
-      video.pause();
-      setIsPlaying(false);
+    setShowInfo(true);
+    setPlayerOpen(true);
+    setPreviewError(null);
+    setPreviewLoading(true);
+    previewRequestRef.current += 1;
+    const requestId = previewRequestRef.current;
+    try {
+      const blob = await getRecordingBlob(id);
+      if (requestId !== previewRequestRef.current) return;
+      const url = URL.createObjectURL(blob);
+      setPreviewSrc((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return url;
+      });
+    } catch (e) {
+      console.error("Falha ao carregar preview", e);
+      setPreviewError("Nao foi possivel carregar o player.");
+      setPreviewSrc((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return "";
+      });
+    } finally {
+      if (requestId === previewRequestRef.current) {
+        setPreviewLoading(false);
+      }
     }
   };
 
-  const skip = (value: number) => {
-    const video = playerVideoRef.current;
-    if (!video) return;
-    video.currentTime = Math.min(Math.max(0, video.currentTime + value), duration || video.duration);
-  };
-
-  const onTimelineChange = (value: number) => {
-    const video = playerVideoRef.current;
-    if (!video) return;
-    video.currentTime = value;
-    setCurrentTime(value);
-  };
-
-  const onVolumeChange = (value: number) => {
-    setVolume(value);
-    if (playerVideoRef.current) playerVideoRef.current.volume = value;
-  };
-
-  const onSpeedChange = (value: number) => {
-    setSpeed(value);
-    if (playerVideoRef.current) playerVideoRef.current.playbackRate = value;
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closePlayerOverlay();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const closePlayerOverlay = () => {
-    setPlayerOverlayOpen(false);
+  const closePlayer = () => {
+    setPlayerOpen(false);
+    setPreviewLoading(false);
+    setPreviewError(null);
+    previewRequestRef.current += 1;
+    setPreviewSrc((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
   };
 
   const doDownload = async (ids: number[]) => {
@@ -387,7 +576,7 @@ export default function DrivePage() {
     }
   };
 
-  // AÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o de exclusÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o: move para lixeira por padrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o; exclui definitivamente quando visualizando a lixeira
+  // A: move para lixeira por padrão; exclui definitivamente quando visualizando a lixeira
   const doDelete = async (ids: number[]) => {
     if (navFilter === 'trash') {
       for (const id of ids) await deleteRecording(id);
@@ -396,7 +585,7 @@ export default function DrivePage() {
     }
     if (ids.includes(activeId ?? -1)) {
       setActiveId(null);
-      setPreviewSrc("");
+      closePlayer();
     }
     await refresh();
     clearSelection();
@@ -451,7 +640,7 @@ export default function DrivePage() {
   };
 
   const onImportFolder = async (files: FileList | null) => {
-    // semelhante ao upload de arquivos; navegadores expÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµem webkitRelativePath
+    // semelhante ao upload de arquivos; navegadores expõem webkitRelativePath
     await onImportFiles(files);
   };
 
@@ -461,7 +650,7 @@ export default function DrivePage() {
     try {
       await saveFolder(name);
       // opcional: marcar 'source' como folder
-      // nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o temos o id retornado aqui, mas ao listar veremos mime="inode/directory"
+      // não temos o id retornado aqui, mas ao listar veremos mime="inode/directory"
       await refresh();
     } catch (e) {
       console.error("Falha ao criar pasta", e);
@@ -469,7 +658,168 @@ export default function DrivePage() {
   };
 
   const active = items.find((r) => r.id === activeId) || null;
+  const activeOwnerLabel = active ? active.owner || selfEmail || "—" : "—";
+  const activeTypeLabel = active ? active.mime || (active.ext ? `.${active.ext}` : "—") : "—";
+  const activeSourceLabel = active ? formatSourceLabel(active.source) : "—";
+  const activeSharedWithLabel = active
+    ? active.anyone
+      ? "Qualquer pessoa"
+      : Array.isArray(active.people) && active.people.length
+        ? active.people.join(", ")
+        : "Somente eu"
+    : "—";
   const posterCacheRef = useRef<Map<number, string>>(new Map());
+  const activeShareTitle = active?.name || "1 aula sobre Financiamento da educação inclusiva";
+  const shareOwnerName = active?.owner || "Bruna Queiroz";
+  const shareOwnerEmail = active?.owner
+    ? `${active.owner.toLowerCase().replace(/\s+/g, ".")}@exemplo.com`
+    : "bruna.queiroz@ufac.br";
+  const shareViewerName = "Medeiros (você)";
+  const shareViewerEmail = selfEmail || "FMedeiros58@gmail.com";
+  const personRoleLabel =
+    personRole === "leitor" ? "Leitor" : personRole === "comentador" ? "Comentador" : "Editor";
+  const generalRoleLabel =
+    generalRole === "leitor" ? "Leitor" : generalRole === "comentador" ? "Comentador" : "Editor";
+  const generalRoleSentence =
+    generalRole === "leitor"
+      ? "pode ver."
+      : generalRole === "comentador"
+        ? "pode comentar."
+        : "pode editar.";
+  const generalSearchSentence =
+    generalSearchMode === "searchable"
+      ? "Pode encontrar nos resultados da pesquisa."
+      : "Precisa ter o link para acessar.";
+  const closeShareDialog = useCallback(() => {
+    setPlayerShareDialogOpen(false);
+    setGeneralDropdownOpen(false);
+    setPersonDropdownOpen(false);
+    setShareLinkFeedback("idle");
+    setShareWizardStep("form");
+    setShareInviteQuery("");
+    setShareSelectedPeople([]);
+    setShareNotifyPeople(true);
+    setShareNotifyMessage("");
+    setShareRoleDropdownOpen(false);
+    setShareInviteFocused(false);
+  }, []);
+  const copyShareLink = useCallback(
+    async (recordId?: number | null) => {
+      const targetId =
+        typeof recordId === "number" && !Number.isNaN(recordId)
+          ? recordId
+          : active?.id ?? shareId ?? null;
+      if (!targetId) return;
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const shareUrl = `${origin}/upconect/drive/share/${targetId}`;
+      try {
+        if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+        } else if (typeof document !== "undefined") {
+          const textarea = document.createElement("textarea");
+          textarea.value = shareUrl;
+          textarea.setAttribute("readonly", "");
+          textarea.style.position = "absolute";
+          textarea.style.left = "-9999px";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textarea);
+        } else {
+          throw new Error("Clipboard API indisponível");
+        }
+        setShareLinkFeedback("copied");
+      } catch (err) {
+        console.error("Falha ao copiar link de compartilhamento", err);
+        setShareLinkFeedback("error");
+      }
+    },
+    [active?.id, shareId],
+  );
+  const shareLinkMessage =
+    shareLinkFeedback === "copied"
+      ? "Link copiado para a área de transferência."
+      : shareLinkFeedback === "error"
+        ? "Não foi possível copiar o link."
+        : "";
+  const shareAutoCompleteMatches = useMemo(() => {
+    const trimmed = shareInviteQuery.trim().toLowerCase();
+    const base = trimmed
+      ? SHARE_CONTACTS.filter(
+          (person) =>
+            person.name.toLowerCase().includes(trimmed) ||
+            person.email.toLowerCase().includes(trimmed),
+      )
+      : SHARE_CONTACTS;
+    return base
+      .filter((person) => !shareSelectedPeople.some((selected) => selected.email === person.email))
+      .slice(0, 5);
+  }, [shareInviteQuery, shareSelectedPeople]);
+  const shareInviteTrim = shareInviteQuery.trim();
+  const shareSuggestionsVisible =
+    shareInviteFocused && (shareAutoCompleteMatches.length > 0 || shareInviteTrim.length > 0);
+  const primaryInviteRole = shareSelectedPeople[0]?.role ?? "editor";
+  const primaryInviteRoleLabel =
+    primaryInviteRole === "leitor"
+      ? "Leitor"
+      : primaryInviteRole === "comentador"
+        ? "Comentador"
+        : "Editor";
+  const handleInviteAdd = useCallback(
+    (person: ShareContact) => {
+      setShareSelectedPeople((prev) => {
+        if (prev.some((p) => p.email === person.email)) return prev;
+        const color = person.color || colorFromString(person.email);
+        return [...prev, { ...person, color, role: "editor" }];
+      });
+      setShareWizardStep("notify");
+      setShareInviteQuery("");
+    },
+    [],
+  );
+  const handleInviteSubmit = useCallback(
+    (value?: string) => {
+      const inputValue = typeof value === "string" ? value : shareInviteQuery;
+      const trimmed = inputValue.trim();
+      if (!trimmed) return;
+      let existing =
+        SHARE_CONTACTS.find(
+          (person) =>
+            person.email.toLowerCase() === trimmed.toLowerCase() ||
+            person.name.toLowerCase() === trimmed.toLowerCase(),
+        ) || null;
+      if (!existing) {
+        if (!isValidEmail(trimmed)) return;
+        existing = manualContact(trimmed);
+      }
+      handleInviteAdd(existing);
+    },
+    [shareInviteQuery, handleInviteAdd],
+  );
+  const handleInviteRemove = useCallback((email: string) => {
+    setShareSelectedPeople((prev) => {
+      const next = prev.filter((person) => person.email !== email);
+      if (!next.length) {
+        setShareWizardStep("form");
+      }
+      return next;
+    });
+  }, []);
+  const updateSelectedPeopleRole = useCallback((role: "leitor" | "comentador" | "editor") => {
+    setShareSelectedPeople((prev) => prev.map((person) => ({ ...person, role })));
+    setShareRoleDropdownOpen(false);
+  }, []);
+  const handleShareSend = useCallback(() => {
+    console.log("Enviando convites", {
+      recipients: shareSelectedPeople,
+      notify: shareNotifyPeople,
+      message: shareNotifyMessage,
+    });
+    setShareNotifyMessage("");
+    setShareSelectedPeople([]);
+    setShareWizardStep("form");
+    closeShareDialog();
+  }, [shareSelectedPeople, shareNotifyPeople, shareNotifyMessage, closeShareDialog]);
   const setFolderColor = async (id: number, color: string) => {
     try {
       await patchRecording(id, { color });
@@ -479,18 +829,27 @@ export default function DrivePage() {
     }
   };
 
+  function ShareModal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+    if (typeof document === 'undefined') return null;
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] bg-black/30 flex items-center justify-center" onClick={onClose} role="dialog" aria-modal="true">
+        <div className="w-[520px] max-w-[90vw] rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200" onClick={(e) => e.stopPropagation()}>
+          {children}
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white text-slate-900">
       {/* Top bar estilo Drive */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200">
         <div className="px-4 md:px-6 h-16 flex items-center gap-4">
-          {/* Marca */}
           <a href="/" className="flex items-center gap-2 no-underline text-slate-900">
             <LogoDrive className="h-6 w-6" />
             <span className="font-medium">Drive</span>
           </a>
-
-          {/* Busca estilo pill com ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­cone de filtro ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  direita */}
           <div className="flex-1">
             <div className="rounded-full bg-slate-100 ring-1 ring-slate-200 flex items-center h-11 px-3">
               <IconSearch className="h-4 w-4 text-slate-500" />
@@ -505,16 +864,14 @@ export default function DrivePage() {
               </button>
             </div>
           </div>
-
-          {/* AÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµes do topo ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  direita */}
           <div className="hidden md:flex items-center gap-2">
-            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="SeleÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o">
+            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Seleção">
               <IconCheckCircle className="h-5 w-5 text-slate-700" />
             </button>
             <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Ajuda">
               <IconHelp className="h-5 w-5 text-slate-700" />
             </button>
-            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="ConfiguraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµes">
+            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Configurações">
               <IconGear className="h-5 w-5 text-slate-700" />
             </button>
             <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Destacar">
@@ -530,7 +887,8 @@ export default function DrivePage() {
         </div>
       </header>
 
-      <main className="px-4 md:px-6 py-4 grid gap-6 grid-cols-[280px_1fr]">
+      <div className="border-b border-slate-200" />
+      <main className={`px-4 md:px-6 py-4 grid gap-6 ${showInfo ? "grid-cols-[280px_1fr_360px]" : "grid-cols-[280px_1fr]"}`}>
         {/* Sidebar esquerda */}
         <aside className="min-w-0">
           <div className="sticky top-[4.5rem] space-y-3">
@@ -602,7 +960,7 @@ export default function DrivePage() {
           </div>
         </aside>
 
-        {/* ConteÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºdo principal */}
+        {/* Contém principal */}
         <section className="min-w-0">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -675,7 +1033,7 @@ export default function DrivePage() {
                       type="button"
                       aria-label="Limpar filtro de modificação"
                       className="px-2 py-1.5 border-l border-sky-300 text-sky-700 hover:text-sky-900"
-                      onClick={(e) => { e.stopPropagation(); setPeopleFilter({ kind: 'all' }); setPeopleOpen(false); }}
+                      onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); setPeopleFilter({ kind: 'all' }); setPeopleOpen(false); }}
                     >
                       <IconX className="h-3.5 w-3.5" />
                     </button>
@@ -697,27 +1055,24 @@ export default function DrivePage() {
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 px-3 py-1.5"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setModTmp(modFilter);
-                      if (modFilter.preset === "custom") {
-                        setModFrom(dateInputValue(modFilter.from));
-                        setModTo(dateInputValue(modFilter.to));
-                      } else {
-                        setModFrom("");
-                        setModTo("");
-                      }
-                      const next = !modOpen;
-                      setTypeOpen(false);
-                      setPeopleOpen(false);
-                      setModOpen(next);
-                    }}
-                  >
-                    {modFilter.preset === "all"
-                      ? "Modificado"
-                      : `Modificado: ${formatModifiedLabel(modFilter)}`}
-                    <IconChevronDown className="h-3.5 w-3.5 text-slate-500" />
-                  </button>
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setModTmp(modFilter);
+                        if (modFilter.preset === "custom") {
+                          setModFrom(dateInputValue(modFilter.from));
+                          setModTo(dateInputValue(modFilter.to));
+                        } else {
+                          setModFrom("");
+                          setModTo("");
+                        }
+                        const next = !modOpen;
+                        setTypeOpen(false);
+                        setPeopleOpen(false);                        setModOpen(next);
+                      }}
+                    >
+                      {modFilter.preset === "all" ? "Modificação" : formatModifiedLabel(modFilter)}
+                      <IconChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                    </button>
                   {modFilter.preset !== 'all' && (
                     <button
                       type="button"
@@ -810,30 +1165,37 @@ export default function DrivePage() {
                 </button>
               </div>
             </div>
-            {/* Grupo de visualizaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o e info ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  direita */}
-              <div className="shrink-0 flex items-center gap-2">
-                <div className="inline-flex items-center rounded-full ring-1 ring-slate-300 bg-white overflow-hidden">
-                  <span className={`px-2 py-1.5 text-sm ${selected.size > 0 ? "text-indigo-700" : "text-slate-500"}`}>
-                    <IconCheck className="h-4 w-4" />
-                  </span>
-                  <button
-                    className={`px-3 py-1.5 text-sm ${view === "list" ? "bg-slate-100" : ""}`}
-                    onClick={() => setView("list")}
-                    title="Lista"
-                  >
-                    <IconList className="h-4 w-4" />
-                  </button>
-                  <button
-                    className={`px-3 py-1.5 text-sm ${view === "grid" ? "bg-slate-100" : ""}`}
-                    onClick={() => setView("grid")}
-                    title="Grade"
-                  >
-                    <IconGrid className="h-4 w-4" />
-                  </button>
-                </div>
+            {/* Grupo de visualização direita */}
+            <div className="shrink-0 flex items-center gap-2">
+              <div className="inline-flex items-center rounded-full ring-1 ring-slate-300 bg-white overflow-hidden">
+                <span className={`px-2 py-1.5 text-sm ${selected.size > 0 ? "text-indigo-700" : "text-slate-500"}`}>
+                  <IconCheck className="h-4 w-4" />
+                </span>
+                <button
+                  className={`px-3 py-1.5 text-sm ${view === "list" ? "bg-slate-100" : ""}`}
+                  onClick={() => setView("list")}
+                  title="Lista"
+                >
+                  <IconList className="h-4 w-4" />
+                </button>
+                <button
+                  className={`px-3 py-1.5 text-sm ${view === "grid" ? "bg-slate-100" : ""}`}
+                  onClick={() => setView("grid")}
+                  title="Grade"
+                >
+                  <IconGrid className="h-4 w-4" />
+                </button>
               </div>
+              <button
+                className={`h-9 w-9 rounded-full grid place-items-center ${showInfo ? "bg-slate-100" : "hover:bg-slate-100"}`}
+                onClick={() => setShowInfo((s) => !s)}
+                title="Detalhes"
+              >
+                <IconInfo className="h-5 w-5" />
+              </button>
+            </div>
           </div>
-          {/* Barra de aÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµes quando hÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ seleÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o */}
+          {/* Barra de apresentação*/}
           {selected.size > 0 && (
             <div className="mb-3 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
               <span className="text-slate-700">{selected.size} selecionado(s)</span>
@@ -887,7 +1249,7 @@ export default function DrivePage() {
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-slate-200 overflow-hidden">
+            <div className="rounded-xl border border-slate-200 overflow-visible">
               <div className="bg-slate-50 text-slate-600 text-xs px-3 py-2 grid grid-cols-[minmax(0,1fr)_180px_180px_120px_220px]">
                 <div className="flex items-center gap-2 min-w-0">
                   <input
@@ -907,42 +1269,26 @@ export default function DrivePage() {
                 <div className="flex items-center justify-end">Proprietário</div>
                 <div className="flex items-center justify-end">Data da modificação</div>
                 <div className="flex items-center justify-end">Tamanho</div>
-
                 <span ref={sortWrapRef} className="relative flex items-center justify-end">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-2 px-2 py-1 rounded-md hover:bg-slate-100 text-slate-600"
-                    onClick={(e) => { e.stopPropagation(); setSortOpen((s) => !s); }}
-                  >
+                  <button type="button" className="inline-flex items-center gap-2 px-2 py-1 rounded-md hover:bg-slate-100 text-slate-600" onClick={(e) => { e.stopPropagation(); setSortOpen((s) => !s); }}>
                     <IconSort className="h-4 w-4" />
                     <span>Classificar</span>
                   </button>
-
                   {sortOpen && (
                     <div className="absolute z-50 top-[28px] right-0 w-64 rounded-xl bg-white ring-1 ring-slate-200 shadow-2xl text-sm">
                       <div className="px-3 py-2 text-[11px] text-slate-500">Ordenar por</div>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='name'?'bg-slate-100':''}`}
-                              onClick={() => { setSortKey('name'); setSortOpen(false); }}>Nome</button>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='createdAt'?'bg-slate-100':''}`}
-                              onClick={() => { setSortKey('createdAt'); setSortOpen(false); }}>Data da modificação</button>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='owner'?'bg-slate-100':''}`}
-                              onClick={() => { setSortKey('owner'); setSortOpen(false); }}>Proprietário</button>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='size'?'bg-slate-100':''}`}
-                              onClick={() => { setSortKey('size'); setSortOpen(false); }}>Tamanho</button>
-
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='name'?'bg-slate-100':''}`} onClick={() => { setSortKey('name'); setSortOpen(false); }}>Nome</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='createdAt'?'bg-slate-100':''}`} onClick={() => { setSortKey('createdAt'); setSortOpen(false); }}>Data da modificação</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='owner'?'bg-slate-100':''}`} onClick={() => { setSortKey('owner'); setSortOpen(false); }}>Proprietário</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='size'?'bg-slate-100':''}`} onClick={() => { setSortKey('size'); setSortOpen(false); }}>Tamanho</button>
                       <div className="my-1 border-t border-slate-200" />
-                      <div className="px-3 py-2 text-[11px] text-slate-500">Direção de classificação</div>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortDir==='asc'?'bg-slate-100':''}`}
-                              onClick={() => { setSortDir('asc'); setSortOpen(false); }}>A a Z</button>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortDir==='desc'?'bg-slate-100':''}`}
-                              onClick={() => { setSortDir('desc'); setSortOpen(false); }}>Z a A</button>
-
+                      <div className="px-3 py-2 text-[11px] text-slate-500">Direção de classif.</div>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortDir==='asc'?'bg-slate-100':''}`} onClick={() => { setSortDir('asc'); setSortOpen(false); }}>A a Z</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortDir==='desc'?'bg-slate-100':''}`} onClick={() => { setSortDir('desc'); setSortOpen(false); }}>Z a A</button>
                       <div className="my-1 border-t border-slate-200" />
                       <div className="px-3 py-2 text-[11px] text-slate-500">Pastas</div>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${foldersTop?'bg-slate-100':''}`}
-                              onClick={() => { setFoldersTop(true); setSortOpen(false); }}>Acima</button>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${!foldersTop?'bg-slate-100':''}`}
-                              onClick={() => { setFoldersTop(false); setSortOpen(false); }}>Misturado com arquivos</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${foldersTop?'bg-slate-100':''}`} onClick={() => { setFoldersTop(true); setSortOpen(false); }}>Acima</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${!foldersTop?'bg-slate-100':''}`} onClick={() => { setFoldersTop(false); setSortOpen(false); }}>Misturado com arquivos</button>
                     </div>
                   )}
                 </span>
@@ -979,11 +1325,11 @@ export default function DrivePage() {
                         <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title={r.starred ? 'Remover estrela' : 'Adicionar estrela'} onClick={() => toggleStar(r.id, !r.starred)}>
                           <IconStar className={`h-4 w-4 ${r.starred ? 'text-amber-500' : ''}`} />
                         </button>
-                        <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Mais aÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµes" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
+                        <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Mais ações" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
                           <IconMoreVert className="h-4 w-4" />
                         </button>
                       </div>
-                      <button className="group-hover:hidden h-8 w-8 grid place-items-center rounded hover:bg-slate-100 text-slate-600" title="Mais aÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµes" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
+                      <button className="group-hover:hidden h-8 w-8 grid place-items-center rounded hover:bg-slate-100 text-slate-600" title="Mais ações" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
                         <IconMoreVert className="h-4 w-4" />
                       </button>
                       {rowMenuId === r.id && (
@@ -1040,16 +1386,16 @@ export default function DrivePage() {
                           <button className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100" onClick={() => { setShareId(r.id); setRowMenuId(null); }}>
                             <IconUsers className="h-4 w-4" />
                             <span>Compartilhar</span>
-                            <span className="ml-auto text-slate-400">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº</span>
+                            <span className="ml-auto text-slate-400">Ctrl+Alt+S</span>
                           </button>
                           <button className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100" onClick={(e) => { e.stopPropagation(); const root = (e.currentTarget.closest('[data-row-flyout-root="true"]') as HTMLElement | null); if (root) { const rect = root.getBoundingClientRect(); const vw = window.innerWidth || document.documentElement.clientWidth || 0; const SUB_W = 288; const GAP = 8; const fitsRight = rect.right + GAP + SUB_W <= vw; setRowSubSide(fitsRight ? 'right' : 'left'); } setRowSub(rowSub === 'organize' && rowMenuId === r.id ? null : 'organize'); }}>
                             <IconFolder className="h-4 w-4" />
                             <span>Organizar</span>
-                            <span className="ml-auto text-slate-400">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº</span>
+                            <span className="ml-auto text-slate-400"></span>
                           </button>
-                          <button className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100" onClick={() => { setActiveId(r.id); setRowMenuId(null); }}>
+                          <button className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100" onClick={() => { setActiveId(r.id); setShowInfo(true); setRowMenuId(null); }}>
                             <IconInfo className="h-4 w-4" />
-                            <span>InformaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµes da pasta</span>
+                            <span>Informações da pasta</span>
                           </button>
                           <div className="my-1 border-t border-slate-200" />
                           <button className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100 text-red-700" onClick={() => { doDelete([r.id]); setRowMenuId(null); }}>
@@ -1067,227 +1413,901 @@ export default function DrivePage() {
           )}
         </section>
 
-        {/* Painel de detalhes / PrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©-visualizaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o */}
-        
+        {/* Painel de detalhes / Pré-visualização */}
+        <aside className={`${showInfo ? "" : "hidden"}`}>
+          <div className="sticky top-[4.5rem] rounded-xl border border-slate-200 overflow-hidden">
+            <div className="bg-slate-50 px-3 py-2 text-sm font-medium">Detalhes</div>
+            <div className="p-3 space-y-3">
+              {active ? (
+                <>
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium truncate" title={active.name}>
+                      {active.name || fallbackName(active)}
+                    </div>
+                    <div className="text-xs text-slate-600">{fmtSize(active.size)}</div>
+                  </div>
+
+                  <div className="text-xs text-slate-600">{fmtDate(active.createdAt)}</div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Proprietário</span>
+                      <span className="text-slate-900">{activeOwnerLabel}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Tipo</span>
+                      <span className="text-slate-900">{activeTypeLabel}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Fonte</span>
+                      <span className="text-slate-900">{activeSourceLabel}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Compartilhado com</span>
+                      <span className="text-slate-900">{activeSharedWithLabel}</span>
+                    </div>
+                  </div>
+
+                </>
+              ) : (
+                <div className="text-sm text-slate-600">Selecione um arquivo para ver detalhes.</div>
+              )}
+            </div>
+          </div>
+        </aside>
 
         {shareId != null && (
-          <div className="fixed inset-0 z-[60] bg-black/30 flex items-center justify-center" onClick={() => setShareId(null)}>
-            <div className="w-[520px] max-w-[90vw] rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between p-5 pb-3">
-                <div>
-                  <div className="text-xl font-semibold leading-snug">
-                    Compartilhar {`"${(shareRec?.name && shareRec.name.trim().length > 0 ? shareRec.name : 'Arquivo')}"`}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-slate-500">
-                  <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Ajuda">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ</button>
-                  <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Configuracoes">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢</button>
-                  <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Fechar" onClick={() => setShareId(null)}>ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢</button>
+          <ShareModal onClose={() => setShareId(null)}>
+            <div className="flex items-start justify-between p-5 pb-3">
+              <div>
+                <div className="text-xl font-semibold leading-snug">
+                  Compartilhar {`"${(shareRec?.name && shareRec.name.trim().length > 0 ? shareRec.name : 'Arquivo')}"`}
                 </div>
               </div>
-              <div className="px-5 pb-5">
-                <div className="mb-4">
-                  <input
-                    type="text"
-                    placeholder="Adicionar participantes, grupos, espaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§os e eventos da agenda"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
+              <div className="flex items-center gap-2 text-slate-500">
+                <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Ajuda">?</button>
+                <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Configuracoes">?</button>
+                <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Fechar" onClick={() => setShareId(null)}>?</button>
+              </div>
+            </div>
+            <div className="px-5 pb-5">
+              <div className="mb-4">
+                <input
+                  type="text"
+                  placeholder="Adicionar participantes, grupos, espa?os e eventos da agenda"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
 
-                <div className="mb-6">
-                  <div className="text-sm font-medium mb-2">Pessoas com acesso</div>
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-slate-200" />
-                      <div>
-                        <div className="text-sm font-medium">VocÃƒÂª</div>
-                        <div className="text-xs text-slate-600">{shareRec?.owner || ''}</div>
-                      </div>
+              <div className="mb-6">
+                <div className="text-sm font-medium mb-2">Pessoas com acesso</div>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-full bg-slate-200" />
+                    <div>
+                      <div className="text-sm font-medium">Você</div>
+                      <div className="text-xs text-slate-600">{shareRec?.owner || ''}</div>
                     </div>
-                    <div className="text-xs text-slate-500">ProprietÃƒÂ¡rio</div>
                   </div>
+                  <div className="text-xs text-slate-500">Propriet?rio</div>
                 </div>
+              </div>
 
-                <div className="mb-6">
-                  <div className="text-sm font-medium mb-2">Acesso geral</div>
-                  <div className="flex items-center justify-between rounded-xl border border-slate-200 p-3">
-                    <div className="flex items-center gap-2 text-slate-700">
-                      <span className="text-lg">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢</span>
-                      <span className="text-sm">Restrito</span>
-                    </div>
-                    <button className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50">
-                      Alterar
-                      <span className="text-slate-500">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾</span>
-                    </button>
+              <div className="mb-6">
+                <div className="text-sm font-medium mb-2">Acesso geral</div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <span className="text-lg">=</span>
+                    <span className="text-sm">Restrito</span>
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">So as pessoas com acesso podem abrir usando o link.</div>
+                  <button className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50">
+                    Alterar
+                    <span className="text-slate-500">?</span>
+                  </button>
                 </div>
+                <div className="mt-1 text-xs text-slate-500">S? as pessoas com acesso podem abrir usando o link.</div>
+              </div>
 
-                <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-1">
                   <button
                     className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-                    onClick={async () => {
-                      const href = (typeof location !== 'undefined' ? `${location.origin}` : '') + `/upconect/drive/share/${shareId}`;
-                      try { await navigator.clipboard.writeText(href); alert('Link copiado'); } catch {}
-                    }}
+                    onClick={() => copyShareLink(shareId)}
                   >
-                    <span className="text-base">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â</span>
+                    <span className="text-base">=</span>
                     Copiar link
                   </button>
-                  <button
-                    className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                    onClick={() => setShareId(null)}
-                  >
-                    Concluido
-                  </button>
+                  {shareLinkMessage && (
+                    <span
+                      className={`text-xs ${shareLinkFeedback === "error" ? "text-rose-500" : "text-emerald-600"}`}
+                      aria-live="polite"
+                    >
+                      {shareLinkMessage}
+                    </span>
+                  )}
                 </div>
+                <button
+                  className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  onClick={() => setShareId(null)}
+                >
+                  Conclu?do
+                </button>
               </div>
+            </div>
+          </ShareModal>
+        )}
+        {playerOpen && active && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-slate-900/80" onClick={closePlayer} />
+            <div
+              className="relative z-10 inline-block w-full max-w-[95vw] overflow-hidden rounded-xl shadow-2xl ring-1 ring-slate-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <header className="popup-navbottom relative z-10 flex h-14 items-center justify-between gap-4 px-4 bg-[#202124] border-b border-[rgba(255,255,255,0.1)]">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#fbbc05] to-[#34a853] flex items-center justify-center">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-slate-900">
+                      <path d="M8.5 6.5v11l9-5.5-9-5.5z" />
+                    </svg>
+                  </span>
+                  <span className="text-sm font-semibold text-white truncate min-w-0">Bruna Lima de Queiroz (Apresentando e fazendo anotações)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={closePlayer}
+                    className="rounded-full border border-white/20 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-900 shadow"
+                  >
+                    Fechar
+                  </button>
+                  <div className="relative" ref={shareControlsRef}>
+                    <div className="flex items-stretch overflow-hidden rounded-full border border-white/20 bg-blue-600 text-white shadow">
+                      <button
+                        type="button"
+                        className="px-4 py-1 text-xs font-semibold"
+                        onClick={() => {
+                          setPlayerShareDialogOpen(true);
+                          setPlayerShareDropdownOpen(false);
+                        }}
+                        aria-expanded={playerShareDialogOpen}
+                      >
+                        Compartilhar
+                      </button>
+                      <span className="h-auto w-px bg-white/40" aria-hidden="true" />
+                      <button
+                        type="button"
+                        className="px-2"
+                        aria-label="Abrir menu adicional de compartilhamento"
+                        onClick={() => {
+                          setPlayerShareDropdownOpen((prev) => !prev);
+                          closeShareDialog();
+                        }}
+                        aria-expanded={playerShareDropdownOpen}
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 fill-white">
+                          <path d="M7 10l5 5 5-5H7z" />
+                        </svg>
+                      </button>
+                    </div>
+                    {playerShareDropdownOpen && (
+                      <div className="absolute top-full right-0 mt-2 w-48 translate-x-full transform rounded-2xl border border-white/10 bg-[#202124] p-3 text-sm text-white shadow-2xl">
+                        <p className="text-xs uppercase tracking-[0.3em] text-white/50">Opções extras</p>
+                        <ul className="mt-2 space-y-1">
+                          <li>
+                            <button className="w-full rounded-lg bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/10">
+                              Configurar avisos
+                            </button>
+                          </li>
+                          <li>
+                            <button className="w-full rounded-lg bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/10">
+                              Definir expiração
+                            </button>
+                          </li>
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                  <span className="h-5 w-px bg-white/30" aria-hidden="true"></span>
+                  <button className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-white">?</button>
+                </div>
+              </header>
+              {playerShareDialogOpen && (
+                <div className="absolute inset-0 z-20 flex items-start justify-center px-4 pt-20">
+                  <div
+                    className="absolute inset-0 bg-slate-900/70"
+                    onClick={closeShareDialog}
+                  />
+                  <div
+                    className="relative z-10 w-full max-w-xl overflow-visible rounded-3xl bg-white text-slate-900 shadow-2xl"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`Compartilhar ${activeShareTitle}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-slate-400">Compartilhar</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-900">“{activeShareTitle}”</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-full p-1 text-slate-500 hover:bg-slate-100"
+                        onClick={closeShareDialog}
+                        aria-label="Fechar painel de compartilhamento"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+                          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="px-6 py-5 text-sm">
+                      {shareWizardStep === "form" ? (
+                        <>
+                          <div className="relative">
+                            <label className="text-xs font-semibold text-slate-600" htmlFor="player-share-add">
+                              Adicionar participantes, grupos, espaços e eventos da agenda
+                            </label>
+                            <div className="mt-2 rounded-xl border border-slate-200 px-3 py-2 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-200">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {shareSelectedPeople.map((person) => (
+                                  <span
+                                    key={person.email}
+                                    className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-sm font-medium text-blue-900"
+                                  >
+                                    <ContactAvatar person={person} size="sm" />
+                                    {person.email}
+                                    <button
+                                      type="button"
+                                      className="text-xs text-blue-500 hover:text-rose-500"
+                                      onClick={() => handleInviteRemove(person.email)}
+                                      aria-label={`Remover ${person.email}`}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                                <input
+                                  id="player-share-add"
+                                  type="text"
+                                  ref={shareInviteInputRef}
+                                  value={shareInviteQuery}
+                                  onChange={(e) => setShareInviteQuery(e.target.value)}
+                                  onFocus={() => {
+                                if (shareInviteBlurTimeoutRef.current) {
+                                  clearTimeout(shareInviteBlurTimeoutRef.current);
+                                  shareInviteBlurTimeoutRef.current = null;
+                                }
+                                setShareInviteFocused(true);
+                              }}
+                                  onBlur={() => {
+                                const trimmed = shareInviteQuery.trim();
+                                if (trimmed && isValidEmail(trimmed)) {
+                                  handleInviteSubmit(trimmed);
+                                }
+                                shareInviteBlurTimeoutRef.current = setTimeout(() => {
+                                  setShareInviteFocused(false);
+                                  shareInviteBlurTimeoutRef.current = null;
+                                }, 120);
+                              }}
+                                  onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                                  if (!shareInviteQuery.trim()) return;
+                                  e.preventDefault();
+                                  handleInviteSubmit();
+                                }
+                              }}
+                                  placeholder={
+                                shareSelectedPeople.length
+                                  ? "Adicionar outro participante"
+                                  : "Adicionar participantes, grupos, espaços e eventos da agenda"
+                              }
+                                  autoComplete="off"
+                                  className="min-w-[160px] flex-1 border-none bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+                                />
+                              </div>
+                            </div>
+                            {shareSuggestionsVisible && (
+                              <ul className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-white text-sm shadow-2xl">
+                                {shareAutoCompleteMatches.map((person) => (
+                                  <li key={person.id}>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-slate-50"
+                                      onClick={() => handleInviteAdd(person)}
+                                    >
+                                      <ContactAvatar person={person} size="md" />
+                                      <div>
+                                        <p className="font-semibold text-slate-900">{person.name}</p>
+                                        <p className="text-xs text-slate-500">{person.email}</p>
+                                      </div>
+                                    </button>
+                                  </li>
+                                ))}
+                                {shareInviteTrim.length > 0 && (
+                                  <li>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center justify-between px-4 py-2 text-left text-xs text-slate-600 hover:bg-slate-50"
+                                      onClick={() => handleInviteSubmit(shareInviteTrim)}
+                                    >
+                                      Compartilhar com “{shareInviteTrim}”
+                                    </button>
+                                  </li>
+                                )}
+                              </ul>
+                            )}
+                          </div>
+                      <div className="mt-6 flex items-center justify-between text-xs font-semibold uppercase text-slate-400">
+                        <span>Pessoas com acesso</span>
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-200 p-1.5 hover:bg-slate-100"
+                            aria-label="Copiar lista de permissões"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                              <path d="M8 7h11v13H8z" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                              <path d="M5 4h11v13" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-200 p-1.5 hover:bg-slate-100"
+                            aria-label="Enviar convite por e-mail"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                              <path d="M4 6h16v12H4z" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                              <path d="M4 7l8 6 8-6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-3 text-sm">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-2">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#fbbc05] to-[#34a853] text-base font-semibold text-white">
+                              {shareOwnerName.slice(0, 1)}
+                            </span>
+                            <div>
+                              <p className="font-semibold text-slate-900">{shareOwnerName}</p>
+                              <p className="text-xs text-slate-500">{shareOwnerEmail}</p>
+                            </div>
+                          </div>
+                          <span className="text-xs font-semibold text-slate-500">Proprietário</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-2">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-base font-semibold text-white">
+                              {shareViewerName.slice(0, 1)}
+                            </span>
+                            <div>
+                              <p className="font-semibold text-slate-900">{shareViewerName}</p>
+                              <p className="text-xs text-slate-500">{shareViewerEmail}</p>
+                            </div>
+                          </div>
+                          <div className="relative" ref={personAccessRef}>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                              onClick={() => setPersonDropdownOpen((prev) => !prev)}
+                              aria-expanded={personDropdownOpen}
+                              aria-haspopup="menu"
+                            >
+                              {personRoleLabel}
+                              <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-400" aria-hidden="true">
+                                <path d="M7 10l5 5 5-5H7z" fill="currentColor" />
+                              </svg>
+                            </button>
+                            {personDropdownOpen && (
+                              <div
+                                className="absolute right-0 top-full z-30 mt-2 w-48 rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl"
+                                role="menu"
+                              >
+                                <div className="py-2">
+                                  {[
+                                    { value: "leitor", label: "Leitor" },
+                                    { value: "comentador", label: "Comentador" },
+                                    { value: "editor", label: "Editor" },
+                                  ].map((role) => (
+                                    <button
+                                      type="button"
+                                      key={role.value}
+                                      className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${
+                                        personRole === role.value
+                                          ? "bg-slate-100 font-semibold text-slate-900"
+                                          : "text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                      onClick={() => {
+                                        setPersonRole(role.value as "leitor" | "comentador" | "editor");
+                                        setPersonDropdownOpen(false);
+                                      }}
+                                    >
+                                      <span
+                                        className={`flex h-4 w-4 items-center justify-center rounded-full border text-white ${
+                                          personRole === role.value
+                                            ? "border-blue-500 bg-blue-500"
+                                            : "border-slate-300 bg-white text-transparent"
+                                        }`}
+                                      >
+                                        <svg viewBox="0 0 24 24" className="h-3 w-3" aria-hidden="true">
+                                          <path
+                                            d="M6 12l4 4 8-8"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                        </svg>
+                                      </span>
+                                      {role.label}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="h-px bg-slate-200" />
+                                <button
+                                  type="button"
+                                  className="w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50"
+                                  onClick={() => {
+                                    setPersonRole("leitor");
+                                    setPersonDropdownOpen(false);
+                                  }}
+                                >
+                                  Remover acesso
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-6 text-xs font-semibold uppercase text-slate-400">
+                        Acesso geral
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-base font-semibold text-blue-700">
+                            UFAC
+                          </span>
+                          <div className="text-sm space-y-1">
+                            <p className="font-semibold text-slate-900">Universidade Federal do Acre</p>
+                            <p className="text-xs text-slate-500">
+                              Qualquer pessoa neste grupo com o link {generalRoleSentence}
+                            </p>
+                            <p className="text-xs text-slate-400">{generalSearchSentence}</p>
+                          </div>
+                        </div>
+                        <div className="relative" ref={generalAccessRef}>
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            onClick={() => setGeneralDropdownOpen((prev) => !prev)}
+                            aria-expanded={generalDropdownOpen}
+                            aria-haspopup="menu"
+                          >
+                            {generalRoleLabel}
+                            <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-400" aria-hidden="true">
+                              <path d="M7 10l5 5 5-5H7z" fill="currentColor" />
+                            </svg>
+                          </button>
+                          {generalDropdownOpen && (
+                            <div
+                              ref={generalDropdownRef}
+                              className={`absolute right-0 z-30 w-64 rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.25)] ${
+                                generalDropdownDirection === "down"
+                                  ? "top-full mt-2 origin-top"
+                                  : "bottom-full mb-2 origin-bottom"
+                              } max-h-[60vh] overflow-auto overscroll-contain`}
+                              role="menu"
+                            >
+                              <div className="px-5 py-4">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 leading-relaxed">
+                                  Função
+                                </p>
+                                <div className="mt-3 space-y-1">
+                                  {[
+                                    { value: "leitor", label: "Leitor" },
+                                    { value: "comentador", label: "Comentador" },
+                                    { value: "editor", label: "Editor" },
+                                  ].map((role) => (
+                                    <button
+                                      type="button"
+                                      key={role.value}
+                                      className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-sm tracking-normal transition-colors ${
+                                        generalRole === role.value
+                                          ? "bg-slate-100 font-semibold text-slate-900"
+                                          : "text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                      onClick={() =>
+                                        setGeneralRole(role.value as "leitor" | "comentador" | "editor")
+                                      }
+                                    >
+                                      <span
+                                        className={`flex h-5 w-5 items-center justify-center rounded-full border text-white leading-none ${
+                                          generalRole === role.value
+                                            ? "border-blue-500 bg-blue-500"
+                                            : "border-slate-300 bg-white text-transparent"
+                                        }`}
+                                      >
+                                        <svg viewBox="0 0 24 24" className="h-3 w-3" aria-hidden="true">
+                                          <path
+                                            d="M6 12l4 4 8-8"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                        </svg>
+                                      </span>
+                                      <span className="font-medium tracking-normal">{role.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="h-px bg-slate-200" />
+                              <div className="px-5 py-4">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 leading-relaxed">
+                                  Pesquisável
+                                </p>
+                                <div className="mt-3 space-y-1">
+                                  {[
+                                    {
+                                      value: "searchable",
+                                      label: "Pode encontrar nos resultados da pesquisa",
+                                    },
+                                    { value: "linkOnly", label: "Precisa ter o link para acessar" },
+                                  ].map((option) => (
+                                    <button
+                                      type="button"
+                                      key={option.value}
+                                      className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-xs tracking-normal transition-colors ${
+                                        generalSearchMode === option.value
+                                          ? "bg-slate-100 font-semibold text-slate-900"
+                                          : "text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                      onClick={() =>
+                                        setGeneralSearchMode(option.value as "searchable" | "linkOnly")
+                                      }
+                                    >
+                                      <span
+                                        className={`inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border text-white leading-none ${
+                                          generalSearchMode === option.value
+                                            ? "border-blue-500 bg-blue-500"
+                                            : "border-slate-300 bg-white text-transparent"
+                                        }`}
+                                        style={{ minHeight: "20px" }}
+                                      >
+                                        <svg viewBox="0 0 24 24" className="h-3 w-3" aria-hidden="true">
+                                          <path
+                                            d="M6 12l4 4 8-8"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                        </svg>
+                                      </span>
+                                      <span className="font-medium tracking-normal">{option.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[#e8f0fe] p-3 text-xs text-slate-700">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-blue-600 font-semibold">
+                          i
+                        </span>
+                        <p className="leading-normal">Os leitores deste arquivo podem ver comentários e sugestões.</p>
+                      </div>
+                      <div className="mt-6 flex items-center justify-between">
+                        <div className="flex flex-col gap-1">
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            onClick={() => copyShareLink(active?.id ?? null)}
+                          >
+                            Copiar link
+                          </button>
+                          {shareLinkMessage && (
+                            <span
+                              className={`text-xs ${shareLinkFeedback === "error" ? "text-rose-500" : "text-emerald-600"}`}
+                              aria-live="polite"
+                            >
+                              {shareLinkMessage}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                          onClick={closeShareDialog}
+                        >
+                          Concluído
+                        </button>
+                      </div>
+                        </>
+                      ) : (
+                        <div className="space-y-5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3">
+                              <button
+                                type="button"
+                                className="rounded-full border border-slate-200 p-2 hover:bg-slate-100"
+                                aria-label="Voltar"
+                                onClick={() => setShareWizardStep("form")}
+                              >
+                                <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                                  <path d="M14 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                                </svg>
+                              </button>
+                              <div>
+                                <p className="text-xs font-semibold uppercase text-slate-400">Compartilhar</p>
+                                <p className="mt-1 text-lg font-semibold text-slate-900">“{activeShareTitle}”</p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="rounded-full p-1 text-slate-500 hover:bg-slate-100"
+                              onClick={closeShareDialog}
+                              aria-label="Fechar painel de compartilhamento"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+                                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 p-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div className="relative flex-1">
+                                <div className="rounded-2xl border border-slate-300 bg-white px-3 py-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {shareSelectedPeople.map((person) => (
+                                      <span
+                                        key={person.email}
+                                        className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-sm font-medium text-blue-900"
+                                      >
+                                        <ContactAvatar person={person} size="sm" />
+                                        {person.email}
+                                        <button
+                                          type="button"
+                                          className="text-xs text-blue-500 hover:text-rose-500"
+                                          onClick={() => handleInviteRemove(person.email)}
+                                          aria-label={`Remover ${person.email}`}
+                                        >
+                                          ×
+                                        </button>
+                                      </span>
+                                    ))}
+                                    <input
+                                      type="text"
+                                      ref={shareInviteInputRef}
+                                      value={shareInviteQuery}
+                                      onChange={(e) => setShareInviteQuery(e.target.value)}
+                                      onFocus={() => {
+                                        if (shareInviteBlurTimeoutRef.current) {
+                                          clearTimeout(shareInviteBlurTimeoutRef.current);
+                                          shareInviteBlurTimeoutRef.current = null;
+                                        }
+                                        setShareInviteFocused(true);
+                                      }}
+                                      onBlur={() => {
+                                        const trimmed = shareInviteQuery.trim();
+                                        if (trimmed && isValidEmail(trimmed)) {
+                                          handleInviteSubmit(trimmed);
+                                        }
+                                        shareInviteBlurTimeoutRef.current = setTimeout(() => {
+                                          setShareInviteFocused(false);
+                                          shareInviteBlurTimeoutRef.current = null;
+                                        }, 120);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                                          if (!shareInviteQuery.trim()) return;
+                                          e.preventDefault();
+                                          handleInviteSubmit();
+                                        }
+                                      }}
+                                      placeholder={
+                                        shareSelectedPeople.length ? "Adicionar outro participante" : "Adicionar participantes..."
+                                      }
+                                      autoComplete="off"
+                                      className="min-w-[140px] flex-1 border-none bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+                                    />
+                                  </div>
+                                </div>
+                                {shareSuggestionsVisible && (
+                                  <ul className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-white text-sm shadow-2xl">
+                                    {shareAutoCompleteMatches.map((person) => (
+                                      <li key={person.id}>
+                                        <button
+                                          type="button"
+                                          className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-slate-50"
+                                          onClick={() => handleInviteAdd(person)}
+                                        >
+                                          <ContactAvatar person={person} size="md" />
+                                          <div>
+                                            <p className="font-semibold text-slate-900">{person.name}</p>
+                                            <p className="text-xs text-slate-500">{person.email}</p>
+                                          </div>
+                                        </button>
+                                      </li>
+                                    ))}
+                                    {shareInviteTrim.length > 0 && (
+                                      <li>
+                                        <button
+                                          type="button"
+                                          className="flex w-full items-center justify-between px-4 py-2 text-left text-xs text-slate-600 hover:bg-slate-50"
+                                          onClick={() => handleInviteSubmit(shareInviteTrim)}
+                                        >
+                                          Compartilhar com “{shareInviteTrim}”
+                                        </button>
+                                      </li>
+                                    )}
+                                  </ul>
+                                )}
+                              </div>
+                              <div className="relative mt-3 md:mt-0" ref={shareRoleDropdownRef}>
+                                <button
+                                  type="button"
+                                  disabled={!shareSelectedPeople.length}
+                                  className={`flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+                                    shareSelectedPeople.length
+                                      ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+                                      : "border-slate-200 text-slate-400"
+                                  }`}
+                                  onClick={() => shareSelectedPeople.length && setShareRoleDropdownOpen((prev) => !prev)}
+                                  aria-haspopup="menu"
+                                  aria-expanded={shareRoleDropdownOpen}
+                                >
+                                  {primaryInviteRoleLabel}
+                                  <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-400" aria-hidden="true">
+                                    <path d="M7 10l5 5 5-5H7z" fill="currentColor" />
+                                  </svg>
+                                </button>
+                                {shareRoleDropdownOpen && shareSelectedPeople.length > 0 && (
+                                  <div className="absolute right-0 top-full z-30 mt-2 w-48 rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl" role="menu">
+                                    {[
+                                      { value: "leitor", label: "Leitor" },
+                                      { value: "comentador", label: "Comentador" },
+                                      { value: "editor", label: "Editor" },
+                                    ].map((role) => (
+                                      <button
+                                        key={role.value}
+                                        type="button"
+                                        className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${
+                                          primaryInviteRole === role.value
+                                            ? "bg-slate-100 font-semibold text-slate-900"
+                                            : "text-slate-600 hover:bg-slate-50"
+                                        }`}
+                                        onClick={() => updateSelectedPeopleRole(role.value as "leitor" | "comentador" | "editor")}
+                                      >
+                                        <span
+                                          className={`flex h-4 w-4 items-center justify-center rounded-full border text-white ${
+                                            primaryInviteRole === role.value
+                                              ? "border-blue-500 bg-blue-500"
+                                              : "border-slate-300 bg-white text-transparent"
+                                          }`}
+                                        >
+                                          <svg viewBox="0 0 24 24" className="h-3 w-3" aria-hidden="true">
+                                            <path d="M6 12l4 4 8-8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </span>
+                                        {role.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={shareNotifyPeople}
+                              onChange={(e) => setShareNotifyPeople(e.target.checked)}
+                              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            Notificar pessoas
+                          </label>
+                          <textarea
+                            className="w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                            rows={3}
+                            placeholder="Mensagem"
+                            value={shareNotifyMessage}
+                            onChange={(e) => setShareNotifyMessage(e.target.value)}
+                          />
+                          <div className="flex items-center justify-between text-sm">
+                            <button
+                              type="button"
+                              className="rounded-full px-4 py-2 text-slate-500 hover:bg-slate-100"
+                              onClick={closeShareDialog}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-full bg-blue-600 px-6 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                              onClick={handleShareSend}
+                              disabled={!shareSelectedPeople.length}
+                            >
+                              Enviar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {previewLoading && (
+                <div className="flex h-[min(65vh,520px)] items-center justify-center text-xs uppercase tracking-[0.4em] text-slate-400 bg-[#111]">
+                  carregando player...
+                </div>
+              )}
+              {previewSrc && (
+                <main className="popup-content flex flex-1 items-center justify-center bg-[#111] p-4">
+                  <div className="video-container w-full max-w-[1280px] bg-black">
+                    <video
+                      src={previewSrc}
+                      className="video-element block w-full h-auto"
+                      controls
+                      autoPlay
+                      playsInline
+                    />
+                  </div>
+                </main>
+              )}
+              {!previewSrc && !previewLoading && (
+                <div className="flex h-[min(75vh,560px)] flex-col items-center justify-center gap-3 text-slate-400">
+                  <FileThumb className="h-12 w-12" />
+                  <p className="text-sm">Prévia indisponível</p>
+                  {previewError && <p className="text-xs text-rose-500">{previewError}</p>}
+                </div>
+              )}
             </div>
           </div>
         )}
       </main>
-      {playerOverlayOpen && previewSrc && (
-        <div
-          className={`fixed inset-0 z-[70] flex ${
-            playerSize === "mini" ? "items-end justify-end p-4" : "items-center justify-center p-6"
-          } bg-black/60 backdrop-blur-sm`}
-          role="dialog"
-          aria-modal="true"
-          aria-label={active?.name ? `${active.name} — Player` : "Player de gravações"}
-        >
-          <div className="absolute inset-x-0 top-6 flex items-center justify-between border-b border-white/10 bg-slate-950/80 px-6 py-2 text-white text-xs shadow-xl backdrop-blur-sm">
-            <div className="flex items-center gap-3">
-              <button className="text-lg leading-none" aria-label="Fechar player" onClick={closePlayerOverlay}>
-                ×
-              </button>
-              <span className="text-sm font-medium truncate max-w-[220px]" title={active?.name || "Gravação"}>
-                {active?.name || "Gravação"}
-              </span>
-            </div>
-            <div className="relative flex items-center justify-center">
-              <button
-                className="px-5 py-1 rounded-full border border-white/30 bg-slate-900 hover:bg-slate-800"
-                onClick={() => setAppsMenuOpen((prev) => !prev)}
-                aria-label="Abrir com"
-              >
-                Abrir com ▾
-              </button>
-              {appsMenuOpen && (
-                <div className="absolute left-1/2 top-full z-50 -translate-x-1/2 mt-2 w-56 rounded-xl bg-slate-900 border border-white/10 shadow-2xl">
-                  <div className="px-4 py-2 text-sm font-semibold border-b border-white/10">Aplicativos conectados</div>
-                  <button className="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-white/5">
-                    ☁ CloudConvert
-                  </button>
-                  <button className="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-white/5">
-                    📄 Copy, URL to Google Drive
-                  </button>
-                  <button className="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-white/5">
-                    ▶ Google Vids
-                  </button>
-                  <button className="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-white/5">
-                    + Conectar mais aplicativos
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="px-2 py-1 border border-white/20 rounded-full">+</span>
-              <span className="px-2 py-1 border border-white/20 rounded-full">⇩</span>
-              <span className="px-2 py-1 border border-white/20 rounded-full">?</span>
-              <button className="px-4 py-1 rounded-full bg-blue-600 text-white flex items-center gap-2">
-                <span>🔒</span> Compartilhar ▾
-              </button>
-            </div>
-          </div>
-          <div
-            className={`w-full ${
-              playerSize === "mini"
-                ? "max-w-[420px] min-h-[320px]"
-                : "max-w-[1024px] min-h-[520px] h-[min(90vh,660px)]"
-            } bg-white shadow flex flex-col overflow-hidden mt-12`}
-          >
-            <div className="flex flex-col flex-1 bg-slate-950 text-white text-xs">
-              <div className="relative flex-1 bg-black flex items-center justify-center group">
-                <video
-                  ref={playerVideoRef}
-                  src={previewSrc}
-                  className="h-full w-full object-contain bg-black"
-                  autoPlay
-                  playsInline
-                />
-                <div className="absolute inset-0 flex flex-col justify-end px-3 pb-3 pointer-events-none opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                  <div className="w-full pointer-events-auto space-y-2">
-                    <input
-                      type="range"
-                      min={0}
-                      max={duration || 0}
-                      value={currentTime}
-                      onChange={(e) => onTimelineChange(Number(e.target.value))}
-                      className="w-full h-1 accent-white"
-                      style={{ backgroundColor: "rgba(255,255,255,0.4)" }}
-                    />
-                    <div className="flex items-center justify-between text-xs text-white/80">
-                      <span>{new Date(currentTime * 1000).toISOString().substr(14, 5)}</span>
-                      <span>{new Date((duration || 0) * 1000).toISOString().substr(14, 5)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={togglePlay}
-                          className="h-12 px-6 rounded-full bg-white text-black flex items-center justify-center shadow-lg"
-                          aria-label={isPlaying ? "Pausar" : "Reproduzir"}
-                        >
-                          {isPlaying ? "❚❚" : "▶"}
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2 bg-black/70 rounded-full px-3 py-1 text-white text-xs">
-                        <button onClick={() => skip(-10)} aria-label="Voltar 10 segundos" className="text-lg">
-                          ↺
-                        </button>
-                        <button onClick={() => skip(10)} aria-label="Avançar 10 segundos" className="text-lg">
-                          ↻
-                        </button>
-                        <span>
-                          {new Date(currentTime * 1000).toISOString().substr(14, 5)} / {new Date((duration || 0) * 1000).toISOString().substr(14, 5)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button className="p-1 text-white/80 hover:text-white" aria-label="Volume">
-                          🔉
-                        </button>
-                        <button className="p-1 text-white/80 hover:text-white" aria-label="Legendas">
-                          CC
-                        </button>
-                        <button className="p-1 text-white/80 hover:text-white" aria-label="Velocidade">
-                          {speed}x
-                        </button>
-                        <button className="p-1 text-white/80 hover:text-white" aria-label="Configurações">
-                          ⚙
-                        </button>
-                        <button
-                          className="p-1 text-white/80 hover:text-white"
-                          aria-label="Tela cheia"
-                          onClick={() => {
-                            const video = playerVideoRef.current;
-                            if (video && video.requestFullscreen) video.requestFullscreen();
-                          }}
-                        >
-                          ⛶
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 /* ====== Componentes auxiliares ====== */
+function ContactAvatar({
+  person,
+  size = "md",
+}: {
+  person: { name?: string; email: string; avatarUrl?: string; color?: string };
+  size?: "sm" | "md";
+}) {
+  const dimension = size === "sm" ? "h-5 w-5 text-xs" : "h-9 w-9 text-sm";
+  const background = person.color || colorFromString(person.email);
+  const label = (person.name || person.email || "?").trim();
+  const initial = label.slice(0, 1).toUpperCase();
+  if (person.avatarUrl) {
+    const dimClass = size === "sm" ? "h-5 w-5" : "h-9 w-9";
+    return (
+      <img
+        src={person.avatarUrl}
+        alt={label}
+        className={`${dimClass} rounded-full object-cover`}
+      />
+    );
+  }
+  return (
+    <span
+      className={`flex ${dimension} items-center justify-center rounded-full font-semibold text-white`}
+      style={{ backgroundColor: background }}
+    >
+      {initial}
+    </span>
+  );
+}
+
 function ChipButton({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
   return (
     <button
@@ -1346,7 +2366,7 @@ function FileCard({
         video.src = url;
         video.muted = true;
         video.playsInline = true;
-        // Garantir o 1ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº frame: esperar metadata e fazer seek para 0 (com fallback 0.01)
+        // Garantir o 1º frame: esperar metadata e fazer seek para 0 (com fallback 0.01)
         await new Promise<void>((resolve) => {
           const onLoaded = () => {
             const onSeeked = () => resolve();
@@ -1435,7 +2455,7 @@ function FileCard({
       </div>
       <button className="w-full" onClick={() => { if (!isFolder(meta)) onOpen(); }} title={isFolder(meta) ? "Pasta" : "Abrir"}>
         {thumb && !isFolder(meta) ? (
-          <img src={thumb} alt="capa do vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­deo" className="aspect-video w-full object-cover" />
+          <img src={thumb} alt="capa do vídeo" className="aspect-video w-full object-cover" />
         ) : (
           <div className="aspect-video bg-slate-100 grid place-items-center">
             {isFolder(meta) ? (
@@ -1462,10 +2482,10 @@ function EmptyState({ onImport }: { onImport: () => void }) {
       <div className="max-w-sm space-y-2">
         <div className="flex items-center justify-center gap-2 text-slate-700">
           <LogoDrive className="h-6 w-6" />
-          <span className="font-medium">Seu Drive estÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ vazio</span>
+          <span className="font-medium">Seu Drive está vazio</span>
         </div>
         <p className="text-sm">
-          As gravaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âµes feitas no UpConect aparecem aqui automaticamente. VocÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âª tambÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©m pode importar arquivos locais.
+          As gravações feitas no UpConect aparecem aqui automaticamente. Você pode importar arquivos locais.
         </p>
         <div className="pt-2">
           <button
@@ -1536,7 +2556,7 @@ function SortMenu({ sortKey, sortDir, onChange }: { sortKey: SortKey; sortDir: S
   );
 }
 
-/* ---------- Menu de pessoas (filtro) ---------- */
+/* ====== 'ícones/visuais ====== */
 function PeopleMenu({
   query,
   onQuery,
@@ -1565,7 +2585,6 @@ function PeopleMenu({
   }, [items, selfEmail]);
 
   const filtered = emails.filter((e) => (query ? e.toLowerCase().includes(query.toLowerCase()) : true));
-  const myLabel = (selfEmail ?? "Você").charAt(0).toUpperCase();
 
   return (
     <div className="absolute z-50 top-[44px] left-0 w-80 rounded-xl bg-white ring-1 ring-slate-200 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -1585,45 +2604,32 @@ function PeopleMenu({
           className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-sm"
           onClick={() => onSelect({ kind: "me" })}
         >
-          <AvatarCircle label={myLabel} />
+          <AvatarCircle label={(selfEmail ?? "Você").charAt(0)} />
           <div className="min-w-0">
             <div className="truncate">Você</div>
             {selfEmail ? <div className="text-xs text-slate-600 truncate">{selfEmail}</div> : null}
           </div>
-          <span className="ml-auto text-xs text-slate-500">Minha conta</span>
+          <span className="ml-auto opacity-50"></span>
         </button>
         {filtered.map((e) => (
-          <button
-            key={e}
-            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-sm"
-            onClick={() => onSelect({ kind: "email", email: e })}
-          >
+          <button key={e} className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-sm" onClick={() => onSelect({ kind: "email", email: e })}>
             <AvatarCircle label={e.charAt(0).toUpperCase()} />
             <div className="min-w-0">
               <div className="truncate">{e}</div>
             </div>
-            <span className="ml-auto text-xs text-slate-500">Selecionar</span>
+            <span className="ml-auto opacity-50"></span>
           </button>
         ))}
       </div>
       <div className="border-t border-slate-200">
-        <button
-          className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-sm"
-          onClick={() => onSelect({ kind: "anyone" })}
-        >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-            <IconLink className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-slate-700">Qualquer pessoa com o link</div>
-            <div className="text-xs text-slate-500">Compartilhe o link para liberar o acesso</div>
-          </div>
+        <button className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-sm" onClick={() => onSelect({ kind: "anyone" })}>
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"></span>
+          <span>Qualquer pessoa com o link</span>
         </button>
       </div>
     </div>
   );
 }
-
 function AvatarCircle({ label }: { label: string }) {
   return (
     <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-slate-700 text-xs font-medium">
@@ -1632,6 +2638,44 @@ function AvatarCircle({ label }: { label: string }) {
   );
 }
 
+// ====== Filtros do Nav lateral
+function matchNav(meta: DriveRecordingMeta, nav: NavKey, selfEmail: string | null): boolean {
+  const notTrashSpam = !(meta as any).trashed && !(meta as any).spam;
+  switch (nav) {
+    case 'my': {
+      // Meu Drive deve mostrar tudo que não está na lixeira ou spam
+      return notTrashSpam;
+    }
+    case 'shared': {
+      const isShared = (!!(meta.people && meta.people.length) || !!meta.anyone);
+      return notTrashSpam && isShared;
+    }
+    case 'shared_drives': {
+      const isShared = (!!(meta.people && meta.people.length) || !!meta.anyone);
+      return notTrashSpam && isShared; // aproximação
+    }
+    case 'computers': {
+      const src = (meta.source || '').toLowerCase();
+      return notTrashSpam && (src === '' || src === 'local');
+    }
+    case 'recent': {
+      // 'úlyimos 30 dias (destaque inicial)
+      if (!notTrashSpam) return false;
+      const [from, to] = lastNDaysRange(30);
+      return meta.createdAt >= from && meta.createdAt <= to;
+    }
+    case 'starred':
+      return notTrashSpam && !!(meta as any).starred;
+    case 'spam':
+      return !!(meta as any).spam;
+    case 'trash':
+      return !!(meta as any).trashed;
+    case 'storage':
+      return true;
+    default:
+      return true;
+  }
+}
 function IconChevronDown({ className = "" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -1639,7 +2683,6 @@ function IconChevronDown({ className = "" }: { className?: string }) {
     </svg>
   );
 }
-
 function IconChevronRight({ className = "" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -2064,28 +3107,19 @@ function fmtDate(ts: number): string {
   }
 }
 function formatModifiedLabel(f: ModifiedFilter): string {
-  if (f.preset === "last7") return "Últimos 7 dias";
-  if (f.preset === "last30") return "Últimos 30 dias";
-  if (f.preset !== "custom") return labelForPreset(f);
-  if (typeof f.from === "number" && typeof f.to === "number") {
+  if (f.preset === 'last7') return "últimos 7 dias";
+  if (f.preset === 'last30') return "últimos 30 dias";
+  if (f.preset !== 'custom') return labelForPreset(f);
+  if (typeof f.from === 'number' && typeof f.to === 'number') {
     const yf = new Date(f.from).getFullYear();
     const yt = new Date(f.to).getFullYear();
     const sameYear = yf === yt;
-    const left = new Date(f.from).toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "short",
-      ...(sameYear ? {} : { year: "numeric" }),
-    });
-    const right = new Date(f.to).toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
+    const left = new Date(f.from).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+    const right = new Date(f.to).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
     return `${left} - ${right}`;
   }
   return labelForPreset(f);
 }
-
 function fallbackName(r: DriveRecordingMeta): string {
   return `Gravação (${fmtDate(r.createdAt)})`;
 }
@@ -2109,7 +3143,7 @@ const TYPE_OPTIONS: { key: TypeKey; label: string; icon: (p: { className?: strin
   { key: "forms",      label: "Formulários",    icon: (p) => <IconForm {...p} /> },
   { key: "images",     label: "Fotos e imagens",icon: (p) => <IconImage {...p} /> },
   { key: "pdfs",       label: "PDFs",           icon: (p) => <IconPDF {...p} /> },
-  { key: "videos",     label: "Vídeos",         icon: (p) => <IconVideoCam {...p} /> },
+  { key: "videos",     label: "Ví­deos",         icon: (p) => <IconVideoCam {...p} /> },
   { key: "archives",   label: "Arquivos (.zip)",icon: (p) => <IconZip {...p} /> },
   { key: "audio",      label: "Áudio",          icon: (p) => <IconAudio {...p} /> },
   { key: "drawings",   label: "Desenhos",       icon: (p) => <IconBrush {...p} /> },
@@ -2129,38 +3163,6 @@ function getExtFromName(name?: string): string {
   if (!name) return "";
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
-}
-
-// ====== Filtros do Nav lateral
-function matchNav(meta: DriveRecordingMeta, nav: NavKey, selfEmail: string | null): boolean {
-  const notTrashSpam = !(meta as any).trashed && !(meta as any).spam;
-  switch (nav) {
-    case "my":
-      return notTrashSpam;
-    case "shared":
-      return notTrashSpam && ((meta.people && meta.people.length > 0) || !!meta.anyone);
-    case "shared_drives":
-      return notTrashSpam && ((meta.people && meta.people.length > 0) || !!meta.anyone);
-    case "computers": {
-      const src = (meta.source || "").toLowerCase();
-      return notTrashSpam && (src === "" || src === "local");
-    }
-    case "recent": {
-      if (!notTrashSpam) return false;
-      const [from, to] = lastNDaysRange(30);
-      return meta.createdAt >= from && meta.createdAt <= to;
-    }
-    case "starred":
-      return notTrashSpam && !!(meta as any).starred;
-    case "spam":
-      return !!(meta as any).spam;
-    case "trash":
-      return !!(meta as any).trashed;
-    case "storage":
-      return true;
-    default:
-      return true;
-  }
 }
 
 function matchType(meta: DriveRecordingMeta, type: TypeKey): boolean {
@@ -2192,7 +3194,7 @@ function matchType(meta: DriveRecordingMeta, type: TypeKey): boolean {
     case "audio":
       return mime.startsWith("audio/") || AUDIO_EXT.has(ext);
     case "drawings":
-      return ext === "svg"; // aproximaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o
+      return ext === "svg"; // aproximação
     case "sites":
       return ext === "html" || ext === "htm";
     case "shortcuts":
@@ -2210,15 +3212,15 @@ function matchPeople(meta: DriveRecordingMeta, pf: PeopleFilter, selfEmail: stri
     const self = (selfEmail || "eu").toLowerCase();
     return owner === self || owner === "eu";
   }
-    if (pf.kind === "email") {
+  if (pf.kind === "email") {
     const em = pf.email.toLowerCase();
     if ((meta.owner || "").toLowerCase() === em) return true;
-    if (Array.isArray(meta.people)) return meta.people.some((p: string | undefined) => (p || "").toLowerCase() === em);
+    if (Array.isArray(meta.people)) return meta.people.some((p) => (p || "").toLowerCase() === em);
   }
   return true;
 }
 
-// ====== Filtro modificaÃƒÂ§ÃƒÂ£o (datas)
+// ====== Filtro modifica??o (datas)
 type ModifiedPreset = "all" | "today" | "last7" | "last30" | "thisYear" | "lastYear" | "custom";
 type ModifiedFilter = { preset: ModifiedPreset; from?: number; to?: number };
 
@@ -2246,16 +3248,30 @@ function labelForPreset(f: ModifiedFilter): string {
   const y = new Date().getFullYear();
   switch (f.preset) {
     case "today": return "Hoje";
-    case "last7": return "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ltimos 7 dias";
-    case "last30": return "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ltimos 30 dias";
+    case "last7": return "últimos 7 dias";
+    case "last30": return "últimos 30 dias";
     case "thisYear": return `Este ano (${y})`;
     case "lastYear": return `Ano passado (${y-1})`;
-    case "custom": return "PerÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo personalizado";
+    case "custom": return "Período Personalizado";
     default: return "Todos";
   }
 }
 
 // ====== Fonte (Gmail/Meet)
+function formatSourceLabel(src?: string): string {
+  if (!src) return "Não informado";
+  switch (src.toLowerCase()) {
+    case "gmail":
+      return "Gmail";
+    case "meet":
+      return "Google Meet";
+    case "upconect":
+      return "UpConect";
+    default:
+      return `${src.charAt(0).toUpperCase()}${src.slice(1)}`;
+  }
+}
+
 function matchSource(meta: DriveRecordingMeta, s: SourceKey): boolean {
   if (s === 'all') return true;
   const src = (meta.source || '').toLowerCase();
@@ -2303,12 +3319,12 @@ function ModifiedMenu({ tmp, onTmpChange, from, to, onFrom, onTo, onApply, onCan
         <div className="grid grid-cols-[220px_1fr]">
           <div className="p-1">
             <Item label="Hoje" sel={tmp.preset === 'today'} onClick={() => { onTmpChange({ preset: 'today' }); onQuick?.({ preset: 'today' }); }} />
-            <Item label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ltimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
-            <Item label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ltimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
+            <Item label="últimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
+            <Item label="últimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
             <Item label={`Este ano (${y})`} sel={tmp.preset === 'thisYear'} onClick={() => { onTmpChange({ preset: 'thisYear' }); onQuick?.({ preset: 'thisYear' }); }} />
             <Item label={`Ano passado (${y-1})`} sel={tmp.preset === 'lastYear'} onClick={() => { onTmpChange({ preset: 'lastYear' }); onQuick?.({ preset: 'lastYear' }); }} />
             <div className={`px-3 py-2 rounded-lg bg-slate-100`}>
-              <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>PerÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo personalizado</button>
+              <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>Período personalizado</button>
             </div>
           </div>
           <div className="border-l border-slate-200 p-3">
@@ -2321,12 +3337,12 @@ function ModifiedMenu({ tmp, onTmpChange, from, to, onFrom, onTo, onApply, onCan
       ) : (
         <div className="p-1">
           <Item label="Hoje" sel={tmp.preset === 'today'} onClick={() => { onTmpChange({ preset: 'today' }); onQuick?.({ preset: 'today' }); }} />
-          <Item label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ltimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
-          <Item label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ltimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
+          <Item label="últimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
+          <Item label="últimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
           <Item label={`Este ano (${y})`} sel={tmp.preset === 'thisYear'} onClick={() => { onTmpChange({ preset: 'thisYear' }); onQuick?.({ preset: 'thisYear' }); }} />
           <Item label={`Ano passado (${y-1})`} sel={tmp.preset === 'lastYear'} onClick={() => { onTmpChange({ preset: 'lastYear' }); onQuick?.({ preset: 'lastYear' }); }} />
           <div className={`px-3 py-2 rounded-lg hover:bg-slate-100`}>
-            <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>PerÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo personalizado</button>
+            <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>Período personalizado</button>
           </div>
         </div>
       )}
@@ -2339,13 +3355,13 @@ function ModifiedMenu({ tmp, onTmpChange, from, to, onFrom, onTo, onApply, onCan
   );
 }
 function SidebarNav({ selfEmail, active, onFilter }: { selfEmail: string | null; active: NavKey; onFilter: (k: NavKey) => void }) {
-// Comparador central de ordenaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o
+// Comparador central de ordenação
 function compareRows(a: DriveRecordingMeta, b: DriveRecordingMeta): number {
   // Pastas primeiro (opcional)
   try {
-    // foldersTop e sortKey/sortDir estÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o em escopo do componente via closure; se nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o, caÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mos no padrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o
+    // foldersTop e sortKey/sortDir estão em escopo do componente via closure; se não estiver definido, no padrão
   } catch {}
-  // Implementado dentro do componente; esta declaraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© substituÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­da abaixo via closure
+  // Implementado dentro do componente; esta declaração substituição abaixo via closure
   return 0;
 }
   const Item = ({ k, label, icon }: { k: NavKey; label: string; icon: JSX.Element }) => (
@@ -2377,7 +3393,18 @@ function compareRows(a: DriveRecordingMeta, b: DriveRecordingMeta): number {
 // ====== Calendário compacto (custom) ======
 function CalendarCompact({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const months = [
-  'janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
   ];
   const selected = useMemo(() => {
     if (!value) return null;
@@ -2420,8 +3447,8 @@ function CalendarCompact({ label, value, onChange }: { label: string; value: str
       <div className="flex items-center justify-between mb-1">
         <div className="text-sm font-medium capitalize">{months[month]} de {year}</div>
         <div className="inline-flex gap-1">
-          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month - 1, 1))} aria-label="MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªs anterior">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¹</button>
-          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month + 1, 1))} aria-label="PrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ximo mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªs">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº</button>
+          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month - 1, 1))} aria-label="Mês anterior"></button>
+          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month + 1, 1))} aria-label="Próximo mês"></button>
         </div>
       </div>
       <div className="text-[11px] grid grid-cols-7 gap-1 text-center text-slate-500 mb-1">

@@ -2,19 +2,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCourseBySlug } from "@/data/courses";
-import dynamic from "next/dynamic";
-
-// Player client-side
-const PlayerWithRouting = dynamic(
-  () => import("@/components/PlayerWithRouting").then((m) => m.default),
-  { ssr: false }
-);
-
-// Sidebar client-side (abas, check de concluído, menu, rolagem)
-const DisciplineSidebar = dynamic(
-  () => import("@/components/DisciplineSidebar").then((m) => m.default),
-  { ssr: false }
-);
+import PlayerWithRouting from "@/components/PlayerWithRouting";
+import DisciplineSidebar from "@/components/DisciplineSidebar";
 
 type Props = {
   params: { course: string; discipline: string; lesson: string };

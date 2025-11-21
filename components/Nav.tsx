@@ -41,11 +41,6 @@ function meetUrl(email?: string | null) {
     ? `https://meet.google.com/?authuser=${encodeURIComponent(email)}`
     : `https://meet.google.com/`;
 }
-function driveUrl(email?: string | null) {
-  return email
-    ? `https://drive.google.com/drive/?authuser=${encodeURIComponent(email)}`
-    : `https://drive.google.com/drive/`;
-}
 
 export default function Nav() {
   const pathname = usePathname();
@@ -86,7 +81,7 @@ export default function Nav() {
     { title: "Gmail",    href: gmailUrl(email), external: true, icon: <IconGmail className="h-8 w-8" /> },
     { title: "Meet",     href: meetUrl(email),  external: true, icon: <IconMeet className="h-8 w-8" /> },
     { title: "Contatos", href: "/contatos",                       icon: <IconContacts className="h-8 w-8" /> },
-    { title: "Drive",    href: driveUrl(email), external: true,   icon: <IconDrive className="h-8 w-8" /> },
+    { title: "Drive",    href: "/drive",                        icon: <IconDrive className="h-8 w-8" /> },
   ];
 
   const APPS_PRODUCTIVITY: AppItem[] = [
@@ -111,17 +106,17 @@ export default function Nav() {
       {/* NAVBAR */}
       <nav className="sticky top-0 z-50 bg-white border-b border-slate-200">
         <div className="mx-auto w-full max-w-7xl px-6 py-2 flex items-center gap-4">
-          <Link href="/" className="no-underline select-none leading-none" aria-label="Upgrade — Início">
+          <Link href="/" className="no-underline select-none leading-none" aria-label="Knexit — Início">
             <span className="inline-flex items-baseline gap-1">
-              <span className="text-rose-500 text-3xl md:text-4xl font-black tracking-tight">UP</span>
-              <span className="text-slate-900 text-3xl md:text-4xl font-black tracking-tight">GRADE</span>
+              <span className="text-rose-500 text-3xl md:text-4xl font-black tracking-tight">KN</span>
+              <span className="text-slate-900 text-3xl md:text-4xl font-black tracking-tight">EXIT</span>
             </span>
           </Link>
 
           <div className="flex-1 flex items-center justify-center">
             <p className="text-base md:text-lg text-slate-900 text-center">
-              <span className="font-semibold text-rose-600">Assinatura ilimitada:</span>{" "}
-              comece hoje e mude sua vida para sempre!
+              <span className="font-semibold text-rose-600">Knexit:</span>{" "}
+              ecossistema central para autenticação, billing, integração e um painel único.
             </p>
           </div>
 
@@ -203,7 +198,7 @@ export default function Nav() {
                         href="/apps"
                         className="flex items-center justify-center gap-2 rounded-full border border-slate-300 bg-slate-50 hover:bg-slate-100 px-4 py-2 text-sm font-medium text-indigo-700 no-underline"
                       >
-                        <span>Mais do Upgrade</span>
+                        <span>Mais do Knexit</span>
                         <span aria-hidden>→</span>
                       </Link>
                     </div>

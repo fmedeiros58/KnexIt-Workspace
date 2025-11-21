@@ -3,8 +3,8 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Upgrade",
-  description: "UFAC / NIEAD",
+  title: "Knexit",
+  description: "Ecossistema central — autenticação, billing, integração e painel único",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -17,4 +17,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-

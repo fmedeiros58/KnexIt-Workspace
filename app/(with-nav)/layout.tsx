@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Nav from "@/components/Nav"; // mantém o import do seu componente
 
 export const metadata: Metadata = {
-  title: "Upgrade",
+  title: "Knexit",
 };
 
 export default function WithNavLayout({ children }: { children: React.ReactNode }) {

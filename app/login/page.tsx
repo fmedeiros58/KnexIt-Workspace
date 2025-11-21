@@ -51,7 +51,7 @@ export default function LoginPage() {
   }, [postAuthRedirect]);
 
   useEffect(() => {
-    if (typeof document !== "undefined") document.title = "UPGRADE | Identificação";
+    if (typeof document !== "undefined") document.title = "KNEXIT | Identificação";
   }, []);
 
   // -------- Ações --------
@@ -343,7 +343,7 @@ export default function LoginPage() {
             <a
               href="/reclame-aqui"
               className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 py-2"
-              title="ReclameAQUI — UPGRADE"
+              title="ReclameAQUI — KNEXIT"
             >
               <RASeal />
               <span className="text-xs text-neutral-700 leading-tight">
@@ -377,7 +377,7 @@ export default function LoginPage() {
 
         <div className="border-t border-neutral-200 bg-neutral-100">
           <div className="mx-auto max-w-5xl px-4 py-3 text-[11px] text-neutral-500">
-            UPGRADE — 2025 © Todos os direitos reservados ®
+            KNEXIT — 2025 © Todos os direitos reservados ®
           </div>
         </div>
       </section>
