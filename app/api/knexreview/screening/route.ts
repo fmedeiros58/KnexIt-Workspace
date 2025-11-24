@@ -17,4 +17,5 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "recordId e decision são obrigatórios" }, { status: 400 });
   }
   return NextResponse.json({ ok: true, record: { ...body, decidedAt: new Date().toISOString() } });
-}
+}
+

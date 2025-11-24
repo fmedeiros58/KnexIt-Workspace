@@ -1,4 +1,1 @@
-"use client";
-
-export { default } from "../../../violive/web/agenda/page";
-
+export { default, metadata } from "../../../violive/web/agenda/page";

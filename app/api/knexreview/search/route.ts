@@ -28,4 +28,5 @@ export async function POST(req: NextRequest) {
 
   const deduped = deduplicate(allResults);
   return NextResponse.json({ results: deduped, bySource });
-}
+}
+
