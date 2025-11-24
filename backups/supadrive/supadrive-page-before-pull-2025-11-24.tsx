@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
@@ -10,7 +11,7 @@ import {
   saveFolder,
   patchRecording,
   type DriveRecordingMeta,
-} from "../lib/recstore";
+} from "@/lib/recstore";
 
 type ShareContact = {
   id: string;
@@ -80,7 +81,7 @@ type TypeKey =
   | "sites"
   | "shortcuts";
 type PeopleFilter = { kind: "all" } | { kind: "me" } | { kind: "anyone" } | { kind: "email"; email: string };
-type SourceKey = "all" | "gmail" | "meet" | "violive";
+type SourceKey = "all" | "gmail" | "meet" | "upconect";
 type NavKey =
   | "my"
   | "shared_drives"
@@ -711,7 +712,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
           : active?.id ?? shareId ?? null;
       if (!targetId) return;
       const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const shareUrl = `${origin}/supadrive/viewer/${targetId}`;
+      const shareUrl = `${origin}/upconect/drive/share/${targetId}`;
       try {
         if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(shareUrl);
@@ -778,11 +779,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     [],
   );
   const handleInviteSubmit = useCallback(
-    (value?: string | ReactMouseEvent<HTMLButtonElement>) => {
-      if (value && typeof value !== "string") {
-        value.preventDefault();
-        value.stopPropagation();
-      }
+    (value?: string) => {
       const inputValue = typeof value === "string" ? value : shareInviteQuery;
       const trimmed = inputValue.trim();
       if (!trimmed) return;
@@ -847,12 +844,12 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
-      {/* Top bar estilo SupaDrive */}
+      {/* Top bar estilo Drive */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200">
         <div className="px-4 md:px-6 h-16 flex items-center gap-4">
           <a href="/" className="flex items-center gap-2 no-underline text-slate-900">
             <LogoDrive className="h-6 w-6" />
-            <span className="font-medium">SupaDrive</span>
+            <span className="font-medium">Drive</span>
           </a>
           <div className="flex-1">
             <div className="rounded-full bg-slate-100 ring-1 ring-slate-200 flex items-center h-11 px-3">
@@ -860,7 +857,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Pesquise no SupaDrive"
+                placeholder="Pesquise no Drive"
                 className="bg-transparent outline-none text-sm px-3 w-full"
               />
               <button className="inline-flex items-center justify-center h-8 w-8 rounded-full hover:bg-slate-200" title="Filtros">
@@ -892,11 +889,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
       </header>
 
       <div className="border-b border-slate-200" />
-      <main
-        className={`px-4 md:px-6 py-4 grid gap-6 items-start ${
-          showInfo ? "grid-cols-[280px_minmax(0,1fr)_360px]" : "grid-cols-[280px_minmax(0,1fr)]"
-        }`}
-      >
+      <main className={`px-4 md:px-6 py-4 grid gap-6 ${showInfo ? "grid-cols-[280px_1fr_360px]" : "grid-cols-[280px_1fr]"}`}>
         {/* Sidebar esquerda */}
         <aside className="min-w-0">
           <div className="sticky top-[4.5rem] space-y-3">
@@ -950,6 +943,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                             <MenuItem icon={<IconBrush className="h-4 w-4" />} label="Desenhos Google" onClick={() => window.open('https://drawings.google.com','_blank')} />
                             <MenuItem icon={<IconMapPin className="h-4 w-4" />} label="Google My Maps" onClick={() => window.open('https://mymaps.google.com','_blank')} />
                             <MenuItem icon={<IconGlobe className="h-4 w-4" />} label="Google Sites" onClick={() => window.open('https://sites.google.com/new','_blank')} />
+                            <MenuItem icon={<IconLink className="h-4 w-4" />} label="Copy, URL to Google Drive" onClick={() => window.open('https://drive.google.com','_blank')} />
                             <MenuItem icon={<IconScript className="h-4 w-4" />} label="Script do Google Apps" onClick={() => window.open('https://script.google.com/home/start','_blank')} />
                           </div>
                           <div className="border-t border-slate-200" />
@@ -972,7 +966,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold text-slate-900">Meu SupaDrive</h1>
+                <h1 className="text-xl font-semibold text-slate-900">Meu Drive</h1>
                 <IconChevronDown className="h-4 w-4 text-slate-500" />
               </div>
               {/* Chips de filtro */}
@@ -1132,7 +1126,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                         setSourceOpen(next);
                       }}
                     >
-                      {sourceFilter === "all" ? "Fonte" : `Fonte: ${sourceFilter === 'gmail' ? 'Gmail' : sourceFilter === 'meet' ? 'Meet' : 'VioLive'}`}
+                      {sourceFilter === "all" ? "Fonte" : `Fonte: ${sourceFilter === 'gmail' ? 'Gmail' : sourceFilter === 'meet' ? 'Meet' : 'UpConect'}`}
                       <IconChevronDown className="h-3.5 w-3.5 text-slate-500" />
                     </button>
                     {sourceFilter !== 'all' && (
@@ -1156,9 +1150,9 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                         <IconMeet className="h-5 w-5" />
                         <span>Meet</span>
                       </button>
-                      <button className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-slate-100 text-sm ${sourceFilter==='violive'?'bg-slate-100':''}`} onClick={() => { setSourceFilter('violive'); setSourceOpen(false); }}>
-                        <IconVioLive className="h-5 w-5" />
-                        <span>VioLive</span>
+                      <button className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-slate-100 text-sm ${sourceFilter==='upconect'?'bg-slate-100':''}`} onClick={() => { setSourceFilter('upconect'); setSourceOpen(false); }}>
+                        <IconUpConect className="h-5 w-5" />
+                        <span>UpConect</span>
                       </button>
                     </div>
                   )}
@@ -2489,10 +2483,10 @@ function EmptyState({ onImport }: { onImport: () => void }) {
       <div className="max-w-sm space-y-2">
         <div className="flex items-center justify-center gap-2 text-slate-700">
           <LogoDrive className="h-6 w-6" />
-          <span className="font-medium">Seu SupaDrive está vazio</span>
+          <span className="font-medium">Seu Drive está vazio</span>
         </div>
         <p className="text-sm">
-          As gravações feitas no VioLive aparecem aqui automaticamente. Você pode importar arquivos locais.
+          As gravações feitas no UpConect aparecem aqui automaticamente. Você pode importar arquivos locais.
         </p>
         <div className="pt-2">
           <button
@@ -2650,7 +2644,7 @@ function matchNav(meta: DriveRecordingMeta, nav: NavKey, selfEmail: string | nul
   const notTrashSpam = !(meta as any).trashed && !(meta as any).spam;
   switch (nav) {
     case 'my': {
-      // Meu SupaDrive deve mostrar tudo que não está na lixeira ou spam
+      // Meu Drive deve mostrar tudo que não está na lixeira ou spam
       return notTrashSpam;
     }
     case 'shared': {
@@ -3013,7 +3007,7 @@ function IconMeet({ className = "" }: { className?: string }) {
     </svg>
   );
 }
-function IconVioLive({ className = "" }: { className?: string }) {
+function IconUpConect({ className = "" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden>
       <circle cx="12" cy="12" r="10" fill="#4f46e5" />
@@ -3272,8 +3266,8 @@ function formatSourceLabel(src?: string): string {
       return "Gmail";
     case "meet":
       return "Google Meet";
-    case "VioLive":
-      return "VioLive";
+    case "upconect":
+      return "UpConect";
     default:
       return `${src.charAt(0).toUpperCase()}${src.slice(1)}`;
   }
@@ -3282,9 +3276,9 @@ function formatSourceLabel(src?: string): string {
 function matchSource(meta: DriveRecordingMeta, s: SourceKey): boolean {
   if (s === 'all') return true;
   const src = (meta.source || '').toLowerCase();
-  if (s === 'violive') {
+  if (s === 'upconect') {
     // compat: alguns itens antigos foram salvos como 'meet'
-    return src === 'violive' || src === 'meet';
+    return src === 'upconect' || src === 'meet';
   }
   return src === s;
 }
@@ -3382,8 +3376,8 @@ function compareRows(a: DriveRecordingMeta, b: DriveRecordingMeta): number {
   );
   return (
     <nav className="text-sm">
-      <Item k="my" label="Meu SupaDrive" icon={<IconFolder className="h-4 w-4" />} />
-      <Item k="shared_drives" label="SupaDrives compartilhados" icon={<IconGlobe className="h-4 w-4" />} />
+      <Item k="my" label="Meu Drive" icon={<IconFolder className="h-4 w-4" />} />
+      <Item k="shared_drives" label="Drives compartilhados" icon={<IconGlobe className="h-4 w-4" />} />
       <Item k="computers" label="Computadores" icon={<IconComputer className="h-4 w-4" />} />
       <Item k="shared" label="Compartilhados comigo" icon={<IconUsers className="h-4 w-4" />} />
       <Item k="recent" label="Recentes" icon={<IconClock className="h-4 w-4" />} />
@@ -3511,7 +3505,6 @@ function DateField({ label, value, onChange }: { label: string; value: string; o
     </div>
   );
 }
-
 
 
 

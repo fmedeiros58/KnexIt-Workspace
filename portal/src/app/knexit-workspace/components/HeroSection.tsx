@@ -13,24 +13,29 @@ const HERO_APPS = [
 const ICONS: Record<string, { fg?: string; node: ReactElement }> = {
   play: { fg: "text-indigo-700", node: <path fill="currentColor" d="M9 7.5v9l7-4.5-7-4.5Z" /> },
   live: {
+    fg: "text-rose-700",
     node: (
-      <g>
-        <rect x="3" y="7" width="11" height="10" rx="2" fill="#1A73E8" />
-        <rect x="5" y="6" width="11" height="10" rx="2" fill="#FBBC04" />
-        <rect x="6" y="8" width="11" height="10" rx="2" fill="#34A853" />
-        <path d="M15.5 9.75 21 12.2l-5.5 2.45v-4.9Z" fill="#0F9D58" />
-        <circle cx="11" cy="13" r="2" fill="white" />
-      </g>
+      <>
+        <rect x="2.4" y="2.4" width="19.2" height="19.2" rx="5.6" fill="white" />
+        <rect x="4.6" y="10.1" width="11.8" height="8.2" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="7.2" cy="6.1" r="1.9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="13.1" cy="5.5" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M19.8 12.2 16.4 13.0v1.6l3.4 0.8Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </>
     ),
   },
   folder: { fg: "text-amber-700", node: <path fill="currentColor" d="M4 6h5l2 2h9v10H4V6Z" /> },
   doc: {
     fg: "text-sky-700",
     node: (
-      <path
-        fill="currentColor"
-        d="M7 4h7l4 4v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm6 1.5V9h3.5L13 5.5Zm-5 6h8v1.5H8Zm0 3h5v1.5H8Z"
-      />
+      <>
+        <path fill="currentColor" d="M6.5 4h7l3.5 3.5V18a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm7 0v3.5H17L13.5 4Z" />
+        <rect x="8" y="9" width="6.5" height="1.2" rx="0.6" fill="white" fillOpacity="0.85" />
+        <rect x="8" y="11" width="5.2" height="1.2" rx="0.6" fill="white" fillOpacity="0.75" />
+        <rect x="8" y="13" width="4.2" height="1.2" rx="0.6" fill="white" fillOpacity="0.65" />
+        <circle cx="15.5" cy="15.5" r="1.4" fill="white" fillOpacity="0.9" />
+        <circle cx="17.6" cy="14.9" r="1.4" fill="white" fillOpacity="0.75" />
+      </>
     ),
   },
   brain: {
@@ -47,7 +52,7 @@ function AppIcon({ icon }: { icon: string }) {
   const cfg = ICONS[icon];
   if (!cfg) return null;
   if (icon === "live") {
-    return <svg viewBox="0 0 24 24" className="h-12 w-12" aria-hidden>{cfg.node}</svg>;
+    return <svg viewBox="0 0 24 24" className={`h-12 w-12 ${cfg.fg ?? ""}`} aria-hidden>{cfg.node}</svg>;
   }
   return (
     <svg viewBox="0 0 24 24" className={`h-12 w-12 ${cfg.fg ?? ""}`} aria-hidden>

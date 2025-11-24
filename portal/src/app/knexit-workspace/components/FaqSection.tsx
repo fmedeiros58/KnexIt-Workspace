@@ -35,9 +35,9 @@ export default function FaqSection() {
   return (
     <section className="bg-white py-12">
       <div className="mx-auto max-w-5xl space-y-6 px-4 md:px-6">
-        <div className="space-y-2">
+        <div className="space-y-2 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Perguntas frequentes</h2>
-          <p className="text-lg text-slate-600">Destaques sobre operacao, adocao e uso combinado com IA.</p>
+          <p className="text-lg text-slate-600 max-w-3xl mx-auto">Destaques sobre operacao, adocao e uso combinado com IA.</p>
         </div>
         <div className="space-y-3">
           {FAQ_ITEMS.map((item) => {
