@@ -9,8 +9,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as MailCampaign | null;
   if (!body?.id || !body.name || !body.templateId) {
-    return NextResponse.json({ error: "id, name e templateId s„o obrigatÛrios" }, { status: 400 });
+    return NextResponse.json({ error: "id, name e templateId s√£o obrigat√≥rios" }, { status: 400 });
   }
   const saved = saveCampaign(body);
   return NextResponse.json({ campaign: saved });
-}
+}

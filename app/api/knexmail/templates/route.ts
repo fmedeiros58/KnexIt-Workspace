@@ -9,8 +9,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as MailTemplate | null;
   if (!body?.id || !body.name || !body.subject) {
-    return NextResponse.json({ error: "id, name e subject s„o obrigatÛrios" }, { status: 400 });
+    return NextResponse.json({ error: "id, name e subject s√£o obrigat√≥rios" }, { status: 400 });
   }
   const saved = saveTemplate({ ...body, updatedAt: new Date().toISOString() });
   return NextResponse.json({ template: saved });
-}
+}

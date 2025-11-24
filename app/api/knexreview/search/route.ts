@@ -7,7 +7,7 @@ import type { GenericSearchStrategy, SearchResultRecord, SourceId } from "@/lib/
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { strategy?: GenericSearchStrategy; sources?: SourceId[] } | null;
   if (!body?.strategy || !Array.isArray(body.sources)) {
-    return NextResponse.json({ error: "strategy e sources s„o obrigatÛrios" }, { status: 400 });
+    return NextResponse.json({ error: "strategy e sources s√£o obrigat√≥rios" }, { status: 400 });
   }
   const enabled = getEnabledSources(process.env);
   const wanted = new Set(body.sources);
@@ -28,4 +28,4 @@ export async function POST(req: NextRequest) {
 
   const deduped = deduplicate(allResults);
   return NextResponse.json({ results: deduped, bySource });
-}
+}

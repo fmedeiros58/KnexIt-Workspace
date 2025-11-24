@@ -2,11 +2,11 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import type { ScreeningRecord } from "@/lib/knexreview/types";
 
-// TODO: persistir decisıes em Supabase; aqui apenas ecoa a entrada.
+// TODO: persistir decis√µes em Supabase; aqui apenas ecoa a entrada.
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as ScreeningRecord | null;
   if (!body?.recordId || !body.decision) {
-    return NextResponse.json({ error: "recordId e decision s„o obrigatÛrios" }, { status: 400 });
+    return NextResponse.json({ error: "recordId e decision s√£o obrigat√≥rios" }, { status: 400 });
   }
   return NextResponse.json({ ok: true, record: { ...body, decidedAt: new Date().toISOString() } });
 }
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as ScreeningRecord | null;
   if (!body?.recordId || !body.decision) {
-    return NextResponse.json({ error: "recordId e decision s„o obrigatÛrios" }, { status: 400 });
+    return NextResponse.json({ error: "recordId e decision s√£o obrigat√≥rios" }, { status: 400 });
   }
   return NextResponse.json({ ok: true, record: { ...body, decidedAt: new Date().toISOString() } });
-}
+}

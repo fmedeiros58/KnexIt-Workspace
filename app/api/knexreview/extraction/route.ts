@@ -5,7 +5,7 @@ import type { ExtractionRecord } from "@/lib/knexreview/types";
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as ExtractionRecord | null;
   if (!body?.recordId || !Array.isArray(body.fields)) {
-    return NextResponse.json({ error: "recordId e fields s„o obrigatÛrios" }, { status: 400 });
+    return NextResponse.json({ error: "recordId e fields s√£o obrigat√≥rios" }, { status: 400 });
   }
   return NextResponse.json({ ok: true, record: { ...body, updatedAt: new Date().toISOString() } });
-}
+}
