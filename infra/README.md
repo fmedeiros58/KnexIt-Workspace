@@ -1,4 +1,4 @@
-﻿# KnexIT Infra
+# KnexIT Infra
 
 Stack de infraestrutura que orquestra os serviços do ecossistema KnexIT Workspace. Centraliza arquivos Docker, composição local, roteamento Nginx, scripts e pipelines de deploy.
 
@@ -11,4 +11,4 @@ Stack de infraestrutura que orquestra os serviços do ecossistema KnexIT Workspa
 ## Uso rápido
 1. Configure `.env` com URLs do `auth` e demais serviços.
 2. Execute `docker compose -f docker/docker-compose.dev.yml up`.
-3. O proxy Nginx ficará disponível em `https://workspace.localhost`, roteando para `portal`, `upgrade`, `supadrive`, `viohub` e `auth`.
+3. O proxy Nginx ficará disponível em `https://workspace.localhost`, roteando para `portal`, `vioclass`, `violive`, `supadrive`, `viohub` e `auth`.

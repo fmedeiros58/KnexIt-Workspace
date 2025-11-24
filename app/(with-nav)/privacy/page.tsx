@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 /** ======== CONFIGURÁVEIS (preencha antes de publicar) ======== */
 const ORG_NAME = "NOME DA SUA EMPRESA LTDA";
-const APP_NAME = "Knexit";
+const APP_NAME = "KnexIT";
 const SUPPORT_EMAIL = "contato@SEU_DOMINIO.com";
 const DPO_EMAIL = "dpo@SEU_DOMINIO.com";
 const SITE_URL = "https://SEU_DOMINIO.com";

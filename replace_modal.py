@@ -1,5 +1,5 @@
-﻿from pathlib import Path
-path = Path('app/(no-nav)/upconect/drive/page.tsx')
+from pathlib import Path
+path = Path('supadrive/web/page.tsx')
 text = path.read_text(encoding='utf-8')
 start = text.index('        {playerOpen && active && (')
 end = text.index('        )}', start)
@@ -23,7 +23,7 @@ new = '''        {playerOpen && active && (
                     class="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-semibold uppercase tracking-wide shadow"
                     aria-label="Fechar player"
                   >
-                    ✕
+                    ?
                   </button>
                   <div class="flex gap-2">
                     <button
@@ -31,14 +31,14 @@ new = '''        {playerOpen && active && (
                       title="Editar nome do arquivo"
                       type="button"
                     >
-                      ✏️
+                      ??
                     </button>
                     <button
                       class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white transition hover:bg-white/20"
-                      title="Mais ações"
+                      title="Mais a??es"
                       type="button"
                     >
-                      ⋮
+                      ?
                     </button>
                   </div>
                 </div>
@@ -63,7 +63,7 @@ new = '''        {playerOpen && active && (
               {!previewSrc && !previewLoading && (
                 <div class="flex h-[min(75vh,560px)] flex-col items-center justify-center gap-3 text-slate-400">
                   <FileThumb className="h-12 w-12" />
-                  <p className="text-sm">Prévia indisponível</p>
+                  <p className="text-sm">Pr?via indispon?vel</p>
                   {previewError && <p className="text-xs text-rose-500">{previewError}</p>}
                 </div>
               )}
