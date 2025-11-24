@@ -8,4 +8,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "recordId e fields são obrigatórios" }, { status: 400 });
   }
   return NextResponse.json({ ok: true, record: { ...body, updatedAt: new Date().toISOString() } });
-}
+}
+
