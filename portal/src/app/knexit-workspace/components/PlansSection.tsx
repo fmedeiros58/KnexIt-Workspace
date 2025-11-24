@@ -72,42 +72,143 @@ const PLANS: Plan[] = [
 
 export default function PlansSection() {
   const ICONS = {
-    play: { bg: "bg-indigo-100", fg: "text-indigo-700", path: <path fill="currentColor" d="M9 7.5v9l7-4.5-7-4.5Z" /> },
+    play: {
+      bg: "bg-indigo-100",
+      fg: "text-indigo-700",
+      path: (
+        <>
+          <rect x="2.8" y="2.8" width="18.4" height="18.4" rx="5.2" fill="white" />
+          <rect x="5.2" y="5.8" width="13.6" height="8.6" rx="1.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
+          <circle cx="12" cy="9.9" r="1.7" fill="currentColor" />
+          <rect x="10.4" y="11.7" width="3.2" height="2.8" rx="0.8" fill="currentColor" />
+          <rect x="5.2" y="16.1" width="13.6" height="1.7" rx="0.7" fill="currentColor" />
+          <rect x="6.1" y="17.9" width="1.6" height="1.3" rx="0.3" fill="currentColor" />
+          <rect x="9.3" y="17.9" width="1.6" height="1.3" rx="0.3" fill="currentColor" />
+          <rect x="12.5" y="17.9" width="1.6" height="1.3" rx="0.3" fill="currentColor" />
+          <rect x="15.7" y="17.9" width="1.6" height="1.3" rx="0.3" fill="currentColor" />
+        </>
+      ),
+    },
     live: {
       bg: "bg-rose-100",
       fg: "text-rose-700",
       path: (
-        <g>
-          <rect x="3" y="7" width="11" height="10" rx="2" fill="#1A73E8" />
-          <rect x="5" y="6" width="11" height="10" rx="2" fill="#FBBC04" />
-          <rect x="6" y="8" width="11" height="10" rx="2" fill="#34A853" />
-          <path d="M15.5 9.75 21 12.2l-5.5 2.45v-4.9Z" fill="#0F9D58" />
-          <circle cx="11" cy="13" r="2" fill="white" />
-        </g>
+        <>
+          <rect x="2.4" y="2.4" width="19.2" height="19.2" rx="5.6" fill="white" />
+          <rect x="4.6" y="10.1" width="11.8" height="8.2" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="7.2" cy="6.1" r="1.9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="13.1" cy="5.5" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M19.8 12.2 16.4 13.0v1.6l3.4 0.8Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </>
       ),
     },
     folder: { bg: "bg-amber-100", fg: "text-amber-700", path: <path fill="currentColor" d="M4 6h5l2 2h9v10H4V6Z" /> },
+    supadrive: {
+      bg: "bg-blue-100",
+      fg: "text-blue-700",
+      path: (
+        <>
+          <path fill="currentColor" d="M4 6h5l2 2h9v10H4V6Z" />
+          <path
+            d="M8.5 13.5c0-.9.7-1.6 1.6-1.6.6 0 1.1.3 1.8 1l.2.2.2-.2c.7-.7 1.2-1 1.8-1 1 0 1.7.7 1.7 1.6s-.7 1.6-1.7 1.6c-.6 0-1.1-.3-1.8-1l-.2-.2-.2.2c-.7.7-1.2 1-1.8 1-.9 0-1.6-.7-1.6-1.6Z"
+            fill="none"
+            stroke="white"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
+      ),
+    },
     doc: {
       bg: "bg-sky-100",
       fg: "text-sky-700",
       path: (
-        <path
-          fill="currentColor"
-          d="M7 4h7l4 4v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm6 1.5V9h3.5L13 5.5Zm-5 6h8v1.5H8Zm0 3h5v1.5H8Z"
-        />
+        <>
+          <path
+            fill="currentColor"
+            d="M6.5 4h7l3.5 3.5V18a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm7 0v3.5H17L13.5 4Z"
+          />
+          <rect x="8" y="9" width="6.5" height="1.2" rx="0.6" fill="white" fillOpacity="0.85" />
+          <rect x="8" y="11" width="5.2" height="1.2" rx="0.6" fill="white" fillOpacity="0.75" />
+          <rect x="8" y="13" width="4.2" height="1.2" rx="0.6" fill="white" fillOpacity="0.65" />
+          <circle cx="15.5" cy="15.5" r="1.4" fill="white" fillOpacity="0.9" />
+          <circle cx="17.6" cy="14.9" r="1.4" fill="white" fillOpacity="0.75" />
+        </>
       ),
     },
     kanban: { bg: "bg-emerald-100", fg: "text-emerald-700", path: <path fill="currentColor" d="M5 5h14v14H5V5Zm2 2.5v9h2v-9H7Zm4 0v4h2v-4h-2Zm4 0v6.5h2v-6.5h-2Z" /> },
-    chat: {
-      bg: "bg-teal-100",
-      fg: "text-teal-700",
-      path: <path fill="currentColor" d="M5 5h14v9H9l-4 4V5Zm2.5 3.5v1.5h9V8.5h-9Zm0 3v1.5h6V11.5h-6Z" />,
-    },
-    search: {
-      bg: "bg-purple-100",
-      fg: "text-purple-700",
-      path: <path fill="currentColor" d="M11 4a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm5.5 11.1 3.4 3.4-1.4 1.4-3.4-3.4 1.4-1.4Z" />,
-    },
+  chat: {
+    bg: "bg-teal-100",
+    fg: "text-teal-700",
+    path: <path fill="currentColor" d="M5 5h14v9H9l-4 4V5Zm2.5 3.5v1.5h9V8.5h-9Zm0 3v1.5h6V11.5h-6Z" />,
+  },
+  review: {
+    bg: "bg-emerald-100",
+    fg: "text-emerald-700",
+    path: (
+      <>
+        <path fill="currentColor" d="M7 4h7l4 4v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm7 0v4h4l-4-4Z" />
+        <rect x="8.2" y="10" width="6" height="1.1" rx="0.55" fill="white" fillOpacity="0.85" />
+        <rect x="8.2" y="12" width="4.5" height="1.1" rx="0.55" fill="white" fillOpacity="0.7" />
+        <circle cx="16.8" cy="16.2" r="1.8" fill="white" fillOpacity="0.95" />
+        <path d="m16.1 16.2 0.8 0.8 1.6-1.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </>
+    ),
+  },
+  analytics: {
+    bg: "bg-cyan-100",
+    fg: "text-cyan-700",
+    path: (
+      <>
+        <path fill="currentColor" d="M6.5 5h11a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 17.5v-11A1.5 1.5 0 0 1 6.5 5Z" />
+        <rect x="7.5" y="12.8" width="1.8" height="4.2" rx="0.6" fill="white" />
+        <rect x="10.1" y="11.2" width="1.8" height="5.8" rx="0.6" fill="white" fillOpacity="0.85" />
+        <rect x="12.7" y="9.7" width="1.8" height="7.3" rx="0.6" fill="white" fillOpacity="0.7" />
+        <rect x="15.3" y="8.5" width="1.8" height="8.5" rx="0.6" fill="white" fillOpacity="0.55" />
+      </>
+    ),
+  },
+  read: {
+    bg: "bg-indigo-100",
+    fg: "text-indigo-700",
+    path: (
+      <>
+        <path fill="currentColor" d="M7 4h7l4 4v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm7 0v4h4l-4-4Z" />
+        <rect x="7.2" y="9.3" width="6.3" height="1.1" rx="0.55" fill="white" fillOpacity="0.85" />
+        <rect x="7.2" y="11.3" width="4.9" height="1.1" rx="0.55" fill="white" fillOpacity="0.7" />
+        <path fill="white" fillOpacity="0.9" d="M7.2 14.3h3.3c.3 0 .58.26.58.58v2.5c0 .32-.28.58-.58.58H7.2c-.32 0-.58-.26-.58-.58v-2.5c0-.32.26-.58.58-.58Z" />
+        <path fill="white" d="M11.4 15.1 13.3 16.1 11.4 17.2Z" />
+        <path d="M13.6 14.8c.55.28.85.74.85 1.35s-.3 1.07-.85 1.35" stroke="white" strokeWidth="1" strokeLinecap="round" />
+        <path d="M15.0 14.4c.75.36 1.1.93 1.1 1.77 0 .84-.35 1.41-1.1 1.77" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </>
+    ),
+  },
+  record: {
+    bg: "bg-red-100",
+    fg: "text-red-700",
+    path: (
+      <>
+        <rect x="5.5" y="5.5" width="13" height="13" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
+        <circle cx="12" cy="12" r="3.4" fill="currentColor" />
+      </>
+    ),
+  },
+  edit: {
+    bg: "bg-red-100",
+    fg: "text-red-700",
+    path: (
+      <g fill="currentColor">
+        <path d="M5 5h9v2H5v10h10v-5h2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
+        <path d="M19.7 5.3 17.2 2.8a1 1 0 0 0-1.4 0L13 5.6V9h3.4l2.9-2.9a1 1 0 0 0 0-1.4Z" />
+      </g>
+    ),
+  },
+  search: {
+    bg: "bg-purple-100",
+    fg: "text-purple-700",
+    path: <path fill="currentColor" d="M11 4a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm5.5 11.1 3.4 3.4-1.4 1.4-3.4-3.4 1.4-1.4Z" />,
+  },
     brain: {
       bg: "bg-fuchsia-100",
       fg: "text-fuchsia-700",
@@ -128,12 +229,12 @@ export default function PlansSection() {
   const APPS = [
     { name: "VioClass", slug: "vioclass", icon: "play" as const },
     { name: "VioLive", slug: "violive", icon: "live" as const },
-    { name: "VioRecord", slug: "viorecord", icon: "play" as const },
-    { name: "VioStudio", slug: "viostudio", icon: "play" as const },
-    { name: "VioAnalytics", slug: "vioanalytics", icon: "doc" as const },
-    { name: "SupaDrive", slug: "supadrive", icon: "folder" as const },
-    { name: "VioRead", slug: "vioread", icon: "doc" as const },
-    { name: "KnexReview", slug: "knexreview", icon: "doc" as const },
+    { name: "VioRecord", slug: "viorecord", icon: "record" as const },
+    { name: "VioStudio", slug: "viostudio", icon: "edit" as const },
+    { name: "VioAnalytics", slug: "vioanalytics", icon: "analytics" as const },
+    { name: "SupaDrive", slug: "supadrive", icon: "supadrive" as const },
+    { name: "VioRead", slug: "vioread", icon: "read" as const },
+    { name: "KnexReview", slug: "knexreview", icon: "review" as const },
     { name: "KnexDocs", slug: "knexdocs", icon: "doc" as const },
     { name: "KnexFlow", slug: "knexflow", icon: "kanban" as const },
     { name: "KnexChat", slug: "knexchat", icon: "chat" as const },
@@ -147,8 +248,8 @@ export default function PlansSection() {
     const cfg = ICONS[icon];
     return (
       <div className="flex flex-col items-center gap-2">
-        <div className={`inline-flex h-20 w-20 items-center justify-center rounded-2xl ${cfg.bg}`}>
-          <svg viewBox="0 0 24 24" className={`h-11 w-11 ${cfg.fg}`} aria-hidden>
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm">
+          <svg viewBox="0 0 24 24" className={`h-17 w-17 ${cfg.fg}`} aria-hidden style={{ transform: "translateX(0.5px)" }}>
             {cfg.path}
           </svg>
         </div>

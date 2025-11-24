@@ -29,9 +29,9 @@ export default function BenefitsSection() {
   return (
     <section className="bg-slate-50 py-12">
       <div className="mx-auto max-w-6xl space-y-6 px-4 md:px-6">
-        <div className="space-y-2">
+        <div className="space-y-2 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Por que escolher o KnexIT Workspace?</h2>
-          <p className="text-lg text-slate-600">
+          <p className="text-lg text-slate-600 max-w-3xl mx-auto">
             Suite completa para ensino, pesquisa e colaboracao com IA conectada aos seus conteudos.
           </p>
         </div>

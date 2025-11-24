@@ -149,7 +149,7 @@ export default function Player({
       v.removeEventListener("ended", onEnded);
       v.removeEventListener("pause", onTime);
     };
-  }, [kind, storageKey, onNext]);
+  }, [kind, storageKey, onNext, rate]);
 
   useEffect(() => {
     if (kind !== "mux") return;
@@ -211,7 +211,7 @@ export default function Player({
         ytPlayerRef.current = null;
       } catch {}
     };
-  }, [kind, youtubeId, onNext]);
+  }, [kind, youtubeId, onNext, storageKey]);
 
   useEffect(() => {
     if (kind === "youtube" && ytPlayerRef.current?.setPlaybackRate) {
@@ -752,6 +752,5 @@ export default function Player({
     </div>
   );
 }
-
 
 

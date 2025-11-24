@@ -26,6 +26,12 @@
     "paths": {
       "@/*": [
         "*"
+      ],
+      "@/lib/recstore": [
+        "supadrive/lib/recstore"
+      ],
+      "@/types/drive-recording": [
+        "supadrive/types/drive-recording"
       ]
     }
   },
@@ -38,6 +44,7 @@
   ],
   "exclude": [
     "node_modules",
-    "app/api/livekit-token/route.ts"
+    "app/api/livekit-token/route.ts",
+    "backups"
   ]
 }
