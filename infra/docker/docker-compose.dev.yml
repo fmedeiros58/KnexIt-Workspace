@@ -1,4 +1,4 @@
-﻿version: "3.9"
+version: "3.9"
 services:
   portal:
     build:
@@ -10,11 +10,16 @@ services:
       context: ../auth
     ports:
       - "4000:4000"
-  upgrade:
+  vioclass:
     build:
-      context: ../upgrade
+      context: ../vioclass
     ports:
       - "3200:3200"
+  violive:
+    build:
+      context: ../violive
+    ports:
+      - "3400:3400"
   supadrive:
     build:
       context: ../supadrive
@@ -24,4 +29,4 @@ services:
     build:
       context: ../viohub
     ports:
-      - "3400:3400"
+      - "3500:3500"

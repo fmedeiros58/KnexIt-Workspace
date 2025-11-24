@@ -3,7 +3,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Knexit",
+  title: "KnexIT",
   description: "Ecossistema central — autenticação, billing, integração e painel único",
 };
 

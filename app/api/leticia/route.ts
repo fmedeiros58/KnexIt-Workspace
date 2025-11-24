@@ -1,11 +1,11 @@
-// app/api/leticia/route.ts
+﻿// app/api/leticia/route.ts
 import { NextRequest } from "next/server";
 
-export const runtime = "nodejs"; // necessário para streaming e (futuro) node-llama-cpp
+export const runtime = "nodejs"; // necessÃ¡rio para streaming e (futuro) node-llama-cpp
 
 /** GET: healthcheck */
 export async function GET() {
-  return new Response("Tudo certo! O endpoint /api/leticia está funcionando.", {
+  return new Response("Tudo certo! O endpoint /api/leticia estÃ¡ funcionando.", {
     status: 200,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
@@ -16,15 +16,15 @@ export async function POST(req: NextRequest) {
   try {
     const { prompt = "", history = [] } = await req.json().catch(() => ({ prompt: "", history: [] }));
 
-    // --- MODO MOCK (útil para confirmar que o front consome stream) ---
-    // Ative temporariamente definindo LETICIA_MOCK=1 no .env.local (ativo por padrão em desenvolvimento)
+    // --- MODO MOCK (Ãºtil para confirmar que o front consome stream) ---
+    // Ative temporariamente definindo LETICIA_MOCK=1 no .env.local (ativo por padrÃ£o em desenvolvimento)
     const useMock = process.env.LETICIA_MOCK === "1" || (process.env.LETICIA_MOCK !== "0" && process.env.NODE_ENV !== "production");
     if (useMock) {
       const encoder = new TextEncoder();
       const text =
-        "Olá! Eu sou a Letícia (modo teste). 🌟\n" +
+        "OlÃ¡! Eu sou a LetÃ­cia (modo teste). ðŸŒŸ\n" +
         "Recebi sua mensagem: \"" + String(prompt).slice(0, 200) + "\".\n" +
-        "Se você está vendo este texto aparecer aos poucos, o streaming está OK.\n";
+        "Se vocÃª estÃ¡ vendo este texto aparecer aos poucos, o streaming estÃ¡ OK.\n";
       let i = 0;
 
       const stream = new ReadableStream<Uint8Array>({
@@ -49,10 +49,10 @@ export async function POST(req: NextRequest) {
 
     // --- MOTOR LOCAL: vLLM via API OpenAI-compatible ---
     const baseUrl = process.env.VLLM_BASE_URL || "http://127.0.0.1:8000/v1";
-    const apiKey = process.env.VLLM_API_KEY || "EMPTY"; // vLLM aceita qualquer token por padrão
+    const apiKey = process.env.VLLM_API_KEY || "EMPTY"; // vLLM aceita qualquer token por padrÃ£o
     const model = process.env.VLLM_MODEL || "meta-llama/Meta-Llama-3-8B-Instruct";
 
-    const sys = "Você é a L.E.T.I.C.I.A., IA nativa do ecossistema Knexit. Fale PT-BR, seja clara, respeitosa e objetiva.";
+    const sys = "VocÃª Ã© a L.E.T.I.C.I.A., IA nativa do ecossistema KnexIT. Fale PT-BR, seja clara, respeitosa e objetiva.";
     const messages = [
       { role: "system", content: sys },
       { role: "user", content: String(prompt ?? "") }
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
 
 
     // Se chegou aqui, nem MOCK nem motor foram usados
-    return new Response(JSON.stringify({ message: "LETICIA_MOCK não habilitado e motor não configurado." }), {
+    return new Response(JSON.stringify({ message: "LETICIA_MOCK nÃ£o habilitado e motor nÃ£o configurado." }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
@@ -118,3 +118,4 @@ export async function POST(req: NextRequest) {
     });
   }
 }
+

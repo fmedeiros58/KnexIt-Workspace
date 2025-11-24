@@ -1,10 +1,10 @@
 const fs = require('fs');
 
-const input = 'app/(no-nav)/upconect/drive/page.bkp.tsx'; // arquivo zoado (backup)
-const output = 'app/(no-nav)/upconect/drive/page.tsx';    // arquivo que vamos sobrescrever
+const input = 'supadrive/web/page.bkp.tsx'; // backup file with mojibake
+const output = 'supadrive/web/page.tsx';    // target file to overwrite
 
-const s = fs.readFileSync(input, 'utf8');                 // lê o texto mojibake
-const fixed = Buffer.from(s, 'latin1').toString('utf8');  // tentativa de "desmojibake"
+const s = fs.readFileSync(input, 'utf8');
+const fixed = Buffer.from(s, 'latin1').toString('utf8');
 
-fs.writeFileSync(output, fixed, 'utf8');                  // grava corrigido em UTF-8
-console.log('Tentativa de correção concluída em', output);
+fs.writeFileSync(output, fixed, 'utf8');
+console.log('Attempted mojibake fix at', output);

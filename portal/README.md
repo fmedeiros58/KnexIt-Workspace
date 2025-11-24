@@ -1,13 +1,13 @@
 # KnexIT Workspace Portal
 
-Portal web que concentra login, onboarding e o dashboard geral do ecossistema. Este serviÁo È construÌdo em Node.js/Next.js e consome o SSO exposto por `../auth`.
+Portal web que concentra login, onboarding e o dashboard geral do ecossistema. Este servi√ßo √© constru√≠do em Node.js/Next.js e consome o SSO exposto por `../auth`.
 
 ## Estrutura
 - `src/`: hooks, contextos e utilidades do portal.
-- `pages/`: p·ginas p˙blicas (login, recuperaÁ„o de senha) e privadas (dashboard, cards de acesso).
+- `pages/`: p√°ginas p√∫blicas (login, recupera√ß√£o de senha) e privadas (dashboard, cards de acesso).
 - `routes/`: handlers de API internos ou proxies para outros produtos.
 - `components/`: UI compartilhada.
-- `services/`: SDKs para conversar com `auth`, `upgrade`, `supadrive`, etc.
+- `services/`: SDKs para conversar com `auth`, `violive`, `supadrive`, etc.
 
 ## Desenvolvimento
 ```bash
@@ -15,5 +15,7 @@ cd portal
 npm install
 npm run dev
 ```
-Defina as vari·veis de ambiente para apontar para o endpoint de `auth` (`AUTH_BASE_URL`) e para cada produto.
+Defina as vari√°veis de ambiente para apontar para o endpoint de `auth` (`AUTH_BASE_URL`) e para cada produto.
+
+
 

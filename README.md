@@ -1,6 +1,6 @@
-# Knexit ‚Äî Ecossistema central / autentica√ß√£o / billing / integra√ß√£o / painel √∫nico
+# KnexIT ó Ecossistema central / autenticaÁ„o / billing / integraÁ„o / painel ˙nico
 
-Template com Next.js 14 + Tailwind + Supabase para autentica√ß√£o por e-mail (link m√°gico), p√°ginas base e componentes para v√≠deo e quest√µes.
+Template com Next.js 14 + Tailwind + Supabase para autenticaÁ„o por e-mail (link m·gico), p·ginas base e componentes para vÌdeo e questıes.
 
 ## Como rodar
 
@@ -13,26 +13,24 @@ Template com Next.js 14 + Tailwind + Supabase para autentica√ß√£o por e-mail (li
 
 ## Deploy (Vercel)
 
-- Fa√ßa login na Vercel e importe este reposit√≥rio.
-- Crie um projeto no Supabase e copie URL/Anon Key para as vari√°veis de ambiente do projeto na Vercel.
-- Configure provedor de v√≠deo (Mux/Vimeo) e pagamentos (Mercado Pago) quando for integrar de fato.
+- FaÁa login na Vercel e importe este repositÛrio.
+- Crie um projeto no Supabase e copie URL/Anon Key para as vari·veis de ambiente do projeto na Vercel.
+- Configure provedor de vÌdeo (Mux/Vimeo) e pagamentos (Mercado Pago) quando for integrar de fato.
 
 ## Estrutura
 
-- `app/` ‚Äî rotas (Home, Login, Dashboard, Lessons, Questions)
-- `components/` ‚Äî Player, Nav, Pricing, QuestionCard
-- `lib/` ‚Äî cliente do Supabase
-- `app/globals.css` ‚Äî Tailwind
+- `app/` ó rotas (Home, Login, Dashboard, Lessons, Questions)
+- `components/` ó Player, Nav, Pricing, QuestionCard
+- `lib/` ó cliente do Supabase
+- `app/globals.css` ó Tailwind
 
-> Este √© um ponto de partida minimalista. A partir daqui d√° para adicionar: planos/assinaturas, trilhas, filtros de quest√µes, perfis, RBAC etc.
+> Este È um ponto de partida minimalista. A partir daqui d· para adicionar: planos/assinaturas, trilhas, filtros de questıes, perfis, RBAC etc.
 
-
-### Let√≠cia (chat) ‚Äî modo mock
+### LetÌcia (chat) ó modo mock
 - Para testar o streaming sem modelo local, use o modo mock.
-- J√° est√° ativo por padr√£o em desenvolvimento. Em produ√ß√£o, defina LETICIA_MOCK=1 em vari√°veis de ambiente, ou configure o motor local.
-
+- J· est· ativo por padr„o em desenvolvimento. Em produÁ„o, defina LETICIA_MOCK=1 em vari·veis de ambiente, ou configure o motor local.
 
 ### Motor local com vLLM
 - Suba o servidor: `python -m vllm.entrypoints.openai.api_server --model <modelo> --host 127.0.0.1 --port 8000`
 - Defina env: VLLM_BASE_URL, VLLM_API_KEY (se houver), VLLM_MODEL
-- Em produ√ß√£o, defina LETICIA_MOCK=0 para usar o vLLM.
+- Em produÁ„o, defina LETICIA_MOCK=0 para usar o vLLM.

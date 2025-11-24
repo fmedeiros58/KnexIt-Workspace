@@ -1,18 +1,19 @@
-﻿# KnexIT Workspace
+# KnexIT Workspace
 
 KnexIT Workspace é um ecossistema modular baseado em microserviços, projetado para reunir todos os produtos digitais sob um único ambiente seguro. Cada módulo opera de forma independente, mas compartilha autenticação, padrões de integração e bibliotecas internas expostas pelo serviço `auth/` e pelo pacote `core/`.
 
 ## Produtos e serviços
 
-| Serviço     | Descrição | Principais módulos |
-|-------------|-----------|--------------------|
-| `portal/`   | Porta de entrada, painel unificado, integração com SSO | `src`, `routes`, `components`, `services` |
-| `upgrade/`  | Plataforma educacional | `routes`, `controllers`, `models`, `services` |
-| `supadrive/`| Armazenamento e streaming (origin + encoder HLS + CDN) | `api`, `encoder`, `uploader`, `player` |
-| `viohub/`   | Produção audiovisual e gestão de vídeos | `src`, `controllers`, `routes`, `services` |
-| `auth/`     | Autenticação centralizada (SSO / JWT) | `src`, `routes`, `controllers`, `services` |
-| `core/`     | Biblioteca compartilhada (config, middlewares, utilitários) | `config`, `utils`, `database`, `shared` |
-| `infra/`    | Infraestrutura (Docker, CI/CD, Nginx, deploy) | `docker`, `nginx`, `scripts`, `deploy` |
+| Serviço    | Descrição                                        | Principais módulos                          |
+|------------|--------------------------------------------------|---------------------------------------------|
+| `portal/`  | Porta de entrada, painel unificado, SSO          | `src`, `routes`, `components`, `services`   |
+| `vioclass/`| Educação (fundamental, médio, superior, concursos) | `routes`, `controllers`, `models`, `services` |
+| `violive/` | Videoconferência (ex-UpConect)                   | `web`, `src` (Fastify stub)                 |
+| `supadrive/` | Armazenamento e streaming (origin + CDN)       | `api`, `encoder`, `uploader`, `player`, `web`, `lib`, `types` |
+| `viohub/`  | Produção audiovisual e gestão de vídeos          | `src`, `controllers`, `routes`, `services`  |
+| `auth/`    | Autenticação centralizada (SSO / JWT)            | `src`, `routes`, `controllers`, `services`  |
+| `core/`    | Biblioteca compartilhada                         | `config`, `utils`, `database`, `shared`     |
+| `infra/`   | Infraestrutura (Docker, Nginx, CI/CD)            | `docker`, `nginx`, `scripts`, `deploy`      |
 
 ## Integração
 - Todos os microsserviços expõem APIs REST/GraphQL autenticadas via tokens emitidos por `auth/`.

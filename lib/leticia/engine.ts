@@ -1,4 +1,4 @@
-import path from "path";
+﻿import path from "path";
 import { Llama, LlamaModel, LlamaContext, LlamaChatSession } from "node-llama-cpp";
 
 // Caminho do modelo local (.gguf)
@@ -11,13 +11,13 @@ let context: LlamaContext | null = null;
 
 // Prompt de sistema da Leticia
 const SYSTEM_PROMPT =
-  "Você é a L.E.T.I.C.I.A., IA nativa do ecossistema Knexit. " +
-  "Fale em português do Brasil, seja clara, respeitosa e objetiva. " +
+  "VocÃª Ã© a L.E.T.I.C.I.A., IA nativa do ecossistema KnexIT. " +
+  "Fale em portuguÃªs do Brasil, seja clara, respeitosa e objetiva. " +
   "Seja consistente com o contexto quando fornecido.";
 
 export async function getLeticiaSession() {
   if (!llama) {
-    // gpu: "auto" tenta usar GPU se disponível; mude para "cpu" se preferir
+    // gpu: "auto" tenta usar GPU se disponÃ­vel; mude para "cpu" se preferir
     // constructor may be private in the installed types; cast to any to call at runtime if available
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     llama = new (Llama as any)({ gpu: "auto" });
@@ -36,3 +36,4 @@ export async function getLeticiaSession() {
   } as any);
   return session;
 }
+
