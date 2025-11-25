@@ -13,14 +13,31 @@ const newTemplate = (): MailTemplate => ({
   name: "",
   subject: "",
   body: "",
+  bodyHtml: "",
   variables: [],
   description: "",
+  updatedAt: new Date().toISOString(),
 });
 
 export default function TemplateEditor({ template, onSave }: Props) {
-  const [draft, setDraft] = useState<MailTemplate>(template || newTemplate());
+  const [draft, setDraft] = useState<MailTemplate>(
+    template
+      ? {
+          ...template,
+          body: template.body ?? template.bodyHtml ?? "",
+          bodyHtml: template.bodyHtml ?? template.body ?? "",
+        }
+      : newTemplate(),
+  );
 
-  const update = (patch: Partial<MailTemplate>) => setDraft({ ...draft, ...patch, updatedAt: new Date().toISOString() });
+  const update = (patch: Partial<MailTemplate>) =>
+    setDraft((prev) => {
+      const next = { ...prev, ...patch };
+      if (patch.body !== undefined) next.bodyHtml = patch.bodyHtml ?? patch.body;
+      if (patch.bodyHtml !== undefined) next.body = patch.body ?? patch.bodyHtml;
+      next.updatedAt = new Date().toISOString();
+      return next;
+    });
 
   const parseVariables = (text: string) => {
     const vars = Array.from(text.matchAll(/{{\s*([\w.]+)\s*}}/g)).map((m) => m[1]);
@@ -39,10 +56,10 @@ export default function TemplateEditor({ template, onSave }: Props) {
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="text-xs font-semibold text-slate-600">Descrição</span>
+          <span className="text-xs font-semibold text-slate-600">Descricao</span>
           <input
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            value={draft.description || ""}
+            value={draft.description ?? ""}
             onChange={(e) => update({ description: e.target.value })}
           />
         </label>
@@ -62,14 +79,16 @@ export default function TemplateEditor({ template, onSave }: Props) {
         <textarea
           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
           rows={6}
-          value={draft.body}
-          onChange={(e) => update({ body: e.target.value, variables: parseVariables(e.target.value) })}
-          placeholder="<p>Olá {{nome}}</p>"
+          value={draft.bodyHtml ?? draft.body ?? ""}
+          onChange={(e) =>
+            update({ body: e.target.value, bodyHtml: e.target.value, variables: parseVariables(e.target.value) })
+          }
+          placeholder="<p>Ola {{nome}}</p>"
         />
       </label>
 
       <div className="flex items-center gap-2 text-xs text-slate-600">
-        Variáveis detectadas: {draft.variables.length ? draft.variables.join(", ") : "nenhuma"}
+        Variaveis detectadas: {draft.variables?.length ? draft.variables.join(", ") : "nenhuma"}
       </div>
 
       <div className="flex justify-end">
@@ -83,4 +102,3 @@ export default function TemplateEditor({ template, onSave }: Props) {
     </div>
   );
 }
-

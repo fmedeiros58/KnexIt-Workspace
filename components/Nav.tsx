@@ -67,8 +67,9 @@ export default function Nav() {
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
+  const currentPath = pathname ?? "";
   const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+    href === "/" ? currentPath === "/" : currentPath.startsWith(href);
   const userInitial = email?.charAt(0)?.toUpperCase() ?? "U";
 
   /* ============ APPS (agrupados por seÃ§Ãµes) ============ */
