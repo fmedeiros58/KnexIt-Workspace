@@ -1,4 +1,4 @@
-﻿import jwt from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import type { User } from "../models/user";
 
 const secret = process.env.JWT_SECRET ?? "change-me";
@@ -15,7 +15,7 @@ export const tokenService = {
     return { accessToken, refreshToken };
   },
   refresh(token: string) {
-    const payload = jwt.verify(token, refreshSecret) as jwt.JwtPayload;
+    const payload = jwt.verify(token, refreshSecret) as JwtPayload;
     return this.issue({ id: payload.sub as string, email: "", name: "", roles: [] });
   },
   fromAuthHeader(header?: string) {
