@@ -77,7 +77,7 @@ export default function LeticiaPage() {
 
     setPending(true);
     try {
-      const res = await fetch("/api/leticia", {
+      const res = await fetch("/api/knexai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: userMsg.content, history: toHistory(messages) }),
@@ -162,7 +162,7 @@ export default function LeticiaPage() {
             </h1>
             <p className="text-slate-500 text-sm">
               Faça uma pergunta e aguarde a resposta.{" "}
-              <Link href="/api/leticia" className="underline decoration-dotted">
+              <Link href="/api/knexai" className="underline decoration-dotted">
                 Endpoint
               </Link>{" "}
               ativo.
