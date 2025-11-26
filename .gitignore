@@ -14,4 +14,6 @@ models/
 .vscode/
 .DS_Store
 Thumbs.db
+dev*.out
+dev*.err
 
