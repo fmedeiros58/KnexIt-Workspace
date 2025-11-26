@@ -271,7 +271,11 @@ export default function PlansSection() {
 
         <div className="flex flex-wrap items-center justify-center gap-4">
           {APPS.map((app) => (
-            <a key={app.slug} href={`/${app.slug}`} className="flex flex-col items-center gap-2 hover:scale-105 transition">
+            <a
+              key={app.slug}
+              href={`/lobby/${app.slug}`}
+              className="flex flex-col items-center gap-2 hover:scale-105 transition"
+            >
               <IconBadge icon={app.icon} label={app.name} />
             </a>
           ))}

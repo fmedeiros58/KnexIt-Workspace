@@ -8,6 +8,7 @@ import PlansSection from "./components/PlansSection";
 import ProductsStrip from "./components/ProductsStrip";
 import SecuritySection from "./components/SecuritySection";
 import UseCasesSection from "./components/UseCasesSection";
+import FooterSection from "./components/FooterSection";
 
 export default function KnexItWorkspacePage() {
   const headerProducts = [
@@ -144,6 +145,7 @@ export default function KnexItWorkspacePage() {
       <UseCasesSection />
       <FaqSection />
       <FinalCtaSection />
+      <FooterSection />
     </main>
   );
 }
