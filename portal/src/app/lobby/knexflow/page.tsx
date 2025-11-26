@@ -1,23 +1,17 @@
-import LobbyPage from "../../../components/LobbyPage";
+import HeroSection from "./components/HeroSection";
+import ProblemsSection from "./components/ProblemsSection";
+import AudienceSection from "./components/AudienceSection";
+import FeaturesSection from "./components/FeaturesSection";
+import CtaSection from "./components/CtaSection";
 
 export default function KnexFlowLobby() {
   return (
-    <LobbyPage
-      slug="knexflow"
-      title="KnexFlow"
-      headline="Orquestração e automações entre apps da suíte."
-      intro="Modele gatilhos e ações integrando aulas, arquivos, IA e comunicação em um só fluxo."
-      problems={[
-        "Automatizar tarefas entre produtos sem scripts manuais.",
-        "Acionar avisos, uploads ou registros a partir de eventos.",
-        "Ter rastreabilidade de execuções e fluxos.",
-      ]}
-      features={[
-        "Gatilhos e ações configuráveis entre produtos KnexIT.",
-        "Quadros/kanban para visualizar fluxos.",
-        "Base para integrações externas futuras.",
-      ]}
-      audiences={["Operações acadêmicas", "TI/automação", "Times de produto"]}
-    />
+    <main className="bg-white text-slate-900">
+      <HeroSection />
+      <ProblemsSection />
+      <AudienceSection />
+      <FeaturesSection />
+      <CtaSection />
+    </main>
   );
 }

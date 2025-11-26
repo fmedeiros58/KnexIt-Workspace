@@ -1,23 +1,17 @@
-import LobbyPage from "../../../components/LobbyPage";
+import HeroSection from "./components/HeroSection";
+import ProblemsSection from "./components/ProblemsSection";
+import AudienceSection from "./components/AudienceSection";
+import FeaturesSection from "./components/FeaturesSection";
+import CtaSection from "./components/CtaSection";
 
 export default function VioStudioLobby() {
   return (
-    <LobbyPage
-      slug="viostudio"
-      title="VioStudio"
-      headline="Edição e pós-produção online para aulas e lives."
-      intro="Refine cortes, legendas e exports para publicar no VioClass ou SupaDrive."
-      problems={[
-        "Editar e montar aulas gravadas sem sair do navegador.",
-        "Padronizar cortes e legendas para vídeos educacionais.",
-        "Exportar versões prontas para aulas, lives e replays.",
-      ]}
-      features={[
-        "Linha do tempo simples para cortes e ajustes rápidos.",
-        "Legendas e marcação de capítulos.",
-        "Exportações prontas para VioClass, SupaDrive ou compartilhamento.",
-      ]}
-      audiences={["Equipes de mídia", "Professores criadores", "Times de marketing/treinamento"]}
-    />
+    <main className="bg-white text-slate-900">
+      <HeroSection />
+      <ProblemsSection />
+      <AudienceSection />
+      <FeaturesSection />
+      <CtaSection />
+    </main>
   );
 }

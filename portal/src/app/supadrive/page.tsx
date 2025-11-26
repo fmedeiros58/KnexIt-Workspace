@@ -1,4 +1,4 @@
-import ProductLobby from "../../components/ProductLobby";
+import ProductLobby from "./components/ProductLobby";
 
 export default function SupaDrivePage() {
   return (

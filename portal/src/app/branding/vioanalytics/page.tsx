@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../vioanalytics/components/BrandingPage";
 
 export default function VioAnalyticsBranding() {
   return (
@@ -20,3 +20,4 @@ export default function VioAnalyticsBranding() {
     />
   );
 }
+

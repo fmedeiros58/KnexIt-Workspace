@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../knexsearch/components/BrandingPage";
 
 export default function KnexSearchBranding() {
   return (
@@ -20,3 +20,4 @@ export default function KnexSearchBranding() {
     />
   );
 }
+
