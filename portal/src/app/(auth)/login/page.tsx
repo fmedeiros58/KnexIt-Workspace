@@ -6,7 +6,32 @@ import { supabase } from "../../../../../lib/supabaseClient";
 import { getCurrentUser } from "../../../../lib/auth";
 
 type Provider = "google" | "facebook";
-const DEFAULT_AFTER_AUTH = "/";
+// Redirecionamento padrão para o produto SupaDrive
+const DEFAULT_PRODUCT = "supadrive";
+const PRODUCT_MAP: Record<
+  string,
+  {
+    label: string;
+    target: string;
+  }
+> = {
+  supadrive: { label: "SupaDrive", target: "/supadrive" },
+  vioclass: { label: "VioClass", target: "/vioclass" },
+  violive: { label: "VioLive", target: "/violive" },
+  vioread: { label: "VioRead", target: "/vioread" },
+  vioanalytics: { label: "VioAnalytics", target: "/vioanalytics" },
+  viorecord: { label: "VioRecord", target: "/viorecord" },
+  viostudio: { label: "VioStudio", target: "/viostudio" },
+  knexai: { label: "KnexAI", target: "/knexai" },
+  knexchat: { label: "KnexChat", target: "/knexchat" },
+  knexdocs: { label: "KnexDocs", target: "/knexdocs" },
+  knexflow: { label: "KnexFlow", target: "/knexflow" },
+  knexmail: { label: "KnexMail", target: "/knexmail" },
+  knexpay: { label: "KnexPay", target: "/knexpay" },
+  knexreview: { label: "KnexReview", target: "/knexreview" },
+  knexsearch: { label: "KnexSearch", target: "/knexsearch" },
+  "knexit-workspace": { label: "KnexIT Workspace", target: "/knexit-workspace" },
+};
 
 export default function PortalLoginPage() {
   const router = useRouter();
@@ -25,43 +50,74 @@ export default function PortalLoginPage() {
 
   const [err, setErr] = useState<string | null>(null);
 
-  const postAuthRedirect = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
+  const { targetRedirect, productLabel } = useMemo(() => {
+    if (typeof window === "undefined") {
+      const defaultProduct = PRODUCT_MAP[DEFAULT_PRODUCT];
+      return {
+        targetRedirect: defaultProduct.target,
+        productLabel: defaultProduct.label,
+      };
+    }
     const origin = window.location.origin;
     const from = searchParams?.get("from");
+    const productParam = searchParams?.get("product");
     const url = new URL(window.location.href);
-    const r1 = url.searchParams.get("redirect");
-    const r2 = url.searchParams.get("action-url-retorno");
-    try {
-      if (from) return new URL(from, origin).toString();
-      if (r1) return new URL(r1, origin).toString();
-      if (r2) return new URL(r2, origin).toString();
-    } catch {}
-    return new URL(DEFAULT_AFTER_AUTH, origin).toString();
+    const redirect = url.searchParams.get("redirect");
+    const actionUrl = url.searchParams.get("action-url-retorno");
+
+    const slugFromFrom = (() => {
+      if (!from) return null;
+      const parts = from.split("/").filter(Boolean);
+      if (parts[0] === "lobby" && parts[1]) return parts[1];
+      return parts[0] ?? null;
+    })();
+
+    const inferredSlug = (productParam || slugFromFrom || DEFAULT_PRODUCT).toLowerCase();
+    const productConfig = PRODUCT_MAP[inferredSlug] ?? { label: inferredSlug.toUpperCase(), target: `/${inferredSlug}` };
+
+    const target =
+      from ||
+      (redirect ? new URL(redirect, origin).toString() : null) ||
+      (actionUrl ? new URL(actionUrl, origin).toString() : null) ||
+      productConfig.target;
+
+    return {
+      targetRedirect: target,
+      productLabel: productConfig.label,
+    };
   }, [searchParams]);
+
+  const postAuthRedirect = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    try {
+      return new URL(targetRedirect, window.location.origin).toString();
+    } catch {
+      return targetRedirect;
+    }
+  }, [targetRedirect]);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" && typeof window !== "undefined") {
-        const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || DEFAULT_AFTER_AUTH;
+        const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
         router.push(to);
       }
     });
     return () => sub.subscription.unsubscribe();
-  }, [postAuthRedirect, router]);
+  }, [postAuthRedirect, targetRedirect, router]);
 
   // Se já houver usuário autenticado, respeita o redirect "from" imediatamente.
   useEffect(() => {
     (async () => {
       const user = await getCurrentUser();
       if (user && typeof window !== "undefined") {
-        const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || DEFAULT_AFTER_AUTH;
+        const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
         router.replace(to);
       }
     })();
-  }, [postAuthRedirect, router]);
+  }, [postAuthRedirect, targetRedirect, router]);
 
   useEffect(() => {
     if (typeof document !== "undefined") document.title = "KNEXIT | Identificação";
@@ -146,6 +202,9 @@ export default function PortalLoginPage() {
             <span className="text-lg font-semibold tracking-tight">
               <span className="text-red-600">UP</span>GRADE
             </span>
+          </div>
+          <div className="text-xs md:text-sm text-neutral-600">
+            Você será direcionado para <strong>{productLabel}</strong> após entrar.
           </div>
         </div>
       </header>

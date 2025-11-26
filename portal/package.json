@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3003",
-    "dev:open": "start http://localhost:3003/knexit-workspace && next dev -p 3003",
+    "dev": "start \"\" http://localhost:3003/knexit-workspace && next dev -p 3003",
+    "dev:open": "start \"\" http://localhost:3003/knexit-workspace && next dev -p 3003",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
