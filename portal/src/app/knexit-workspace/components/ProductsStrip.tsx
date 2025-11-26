@@ -234,12 +234,12 @@ export default function ProductsStrip() {
           {PRODUCTS.map((p, idx) => {
             const color = CARD_COLORS[idx] ?? CARD_COLORS[CARD_COLORS.length - 1];
             return (
-            <Link
-              key={p.id}
-              href={`/branding/${p.slug}`}
-              className="group w-full rounded-2xl border-2 border-[var(--card-color)] p-4 shadow-md transition transform hover:-translate-y-2 hover:scale-[1.2] hover:ring-2 hover:ring-white/70 hover:border-black flex flex-col items-center gap-2 text-center text-white"
-              style={{ backgroundColor: color, ["--card-color" as string]: color }}
-            >
+              <Link
+                key={p.id}
+                href={`/branding/${p.slug}`}
+                className="group w-full rounded-2xl border-2 border-[var(--card-color)] p-4 shadow-md transition transform hover:-translate-y-2 hover:scale-[1.2] hover:ring-2 hover:ring-white/70 hover:border-black flex flex-col items-center gap-2 text-center text-white"
+                style={{ backgroundColor: color, ["--card-color" as string]: color }}
+              >
                 <ProductIcon icon={p.icon} />
                 <div className="text-sm font-semibold text-white drop-shadow-sm">{p.name}</div>
                 <div className="text-xs text-white/90 leading-relaxed">{p.description}</div>
