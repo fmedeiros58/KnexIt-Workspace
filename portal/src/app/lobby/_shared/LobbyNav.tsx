@@ -92,7 +92,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
             {testLabel ?? `Teste o ${productName}`}
           </Link>
           <Link
-            href={loginHref ?? "/login"}
+            href={loginHref ?? "/login?product=" + productSlug}
             className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
           >
             Fazer login
