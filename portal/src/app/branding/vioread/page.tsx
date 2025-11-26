@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../vioread/components/BrandingPage";
 
 export default function VioReadBranding() {
   return (
@@ -20,3 +20,4 @@ export default function VioReadBranding() {
     />
   );
 }
+

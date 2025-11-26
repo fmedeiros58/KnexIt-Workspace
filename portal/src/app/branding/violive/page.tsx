@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../violive/components/BrandingPage";
 
 export default function VioLiveBranding() {
   return (
@@ -20,3 +20,4 @@ export default function VioLiveBranding() {
     />
   );
 }
+

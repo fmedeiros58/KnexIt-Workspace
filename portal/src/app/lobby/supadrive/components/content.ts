@@ -1,21 +1,19 @@
-export const hero = {
+export const content = {
+  slug: "supadrive",
   title: "SupaDrive",
   headline: "Drive de arquivos para materiais de aula, pesquisa e projetos.",
-  intro: "Centralize apostilas, provas, slides e mídias com controle de acesso por turma ou grupo.",
+  intro: "Centralize apostilas, provas, slides e midias com controle de acesso por turma ou grupo.",
   ctaLabel: "Acessar produto",
+  problems: [
+    "Organizar apostilas, provas e slides sem perder versao.",
+    "Compartilhar materiais com turmas e times com controle de acesso.",
+    "Centralizar uploads e manter estrutura clara por curso ou projeto.",
+  ],
+  features: [
+    "Pastas por curso, turma ou projeto com permissao configuravel.",
+    "Upload de PDFs, slides, docs e midias com visualizacao rapida.",
+    "Versoes e comentarios basicos para alinhar revisoes.",
+    "Integracao futura com VioRead e KnexReview para leitura assistida.",
+  ],
+  audiences: ["Professores e equipes pedagogicas", "Alunos e monitores", "Laboratorios e grupos de pesquisa"],
 };
-
-export const problems = [
-  "Organizar apostilas, provas e slides sem perder versão.",
-  "Compartilhar materiais com turmas e times com controle de acesso.",
-  "Centralizar uploads e manter estrutura clara por curso ou projeto.",
-];
-
-export const features = [
-  "Pastas por curso, turma ou projeto com permissão configurável.",
-  "Upload de PDFs, slides, docs e mídias com visualização rápida.",
-  "Versões e comentários básicos para alinhar revisões.",
-  "Integração futura com VioRead e KnexReview para leitura assistida.",
-];
-
-export const audiences = ["Professores e equipes pedagógicas", "Alunos e monitores", "Laboratórios e grupos de pesquisa"];

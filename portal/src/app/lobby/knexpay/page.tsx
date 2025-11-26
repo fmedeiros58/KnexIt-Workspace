@@ -1,23 +1,17 @@
-import LobbyPage from "../../../components/LobbyPage";
+import HeroSection from "./components/HeroSection";
+import ProblemsSection from "./components/ProblemsSection";
+import AudienceSection from "./components/AudienceSection";
+import FeaturesSection from "./components/FeaturesSection";
+import CtaSection from "./components/CtaSection";
 
 export default function KnexPayLobby() {
   return (
-    <LobbyPage
-      slug="knexpay"
-      title="KnexPay"
-      headline="Cobrança e pagamentos para a suíte KnexIT."
-      intro="Estruture planos, faturamento e conciliação para os produtos do ecossistema."
-      problems={[
-        "Gerenciar planos e cobranças de forma unificada.",
-        "Integrar pagamentos aos fluxos de produto.",
-        "Ter visibilidade de status, falhas e conciliações.",
-      ]}
-      features={[
-        "Base para planos e assinaturas.",
-        "Integração com gateways (ex.: Mercado Pago) a definir.",
-        "Webhooks e relatórios para conciliação (futuro).",
-      ]}
-      audiences={["Financeiro/ops", "Times de produto", "Gestão acadêmica"]}
-    />
+    <main className="bg-white text-slate-900">
+      <HeroSection />
+      <ProblemsSection />
+      <AudienceSection />
+      <FeaturesSection />
+      <CtaSection />
+    </main>
   );
 }

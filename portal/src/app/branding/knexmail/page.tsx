@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../knexmail/components/BrandingPage";
 
 const EMAIL_APPS = ["VioLive", "VioClass", "SupaDrive", "KnexAI", "KnexDocs", "KnexFlow"];
 
@@ -34,3 +34,4 @@ export default function KnexMailBranding() {
     />
   );
 }
+

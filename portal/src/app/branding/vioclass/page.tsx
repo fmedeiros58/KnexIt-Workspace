@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../vioclass/components/BrandingPage";
 
 export default function VioClassBranding() {
   return (
@@ -20,3 +20,4 @@ export default function VioClassBranding() {
     />
   );
 }
+

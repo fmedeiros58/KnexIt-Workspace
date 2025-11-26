@@ -1,24 +1,17 @@
-import LobbyPage from "../../../components/LobbyPage";
+import HeroSection from "./components/HeroSection";
+import ProblemsSection from "./components/ProblemsSection";
+import AudienceSection from "./components/AudienceSection";
+import FeaturesSection from "./components/FeaturesSection";
+import CtaSection from "./components/CtaSection";
 
 export default function VioReadLobby() {
   return (
-    <LobbyPage
-      slug="vioread"
-      title="VioRead"
-      headline="Leitura inteligente de PDFs e artigos, com tradução e apoio de IA para estudo."
-      intro="Reforce o estudo com traduções, resumos e fichamentos mantendo a estrutura original dos documentos."
-      problems={[
-        "Ler artigos e PDFs longos sem apoio para tradução ou resumo.",
-        "Manter estrutura do documento ao traduzir para outro idioma.",
-        "Reaproveitar trechos para fichamentos e materiais de aula.",
-      ]}
-      features={[
-        "Leitura assistida preservando títulos, seções e listas.",
-        "Tradução com estrutura mantida e opção lado a lado.",
-        "Selecione trechos para pedir explicação, resumo ou fichamento.",
-        "Exportação futura para KnexDocs, VioClass ou SupaDrive.",
-      ]}
-      audiences={["Alunos e pesquisadores", "Professores e orientadores", "Grupos de estudo e labs"]}
-    />
+    <main className="bg-white text-slate-900">
+      <HeroSection />
+      <ProblemsSection />
+      <AudienceSection />
+      <FeaturesSection />
+      <CtaSection />
+    </main>
   );
 }

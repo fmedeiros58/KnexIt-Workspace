@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../knexreview/components/BrandingPage";
 
 export default function KnexReviewBranding() {
   return (
@@ -20,3 +20,4 @@ export default function KnexReviewBranding() {
     />
   );
 }
+

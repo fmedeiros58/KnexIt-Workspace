@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../knexpay/components/BrandingPage";
 
 export default function KnexPayBranding() {
   return (
@@ -20,3 +20,4 @@ export default function KnexPayBranding() {
     />
   );
 }
+

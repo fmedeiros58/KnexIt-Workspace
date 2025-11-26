@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../viorecord/components/BrandingPage";
 
 export default function VioRecordBranding() {
   return (
@@ -20,3 +20,4 @@ export default function VioRecordBranding() {
     />
   );
 }
+

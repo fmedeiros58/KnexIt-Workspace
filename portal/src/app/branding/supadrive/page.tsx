@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../supadrive/components/BrandingPage";
 
 export default function SupaDriveBranding() {
   return (
@@ -20,3 +20,4 @@ export default function SupaDriveBranding() {
     />
   );
 }
+

@@ -1,23 +1,17 @@
-import LobbyPage from "../../../components/LobbyPage";
+import HeroSection from "./components/HeroSection";
+import ProblemsSection from "./components/ProblemsSection";
+import AudienceSection from "./components/AudienceSection";
+import FeaturesSection from "./components/FeaturesSection";
+import CtaSection from "./components/CtaSection";
 
 export default function KnexDocsLobby() {
   return (
-    <LobbyPage
-      slug="knexdocs"
-      title="KnexDocs"
-      headline="Documentos colaborativos conectados ao ecossistema KnexIT."
-      intro="Crie, edite e versionize docs em tempo real, integrando com SupaDrive, KnexAI e VioRead."
-      problems={[
-        "Criar documentos colaborativos sem perder histórico.",
-        "Organizar pautas, atas e materiais com o time em um só lugar.",
-        "Evitar cópias isoladas e documentos dispersos em vários apps.",
-      ]}
-      features={[
-        "Edição colaborativa em tempo real.",
-        "Versões e comentários em um só fluxo.",
-        "Integração planejada com SupaDrive, KnexAI e VioRead.",
-      ]}
-      audiences={["Times acadêmicos", "Projetos colaborativos", "Coordenação e secretaria"]}
-    />
+    <main className="bg-white text-slate-900">
+      <HeroSection />
+      <ProblemsSection />
+      <AudienceSection />
+      <FeaturesSection />
+      <CtaSection />
+    </main>
   );
 }

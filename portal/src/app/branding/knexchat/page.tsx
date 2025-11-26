@@ -1,4 +1,4 @@
-import BrandingPage from "../../../components/BrandingPage";
+import BrandingPage from "../../knexchat/components/BrandingPage";
 
 export default function KnexChatBranding() {
   return (
@@ -20,3 +20,4 @@ export default function KnexChatBranding() {
     />
   );
 }
+
