@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getProductBaseUrl } from "../../../../lib/productBase";
 
 type LobbyNavProps = {
@@ -32,6 +32,10 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
   const productPath = `/${productSlug}`;
   const defaultFrom = appBase ? `${appBase}${productPath}` : productPath;
   const loginLink = loginHref ?? `/login?product=${encodeURIComponent(productSlug)}&from=${encodeURIComponent(defaultFrom)}`;
+
+  useEffect(() => {
+    console.log(`LobbyNav (${productSlug}) loginLink:`, loginLink);
+  }, [loginLink, productSlug]);
 
   return (
     <div className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
@@ -109,3 +113,4 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
     </div>
   );
 }
+
