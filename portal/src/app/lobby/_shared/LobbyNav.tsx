@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { getProductBaseUrl } from "../../../../lib/productBase";
 
 type LobbyNavProps = {
   productSlug: string;
@@ -27,12 +28,7 @@ const PRODUCT_GRID = [
 
 export default function LobbyNav({ productSlug, productName, testLabel, loginHref }: LobbyNavProps) {
   const [openMenu, setOpenMenu] = useState<"produtos" | null>(null);
-  const [appBase] = useState(() => {
-    const envBase = (process.env.NEXT_PUBLIC_APP_BASE_URL || "").replace(/\/$/, "");
-    if (envBase) return envBase;
-    if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
-    return "";
-  });
+  const [appBase] = useState(() => getProductBaseUrl(productSlug));
   const productPath = `/${productSlug}`;
   const defaultFrom = appBase ? `${appBase}${productPath}` : productPath;
   const loginLink = loginHref ?? `/login?product=${encodeURIComponent(productSlug)}&from=${encodeURIComponent(defaultFrom)}`;
