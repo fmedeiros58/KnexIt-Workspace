@@ -1,25 +1,52 @@
-﻿import path from "path";
-import { Llama, LlamaModel, LlamaContext, LlamaChatSession } from "node-llama-cpp";
+import path from "path";
 
-// Caminho do modelo local (.gguf)
+type NodeLlamaModule = typeof import("node-llama-cpp");
+
 const modelPath = path.resolve(process.cwd(), "models", "mistral-7b-instruct-v0.2.Q4_K_M.gguf");
 
-// Singletons para evitar re-carregar a cada request
-let llama: Llama | null = null;
-let model: LlamaModel | null = null;
-let context: LlamaContext | null = null;
+let llama: any | null = null;
+let model: any | null = null;
+let context: any | null = null;
 
-// Prompt de sistema da Leticia
+let nodeLlamaModule: NodeLlamaModule | null = null;
+let moduleLoadPromise: Promise<boolean> | null = null;
+
 const SYSTEM_PROMPT =
-  "VocÃª Ã© a L.E.T.I.C.I.A., IA nativa do ecossistema KnexIT. " +
-  "Fale em portuguÃªs do Brasil, seja clara, respeitosa e objetiva. " +
+  "Você é a L.E.T.I.C.I.A., IA nativa do ecossistema KnexIT. " +
+  "Fale em português do Brasil, seja clara, respeitosa e objetiva. " +
   "Seja consistente com o contexto quando fornecido.";
 
+async function loadLocalLlama(): Promise<boolean> {
+  if (nodeLlamaModule) return true;
+  if (moduleLoadPromise) return moduleLoadPromise;
+  if (process.env.USE_LOCAL_LLAMA !== "1") {
+    return false;
+  }
+  moduleLoadPromise = import("node-llama-cpp")
+    .then((mod) => {
+      nodeLlamaModule = mod;
+      return true;
+    })
+    .catch((error) => {
+      console.warn("node-llama-cpp could not be loaded:", error);
+      nodeLlamaModule = null;
+      return false;
+    })
+    .finally(() => {
+      moduleLoadPromise = null;
+    });
+  return moduleLoadPromise;
+}
+
 export async function getLeticiaSession() {
+  const hasLocal = await loadLocalLlama();
+  if (!hasLocal || !nodeLlamaModule) {
+    throw new Error(
+      "Local Llama engine is not enabled. Set USE_LOCAL_LLAMA=1 and ensure node-llama-cpp is installed."
+    );
+  }
+  const { Llama, LlamaModel, LlamaContext, LlamaChatSession } = nodeLlamaModule;
   if (!llama) {
-    // gpu: "auto" tenta usar GPU se disponÃ­vel; mude para "cpu" se preferir
-    // constructor may be private in the installed types; cast to any to call at runtime if available
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     llama = new (Llama as any)({ gpu: "auto" });
   }
   if (!model) {
@@ -28,12 +55,9 @@ export async function getLeticiaSession() {
   if (!context) {
     context = await model!.createContext({ contextSize: 4096 } as any);
   }
-  // LlamaChatSession options typing may differ; cast to any for now
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const session = new (LlamaChatSession as any)({
     context: context as any,
     systemPrompt: SYSTEM_PROMPT,
   } as any);
   return session;
 }
-
