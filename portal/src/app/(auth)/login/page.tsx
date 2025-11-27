@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../../lib/supabaseClient";
 import { getCurrentUser } from "../../../../lib/auth";
+import { getProductBaseUrl } from "../../../../lib/productBase";
 
 type Provider = "google" | "facebook";
 // Redirecionamento padrão para o produto SupaDrive
@@ -36,12 +37,6 @@ const PRODUCT_MAP: Record<
 export default function PortalLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const appBase = useMemo(() => {
-    const envBase = (process.env.NEXT_PUBLIC_APP_BASE_URL || "").replace(/\/$/, "");
-    if (envBase) return envBase;
-    if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
-    return "";
-  }, []);
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginSent, setLoginSent] = useState(false);
@@ -65,16 +60,16 @@ export default function PortalLoginPage() {
         return value;
       }
     };
-    const base = appBase || (typeof window !== "undefined" ? window.location.origin : "");
+    const serverFallback = getProductBaseUrl(DEFAULT_PRODUCT);
     if (typeof window === "undefined") {
       const defaultProduct = PRODUCT_MAP[DEFAULT_PRODUCT];
       return {
-        targetRedirect: resolveTarget(defaultProduct.target, base) ?? defaultProduct.target,
+        targetRedirect: resolveTarget(defaultProduct.target, serverFallback) ?? defaultProduct.target,
         productLabel: defaultProduct.label,
         productSlug: DEFAULT_PRODUCT,
       };
     }
-    const origin = base || window.location.origin;
+
     const from = searchParams?.get("from");
     const productParam = searchParams?.get("product");
     const url = new URL(window.location.href);
@@ -85,10 +80,19 @@ export default function PortalLoginPage() {
       if (!from) return null;
       const parts = from.split("/").filter(Boolean);
       if (parts[0] === "lobby" && parts[1]) return parts[1];
-      return parts[0] ?? null;
+      // evita tratar esquemas (https:) ou hosts como slug
+      if (parts[0] && !parts[0].includes(":") && !parts[0].includes(".")) return parts[0];
+      return null;
     })();
 
-    const inferredSlug = (productParam || slugFromFrom || DEFAULT_PRODUCT).toLowerCase();
+    const inferredSlug = (() => {
+      if (productParam) return productParam.toLowerCase();
+      if (slugFromFrom) return slugFromFrom.toLowerCase();
+      return DEFAULT_PRODUCT;
+    })();
+    const base = getProductBaseUrl(inferredSlug) || getProductBaseUrl(DEFAULT_PRODUCT) || window.location.origin;
+    const origin = base || window.location.origin;
+
     const productConfig = PRODUCT_MAP[inferredSlug] ?? { label: inferredSlug.toUpperCase(), target: `/${inferredSlug}` };
 
     const target =
@@ -103,7 +107,7 @@ export default function PortalLoginPage() {
       productLabel: productConfig.label,
       productSlug: inferredSlug,
     };
-  }, [searchParams, appBase]);
+  }, [searchParams]);
 
   const postAuthRedirect = useMemo(() => {
     if (typeof window === "undefined") return undefined;
