@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useState } from "react";
@@ -11,22 +11,31 @@ type LobbyNavProps = {
 };
 
 const PRODUCT_GRID = [
-  { name: "VioClass", slug: "vioclass", description: "Cursos e trilhas de aulas em vídeo." },
+  { name: "VioClass", slug: "vioclass", description: "Cursos e trilhas de aulas em video." },
   { name: "VioLive", slug: "violive", description: "Aulas e mentorias ao vivo." },
   { name: "SupaDrive", slug: "supadrive", description: "Armazenamento de arquivos." },
   { name: "VioRead", slug: "vioread", description: "Leitura assistida de PDFs e artigos." },
   { name: "KnexAI", slug: "knexai", description: "Camada unificada de IA." },
   { name: "KnexMail", slug: "knexmail", description: "E-mails e campanhas." },
   { name: "KnexDocs", slug: "knexdocs", description: "Documentos colaborativos." },
-  { name: "KnexFlow", slug: "knexflow", description: "Automação e orquestração." },
+  { name: "KnexFlow", slug: "knexflow", description: "Automacao e orquestracao." },
   { name: "KnexSearch", slug: "knexsearch", description: "Busca unificada." },
   { name: "KnexChat", slug: "knexchat", description: "Chat e mensagens." },
-  { name: "KnexReview", slug: "knexreview", description: "Revisão sistemática." },
-  { name: "KnexPay", slug: "knexpay", description: "Cobrança e pagamentos." },
+  { name: "KnexReview", slug: "knexreview", description: "Revisao sistematica." },
+  { name: "KnexPay", slug: "knexpay", description: "Cobranca e pagamentos." },
 ];
 
 export default function LobbyNav({ productSlug, productName, testLabel, loginHref }: LobbyNavProps) {
   const [openMenu, setOpenMenu] = useState<"produtos" | null>(null);
+  const [appBase] = useState(() => {
+    const envBase = (process.env.NEXT_PUBLIC_APP_BASE_URL || "").replace(/\/$/, "");
+    if (envBase) return envBase;
+    if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
+    return "";
+  });
+  const productPath = `/${productSlug}`;
+  const defaultFrom = appBase ? `${appBase}${productPath}` : productPath;
+  const loginLink = loginHref ?? `/login?product=${encodeURIComponent(productSlug)}&from=${encodeURIComponent(defaultFrom)}`;
 
   return (
     <div className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
@@ -38,7 +47,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
         </div>
         <div className="hidden md:flex flex-1 items-center gap-6 text-sm font-semibold text-slate-700 pl-6">
           <Link href="/branding" className="hover:text-indigo-600">
-            Soluções
+            Solucoes
           </Link>
           <div className="relative">
             <button
@@ -48,7 +57,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
               className="flex items-center gap-1 hover:text-indigo-600"
             >
               Produtos
-              <span aria-hidden className="text-xs">▼</span>
+              <span aria-hidden className="text-xs">v</span>
             </button>
             {openMenu === "produtos" ? (
               <div
@@ -78,7 +87,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
             IA
           </Link>
           <Link href="/knexit-workspace#planos" className="hover:text-indigo-600" target="_blank">
-            Preços
+            Precos
           </Link>
           <Link href="/branding" className="hover:text-indigo-600">
             Recursos
@@ -92,7 +101,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
             {testLabel ?? `Teste o ${productName}`}
           </Link>
           <Link
-            href={loginHref ?? "/login?product=" + productSlug}
+            href={loginLink}
             className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
           >
             Fazer login
