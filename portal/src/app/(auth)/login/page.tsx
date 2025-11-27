@@ -36,6 +36,12 @@ const PRODUCT_MAP: Record<
 export default function PortalLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const appBase = useMemo(() => {
+    const envBase = (process.env.NEXT_PUBLIC_APP_BASE_URL || "").replace(/\/$/, "");
+    if (envBase) return envBase;
+    if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
+    return "";
+  }, []);
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginSent, setLoginSent] = useState(false);
@@ -50,15 +56,25 @@ export default function PortalLoginPage() {
 
   const [err, setErr] = useState<string | null>(null);
 
-  const { targetRedirect, productLabel } = useMemo(() => {
+  const { targetRedirect, productLabel, productSlug } = useMemo(() => {
+    const resolveTarget = (value: string | null, base: string) => {
+      if (!value) return null;
+      try {
+        return new URL(value, base || "http://localhost").toString();
+      } catch {
+        return value;
+      }
+    };
+    const base = appBase || (typeof window !== "undefined" ? window.location.origin : "");
     if (typeof window === "undefined") {
       const defaultProduct = PRODUCT_MAP[DEFAULT_PRODUCT];
       return {
-        targetRedirect: defaultProduct.target,
+        targetRedirect: resolveTarget(defaultProduct.target, base) ?? defaultProduct.target,
         productLabel: defaultProduct.label,
+        productSlug: DEFAULT_PRODUCT,
       };
     }
-    const origin = window.location.origin;
+    const origin = base || window.location.origin;
     const from = searchParams?.get("from");
     const productParam = searchParams?.get("product");
     const url = new URL(window.location.href);
@@ -76,16 +92,18 @@ export default function PortalLoginPage() {
     const productConfig = PRODUCT_MAP[inferredSlug] ?? { label: inferredSlug.toUpperCase(), target: `/${inferredSlug}` };
 
     const target =
-      from ||
-      (redirect ? new URL(redirect, origin).toString() : null) ||
-      (actionUrl ? new URL(actionUrl, origin).toString() : null) ||
+      resolveTarget(from, origin) ||
+      resolveTarget(redirect, origin) ||
+      resolveTarget(actionUrl, origin) ||
+      resolveTarget(productConfig.target, origin) ||
       productConfig.target;
 
     return {
       targetRedirect: target,
       productLabel: productConfig.label,
+      productSlug: inferredSlug,
     };
-  }, [searchParams]);
+  }, [searchParams, appBase]);
 
   const postAuthRedirect = useMemo(() => {
     if (typeof window === "undefined") return undefined;
@@ -95,6 +113,18 @@ export default function PortalLoginPage() {
       return targetRedirect;
     }
   }, [targetRedirect]);
+
+  const loginReturnUrl = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    try {
+      const url = new URL(window.location.href);
+      if (targetRedirect) url.searchParams.set("from", targetRedirect);
+      if (productSlug) url.searchParams.set("product", productSlug);
+      return url.toString();
+    } catch {
+      return window.location.href;
+    }
+  }, [targetRedirect, productSlug]);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
@@ -133,7 +163,7 @@ export default function PortalLoginPage() {
     const { error } = await supabase.auth.signInWithOtp({
       email: loginEmail,
       options: {
-        emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+        emailRedirectTo: loginReturnUrl,
       },
     });
     setLoadingMagic(false);
@@ -150,7 +180,7 @@ export default function PortalLoginPage() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+          redirectTo: loginReturnUrl,
           scopes: provider === "google" ? "openid email profile" : "public_profile,email",
           skipBrowserRedirect: true,
         },
@@ -183,7 +213,7 @@ export default function PortalLoginPage() {
       password,
       options: {
         data: { name, phone },
-        emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+        emailRedirectTo: loginReturnUrl,
       },
     });
     setSignupLoading(false);

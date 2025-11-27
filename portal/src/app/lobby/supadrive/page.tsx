@@ -8,7 +8,7 @@ import LobbyNav from "../_shared/LobbyNav";
 export default function SupaDriveLobbyPage() {
   return (
     <main className="bg-white text-slate-900">
-      <LobbyNav productSlug="supadrive" productName="SupaDrive" loginHref="/login" />
+      <LobbyNav productSlug="supadrive" productName="SupaDrive" />
       <HeroSection />
       <ProblemsSection />
       <AudienceSection />
