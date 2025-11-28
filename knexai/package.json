@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx src/server.ts",
+    "dev:hot": "npx kill-port 3700 && tsx src/server.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {
