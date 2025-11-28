@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "knexdocs",
   title: "KnexDocs",
+  ctaLabel: "Acessar produto",
   headline: "Documentos colaborativos conectados ao ecossistema KnexIT.",
   intro: "Crie, edite e versionize docs em tempo real, integrando com SupaDrive, KnexAI e VioRead.",
   problems: [

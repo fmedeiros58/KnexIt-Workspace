@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "knexpay",
   title: "KnexPay",
+  ctaLabel: "Acessar produto",
   headline: "CobranÃ§a e pagamentos para a suÃ­te KnexIT.",
   intro: "Estruture planos, faturamento e conciliaÃ§Ã£o para os produtos do ecossistema.",
   problems: [

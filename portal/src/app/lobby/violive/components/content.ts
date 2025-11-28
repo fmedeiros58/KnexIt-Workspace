@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "violive",
   title: "VioLive",
+  ctaLabel: "Acessar produto",
   headline: "Salas ao vivo para aulas, mentorias e reuniÃµes integradas ao KnexIT Workspace.",
   intro: "Centraliza encontros sÃ­ncronos com agendamento, links e gravaÃ§Ãµes em um fluxo Ãºnico.",
   problems: [

@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "knexflow",
   title: "KnexFlow",
+  ctaLabel: "Acessar produto",
   headline: "OrquestraÃ§Ã£o e automaÃ§Ãµes entre apps da suÃ­te.",
   intro: "Modele gatilhos e aÃ§Ãµes integrando aulas, arquivos, IA e comunicaÃ§Ã£o em um sÃ³ fluxo.",
   problems: [

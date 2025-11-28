@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "viorecord",
   title: "VioRecord",
+  ctaLabel: "Acessar produto",
   headline: "GravaÃ§Ã£o de tela, webcam e voz direto no navegador.",
   intro: "Capture aulas, tutoriais e demonstraÃ§Ãµes e publique rÃ¡pido no VioClass ou SupaDrive.",
   problems: [

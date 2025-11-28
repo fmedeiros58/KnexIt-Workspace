@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "knexreview",
   title: "KnexReview",
+  ctaLabel: "Acessar produto",
   headline: "RevisÃ£o sistemÃ¡tica com buscas replicÃ¡veis, triagem e extraÃ§Ã£o em um sÃ³ fluxo.",
   intro: "Padronize estratÃ©gias de busca, triagem e extraÃ§Ã£o de dados com integraÃ§Ã£o a leitura assistida e exportaÃ§Ã£o.",
   problems: [

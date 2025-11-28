@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "knexsearch",
   title: "KnexSearch",
+  ctaLabel: "Acessar produto",
   headline: "Busca unificada no ecossistema KnexIT.",
   intro: "Encontre aulas, arquivos, docs e conversas em um sÃ³ lugar, com IA para reformular consultas.",
   problems: [

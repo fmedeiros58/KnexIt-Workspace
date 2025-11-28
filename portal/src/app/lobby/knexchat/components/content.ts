@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "knexchat",
   title: "KnexChat",
+  ctaLabel: "Acessar produto",
   headline: "Mensageria/omnichat para turmas e times.",
   intro: "Centralize conversas, threads e integraÃ§Ãµes, com apoio de IA para resumo e respostas sugeridas.",
   problems: [
