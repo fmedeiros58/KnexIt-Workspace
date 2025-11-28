@@ -1,4 +1,4 @@
-﻿import ProductAppLink from "../../../supadrive/components/ProductAppLink";
+import ProductAppLink from "../../../supadrive/components/ProductAppLink";
 import Link from "next/link";
 import { content } from "./content";
 
@@ -25,16 +25,16 @@ export default function HeroSection() {
         <div className="md:w-1/2">
           <div className="rounded-3xl border border-slate-200 bg-white shadow-lg p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-900">Pronto para comeÃ§ar</div>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">DisponÃ­vel</span>
+              <div className="text-sm font-semibold text-slate-900">Pronto para começar</div>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Disponível</span>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-indigo-50/60 p-4 space-y-2 text-sm text-slate-700 leading-relaxed">
               <p>
-                Use o SupaDrive para guardar e distribuir materiais com acesso por turma ou projeto. A autenticaÃ§Ã£o acontece ao clicar em
-                â€œAcessar produtoâ€.
+                Use o SupaDrive para guardar e distribuir matérias com acesso por turma ou projeto. A autenticação acontece ao clicar em{" "}
+                <strong>Acessar produto</strong>.
               </p>
               <p className="font-semibold text-slate-900">Dica:</p>
-              <p>Se nÃ£o estiver logado, vocÃª serÃ¡ levado ao login e depois redirecionado para o drive.</p>
+              <p>Se não estiver logado, você será levado para o login e, depois, redirecionado para o drive.</p>
             </div>
           </div>
         </div>
@@ -42,4 +42,3 @@ export default function HeroSection() {
     </section>
   );
 }
-

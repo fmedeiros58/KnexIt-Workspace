@@ -8,7 +8,7 @@ export default function FeaturesSection() {
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-6">
         <div className="space-y-2">
           <h2 className="text-3xl font-bold text-slate-900">Principais recursos</h2>
-          <p className="text-sm text-slate-600">Destaques que vocG encontra no produto.</p>
+          <p className="text-sm text-slate-600">Destaques que você encontra no produto.</p>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {content.features.map((f) => (
