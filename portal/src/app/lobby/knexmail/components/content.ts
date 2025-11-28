@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "knexmail",
   title: "KnexMail",
+  ctaLabel: "Acessar produto",
   headline: "E-mails e campanhas integrados ao ecossistema.",
   intro: "Envie lembretes, comunicados e convites em massa com templates inteligentes e integraÃ§Ãµes planejadas com aulas, lives e fluxos.",
   problems: [

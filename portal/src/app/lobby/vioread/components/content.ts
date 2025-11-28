@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "vioread",
   title: "VioRead",
+  ctaLabel: "Acessar produto",
   headline: "Leitura inteligente de PDFs e artigos, com traduÃ§Ã£o e apoio de IA para estudo.",
   intro: "Reforce o estudo com traduÃ§Ãµes, resumos e fichamentos mantendo a estrutura original dos documentos.",
   problems: [

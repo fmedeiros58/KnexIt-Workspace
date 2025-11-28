@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "viostudio",
   title: "VioStudio",
+  ctaLabel: "Acessar produto",
   headline: "EdiÃ§Ã£o e pÃ³s-produÃ§Ã£o online para aulas e lives.",
   intro: "Refine cortes, legendas e exports para publicar no VioClass ou SupaDrive.",
   problems: [

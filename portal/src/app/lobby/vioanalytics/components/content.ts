@@ -1,6 +1,7 @@
 ﻿export const content = {
   slug: "vioanalytics",
   title: "VioAnalytics",
+  ctaLabel: "Acessar produto",
   headline: "MÃ©tricas e insights das soluÃ§Ãµes Vio/KnexIT.",
   intro: "Monitore engajamento de aulas, lives e materiais, preparando painÃ©is e KPIs unificados.",
   problems: [

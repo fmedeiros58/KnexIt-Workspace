@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={null}>
+      <AuthGuardInner>{children}</AuthGuardInner>
+    </Suspense>
+  );
+}
+
+function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
@@ -12,8 +20,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(true);
 
   const redirectTarget = useMemo(() => {
+    const safePath = pathname ?? "/";
     const q = search?.toString();
-    const current = q ? `${pathname}?${q}` : pathname;
+    const current = q ? `${safePath}?${q}` : safePath;
     return encodeURIComponent(current);
   }, [pathname, search]);
 
