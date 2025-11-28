@@ -47,7 +47,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
         </div>
         <div className="hidden md:flex flex-1 items-center gap-6 text-sm font-semibold text-slate-700 pl-6">
           <Link href="/branding" className="hover:text-indigo-600">
-            Solucoes
+            Soluções
           </Link>
           <div className="relative">
             <button
@@ -87,7 +87,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
             IA
           </Link>
           <Link href="/knexit-workspace#planos" className="hover:text-indigo-600" target="_blank">
-            Precos
+            Preços
           </Link>
           <Link href="/branding" className="hover:text-indigo-600">
             Recursos

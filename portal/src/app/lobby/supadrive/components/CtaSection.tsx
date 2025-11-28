@@ -8,7 +8,7 @@ export default function CtaSection() {
       <div className="mx-auto max-w-4xl text-center space-y-4">
         <h2 className="text-3xl font-bold text-slate-900">Pronto para usar o {content.title}?</h2>
         <p className="text-lg text-slate-600">
-          Acesse direto com sua conta KnexIT. Se precisar de mais detalhes de marketing, visite a pagina de branding.
+          Acesse direto com sua conta KnexIT. Se precisar de mais detalhes de marketing, visite a página de branding.
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <ProductAppLink slug={content.slug} label={content.ctaLabel ?? "Acessar produto"} />
