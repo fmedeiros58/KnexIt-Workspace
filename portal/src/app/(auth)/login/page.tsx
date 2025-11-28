@@ -52,7 +52,7 @@ export default function PortalLoginPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const { targetRedirect, productLabel, productSlug } = useMemo(() => {
-    const resolveTarget = (value: string | null, base: string) => {
+    const resolveTarget = (value: string | null | undefined, base: string) => {
       if (!value) return null;
       try {
         return new URL(value, base || "http://localhost").toString();
