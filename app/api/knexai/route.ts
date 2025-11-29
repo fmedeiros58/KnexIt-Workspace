@@ -1,7 +1,7 @@
 // app/api/knexai/route.ts
 import { NextRequest } from "next/server";
 
-export const runtime = "nodejs"; // necessário para streaming e (futuro) node-llama-cpp
+export const runtime = "nodejs"; // necessário para streaming em tempo real
 
 /** GET: healthcheck */
 export async function GET() {

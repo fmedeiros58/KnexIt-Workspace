@@ -168,7 +168,7 @@ export default function KnexAiPage() {
               </p>
               <p className="text-xs text-slate-500">
                 Em desenvolvimento, LETICIA_MOCK=1 usa respostas simuladas. Para usar modelo local, configure o servidor
-                vLLM ou o node-llama-cpp com o arquivo GGUF do Mistral.
+                vLLM com um modelo compatível (por exemplo o GGUF do Mistral) e as variáveis VLLM_* adequadas.
               </p>
             </div>
 

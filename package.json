@@ -45,9 +45,6 @@
     "tailwindcss": "3.4.10",
     "typescript": "5.4.5"
   },
-  "optionalDependencies": {
-    "node-llama-cpp": "^3.14.0"
-  },
   "overrides": {
     "next": "14.2.33"
   }
