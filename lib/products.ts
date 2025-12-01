@@ -28,32 +28,32 @@ export const PRODUCTS: Record<ProductSlug, ProductEntry> = {
   violive: {
     slug: "violive",
     name: "VioLive",
-    homePath: "/violive",
+    homePath: "/violive/web",
   },
   vioanalytics: {
     slug: "vioanalytics",
     name: "VioAnalytics",
-    homePath: "/vioanalytics",
+    homePath: "/vioanalytics/web",
   },
   vioread: {
     slug: "vioread",
     name: "VioRead",
-    homePath: "/vioread",
+    homePath: "/vioread/web",
   },
   viorecord: {
     slug: "viorecord",
     name: "VioRecord",
-    homePath: "/viorecord",
+    homePath: "/viorecord/web",
   },
   viostudio: {
     slug: "viostudio",
     name: "VioStudio",
-    homePath: "/viostudio",
+    homePath: "/viostudio/web",
   },
   knexai: {
     slug: "knexai",
     name: "KnexAI",
-    homePath: "/knexai",
+    homePath: "/knexai/web",
   },
 };
 

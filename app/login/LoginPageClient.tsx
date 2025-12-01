@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getCurrentUser } from "@/lib/auth";
-import { DEFAULT_PRODUCT_SLUG, getProduct, ProductSlug } from "@/lib/products";
+import { DEFAULT_PRODUCT_SLUG, getProduct, ProductEntry, ProductSlug } from "@/lib/products";
 
 type Provider = "google" | "facebook";
 
@@ -12,24 +12,24 @@ type LoginPageClientProps = {
   productSlug?: ProductSlug | null;
   initialFrom?: string | null;
   initialProduct?: string | null;
+  initialRedirect?: string | null;
 };
 
 const DEFAULT_PRODUCT = getProduct(DEFAULT_PRODUCT_SLUG)!;
 
-function normalizeRedirect(product: string | null | undefined, target: string | null, origin: string) {
+function normalizeRedirect(product: ProductEntry, target: string | null, origin: string) {
   if (!target) return target;
-  if (product !== "supadrive") return target;
   try {
     const url = new URL(target, origin || "http://localhost");
     const path = url.pathname;
-    if (path === "/supadrive" || path === "/lobby/supadrive") {
-      url.pathname = "/supadrive/web";
+    if (path === `/${product.slug}` || path === `/lobby/${product.slug}`) {
+      url.pathname = product.homePath;
       url.search = "";
     }
     return url.toString();
   } catch {
-    if (target === "/supadrive" || target.startsWith("/lobby/supadrive")) {
-      return "/supadrive/web";
+    if (target === `/${product.slug}` || target.startsWith(`/lobby/${product.slug}`)) {
+      return product.homePath;
     }
     return target;
   }
@@ -39,6 +39,7 @@ export default function LoginPageClient({
   productSlug,
   initialFrom = null,
   initialProduct = null,
+  initialRedirect = null,
 }: LoginPageClientProps) {
   const router = useRouter();
   const [loginEmail, setLoginEmail] = useState("");
@@ -64,7 +65,7 @@ export default function LoginPageClient({
       }
     };
 
-    const fromParam = initialFrom;
+    const fromParam = initialFrom || initialRedirect;
     const searchSlug = initialProduct;
     const requestedSlug = productSlug?.toLowerCase() ?? searchSlug?.toLowerCase();
     const resolvedProduct = getProduct(requestedSlug) ?? DEFAULT_PRODUCT;
@@ -75,17 +76,18 @@ export default function LoginPageClient({
       resolveTarget(resolvedProduct.homePath, origin) ||
       resolvedProduct.homePath;
 
-    const target = normalizeRedirect(resolvedProduct.slug, targetRaw, origin);
+    const target = normalizeRedirect(resolvedProduct, targetRaw, origin);
 
     return {
       targetRedirect: target,
       productLabel: resolvedProduct.name,
       activeProductSlug: resolvedProduct.slug,
     };
-  }, [productSlug, initialFrom, initialProduct]);
+  }, [productSlug, initialFrom, initialProduct, initialRedirect]);
 
   const postAuthRedirect = useMemo(() => {
     if (typeof window === "undefined") return undefined;
+    if (!targetRedirect) return undefined;
     try {
       return new URL(targetRedirect, window.location.origin).toString();
     } catch {
@@ -110,7 +112,9 @@ export default function LoginPageClient({
       if (event === "SIGNED_IN" && typeof window !== "undefined") {
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
-        router.push(to);
+        if (to) {
+          router.push(to);
+        }
       }
     });
     return () => sub.subscription.unsubscribe();
@@ -122,7 +126,9 @@ export default function LoginPageClient({
       if (user && typeof window !== "undefined") {
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
-        router.replace(to);
+        if (to) {
+          router.replace(to);
+        }
       }
     })();
   }, [postAuthRedirect, targetRedirect, router]);

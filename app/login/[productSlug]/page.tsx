@@ -10,6 +10,7 @@ type ProductLoginPageProps = {
   searchParams: {
     from?: string;
     product?: string;
+    redirect?: string;
   };
 };
 
@@ -22,6 +23,7 @@ export default function ProductLoginPage({ params, searchParams }: ProductLoginP
         productSlug={DEFAULT_PRODUCT_SLUG}
         initialFrom={searchParams.from ?? null}
         initialProduct={searchParams.product ?? null}
+        initialRedirect={searchParams.redirect ?? null}
       />
     );
   }
@@ -30,6 +32,7 @@ export default function ProductLoginPage({ params, searchParams }: ProductLoginP
       productSlug={product.slug}
       initialFrom={searchParams.from ?? null}
       initialProduct={searchParams.product ?? null}
+      initialRedirect={searchParams.redirect ?? null}
     />
   );
 }

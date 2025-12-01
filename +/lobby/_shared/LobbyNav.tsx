@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getProductBaseUrl } from "@/lib/productBase";
+import { getProduct } from "@/lib/products";
 
 type LobbyNavProps = {
   productSlug: string;
@@ -29,7 +30,8 @@ const PRODUCT_GRID = [
 export default function LobbyNav({ productSlug, productName, testLabel, loginHref }: LobbyNavProps) {
   const [openMenu, setOpenMenu] = useState<"produtos" | null>(null);
   const [appBase] = useState(() => getProductBaseUrl(productSlug));
-  const productPath = `/${productSlug}`;
+  const product = getProduct(productSlug);
+  const productPath = product?.homePath ?? `/${productSlug}`;
   const defaultFrom = appBase ? `${appBase}${productPath}` : productPath;
   const loginLink = loginHref ?? `/login?product=${encodeURIComponent(productSlug)}&from=${encodeURIComponent(defaultFrom)}`;
 

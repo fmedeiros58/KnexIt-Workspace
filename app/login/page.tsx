@@ -9,6 +9,7 @@ type LoginPageRouteProps = {
   searchParams: {
     from?: string;
     product?: string;
+    redirect?: string;
   };
 };
 
@@ -18,6 +19,7 @@ export default function LoginPage({ searchParams }: LoginPageRouteProps) {
       productSlug={DEFAULT_PRODUCT_SLUG}
       initialFrom={searchParams.from ?? null}
       initialProduct={searchParams.product ?? null}
+      initialRedirect={searchParams.redirect ?? null}
     />
   );
 }
