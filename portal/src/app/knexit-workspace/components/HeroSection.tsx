@@ -1,6 +1,8 @@
 import Link from "next/link";
 
-const HERO_APPS = [
+type HeroIcon = "play" | "live" | "folder" | "doc" | "brain" | "mail";
+
+const HERO_APPS: { name: string; icon: HeroIcon }[] = [
   { name: "VioClass", icon: "play" as const },
   { name: "VioLive", icon: "live" as const },
   { name: "SupaDrive", icon: "folder" as const },
@@ -9,7 +11,7 @@ const HERO_APPS = [
   { name: "KnexMail", icon: "mail" as const },
 ];
 
-const ICONS: Record<string, { fg?: string; node: JSX.Element }> = {
+const ICONS: Record<HeroIcon, { fg?: string; node: any }> = {
   play: { fg: "text-indigo-700", node: <path fill="currentColor" d="M9 7.5v9l7-4.5-7-4.5Z" /> },
   live: {
     fg: "text-rose-700",
@@ -47,7 +49,7 @@ const ICONS: Record<string, { fg?: string; node: JSX.Element }> = {
   },
 };
 
-function AppIcon({ icon }: { icon: string }) {
+function AppIcon({ icon }: { icon: HeroIcon }) {
   const cfg = ICONS[icon];
   if (!cfg) return null;
   if (icon === "live") {
