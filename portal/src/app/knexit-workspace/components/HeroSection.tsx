@@ -1,5 +1,4 @@
 import Link from "next/link";
-import type { ReactElement } from "react";
 
 const HERO_APPS = [
   { name: "VioClass", icon: "play" as const },
@@ -10,7 +9,7 @@ const HERO_APPS = [
   { name: "KnexMail", icon: "mail" as const },
 ];
 
-const ICONS: Record<string, { fg?: string; node: ReactElement }> = {
+const ICONS: Record<string, { fg?: string; node: JSX.Element }> = {
   play: { fg: "text-indigo-700", node: <path fill="currentColor" d="M9 7.5v9l7-4.5-7-4.5Z" /> },
   live: {
     fg: "text-rose-700",
