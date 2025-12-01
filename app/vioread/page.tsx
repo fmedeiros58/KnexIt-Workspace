@@ -1,4 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-export { default } from "../../vioread/web/page";
-
+export default function Page() {
+  redirect("/lobby/vioread");
+}

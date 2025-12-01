@@ -1,3 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-export { default } from "../../viorecord/web/page";
+export default function Page() {
+  redirect("/lobby/viorecord");
+}
