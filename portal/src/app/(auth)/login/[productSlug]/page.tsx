@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import LoginPageClient from "../LoginPageClient";
-import { getProduct } from "../../../lib/products";
+import { getProduct } from "../../../../lib/products";
 
 type ProductLoginPageProps = {
   params: {
