@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function Page() {
-  redirect("/lobby/vioclass");
+  redirect("/vioclass/web");
 }

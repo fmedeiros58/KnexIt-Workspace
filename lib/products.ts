@@ -6,7 +6,14 @@ export type ProductSlug =
   | "vioread"
   | "viorecord"
   | "viostudio"
-  | "knexai";
+  | "knexai"
+  | "knexflow"
+  | "knexdocs"
+  | "knexmail"
+  | "knexpay"
+  | "knexreview"
+  | "knexsearch"
+  | "knexchat";
 
 export type ProductEntry = {
   slug: ProductSlug;
@@ -23,7 +30,7 @@ export const PRODUCTS: Record<ProductSlug, ProductEntry> = {
   vioclass: {
     slug: "vioclass",
     name: "VioClass",
-    homePath: "/vioclass",
+    homePath: "/vioclass/web",
   },
   violive: {
     slug: "violive",
@@ -54,6 +61,41 @@ export const PRODUCTS: Record<ProductSlug, ProductEntry> = {
     slug: "knexai",
     name: "KnexAI",
     homePath: "/knexai/web",
+  },
+  knexflow: {
+    slug: "knexflow",
+    name: "KnexFlow",
+    homePath: "/knexflow/web",
+  },
+  knexdocs: {
+    slug: "knexdocs",
+    name: "KnexDocs",
+    homePath: "/knexdocs/web",
+  },
+  knexmail: {
+    slug: "knexmail",
+    name: "KnexMail",
+    homePath: "/knexmail/web",
+  },
+  knexpay: {
+    slug: "knexpay",
+    name: "KnexPay",
+    homePath: "/knexpay/web",
+  },
+  knexreview: {
+    slug: "knexreview",
+    name: "KnexReview",
+    homePath: "/knexreview/web",
+  },
+  knexsearch: {
+    slug: "knexsearch",
+    name: "KnexSearch",
+    homePath: "/knexsearch/web",
+  },
+  knexchat: {
+    slug: "knexchat",
+    name: "KnexChat",
+    homePath: "/knexchat/web",
   },
 };
 
