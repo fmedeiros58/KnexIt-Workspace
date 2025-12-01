@@ -2,6 +2,7 @@ export type ProductSlug =
   | "supadrive"
   | "vioclass"
   | "violive"
+  | "viohub"
   | "vioanalytics"
   | "vioread"
   | "viorecord"
@@ -36,6 +37,11 @@ export const PRODUCTS: Record<ProductSlug, ProductEntry> = {
     slug: "violive",
     name: "VioLive",
     homePath: "/violive/web",
+  },
+  viohub: {
+    slug: "viohub",
+    name: "VioHub",
+    homePath: "/viohub/web",
   },
   vioanalytics: {
     slug: "vioanalytics",
