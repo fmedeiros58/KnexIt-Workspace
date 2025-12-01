@@ -184,6 +184,34 @@ export default function PlansSection() {
       </>
     ),
   },
+  hub: {
+    bg: "bg-orange-100",
+    fg: "text-orange-700",
+    path: (
+      <>
+        <circle cx="12" cy="6.5" r="2.1" fill="currentColor" />
+        <circle cx="6.5" cy="14" r="2" fill="currentColor" />
+        <circle cx="17.5" cy="14" r="2" fill="currentColor" />
+        <path d="M8.2 12.6 10.7 8.9M15.9 12.6 13.3 8.9M10.2 13.9l3.6.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <circle cx="12" cy="18.2" r="1.4" fill="currentColor" />
+        <path d="m7.6 15.5 3 1.8m2.7 0 3.2-1.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </>
+    ),
+  },
+  hub: {
+    bg: "bg-orange-100",
+    fg: "text-orange-700",
+    path: (
+      <>
+        <circle cx="12" cy="6.5" r="2.1" fill="currentColor" />
+        <circle cx="6.5" cy="14" r="2" fill="currentColor" />
+        <circle cx="17.5" cy="14" r="2" fill="currentColor" />
+        <path d="M8.2 12.6 10.7 8.9M15.9 12.6 13.3 8.9M10.2 13.9l3.6.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <circle cx="12" cy="18.2" r="1.4" fill="currentColor" />
+        <path d="m7.6 15.5 3 1.8m2.7 0 3.2-1.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </>
+    ),
+  },
   record: {
     bg: "bg-red-100",
     fg: "text-red-700",
@@ -232,6 +260,7 @@ export default function PlansSection() {
     { name: "VioRecord", slug: "viorecord", icon: "record" as const },
     { name: "VioStudio", slug: "viostudio", icon: "edit" as const },
     { name: "VioAnalytics", slug: "vioanalytics", icon: "analytics" as const },
+    { name: "VioHub", slug: "viohub", icon: "hub" as const },
     { name: "SupaDrive", slug: "supadrive", icon: "supadrive" as const },
     { name: "VioRead", slug: "vioread", icon: "read" as const },
     { name: "KnexReview", slug: "knexreview", icon: "review" as const },
