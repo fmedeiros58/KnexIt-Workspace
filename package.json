@@ -3,9 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npm-run-all -p dev:app dev:portal",
+    "dev": "next dev -H 127.0.0.1 -p 3000",
     "dev:app": "next dev -H 127.0.0.1 -p 3000",
-    "dev:portal": "npm --prefix portal run dev:open",
     "dev:knexai": "start \"\" http://localhost:3004/knexai && next dev -H 127.0.0.1 -p 3004",
     "dev:supadrive": "start \"\" http://localhost:3005/supadrive && next dev -H 127.0.0.1 -p 3005",
     "dev:vioclass": "start \"\" http://localhost:3006/vioclass && next dev -H 127.0.0.1 -p 3006",

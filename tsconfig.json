@@ -45,6 +45,7 @@
   "exclude": [
     "node_modules",
     "app/api/livekit-token/route.ts",
-    "backups"
+    "backups",
+    "portal"
   ]
 }

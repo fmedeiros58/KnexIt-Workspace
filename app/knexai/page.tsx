@@ -1,3 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-export { default } from "../../knexai/web/page";
+export default function Page() {
+  redirect("/lobby/knexai");
+}

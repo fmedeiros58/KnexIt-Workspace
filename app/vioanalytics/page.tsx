@@ -1,3 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-export { default } from "../../vioanalytics/web/page";
+export default function Page() {
+  redirect("/lobby/vioanalytics");
+}

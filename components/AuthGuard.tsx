@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getProduct } from "@/lib/products";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   return (
@@ -19,11 +20,23 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const [authorized, setAuthorized] = useState(false);
   const [checking, setChecking] = useState(true);
 
+  const normalizeRedirectPath = (path: string): string => {
+    const parts = path.split("?")[0].split("/").filter(Boolean);
+    const slug = parts[0];
+    if (!slug) return path;
+    const product = getProduct(slug);
+    if (product && (path === `/${slug}` || path.startsWith(`/lobby/${slug}`))) {
+      return product.homePath;
+    }
+    return path;
+  };
+
   const redirectTarget = useMemo(() => {
     const safePath = pathname ?? "/";
     const q = search?.toString();
     const current = q ? `${safePath}?${q}` : safePath;
-    return encodeURIComponent(current);
+    const normalized = normalizeRedirectPath(current);
+    return encodeURIComponent(normalized);
   }, [pathname, search]);
 
   useEffect(() => {
