@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "../../../../../lib/supabaseClient";
-import { getCurrentUser } from "../../../../lib/auth";
-import { getProductBaseUrl } from "../../../../lib/productBase";
-import { DEFAULT_PRODUCT_SLUG, getProduct } from "../../../lib/products";
+import { supabase } from "@/lib/supabaseClient";
+import { getCurrentUser } from "@/lib/auth";
+import { getProductBaseUrl } from "@/lib/productBase";
+import { DEFAULT_PRODUCT_SLUG, getProduct } from "@/lib/products";
 
 type Provider = "google" | "facebook";
 

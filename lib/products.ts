@@ -18,7 +18,7 @@ export const PRODUCTS: Record<ProductSlug, ProductEntry> = {
   supadrive: {
     slug: "supadrive",
     name: "SupaDrive",
-    homePath: "/supadrive",
+    homePath: "/supadrive/web",
   },
   vioclass: {
     slug: "vioclass",

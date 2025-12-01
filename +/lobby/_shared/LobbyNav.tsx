@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getProductBaseUrl } from "../../../../lib/productBase";
+import { getProductBaseUrl } from "@/lib/productBase";
 
 type LobbyNavProps = {
   productSlug: string;

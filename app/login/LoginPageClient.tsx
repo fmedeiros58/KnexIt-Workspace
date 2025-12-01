@@ -16,6 +16,25 @@ type LoginPageClientProps = {
 
 const DEFAULT_PRODUCT = getProduct(DEFAULT_PRODUCT_SLUG)!;
 
+function normalizeRedirect(product: string | null | undefined, target: string | null, origin: string) {
+  if (!target) return target;
+  if (product !== "supadrive") return target;
+  try {
+    const url = new URL(target, origin || "http://localhost");
+    const path = url.pathname;
+    if (path === "/supadrive" || path === "/lobby/supadrive") {
+      url.pathname = "/supadrive/web";
+      url.search = "";
+    }
+    return url.toString();
+  } catch {
+    if (target === "/supadrive" || target.startsWith("/lobby/supadrive")) {
+      return "/supadrive/web";
+    }
+    return target;
+  }
+}
+
 export default function LoginPageClient({
   productSlug,
   initialFrom = null,
@@ -51,10 +70,12 @@ export default function LoginPageClient({
     const resolvedProduct = getProduct(requestedSlug) ?? DEFAULT_PRODUCT;
     const origin = typeof window !== "undefined" ? window.location.origin : "";
 
-    const target =
+    const targetRaw =
       resolveTarget(fromParam, origin) ||
       resolveTarget(resolvedProduct.homePath, origin) ||
       resolvedProduct.homePath;
+
+    const target = normalizeRedirect(resolvedProduct.slug, targetRaw, origin);
 
     return {
       targetRedirect: target,
