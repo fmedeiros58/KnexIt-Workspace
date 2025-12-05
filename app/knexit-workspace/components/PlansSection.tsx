@@ -228,6 +228,22 @@ export default function PlansSection() {
       fg: "text-fuchsia-700",
       path: <path fill="currentColor" d="M9.5 4A2.5 2.5 0 0 0 7 6.5v11A2.5 2.5 0 0 0 9.5 20H11V4H9.5Zm5 0H13v16h1.5A2.5 2.5 0 0 0 17 17.5v-11A2.5 2.5 0 0 0 14.5 4Z" />,
     },
+  owl: {
+    bg: "bg-fuchsia-100",
+    fg: "text-fuchsia-700",
+    path: (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="5" fill="white" />
+        <g fill="currentColor">
+          <path d="M7.5 9.5c0-1.7 1.4-3 3-3s3 1.3 3 3c0 .6-.2 1.1-.5 1.5-.3.4-.8.7-1.3.7s-1-.3-1.3-.7c-.3-.4-.5-.9-.5-1.5z" />
+          <path d="M6 13c0-1.9 3-2.8 6-2.8s6 .9 6 2.8c0 .9-1 2-3 2s-3-1-3-1-1.3 1-3 1-3-1.1-3-2z" />
+          <circle cx="9.5" cy="9.3" r="1" fill="currentColor" />
+          <circle cx="14.5" cy="9.3" r="1" fill="currentColor" />
+          <path d="M12 11.2c.4.5.6 1 0 1.6-.6.6-1.4.6-2 0-.6-.6-.4-1.1 0-1.6.4-.5 1.2-.5 2 0z" fill="currentColor" />
+        </g>
+      </>
+    ),
+  },
     mail: {
       bg: "bg-blue-100",
       fg: "text-blue-700",
@@ -254,7 +270,7 @@ export default function PlansSection() {
     { name: "KnexFlow", slug: "knexflow", icon: "kanban" as const },
     { name: "KnexChat", slug: "knexchat", icon: "chat" as const },
     { name: "KnexSearch", slug: "knexsearch", icon: "search" as const },
-    { name: "KnexAI", slug: "knexai", icon: "brain" as const },
+    { name: "KnexAI", slug: "knexai", icon: "owl" as const },
     { name: "KnexMail", slug: "knexmail", icon: "mail" as const },
     { name: "KnexPay", slug: "knexpay", icon: "credit" as const },
   ];
@@ -287,10 +303,10 @@ export default function PlansSection() {
         <div className="flex flex-wrap items-center justify-center gap-4">
           {APPS.map((app) => (
             <a
-              key={app.slug}
-              href={`/lobby/${app.slug}`}
-              className="flex flex-col items-center gap-2 hover:scale-105 transition"
-            >
+                  key={app.slug}
+                  href={`/lobby/${app.slug}`}
+                  className="flex flex-col items-center gap-2 hover:scale-105 transition no-underline hover:no-underline focus:no-underline"
+                >
               <IconBadge icon={app.icon} label={app.name} />
             </a>
           ))}
