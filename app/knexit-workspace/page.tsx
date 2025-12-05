@@ -16,7 +16,7 @@ export default function KnexItWorkspacePage() {
     { slug: "violive", label: "VL", icon: "live" as const, bg: "bg-rose-50", fg: "text-rose-700" },
     { slug: "supadrive", label: "SD", icon: "supadrive" as const, bg: "bg-blue-50", fg: "text-blue-700" },
     { slug: "vioread", label: "VR", icon: "read" as const, bg: "bg-indigo-50", fg: "text-indigo-700" },
-    { slug: "knexai", label: "AI", icon: "brain" as const, bg: "bg-fuchsia-50", fg: "text-fuchsia-700" },
+    { slug: "knexai", label: "AI", icon: "owl" as const, bg: "bg-fuchsia-50", fg: "text-fuchsia-700" },
   ];
 
   const headerIcons: Record<
@@ -77,8 +77,19 @@ export default function KnexItWorkspacePage() {
         </>
       ),
     },
-    brain: {
-      node: <path fill="currentColor" d="M9.5 4A2.5 2.5 0 0 0 7 6.5v11A2.5 2.5 0 0 0 9.5 20H11V4H9.5Zm5 0H13v16h1.5A2.5 2.5 0 0 0 17 17.5v-11A2.5 2.5 0 0 0 14.5 4Z" />,
+    owl: {
+      node: (
+        <>
+          <rect x="3" y="3" width="18" height="18" rx="5" fill="white" />
+          <g fill="currentColor">
+            <path d="M7.5 9.5c0-1.7 1.4-3 3-3s3 1.3 3 3c0 .6-.2 1.1-.5 1.5-.3.4-.8.7-1.3.7s-1-.3-1.3-.7c-.3-.4-.5-.9-.5-1.5z" />
+            <path d="M6 13c0-1.9 3-2.8 6-2.8s6 .9 6 2.8c0 .9-1 2-3 2s-3-1-3-1-1.3 1-3 1-3-1.1-3-2z" />
+            <circle cx="9.5" cy="9.3" r="1" fill="currentColor" />
+            <circle cx="14.5" cy="9.3" r="1" fill="currentColor" />
+            <path d="M12 11.2c.4.5.6 1 0 1.6-.6.6-1.4.6-2 0-.6-.6-.4-1.1 0-1.6.4-.5 1.2-.5 2 0z" fill="currentColor" />
+          </g>
+        </>
+      ),
     },
   };
 
@@ -98,10 +109,7 @@ export default function KnexItWorkspacePage() {
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="flex w-full items-center justify-between px-4 py-4 md:px-6">
           <div className="flex items-center gap-4">
-            <div className="text-xl md:text-2xl font-bold">
-              <span className="bg-gradient-to-r from-red-600 via-red-500 to-black bg-clip-text text-transparent">KnexIT</span>{" "}
-              <span className="text-black">Workspace</span>
-            </div>
+            <div className="text-xl md:text-2xl font-bold text-blue-700">KnexIT Workspace</div>
             <div className="hidden sm:flex items-center gap-3 text-slate-500">
               {headerProducts.map((p) => (
                 <span key={p.slug} className="inline-flex h-12 w-12 items-center justify-center">

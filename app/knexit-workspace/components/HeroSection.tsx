@@ -12,8 +12,9 @@ const HERO_APPS: { name: string; icon: HeroIcon }[] = [
   { name: "KnexMail", icon: "mail" },
 ];
 
-const ICONS: Record<HeroIcon, { fg?: string; node: ReactNode }> = {
+const ICONS: Record<HeroIcon, { bg?: string; fg?: string; node: ReactNode }> = {
   play: {
+    bg: "bg-indigo-50",
     fg: "text-indigo-700",
     node: <path fill="currentColor" d="M9 7.5v9l7-4.5-7-4.5Z" />,
   },
@@ -127,14 +128,15 @@ function AppIcon({ icon }: { icon: HeroIcon }) {
   const cfg = ICONS[icon];
   if (!cfg) return null;
 
+  const wrapperClass = `inline-flex h-12 w-12 items-center justify-center rounded-xl ${cfg.bg ?? ""}`;
+  const svgClass = `h-10 w-10 ${cfg.fg ?? ""}`;
+
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`h-12 w-12 ${cfg.fg ?? ""}`}
-      aria-hidden
-    >
-      {cfg.node}
-    </svg>
+    <div className={wrapperClass}>
+      <svg viewBox="0 0 24 24" className={svgClass} aria-hidden>
+        {cfg.node}
+      </svg>
+    </div>
   );
 }
 

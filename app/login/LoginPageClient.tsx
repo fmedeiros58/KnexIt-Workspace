@@ -163,6 +163,12 @@ export default function LoginPageClient({
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
     try {
+      // Debug: log provider and intended redirect URL to help diagnose callback behavior
+      // These logs are temporary for local diagnosis and can be removed after debugging.
+      // They will appear in the browser console when initiating OAuth.
+      // Example: check that `loginReturnUrl` is your app URL, not a Google URL.
+      // eslint-disable-next-line no-console
+      console.debug("OAuth start", { provider, loginReturnUrl });
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
@@ -171,6 +177,8 @@ export default function LoginPageClient({
           skipBrowserRedirect: true,
         },
       });
+      // eslint-disable-next-line no-console
+      console.debug("OAuth result", { data, error });
       if (error) {
         setErr(`OAuth ${provider}: ${error.message}`);
         return;
