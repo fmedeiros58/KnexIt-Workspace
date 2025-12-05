@@ -6,7 +6,7 @@ export type WorkspaceProduct = {
   slug: string;
   category: "video" | "produtividade" | "ia" | "comunicacao" | "infra";
   description: string;
-  icon?: "play" | "record" | "edit" | "live" | "folder" | "supadrive" | "doc" | "read" | "kanban" | "chat" | "search" | "review" | "analytics" | "brain" | "mail" | "credit";
+  icon?: "play" | "record" | "edit" | "live" | "folder" | "supadrive" | "doc" | "read" | "kanban" | "chat" | "search" | "review" | "analytics" | "brain" | "mail" | "credit" | "hub";
 };
 
 const PRODUCTS: WorkspaceProduct[] = [
@@ -15,6 +15,7 @@ const PRODUCTS: WorkspaceProduct[] = [
   { id: "viorecord", name: "VioRecord", slug: "viorecord", category: "video", description: "Grave tela, webcam e voz no navegador.", icon: "record" },
   { id: "viostudio", name: "VioStudio", slug: "viostudio", category: "video", description: "Edicao online de video e legendas.", icon: "edit" },
   { id: "vioanalytics", name: "VioAnalytics", slug: "vioanalytics", category: "video", description: "Metricas de visualizacao e engajamento.", icon: "analytics" },
+  { id: "viohub", name: "VioHub", slug: "viohub", category: "video", description: "Produ��o audiovisual integrada e entrega.", icon: "hub" },
   { id: "supadrive", name: "SupaDrive", slug: "supadrive", category: "produtividade", description: "Drive de arquivos para materiais e provas.", icon: "supadrive" },
   { id: "knexdocs", name: "KnexDocs", slug: "knexdocs", category: "produtividade", description: "Documentos colaborativos em tempo real.", icon: "doc" },
   { id: "knexflow", name: "KnexFlow", slug: "knexflow", category: "produtividade", description: "Tarefas, quadros e fluxos de trabalho.", icon: "kanban" },
@@ -207,6 +208,19 @@ const ICONS: Record<NonNullable<WorkspaceProduct["icon"]>, { bg: string; fg: str
     bg: "bg-slate-100",
     fg: "text-slate-700",
     path: <path fill="currentColor" d="M4 6h16a1 1 0 0 1 1 1v10H3V7a1 1 0 0 1 1-1Zm1.5 4.5v1.5h5v-1.5h-5Zm0 3v1.5h3v-1.5h-3Z" />,
+  },
+  hub: {
+    bg: "bg-orange-100",
+    fg: "text-orange-700",
+    path: (
+      <>
+        <circle cx="12" cy="6.2" r="2.1" fill="currentColor" />
+        <circle cx="6.2" cy="13.8" r="1.9" fill="currentColor" />
+        <circle cx="17.8" cy="13.8" r="1.9" fill="currentColor" />
+        <circle cx="12" cy="18.2" r="1.4" fill="currentColor" />
+        <path d="M7.8 12.6 10.6 9M16.2 12.6 13.4 9M10.2 13.7l3.7.2M8 14.6l2.7 1.6m5.3-1.6-2.7 1.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </>
+    ),
   },
 };
 

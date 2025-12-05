@@ -15,6 +15,7 @@ type LobbyNavProps = {
 const PRODUCT_GRID = [
   { name: "VioClass", slug: "vioclass", description: "Cursos e trilhas de aulas em video." },
   { name: "VioLive", slug: "violive", description: "Aulas e mentorias ao vivo." },
+  { name: "VioHub", slug: "viohub", description: "Produ��o audiovisual e entrega." },
   { name: "SupaDrive", slug: "supadrive", description: "Armazenamento de arquivos." },
   { name: "VioRead", slug: "vioread", description: "Leitura assistida de PDFs e artigos." },
   { name: "KnexAI", slug: "knexai", description: "Camada unificada de IA." },

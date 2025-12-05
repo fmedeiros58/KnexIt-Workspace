@@ -7,7 +7,7 @@ export default function ProductAppLink({ slug, label }: { slug: string; label?: 
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-indigo-500"
+      className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-orange-500"
     >
       {label ?? "Acessar produto"}
     </Link>

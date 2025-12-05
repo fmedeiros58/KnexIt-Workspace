@@ -6,6 +6,7 @@ const PRODUCTS = [
   { name: "VioRecord", slug: "viorecord", summary: "Gravação de tela, webcam e voz no navegador." },
   { name: "VioStudio", slug: "viostudio", summary: "Edição e pós-produção online." },
   { name: "VioAnalytics", slug: "vioanalytics", summary: "Métricas e insights do ecossistema." },
+  { name: "VioHub", slug: "viohub", summary: "Produção audiovisual integrada e entrega." },
   { name: "VioRead", slug: "vioread", summary: "Leitura assistida de PDFs e artigos." },
   { name: "SupaDrive", slug: "supadrive", summary: "Drive de arquivos para aulas e projetos." },
   { name: "KnexDocs", slug: "knexdocs", summary: "Documentos colaborativos em tempo real." },
