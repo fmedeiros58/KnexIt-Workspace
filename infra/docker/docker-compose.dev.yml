@@ -1,0 +1,32 @@
+version: "3.9"
+services:
+  portal:
+    build:
+      context: ../portal
+    ports:
+      - "3100:3000"
+  auth:
+    build:
+      context: ../auth
+    ports:
+      - "4000:4000"
+  vioclass:
+    build:
+      context: ../vioclass
+    ports:
+      - "3200:3200"
+  violive:
+    build:
+      context: ../violive
+    ports:
+      - "3400:3400"
+  supadrive:
+    build:
+      context: ../supadrive
+    ports:
+      - "3300:3300"
+  viohub:
+    build:
+      context: ../viohub
+    ports:
+      - "3500:3500"

@@ -24,16 +24,28 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["*"]
+      "@/*": [
+        "*"
+      ],
+      "@/lib/recstore": [
+        "supadrive/lib/recstore"
+      ],
+      "@/types/drive-recording": [
+        "supadrive/types/drive-recording"
+      ]
     }
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "app/api/livekit-token/route.ts",
+    "backups",
+    "portal"
   ]
 }
