@@ -42,6 +42,10 @@ export default function LoginPageClient({
   initialRedirect = null,
 }: LoginPageClientProps) {
   const router = useRouter();
+  const appBaseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_APP_BASE_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginSent, setLoginSent] = useState(false);
   const [loadingMagic, setLoadingMagic] = useState(false);
@@ -69,7 +73,7 @@ export default function LoginPageClient({
     const searchSlug = initialProduct;
     const requestedSlug = productSlug?.toLowerCase() ?? searchSlug?.toLowerCase();
     const resolvedProduct = getProduct(requestedSlug) ?? DEFAULT_PRODUCT;
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const origin = typeof window !== "undefined" ? window.location.origin : appBaseUrl;
 
     const targetRaw =
       resolveTarget(fromParam, origin) ||
@@ -83,29 +87,29 @@ export default function LoginPageClient({
       productLabel: resolvedProduct.name,
       activeProductSlug: resolvedProduct.slug,
     };
-  }, [productSlug, initialFrom, initialProduct, initialRedirect]);
+  }, [productSlug, initialFrom, initialProduct, initialRedirect, appBaseUrl]);
 
   const postAuthRedirect = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
+    const base = typeof window !== "undefined" ? window.location.origin : appBaseUrl;
     if (!targetRedirect) return undefined;
     try {
-      return new URL(targetRedirect, window.location.origin).toString();
+      return new URL(targetRedirect, base).toString();
     } catch {
       return targetRedirect;
     }
-  }, [targetRedirect]);
+  }, [targetRedirect, appBaseUrl]);
 
   const loginReturnUrl = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
+    const base = typeof window !== "undefined" ? window.location.href : `${appBaseUrl}/login`;
     try {
-      const url = new URL(window.location.href);
+      const url = new URL(base);
       if (targetRedirect) url.searchParams.set("from", targetRedirect);
       if (activeProductSlug) url.searchParams.set("product", activeProductSlug);
       return url.toString();
     } catch {
-      return window.location.href;
+      return base;
     }
-  }, [targetRedirect, activeProductSlug]);
+  }, [targetRedirect, activeProductSlug, appBaseUrl]);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
