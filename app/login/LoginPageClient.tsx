@@ -45,8 +45,10 @@ export default function LoginPageClient({
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
     (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
   const [loginEmail, setLoginEmail] = useState("");
-  const [loginSent, setLoginSent] = useState(false);
-  const [loadingMagic, setLoadingMagic] = useState(false);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loadingLogin, setLoadingLogin] = useState(false);
+  const allowedDomain = process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "";
+  const allowedEmails = new Set(["fmedeiros58@gmail.com"]);
 
   const [name, setName] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
@@ -56,6 +58,14 @@ export default function LoginPageClient({
   const [signupLoading, setSignupLoading] = useState(false);
 
   const [err, setErr] = useState<string | null>(null);
+
+  const isAllowedEmail = (email?: string | null) => {
+    if (!email) return false;
+    const lowered = email.toLowerCase();
+    if (allowedEmails.has(lowered)) return true;
+    if (allowedDomain) return lowered.includes(allowedDomain);
+    return true;
+  };
 
   const { targetRedirect, productLabel, activeProductSlug } = useMemo(() => {
     const resolveTarget = (value: string | null | undefined, base: string): string | null => {
@@ -110,8 +120,14 @@ export default function LoginPageClient({
   }, [targetRedirect, activeProductSlug, appBaseUrl]);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && typeof window !== "undefined") {
+        const email = session?.user?.email ?? null;
+        if (email && !isAllowedEmail(email)) {
+          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          await supabase.auth.signOut();
+          return;
+        }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
         if (to) {
@@ -126,6 +142,11 @@ export default function LoginPageClient({
     (async () => {
       const user = await getCurrentUser();
       if (user && typeof window !== "undefined") {
+        if (!isAllowedEmail(user.email)) {
+          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          await supabase.auth.signOut();
+          return;
+        }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
         if (to) {
@@ -141,22 +162,32 @@ export default function LoginPageClient({
     }
   }, [productLabel]);
 
-  async function handleMagicLink(e: React.FormEvent) {
+  async function handlePasswordLogin(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    setLoadingMagic(true);
+    setLoadingLogin(true);
+    if (!isAllowedEmail(loginEmail)) {
+      setLoadingLogin(false);
+      setErr("Apenas e-mails do domínio Knexit são permitidos.");
+      return;
+    }
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
-    const { error } = await supabase.auth.signInWithOtp({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: loginEmail,
-      options: {
-        emailRedirectTo: loginReturnUrl,
-      },
+      password: loginPassword,
     });
-    setLoadingMagic(false);
-    if (error) setErr(error.message);
-    else setLoginSent(true);
+    setLoadingLogin(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    if (data?.session) {
+      const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
+      localStorage.removeItem("postAuthRedirect");
+      if (to) router.replace(to);
+    }
   }
 
   async function handleOAuth(provider: Provider) {
@@ -201,6 +232,11 @@ export default function LoginPageClient({
     e.preventDefault();
     setErr(null);
     setSignupLoading(true);
+    if (!isAllowedEmail(signupEmail)) {
+      setSignupLoading(false);
+      setErr("Apenas e-mails do domínio Knexit são permitidos.");
+      return;
+    }
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
@@ -224,10 +260,8 @@ export default function LoginPageClient({
       <header className="w-full border-b border-neutral-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded bg-red-600" aria-hidden />
-            <span className="text-lg font-semibold tracking-tight">
-              <span className="text-red-600">UP</span>GRADE
-            </span>
+            <div className="h-7 w-7 rounded bg-blue-600" aria-hidden />
+            <span className="text-lg font-semibold tracking-tight text-blue-700">Knexit Workspace</span>
           </div>
           <div className="text-xs md:text-sm text-neutral-600">
             Você será direcionado para <strong>{productLabel}</strong> após entrar.
@@ -242,7 +276,7 @@ export default function LoginPageClient({
               <div className="h-9 w-9 rounded bg-neutral-900" aria-hidden />
               <div>
                 <h2 className="text-lg font-semibold">Cadastre-se para criar sua conta</h2>
-                <p className="text-sm text-neutral-500">e iniciar seus estudos!</p>
+                <p className="text-sm text-neutral-500">Fluxo em duas etapas: cadastro e login com senha.</p>
               </div>
             </div>
             <form onSubmit={handleSignup} className="grid grid-cols-1 gap-3">
@@ -296,7 +330,7 @@ export default function LoginPageClient({
               <button
                 type="submit"
                 disabled={signupLoading}
-                className="mt-1 inline-flex w-full items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60"
+                className="mt-1 inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-60"
               >
                 {signupLoading ? "Cadastrando..." : "Cadastrar"}
               </button>
@@ -308,10 +342,10 @@ export default function LoginPageClient({
               <div className="h-9 w-9 rounded bg-orange-500" aria-hidden />
               <div>
                 <h2 className="text-lg font-semibold">Entre na sua conta para continuar</h2>
-                <p className="text-sm text-neutral-500">seus estudos!</p>
+                <p className="text-sm text-neutral-500">Use e-mail e senha cadastrados.</p>
               </div>
             </div>
-            <form onSubmit={handleMagicLink} className="space-y-3">
+            <form onSubmit={handlePasswordLogin} className="space-y-3">
               <label className="text-sm block">
                 <span className="mb-1 block text-neutral-700">E-mail</span>
                 <input
@@ -325,27 +359,28 @@ export default function LoginPageClient({
                   inputMode="email"
                 />
               </label>
+              <label className="text-sm block">
+                <span className="mb-1 block text-neutral-700">Senha</span>
+                <input
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-600/30"
+                  placeholder="********"
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
 
               <button
                 type="submit"
-                disabled={loadingMagic || !loginEmail}
-                className="inline-flex w-full items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-red-700 disabled:opacity-60"
+                disabled={loadingLogin || !loginEmail || !loginPassword}
+                className="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-green-700 disabled:opacity-60"
               >
-                {loadingMagic ? "Enviando..." : "Enviar link mágico"}
+                {loadingLogin ? "Entrando..." : "Entrar"}
               </button>
 
-              <div className="flex items-center justify-center text-xs">
-                <a href="#" onClick={(e) => e.preventDefault()} className="text-neutral-600 underline underline-offset-2">
-                  Esqueceu a senha?
-                </a>
-              </div>
             </form>
-
-            {loginSent && (
-              <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 border border-emerald-200">
-                Enviamos um link de acesso para o seu e-mail. Abra pelo mesmo dispositivo para entrar.
-              </p>
-            )}
             {err && (
               <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 border border-rose-200">
                 {err}
