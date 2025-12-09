@@ -190,44 +190,6 @@ export default function LoginPageClient({
     }
   }
 
-  async function handleOAuth(provider: Provider) {
-    setErr(null);
-    if (typeof window !== "undefined" && postAuthRedirect) {
-      localStorage.setItem("postAuthRedirect", postAuthRedirect);
-    }
-    try {
-      // Debug: log provider and intended redirect URL to help diagnose callback behavior
-      // These logs are temporary for local diagnosis and can be removed after debugging.
-      // They will appear in the browser console when initiating OAuth.
-      // Example: check that `loginReturnUrl` is your app URL, not a Google URL.
-      // eslint-disable-next-line no-console
-      console.debug("OAuth start", { provider, loginReturnUrl });
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: loginReturnUrl,
-          scopes: provider === "google" ? "openid email profile" : "public_profile,email",
-          skipBrowserRedirect: true,
-        },
-      });
-      // eslint-disable-next-line no-console
-      console.debug("OAuth result", { data, error });
-      if (error) {
-        setErr(`OAuth ${provider}: ${error.message}`);
-        return;
-      }
-      if (!data?.url) {
-        setErr(
-          `OAuth ${provider}: URL de redirecionamento ausente. Verifique se o provedor está habilitado no Supabase e se o Redirect URI é https://SEU-PROJETO.supabase.co/auth/v1/callback.`
-        );
-        return;
-      }
-      window.location.href = data.url;
-    } catch (e: any) {
-      setErr(`Falha ao iniciar OAuth ${provider}: ${e?.message ?? "erro desconhecido"}`);
-    }
-  }
-
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
