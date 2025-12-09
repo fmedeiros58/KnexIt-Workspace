@@ -6,8 +6,6 @@ import { supabase } from "@/lib/supabaseClient";
 import { getCurrentUser } from "@/lib/auth";
 import { DEFAULT_PRODUCT_SLUG, getProduct, ProductEntry, ProductSlug } from "@/lib/products";
 
-type Provider = "google" | "facebook";
-
 type LoginPageClientProps = {
   productSlug?: ProductSlug | null;
   initialFrom?: string | null;
@@ -42,9 +40,15 @@ export default function LoginPageClient({
   initialRedirect = null,
 }: LoginPageClientProps) {
   const router = useRouter();
+  const appBaseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_APP_BASE_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
   const [loginEmail, setLoginEmail] = useState("");
-  const [loginSent, setLoginSent] = useState(false);
-  const [loadingMagic, setLoadingMagic] = useState(false);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loadingLogin, setLoadingLogin] = useState(false);
+  const allowedDomain = process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "";
+  const allowedEmails = new Set(["fmedeiros58@gmail.com"]);
 
   const [name, setName] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
@@ -54,6 +58,14 @@ export default function LoginPageClient({
   const [signupLoading, setSignupLoading] = useState(false);
 
   const [err, setErr] = useState<string | null>(null);
+
+  const isAllowedEmail = (email?: string | null) => {
+    if (!email) return false;
+    const lowered = email.toLowerCase();
+    if (allowedEmails.has(lowered)) return true;
+    if (allowedDomain) return lowered.includes(allowedDomain);
+    return true;
+  };
 
   const { targetRedirect, productLabel, activeProductSlug } = useMemo(() => {
     const resolveTarget = (value: string | null | undefined, base: string): string | null => {
@@ -69,7 +81,7 @@ export default function LoginPageClient({
     const searchSlug = initialProduct;
     const requestedSlug = productSlug?.toLowerCase() ?? searchSlug?.toLowerCase();
     const resolvedProduct = getProduct(requestedSlug) ?? DEFAULT_PRODUCT;
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const origin = typeof window !== "undefined" ? window.location.origin : appBaseUrl;
 
     const targetRaw =
       resolveTarget(fromParam, origin) ||
@@ -83,33 +95,39 @@ export default function LoginPageClient({
       productLabel: resolvedProduct.name,
       activeProductSlug: resolvedProduct.slug,
     };
-  }, [productSlug, initialFrom, initialProduct, initialRedirect]);
+  }, [productSlug, initialFrom, initialProduct, initialRedirect, appBaseUrl]);
 
   const postAuthRedirect = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
+    const base = typeof window !== "undefined" ? window.location.origin : appBaseUrl;
     if (!targetRedirect) return undefined;
     try {
-      return new URL(targetRedirect, window.location.origin).toString();
+      return new URL(targetRedirect, base).toString();
     } catch {
       return targetRedirect;
     }
-  }, [targetRedirect]);
+  }, [targetRedirect, appBaseUrl]);
 
   const loginReturnUrl = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
+    const base = typeof window !== "undefined" ? window.location.href : `${appBaseUrl}/login`;
     try {
-      const url = new URL(window.location.href);
+      const url = new URL(base);
       if (targetRedirect) url.searchParams.set("from", targetRedirect);
       if (activeProductSlug) url.searchParams.set("product", activeProductSlug);
       return url.toString();
     } catch {
-      return window.location.href;
+      return base;
     }
-  }, [targetRedirect, activeProductSlug]);
+  }, [targetRedirect, activeProductSlug, appBaseUrl]);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && typeof window !== "undefined") {
+        const email = session?.user?.email ?? null;
+        if (email && !isAllowedEmail(email)) {
+          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          await supabase.auth.signOut();
+          return;
+        }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
         if (to) {
@@ -124,6 +142,11 @@ export default function LoginPageClient({
     (async () => {
       const user = await getCurrentUser();
       if (user && typeof window !== "undefined") {
+        if (!isAllowedEmail(user.email)) {
+          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          await supabase.auth.signOut();
+          return;
+        }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
         if (to) {
@@ -139,59 +162,31 @@ export default function LoginPageClient({
     }
   }, [productLabel]);
 
-  async function handleMagicLink(e: React.FormEvent) {
+  async function handlePasswordLogin(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    setLoadingMagic(true);
+    setLoadingLogin(true);
+    if (!isAllowedEmail(loginEmail)) {
+      setLoadingLogin(false);
+      setErr("Apenas e-mails do domínio Knexit são permitidos.");
+      return;
+    }
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
-    const { error } = await supabase.auth.signInWithOtp({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: loginEmail,
-      options: {
-        emailRedirectTo: loginReturnUrl,
-      },
+      password: loginPassword,
     });
-    setLoadingMagic(false);
-    if (error) setErr(error.message);
-    else setLoginSent(true);
-  }
-
-  async function handleOAuth(provider: Provider) {
-    setErr(null);
-    if (typeof window !== "undefined" && postAuthRedirect) {
-      localStorage.setItem("postAuthRedirect", postAuthRedirect);
+    setLoadingLogin(false);
+    if (error) {
+      setErr(error.message);
+      return;
     }
-    try {
-      // Debug: log provider and intended redirect URL to help diagnose callback behavior
-      // These logs are temporary for local diagnosis and can be removed after debugging.
-      // They will appear in the browser console when initiating OAuth.
-      // Example: check that `loginReturnUrl` is your app URL, not a Google URL.
-      // eslint-disable-next-line no-console
-      console.debug("OAuth start", { provider, loginReturnUrl });
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: loginReturnUrl,
-          scopes: provider === "google" ? "openid email profile" : "public_profile,email",
-          skipBrowserRedirect: true,
-        },
-      });
-      // eslint-disable-next-line no-console
-      console.debug("OAuth result", { data, error });
-      if (error) {
-        setErr(`OAuth ${provider}: ${error.message}`);
-        return;
-      }
-      if (!data?.url) {
-        setErr(
-          `OAuth ${provider}: URL de redirecionamento ausente. Verifique se o provedor está habilitado no Supabase e se o Redirect URI é https://SEU-PROJETO.supabase.co/auth/v1/callback.`
-        );
-        return;
-      }
-      window.location.href = data.url;
-    } catch (e: any) {
-      setErr(`Falha ao iniciar OAuth ${provider}: ${e?.message ?? "erro desconhecido"}`);
+    if (data?.session) {
+      const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
+      localStorage.removeItem("postAuthRedirect");
+      if (to) router.replace(to);
     }
   }
 
@@ -199,6 +194,11 @@ export default function LoginPageClient({
     e.preventDefault();
     setErr(null);
     setSignupLoading(true);
+    if (!isAllowedEmail(signupEmail)) {
+      setSignupLoading(false);
+      setErr("Apenas e-mails do domínio Knexit são permitidos.");
+      return;
+    }
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
@@ -222,10 +222,8 @@ export default function LoginPageClient({
       <header className="w-full border-b border-neutral-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded bg-red-600" aria-hidden />
-            <span className="text-lg font-semibold tracking-tight">
-              <span className="text-red-600">UP</span>GRADE
-            </span>
+            <div className="h-7 w-7 rounded bg-blue-600" aria-hidden />
+            <span className="text-lg font-semibold tracking-tight text-blue-700">Knexit Workspace</span>
           </div>
           <div className="text-xs md:text-sm text-neutral-600">
             Você será direcionado para <strong>{productLabel}</strong> após entrar.
@@ -240,31 +238,9 @@ export default function LoginPageClient({
               <div className="h-9 w-9 rounded bg-neutral-900" aria-hidden />
               <div>
                 <h2 className="text-lg font-semibold">Cadastre-se para criar sua conta</h2>
-                <p className="text-sm text-neutral-500">e iniciar seus estudos!</p>
+                <p className="text-sm text-neutral-500">Fluxo em duas etapas: cadastro e login com senha.</p>
               </div>
             </div>
-
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => handleOAuth("facebook")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2 text-sm font-medium text-white"
-              >
-                <FacebookIcon />
-                Cadastrar com Facebook
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOAuth("google")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800"
-              >
-                <GoogleG />
-                Cadastrar com Google
-              </button>
-            </div>
-
-            <div className="my-5 h-px w-full bg-neutral-200" />
-
             <form onSubmit={handleSignup} className="grid grid-cols-1 gap-3">
               <Labeled label="Nome" placeholder="Seu nome" value={name} onChange={(e) => setName(e.target.value)} required />
               <Labeled
@@ -316,7 +292,7 @@ export default function LoginPageClient({
               <button
                 type="submit"
                 disabled={signupLoading}
-                className="mt-1 inline-flex w-full items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60"
+                className="mt-1 inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-60"
               >
                 {signupLoading ? "Cadastrando..." : "Cadastrar"}
               </button>
@@ -328,32 +304,10 @@ export default function LoginPageClient({
               <div className="h-9 w-9 rounded bg-orange-500" aria-hidden />
               <div>
                 <h2 className="text-lg font-semibold">Entre na sua conta para continuar</h2>
-                <p className="text-sm text-neutral-500">seus estudos!</p>
+                <p className="text-sm text-neutral-500">Use e-mail e senha cadastrados.</p>
               </div>
             </div>
-
-            <div className="flex flex-col gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => handleOAuth("facebook")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2 text-sm font-medium text-white"
-              >
-                <FacebookIcon />
-                Entrar com Facebook
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOAuth("google")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800"
-              >
-                <GoogleG />
-                Entrar com Google
-              </button>
-            </div>
-
-            <div className="my-5 h-px w-full bg-neutral-200" />
-
-            <form onSubmit={handleMagicLink} className="space-y-3">
+            <form onSubmit={handlePasswordLogin} className="space-y-3">
               <label className="text-sm block">
                 <span className="mb-1 block text-neutral-700">E-mail</span>
                 <input
@@ -367,27 +321,28 @@ export default function LoginPageClient({
                   inputMode="email"
                 />
               </label>
+              <label className="text-sm block">
+                <span className="mb-1 block text-neutral-700">Senha</span>
+                <input
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-600/30"
+                  placeholder="********"
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
 
               <button
                 type="submit"
-                disabled={loadingMagic || !loginEmail}
-                className="inline-flex w-full items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-red-700 disabled:opacity-60"
+                disabled={loadingLogin || !loginEmail || !loginPassword}
+                className="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-green-700 disabled:opacity-60"
               >
-                {loadingMagic ? "Enviando..." : "Enviar link mágico"}
+                {loadingLogin ? "Entrando..." : "Entrar"}
               </button>
 
-              <div className="flex items-center justify-center text-xs">
-                <a href="#" onClick={(e) => e.preventDefault()} className="text-neutral-600 underline underline-offset-2">
-                  Esqueceu a senha?
-                </a>
-              </div>
             </form>
-
-            {loginSent && (
-              <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 border border-emerald-200">
-                Enviamos um link de acesso para o seu e-mail. Abra pelo mesmo dispositivo para entrar.
-              </p>
-            )}
             {err && (
               <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 border border-rose-200">
                 {err}
@@ -454,25 +409,6 @@ function Labeled(props: React.InputHTMLAttributes<HTMLInputElement> & { label: s
         className={`w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm ${className ?? ""}`}
       />
     </label>
-  );
-}
-
-function FacebookIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white">
-      <path d="M22 12.06C22 6.49 17.52 2 11.94 2 6.37 2 1.88 6.49 1.88 12.06c0 4.99 3.65 9.14 8.43 10v-7.07H7.9v-2.93h2.41V9.69c0-2.38 1.42-3.7 3.6-3.7 1.04 0 2.13.19 2.13.19v2.34h-1.2c-1.18 0-1.55.73-1.55 1.48v1.78h2.64l-.42 2.93h-2.22V22c4.78-.86 8.43-5.01 8.43-9.94Z" />
-    </svg>
-  );
-}
-
-function GoogleG() {
-  return (
-    <svg className="h-[18px] w-[18px]" viewBox="0 0 18 18" aria-hidden="true">
-      <path d="M17.64 9.2045c0-.638-.0573-1.2518-.1636-1.8409H9v3.4818h4.84c-.2082 1.125-.8414 2.0773-1.7905 2.7164v2.2582h2.8977c1.6964-1.5637 2.6928-3.8646 2.6928-6.6155z" fill="#4285F4" />
-      <path d="M9 18c2.43 0 4.466-0.806 5.954-2.1791l-2.8977-2.2582c-.8059.54-1.8377.8591-3.0563.8591-2.3518 0-4.3446-1.5864-5.0563-3.7182H.9636v2.3373C2.4446 15.9828 5.4818 18 9 18z" fill="#34A853" />
-      <path d="M3.9437 10.7036c-.18-.54-.2837-1.1164-.2837-1.7036s.1036-1.1636.2837-1.7036V4.959H.9636C.3491 6.1777 0 7.5577 0 9c0 1.4423.3491 2.8223.9636 4.041l2.98-2.3374z" fill="#FBBC05" />
-      <path d="M9 3.5455c1.3205 0 2.5105.4545 3.4459 1.3455l2.5841-2.5841C13.4591.86 11.43 0 9 0 5.4818 0 2.4446 2.0173.9636 4.959l2.98 2.3373C4.6555 5.1318 6.6482 3.5455 9 3.5455z" fill="#EA4335" />
-    </svg>
   );
 }
 
