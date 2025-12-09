@@ -6,8 +6,6 @@ import { supabase } from "@/lib/supabaseClient";
 import { getCurrentUser } from "@/lib/auth";
 import { DEFAULT_PRODUCT_SLUG, getProduct, ProductEntry, ProductSlug } from "@/lib/products";
 
-type Provider = "google" | "facebook";
-
 type LoginPageClientProps = {
   productSlug?: ProductSlug | null;
   initialFrom?: string | null;
@@ -247,28 +245,6 @@ export default function LoginPageClient({
                 <p className="text-sm text-neutral-500">e iniciar seus estudos!</p>
               </div>
             </div>
-
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => handleOAuth("facebook")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2 text-sm font-medium text-white"
-              >
-                <FacebookIcon />
-                Cadastrar com Facebook
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOAuth("google")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800"
-              >
-                <GoogleG />
-                Cadastrar com Google
-              </button>
-            </div>
-
-            <div className="my-5 h-px w-full bg-neutral-200" />
-
             <form onSubmit={handleSignup} className="grid grid-cols-1 gap-3">
               <Labeled label="Nome" placeholder="Seu nome" value={name} onChange={(e) => setName(e.target.value)} required />
               <Labeled
@@ -335,28 +311,6 @@ export default function LoginPageClient({
                 <p className="text-sm text-neutral-500">seus estudos!</p>
               </div>
             </div>
-
-            <div className="flex flex-col gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => handleOAuth("facebook")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2 text-sm font-medium text-white"
-              >
-                <FacebookIcon />
-                Entrar com Facebook
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOAuth("google")}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800"
-              >
-                <GoogleG />
-                Entrar com Google
-              </button>
-            </div>
-
-            <div className="my-5 h-px w-full bg-neutral-200" />
-
             <form onSubmit={handleMagicLink} className="space-y-3">
               <label className="text-sm block">
                 <span className="mb-1 block text-neutral-700">E-mail</span>
@@ -458,25 +412,6 @@ function Labeled(props: React.InputHTMLAttributes<HTMLInputElement> & { label: s
         className={`w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm ${className ?? ""}`}
       />
     </label>
-  );
-}
-
-function FacebookIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white">
-      <path d="M22 12.06C22 6.49 17.52 2 11.94 2 6.37 2 1.88 6.49 1.88 12.06c0 4.99 3.65 9.14 8.43 10v-7.07H7.9v-2.93h2.41V9.69c0-2.38 1.42-3.7 3.6-3.7 1.04 0 2.13.19 2.13.19v2.34h-1.2c-1.18 0-1.55.73-1.55 1.48v1.78h2.64l-.42 2.93h-2.22V22c4.78-.86 8.43-5.01 8.43-9.94Z" />
-    </svg>
-  );
-}
-
-function GoogleG() {
-  return (
-    <svg className="h-[18px] w-[18px]" viewBox="0 0 18 18" aria-hidden="true">
-      <path d="M17.64 9.2045c0-.638-.0573-1.2518-.1636-1.8409H9v3.4818h4.84c-.2082 1.125-.8414 2.0773-1.7905 2.7164v2.2582h2.8977c1.6964-1.5637 2.6928-3.8646 2.6928-6.6155z" fill="#4285F4" />
-      <path d="M9 18c2.43 0 4.466-0.806 5.954-2.1791l-2.8977-2.2582c-.8059.54-1.8377.8591-3.0563.8591-2.3518 0-4.3446-1.5864-5.0563-3.7182H.9636v2.3373C2.4446 15.9828 5.4818 18 9 18z" fill="#34A853" />
-      <path d="M3.9437 10.7036c-.18-.54-.2837-1.1164-.2837-1.7036s.1036-1.1636.2837-1.7036V4.959H.9636C.3491 6.1777 0 7.5577 0 9c0 1.4423.3491 2.8223.9636 4.041l2.98-2.3374z" fill="#FBBC05" />
-      <path d="M9 3.5455c1.3205 0 2.5105.4545 3.4459 1.3455l2.5841-2.5841C13.4591.86 11.43 0 9 0 5.4818 0 2.4446 2.0173.9636 4.959l2.98 2.3373C4.6555 5.1318 6.6482 3.5455 9 3.5455z" fill="#EA4335" />
-    </svg>
   );
 }
 
