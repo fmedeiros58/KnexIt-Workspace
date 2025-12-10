@@ -119,24 +119,24 @@ export default function KnexItWorkspacePage() {
             </div>
           </div>
           <nav className="flex flex-1 items-center justify-end gap-3 text-sm font-semibold text-slate-700">
-            <a href="#produtos" className="hover:text-indigo-600">
+            <a href="#produtos" className="no-underline hover:text-indigo-600 hover:no-underline">
               Produtos
             </a>
-            <a href="#planos" className="hover:text-indigo-600">
+            <a href="#planos" className="no-underline hover:text-indigo-600 hover:no-underline">
               Planos
             </a>
-            <a href="#contato" className="hover:text-indigo-600">
+            <a href="#contato" className="no-underline hover:text-indigo-600 hover:no-underline">
               Contato
             </a>
             <a
               href="#contato"
-              className="hidden sm:inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50"
+              className="hidden sm:inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50 no-underline hover:no-underline"
             >
               Fale com a equipe de vendas
             </a>
             <a
               href="/knexit-workspace#planos"
-              className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+              className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 no-underline hover:no-underline"
             >
               Iniciar agora
             </a>

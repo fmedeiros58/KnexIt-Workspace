@@ -889,10 +889,17 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
       </header>
 
       <div className="border-b border-slate-200" />
-      <main className={`px-4 md:px-6 py-4 grid gap-6 ${showInfo ? "grid-cols-[280px_1fr_360px]" : "grid-cols-[280px_1fr]"}`}>
-        {/* Sidebar esquerda */}
-        <aside className="min-w-0">
-          <div className="sticky top-[4.5rem] space-y-3">
+      <main className="px-4 md:px-6 py-4">
+        <div
+          className={`flex flex-col gap-6 ${
+            showInfo
+              ? "lg:grid lg:grid-cols-[280px_1fr_360px]"
+              : "lg:grid lg:grid-cols-[280px_1fr]"
+          }`}
+        >
+          {/* Sidebar esquerda */}
+          <aside className="min-w-0 lg:w-[280px] lg:flex-none w-full">
+            <div className="sticky top-[4.5rem] space-y-3">
             <div className="relative" ref={newWrapRef}>
               <button
                 className="inline-flex items-center gap-2 rounded-full bg-indigo-600 text-white px-4 py-2 text-sm shadow hover:bg-indigo-700"
@@ -959,11 +966,11 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
             </div>
             <SidebarNav selfEmail={selfEmail} active={navFilter} onFilter={(f) => setNavFilter(f)} />
           </div>
-        </aside>
+          </aside>
 
-        {/* Contém principal */}
-        <section className="min-w-0">
-          <div className="mb-2 flex items-center justify-between gap-3">
+          {/* Contém principal */}
+          <section className="min-w-0">
+            <div className="mb-2 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-semibold text-slate-900">Meu Drive</h1>
@@ -1412,50 +1419,53 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
               </ul>
             </div>
           )}
-        </section>
+          </section>
 
-        {/* Painel de detalhes / Pré-visualização */}
-        <aside className={`${showInfo ? "" : "hidden"}`}>
-          <div className="sticky top-[4.5rem] rounded-xl border border-slate-200 overflow-hidden">
-            <div className="bg-slate-50 px-3 py-2 text-sm font-medium">Detalhes</div>
-            <div className="p-3 space-y-3">
-              {active ? (
-                <>
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium truncate" title={active.name}>
-                      {active.name || fallbackName(active)}
-                    </div>
-                    <div className="text-xs text-slate-600">{fmtSize(active.size)}</div>
-                  </div>
+          {/* Painel de detalhes / Pré-visualização */}
+          {showInfo && (
+            <aside className="min-w-0 lg:w-[360px] lg:flex-none w-full">
+              <div className="sticky top-[4.5rem] rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-3 py-2 text-sm font-medium">Detalhes</div>
+                <div className="p-3 space-y-3">
+                  {active ? (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium truncate" title={active.name}>
+                          {active.name || fallbackName(active)}
+                        </div>
+                        <div className="text-xs text-slate-600">{fmtSize(active.size)}</div>
+                      </div>
 
-                  <div className="text-xs text-slate-600">{fmtDate(active.createdAt)}</div>
+                      <div className="text-xs text-slate-600">{fmtDate(active.createdAt)}</div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Proprietário</span>
-                      <span className="text-slate-900">{activeOwnerLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Tipo</span>
-                      <span className="text-slate-900">{activeTypeLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Fonte</span>
-                      <span className="text-slate-900">{activeSourceLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Compartilhado com</span>
-                      <span className="text-slate-900">{activeSharedWithLabel}</span>
-                    </div>
-                  </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[11px] uppercase tracking-wide text-slate-500">Proprietário</span>
+                          <span className="text-slate-900">{activeOwnerLabel}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[11px] uppercase tracking-wide text-slate-500">Tipo</span>
+                          <span className="text-slate-900">{activeTypeLabel}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[11px] uppercase tracking-wide text-slate-500">Fonte</span>
+                          <span className="text-slate-900">{activeSourceLabel}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[11px] uppercase tracking-wide text-slate-500">Compartilhado com</span>
+                          <span className="text-slate-900">{activeSharedWithLabel}</span>
+                        </div>
+                      </div>
 
-                </>
-              ) : (
-                <div className="text-sm text-slate-600">Selecione um arquivo para ver detalhes.</div>
-              )}
-            </div>
-          </div>
-        </aside>
+                    </>
+                  ) : (
+                    <div className="text-sm text-slate-600">Selecione um arquivo para ver detalhes.</div>
+                  )}
+                </div>
+              </div>
+            </aside>
+          )}
+        </div>
 
         {shareId != null && (
           <ShareModal onClose={() => setShareId(null)}>
