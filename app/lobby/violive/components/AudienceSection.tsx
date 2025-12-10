@@ -6,8 +6,8 @@ export default function AudienceSection() {
   return (
     <section className="mx-auto max-w-6xl px-4 pb-12 md:px-6">
       <div className="space-y-3">
-        <h2 className="text-2xl font-semibold text-slate-900">Para quem e</h2>
-        <p className="text-sm text-slate-600">Publicos-alvo que mais se beneficiam.</p>
+        <h2 className="text-2xl font-semibold text-slate-900">Para quem é</h2>
+        <p className="text-sm text-slate-600">Públicos-alvo que mais se beneficiam.</p>
         <ul className="mt-2 space-y-2 text-sm text-slate-700">
           {content.audiences.map((item) => (
             <li key={item} className="flex gap-2">
@@ -20,4 +20,3 @@ export default function AudienceSection() {
     </section>
   );
 }
-

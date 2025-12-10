@@ -13,16 +13,16 @@ const PRODUCTS: WorkspaceProduct[] = [
   { id: "vioclass", name: "VioClass", slug: "vioclass", category: "video", description: "Plataforma de cursos e aulas em vídeo.", icon: "play" },
   { id: "violive", name: "VioLive", slug: "violive", category: "video", description: "Aulas ao vivo e mentorias síncronas.", icon: "live" },
   { id: "viorecord", name: "VioRecord", slug: "viorecord", category: "video", description: "Grave tela, webcam e voz no navegador.", icon: "record" },
-  { id: "viostudio", name: "VioStudio", slug: "viostudio", category: "video", description: "Edicao online de video e legendas.", icon: "edit" },
-  { id: "vioanalytics", name: "VioAnalytics", slug: "vioanalytics", category: "video", description: "Metricas de visualizacao e engajamento.", icon: "analytics" },
-  { id: "viohub", name: "VioHub", slug: "viohub", category: "video", description: "Produ��o audiovisual integrada e entrega.", icon: "hub" },
+  { id: "viostudio", name: "VioStudio", slug: "viostudio", category: "video", description: "Edição online de vídeo e legendas.", icon: "edit" },
+  { id: "vioanalytics", name: "VioAnalytics", slug: "vioanalytics", category: "video", description: "Métricas de visualização e engajamento.", icon: "analytics" },
+  { id: "viohub", name: "VioHub", slug: "viohub", category: "video", description: "Produção audiovisual integrada e entrega.", icon: "hub" },
   { id: "supadrive", name: "SupaDrive", slug: "supadrive", category: "produtividade", description: "Drive de arquivos para materiais e provas.", icon: "supadrive" },
   { id: "knexdocs", name: "KnexDocs", slug: "knexdocs", category: "produtividade", description: "Documentos colaborativos em tempo real.", icon: "doc" },
   { id: "knexflow", name: "KnexFlow", slug: "knexflow", category: "produtividade", description: "Tarefas, quadros e fluxos de trabalho.", icon: "kanban" },
   { id: "knexchat", name: "KnexChat", slug: "knexchat", category: "comunicacao", description: "Chat interno para times e turmas.", icon: "chat" },
   { id: "knexsearch", name: "KnexSearch", slug: "knexsearch", category: "ia", description: "Busca global com IA em aulas e arquivos.", icon: "search" },
   { id: "vioread", name: "VioRead", slug: "vioread", category: "produtividade", description: "Leitura assistida de PDFs e artigos.", icon: "read" },
-  { id: "knexreview", name: "KnexReview", slug: "knexreview", category: "produtividade", description: "Revisao sistematica de literatura.", icon: "review" },
+  { id: "knexreview", name: "KnexReview", slug: "knexreview", category: "produtividade", description: "Revisão sistemática de literatura.", icon: "review" },
   { id: "knexai", name: "KnexAI", slug: "knexai", category: "ia", description: "Camada unificada de IA e assistentes.", icon: "owl" },
   { id: "knexmail", name: "KnexMail", slug: "knexmail", category: "comunicacao", description: "E-mails transacionais e campanhas.", icon: "mail" },
   { id: "knexpay", name: "KnexPay", slug: "knexpay", category: "infra", description: "Billing e planos em breve.", icon: "credit" },
@@ -258,7 +258,7 @@ export default function ProductsStrip() {
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-6">
         <div className="space-y-2 text-center">
           <h2 className="text-3xl font-bold text-slate-900">O KnexIT Workspace inclui:</h2>
-          <p className="text-lg text-slate-600">Suite completa de apps para aulas, arquivos, colaboração e IA.</p>
+          <p className="text-lg text-slate-600">Suíte completa de apps para aulas, arquivos, colaboração e IA.</p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4 justify-items-center">
           {PRODUCTS.map((p, idx) => {

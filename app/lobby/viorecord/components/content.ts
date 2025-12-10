@@ -1,25 +1,25 @@
-﻿export const content = {
+export const content = {
   slug: "viorecord",
   title: "VioRecord",
   ctaLabel: "Acessar produto",
-  headline: "GravaÃ§Ã£o de tela, webcam e voz direto no navegador.",
-  intro: "Capture aulas, tutoriais e demonstraÃ§Ãµes e publique rÃ¡pido no VioClass ou SupaDrive.",
+  headline: "Gravação de tela, webcam e voz direto no navegador.",
+  intro: "Capture aulas, tutoriais e demonstrações e publique rápido no VioClass ou SupaDrive.",
   problems: [
     "Gravar videoaulas sem instalar softwares pesados.",
-            "Organizar gravaÃ§Ãµes para publicar rapidamente no VioClass ou SupaDrive.",
-            "Padronizar qualidade de Ã¡udio e vÃ­deo para aulas online.",
+    "Organizar gravações para publicar rapidamente no VioClass ou SupaDrive.",
+    "Padronizar qualidade de áudio e vídeo para aulas online.",
   ],
   features: [
-    "GravaÃ§Ã£o de tela, webcam e microfone direto no navegador.",
-            "ExportaÃ§Ã£o simples para VioClass, SupaDrive ou compartilhamento via link.",
-            "OpÃ§Ãµes bÃ¡sicas de cortes e revisÃ£o rÃ¡pida.",
-            "Captura com configuraÃ§Ãµes salvas para repetir o mesmo setup.",
+    "Gravação de tela, webcam e microfone direto no navegador.",
+    "Exportação simples para VioClass, SupaDrive ou compartilhamento via link.",
+    "Opções básicas de cortes e revisão rápida.",
+    "Captura com configurações salvas para repetir o mesmo setup.",
   ],
   audiences: [
     "Professores e tutores",
-            "Instrutores corporativos",
-            "Equipes de conteÃºdo e mÃ­dia",
-            "Times de suporte e treinamento",
+    "Instrutores corporativos",
+    "Equipes de conteúdo e mídia",
+    "Times de suporte e treinamento",
   ],
 };
 

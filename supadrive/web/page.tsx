@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
@@ -25,11 +25,11 @@ type ShareInvitee = ShareContact & { role: "leitor" | "comentador" | "editor" };
 
 const SHARE_CONTACTS: ShareContact[] = [
   { id: "francimar", name: "Francimar Medeiros", email: "francimar.medeiros@ufac.br", color: "#2563eb" },
-  { id: "servicos", name: "Serviços Central UFAC", email: "servicos.bcentral@ufac.br", color: "#047857" },
+  { id: "servicos", name: "Servi├ºos Central UFAC", email: "servicos.bcentral@ufac.br", color: "#047857" },
   { id: "bruna", name: "Bruna Queiroz", email: "bruna.queiroz@ufac.br", color: "#8b5cf6" },
   { id: "anna", name: "Anna Alice", email: "annaaliceuni@gmail.com", color: "#ec4899" },
   { id: "ppg", name: "PPG Educacao", email: "ppg.educacao@ufac.br", color: "#0ea5e9" },
-  { id: "dap", name: "Divisão de Atendimento ao Público", email: "dpublico@see.ac.gov.br", color: "#22c55e" },
+  { id: "dap", name: "Divis├úo de Atendimento ao P├║blico", email: "dpublico@see.ac.gov.br", color: "#22c55e" },
 ];
 const SHARE_COLOR_PALETTE = [
   "#2563eb",
@@ -223,7 +223,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     refresh();
   }, [refresh]);
 
-  // Ler preferências hidratação para evitar mismatch SSR/CSR
+  // Ler prefer├¬ncias hidrata├º├úo para evitar mismatch SSR/CSR
   useEffect(() => {
     try {
       const v = localStorage.getItem("drive:view") as ViewMode | null;
@@ -274,7 +274,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
-  // obter email do usuário) e persistir para saveRecording
+  // obter email do usu├írio) e persistir para saveRecording
   useEffect(() => {
     const fromLS = typeof localStorage !== "undefined" ? localStorage.getItem("drive:selfEmail") : null;
     if (fromLS) setSelfEmail(fromLS);
@@ -462,7 +462,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     }
   }, [shareWizardStep]);
 
-  // Comparador de ordenação usado na lista/grade
+  // Comparador de ordena├º├úo usado na lista/grade
   const compareRows = useCallback((a: DriveRecordingMeta, b: DriveRecordingMeta) => {
     if (foldersTop) {
       const af = isFolder(a);
@@ -493,11 +493,11 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     if (sourceFilter !== "all") rows = rows.filter((r) => matchSource(r, sourceFilter));
     // 3) Busca por texto (opcional)
     if (term) rows = rows.filter((r) => (r.name || "").toLowerCase().includes(term));
-    // 4) Ordenação
+    // 4) Ordena├º├úo
     rows = rows.sort(compareRows);    return rows;
   }, [items, navFilter, typeFilter, peopleFilter, selfEmail, modFilter, sourceFilter, q, sortKey, sortDir, foldersTop]);
   
-  // Ao trocar a "pasta" (menu lateral), limpar filtros secundário
+  // Ao trocar a "pasta" (menu lateral), limpar filtros secund├írio
   useEffect(() => {
     setTypeFilter("all");
     setPeopleFilter({ kind: "all" });
@@ -577,7 +577,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     }
   };
 
-  // A: move para lixeira por padrão; exclui definitivamente quando visualizando a lixeira
+  // A: move para lixeira por padr├úo; exclui definitivamente quando visualizando a lixeira
   const doDelete = async (ids: number[]) => {
     if (navFilter === 'trash') {
       for (const id of ids) await deleteRecording(id);
@@ -641,7 +641,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
   };
 
   const onImportFolder = async (files: FileList | null) => {
-    // semelhante ao upload de arquivos; navegadores expõem webkitRelativePath
+    // semelhante ao upload de arquivos; navegadores exp├Áem webkitRelativePath
     await onImportFiles(files);
   };
 
@@ -651,7 +651,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     try {
       await saveFolder(name);
       // opcional: marcar 'source' como folder
-      // não temos o id retornado aqui, mas ao listar veremos mime="inode/directory"
+      // n├úo temos o id retornado aqui, mas ao listar veremos mime="inode/directory"
       await refresh();
     } catch (e) {
       console.error("Falha ao criar pasta", e);
@@ -659,23 +659,23 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
   };
 
   const active = items.find((r) => r.id === activeId) || null;
-  const activeOwnerLabel = active ? active.owner || selfEmail || "—" : "—";
-  const activeTypeLabel = active ? active.mime || (active.ext ? `.${active.ext}` : "—") : "—";
-  const activeSourceLabel = active ? formatSourceLabel(active.source) : "—";
+  const activeOwnerLabel = active ? active.owner || selfEmail || "ÔÇö" : "ÔÇö";
+  const activeTypeLabel = active ? active.mime || (active.ext ? `.${active.ext}` : "ÔÇö") : "ÔÇö";
+  const activeSourceLabel = active ? formatSourceLabel(active.source) : "ÔÇö";
   const activeSharedWithLabel = active
     ? active.anyone
       ? "Qualquer pessoa"
       : Array.isArray(active.people) && active.people.length
         ? active.people.join(", ")
         : "Somente eu"
-    : "—";
+    : "ÔÇö";
   const posterCacheRef = useRef<Map<number, string>>(new Map());
-  const activeShareTitle = active?.name || "1 aula sobre Financiamento da educação inclusiva";
+  const activeShareTitle = active?.name || "1 aula sobre Financiamento da educa├º├úo inclusiva";
   const shareOwnerName = active?.owner || "Bruna Queiroz";
   const shareOwnerEmail = active?.owner
     ? `${active.owner.toLowerCase().replace(/\s+/g, ".")}@exemplo.com`
     : "bruna.queiroz@ufac.br";
-  const shareViewerName = "Medeiros (você)";
+  const shareViewerName = "Medeiros (voc├¬)";
   const shareViewerEmail = selfEmail || "FMedeiros58@gmail.com";
   const personRoleLabel =
     personRole === "leitor" ? "Leitor" : personRole === "comentador" ? "Comentador" : "Editor";
@@ -727,7 +727,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
           document.execCommand("copy");
           document.body.removeChild(textarea);
         } else {
-          throw new Error("Clipboard API indisponível");
+          throw new Error("Clipboard API indispon├¡vel");
         }
         setShareLinkFeedback("copied");
       } catch (err) {
@@ -739,9 +739,9 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
   );
   const shareLinkMessage =
     shareLinkFeedback === "copied"
-      ? "Link copiado para a área de transferência."
+      ? "Link copiado para a ├írea de transfer├¬ncia."
       : shareLinkFeedback === "error"
-        ? "Não foi possível copiar o link."
+        ? "N├úo foi poss├¡vel copiar o link."
         : "";
   const shareAutoCompleteMatches = useMemo(() => {
     const trimmed = shareInviteQuery.trim().toLowerCase();
@@ -866,13 +866,13 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
             </div>
           </div>
           <div className="hidden md:flex items-center gap-2">
-            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Seleção">
+            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Sele├º├úo">
               <IconCheckCircle className="h-5 w-5 text-slate-700" />
             </button>
             <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Ajuda">
               <IconHelp className="h-5 w-5 text-slate-700" />
             </button>
-            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Configurações">
+            <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Configura├º├Áes">
               <IconGear className="h-5 w-5 text-slate-700" />
             </button>
             <button className="h-9 w-9 rounded-full hover:bg-slate-100 grid place-items-center" title="Destacar">
@@ -890,15 +890,9 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
 
       <div className="border-b border-slate-200" />
       <main className="px-4 md:px-6 py-4">
-        <div
-          className={`flex flex-col gap-6 ${
-            showInfo
-              ? "lg:grid lg:grid-cols-[280px_1fr_360px]"
-              : "lg:grid lg:grid-cols-[280px_1fr]"
-          }`}
-        >
+        <div className="flex flex-col gap-6 md:flex-row md:items-start">
           {/* Sidebar esquerda */}
-          <aside className="min-w-0 lg:w-[280px] lg:flex-none w-full">
+          <aside className="flex-none w-[120px] sm:w-[140px] md:w-[160px] lg:w-[180px]">
             <div className="sticky top-[4.5rem] space-y-3">
             <div className="relative" ref={newWrapRef}>
               <button
@@ -939,9 +933,9 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                   <div className="py-1">
                     <MenuItem icon={<span className="inline-grid h-5 w-5 place-items-center rounded-sm bg-[#4285F4] text-white"><IconDoc className="h-3.5 w-3.5" /></span>} label="Documentos Google" onClick={() => window.open('https://docs.new','_blank')} chevron />
                     <MenuItem icon={<span className="inline-grid h-5 w-5 place-items-center rounded-sm bg-[#34A853] text-white"><IconSheet className="h-3.5 w-3.5" /></span>} label="Planilhas Google" onClick={() => window.open('https://sheets.new','_blank')} chevron />
-                    <MenuItem icon={<span className="inline-grid h-5 w-5 place-items-center rounded-sm bg-[#FBBC05] text-white"><IconSlides className="h-3.5 w-3.5" /></span>} label="Apresentações Google" onClick={() => window.open('https://slides.new','_blank')} chevron />
+                    <MenuItem icon={<span className="inline-grid h-5 w-5 place-items-center rounded-sm bg-[#FBBC05] text-white"><IconSlides className="h-3.5 w-3.5" /></span>} label="Apresenta├º├Áes Google" onClick={() => window.open('https://slides.new','_blank')} chevron />
                     <MenuItem icon={<IconPlay className="h-4 w-4" />} label="Google Vids" onClick={() => window.open('https://vids.new','_blank')} chevron />
-                    <MenuItem icon={<span className="inline-grid h-5 w-5 place-items-center rounded-sm bg-[#8E24AA] text-white"><IconForm className="h-3.5 w-3.5" /></span>} label="Formulários Google" onClick={() => window.open('https://forms.new','_blank')} chevron />
+                    <MenuItem icon={<span className="inline-grid h-5 w-5 place-items-center rounded-sm bg-[#8E24AA] text-white"><IconForm className="h-3.5 w-3.5" /></span>} label="Formul├írios Google" onClick={() => window.open('https://forms.new','_blank')} chevron />
                     <div className="relative" onMouseEnter={() => setNewMoreOpen(true)} onMouseLeave={() => setNewMoreOpen(false)}>
                       <MenuItem icon={<IconDotsGrid className="h-4 w-4" />} label="Mais" onClick={() => setNewMoreOpen((s)=>!s)} chevron />
                       {newMoreOpen && (
@@ -968,8 +962,8 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
           </div>
           </aside>
 
-          {/* Contém principal */}
-          <section className="min-w-0">
+          {/* Cont├®m principal */}
+          <section className="min-w-0 flex-1">
             <div className="mb-2 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -991,7 +985,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     {typeFilter !== 'all' && (
                       <button
                         type="button"
-                        aria-label="Limpar filtro de modificação"
+                        aria-label="Limpar filtro de modifica├º├úo"
                         className="px-2 py-1.5 border-l border-sky-300 text-sky-700 hover:text-sky-900"
                         onClick={(e) => { e.stopPropagation(); setTypeFilter('all'); setTypeOpen(false); }}
                       >
@@ -1030,7 +1024,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     {peopleFilter.kind === "all"
                       ? "Pessoas"
                       : peopleFilter.kind === "me"
-                      ? "Pessoas: Você"
+                      ? "Pessoas: Voc├¬"
                       : peopleFilter.kind === "anyone"
                       ? "Pessoas: Qualquer um"
                       : `Pessoas: ${peopleFilter.email}`}
@@ -1039,7 +1033,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                   {peopleFilter.kind !== 'all' && (
                     <button
                       type="button"
-                      aria-label="Limpar filtro de modificação"
+                      aria-label="Limpar filtro de modifica├º├úo"
                       className="px-2 py-1.5 border-l border-sky-300 text-sky-700 hover:text-sky-900"
                       onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); setPeopleFilter({ kind: 'all' }); setPeopleOpen(false); }}
                     >
@@ -1078,13 +1072,13 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                         setPeopleOpen(false);                        setModOpen(next);
                       }}
                     >
-                      {modFilter.preset === "all" ? "Modificação" : formatModifiedLabel(modFilter)}
+                      {modFilter.preset === "all" ? "Modifica├º├úo" : formatModifiedLabel(modFilter)}
                       <IconChevronDown className="h-3.5 w-3.5 text-slate-500" />
                     </button>
                   {modFilter.preset !== 'all' && (
                     <button
                       type="button"
-                      aria-label="Limpar filtro de modificação"
+                      aria-label="Limpar filtro de modifica├º├úo"
                       className="px-2 py-1.5 border-l border-sky-300 text-sky-700 hover:text-sky-900"
                       onClick={(e) => { e.stopPropagation(); setModFilter({ preset: 'all' }); setModOpen(false); }}
                     >
@@ -1139,7 +1133,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     {sourceFilter !== 'all' && (
                       <button
                         type="button"
-                        aria-label="Limpar filtro de modificação"
+                        aria-label="Limpar filtro de modifica├º├úo"
                         className="px-2 py-1.5 border-l border-sky-300 text-sky-700 hover:text-sky-900"
                         onClick={(e) => { e.stopPropagation(); setSourceFilter('all'); setSourceOpen(false); }}
                       >
@@ -1173,7 +1167,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                 </button>
               </div>
             </div>
-            {/* Grupo de visualização direita */}
+            {/* Grupo de visualiza├º├úo direita */}
             <div className="shrink-0 flex items-center gap-2">
               <div className="inline-flex items-center rounded-full ring-1 ring-slate-300 bg-white overflow-hidden">
                 <span className={`px-2 py-1.5 text-sm ${selected.size > 0 ? "text-indigo-700" : "text-slate-500"}`}>
@@ -1203,7 +1197,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
               </button>
             </div>
           </div>
-          {/* Barra de apresentação*/}
+          {/* Barra de apresenta├º├úo*/}
           {selected.size > 0 && (
             <div className="mb-3 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
               <span className="text-slate-700">{selected.size} selecionado(s)</span>
@@ -1274,8 +1268,8 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     <span>{sortKey === 'name' ? (sortDir === 'asc' ? 'A-Z' : 'Z-A') : ''}</span>
                   </button>
                 </div>
-                <div className="flex items-center justify-end">Proprietário</div>
-                <div className="flex items-center justify-end">Data da modificação</div>
+                <div className="flex items-center justify-end">Propriet├írio</div>
+                <div className="flex items-center justify-end">Data da modifica├º├úo</div>
                 <div className="flex items-center justify-end">Tamanho</div>
                 <span ref={sortWrapRef} className="relative flex items-center justify-end">
                   <button type="button" className="inline-flex items-center gap-2 px-2 py-1 rounded-md hover:bg-slate-100 text-slate-600" onClick={(e) => { e.stopPropagation(); setSortOpen((s) => !s); }}>
@@ -1286,11 +1280,11 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     <div className="absolute z-50 top-[28px] right-0 w-64 rounded-xl bg-white ring-1 ring-slate-200 shadow-2xl text-sm">
                       <div className="px-3 py-2 text-[11px] text-slate-500">Ordenar por</div>
                       <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='name'?'bg-slate-100':''}`} onClick={() => { setSortKey('name'); setSortOpen(false); }}>Nome</button>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='createdAt'?'bg-slate-100':''}`} onClick={() => { setSortKey('createdAt'); setSortOpen(false); }}>Data da modificação</button>
-                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='owner'?'bg-slate-100':''}`} onClick={() => { setSortKey('owner'); setSortOpen(false); }}>Proprietário</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='createdAt'?'bg-slate-100':''}`} onClick={() => { setSortKey('createdAt'); setSortOpen(false); }}>Data da modifica├º├úo</button>
+                      <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='owner'?'bg-slate-100':''}`} onClick={() => { setSortKey('owner'); setSortOpen(false); }}>Propriet├írio</button>
                       <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortKey==='size'?'bg-slate-100':''}`} onClick={() => { setSortKey('size'); setSortOpen(false); }}>Tamanho</button>
                       <div className="my-1 border-t border-slate-200" />
-                      <div className="px-3 py-2 text-[11px] text-slate-500">Direção de classif.</div>
+                      <div className="px-3 py-2 text-[11px] text-slate-500">Dire├º├úo de classif.</div>
                       <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortDir==='asc'?'bg-slate-100':''}`} onClick={() => { setSortDir('asc'); setSortOpen(false); }}>A a Z</button>
                       <button className={`w-full text-left px-3 py-2 hover:bg-slate-100 ${sortDir==='desc'?'bg-slate-100':''}`} onClick={() => { setSortDir('desc'); setSortOpen(false); }}>Z a A</button>
                       <div className="my-1 border-t border-slate-200" />
@@ -1333,11 +1327,11 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                         <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title={r.starred ? 'Remover estrela' : 'Adicionar estrela'} onClick={() => toggleStar(r.id, !r.starred)}>
                           <IconStar className={`h-4 w-4 ${r.starred ? 'text-amber-500' : ''}`} />
                         </button>
-                        <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Mais ações" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
+                        <button className="h-8 w-8 grid place-items-center rounded hover:bg-slate-100" title="Mais a├º├Áes" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
                           <IconMoreVert className="h-4 w-4" />
                         </button>
                       </div>
-                      <button className="group-hover:hidden h-8 w-8 grid place-items-center rounded hover:bg-slate-100 text-slate-600" title="Mais ações" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
+                      <button className="group-hover:hidden h-8 w-8 grid place-items-center rounded hover:bg-slate-100 text-slate-600" title="Mais a├º├Áes" onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === r.id ? null : r.id); }}>
                         <IconMoreVert className="h-4 w-4" />
                       </button>
                       {rowMenuId === r.id && (
@@ -1403,7 +1397,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                           </button>
                           <button className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100" onClick={() => { setActiveId(r.id); setShowInfo(true); setRowMenuId(null); }}>
                             <IconInfo className="h-4 w-4" />
-                            <span>Informações da pasta</span>
+                            <span>Informa├º├Áes da pasta</span>
                           </button>
                           <div className="my-1 border-t border-slate-200" />
                           <button className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100 text-red-700" onClick={() => { doDelete([r.id]); setRowMenuId(null); }}>
@@ -1421,7 +1415,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
           )}
           </section>
 
-          {/* Painel de detalhes / Pré-visualização */}
+          {/* Painel de detalhes / Pr├®-visualiza├º├úo */}
           {showInfo && (
             <aside className="min-w-0 lg:w-[360px] lg:flex-none w-full">
               <div className="sticky top-[4.5rem] rounded-xl border border-slate-200 overflow-hidden">
@@ -1440,7 +1434,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
 
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-2">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-[11px] uppercase tracking-wide text-slate-500">Proprietário</span>
+                          <span className="text-[11px] uppercase tracking-wide text-slate-500">Propriet├írio</span>
                           <span className="text-slate-900">{activeOwnerLabel}</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
@@ -1496,7 +1490,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                   <div className="flex items-center gap-3">
                     <div className="h-8 w-8 rounded-full bg-slate-200" />
                     <div>
-                      <div className="text-sm font-medium">Você</div>
+                      <div className="text-sm font-medium">Voc├¬</div>
                       <div className="text-xs text-slate-600">{shareRec?.owner || ''}</div>
                     </div>
                   </div>
@@ -1561,7 +1555,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                       <path d="M8.5 6.5v11l9-5.5-9-5.5z" />
                     </svg>
                   </span>
-                  <span className="text-sm font-semibold text-white truncate min-w-0">Bruna Lima de Queiroz (Apresentando e fazendo anotações)</span>
+                  <span className="text-sm font-semibold text-white truncate min-w-0">Bruna Lima de Queiroz (Apresentando e fazendo anota├º├Áes)</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1602,7 +1596,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     </div>
                     {playerShareDropdownOpen && (
                       <div className="absolute top-full right-0 mt-2 w-48 translate-x-full transform rounded-2xl border border-white/10 bg-[#202124] p-3 text-sm text-white shadow-2xl">
-                        <p className="text-xs uppercase tracking-[0.3em] text-white/50">Opções extras</p>
+                        <p className="text-xs uppercase tracking-[0.3em] text-white/50">Op├º├Áes extras</p>
                         <ul className="mt-2 space-y-1">
                           <li>
                             <button className="w-full rounded-lg bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/10">
@@ -1611,7 +1605,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                           </li>
                           <li>
                             <button className="w-full rounded-lg bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/10">
-                              Definir expiração
+                              Definir expira├º├úo
                             </button>
                           </li>
                         </ul>
@@ -1638,7 +1632,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
                       <div>
                         <p className="text-xs font-semibold uppercase text-slate-400">Compartilhar</p>
-                        <p className="mt-2 text-lg font-semibold text-slate-900">“{activeShareTitle}”</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-900">ÔÇ£{activeShareTitle}ÔÇØ</p>
                       </div>
                       <button
                         type="button"
@@ -1656,7 +1650,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                         <>
                           <div className="relative">
                             <label className="text-xs font-semibold text-slate-600" htmlFor="player-share-add">
-                              Adicionar participantes, grupos, espaços e eventos da agenda
+                              Adicionar participantes, grupos, espa├ºos e eventos da agenda
                             </label>
                             <div className="mt-2 rounded-xl border border-slate-200 px-3 py-2 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-200">
                               <div className="flex flex-wrap items-center gap-2">
@@ -1673,7 +1667,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                                       onClick={() => handleInviteRemove(person.email)}
                                       aria-label={`Remover ${person.email}`}
                                     >
-                                      ×
+                                      ├ù
                                     </button>
                                   </span>
                                 ))}
@@ -1710,7 +1704,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                                   placeholder={
                                 shareSelectedPeople.length
                                   ? "Adicionar outro participante"
-                                  : "Adicionar participantes, grupos, espaços e eventos da agenda"
+                                  : "Adicionar participantes, grupos, espa├ºos e eventos da agenda"
                               }
                                   autoComplete="off"
                                   className="min-w-[160px] flex-1 border-none bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
@@ -1741,7 +1735,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                                       className="flex w-full items-center justify-between px-4 py-2 text-left text-xs text-slate-600 hover:bg-slate-50"
                                       onClick={() => handleInviteSubmit(shareInviteTrim)}
                                     >
-                                      Compartilhar com “{shareInviteTrim}”
+                                      Compartilhar com ÔÇ£{shareInviteTrim}ÔÇØ
                                     </button>
                                   </li>
                                 )}
@@ -1754,7 +1748,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                           <button
                             type="button"
                             className="rounded-full border border-slate-200 p-1.5 hover:bg-slate-100"
-                            aria-label="Copiar lista de permissões"
+                            aria-label="Copiar lista de permiss├Áes"
                           >
                             <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
                               <path d="M8 7h11v13H8z" fill="none" stroke="currentColor" strokeWidth="1.6" />
@@ -1784,7 +1778,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                               <p className="text-xs text-slate-500">{shareOwnerEmail}</p>
                             </div>
                           </div>
-                          <span className="text-xs font-semibold text-slate-500">Proprietário</span>
+                          <span className="text-xs font-semibold text-slate-500">Propriet├írio</span>
                         </div>
                         <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-2">
                           <div className="flex items-center gap-3">
@@ -1912,7 +1906,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                             >
                               <div className="px-5 py-4">
                                 <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 leading-relaxed">
-                                  Função
+                                  Fun├º├úo
                                 </p>
                                 <div className="mt-3 space-y-1">
                                   {[
@@ -1958,7 +1952,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                               <div className="h-px bg-slate-200" />
                               <div className="px-5 py-4">
                                 <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 leading-relaxed">
-                                  Pesquisável
+                                  Pesquis├ível
                                 </p>
                                 <div className="mt-3 space-y-1">
                                   {[
@@ -2012,7 +2006,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-blue-600 font-semibold">
                           i
                         </span>
-                        <p className="leading-normal">Os leitores deste arquivo podem ver comentários e sugestões.</p>
+                        <p className="leading-normal">Os leitores deste arquivo podem ver coment├írios e sugest├Áes.</p>
                       </div>
                       <div className="mt-6 flex items-center justify-between">
                         <div className="flex flex-col gap-1">
@@ -2037,7 +2031,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                           className="rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                           onClick={closeShareDialog}
                         >
-                          Concluído
+                          Conclu├¡do
                         </button>
                       </div>
                         </>
@@ -2057,7 +2051,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                               </button>
                               <div>
                                 <p className="text-xs font-semibold uppercase text-slate-400">Compartilhar</p>
-                                <p className="mt-1 text-lg font-semibold text-slate-900">“{activeShareTitle}”</p>
+                                <p className="mt-1 text-lg font-semibold text-slate-900">ÔÇ£{activeShareTitle}ÔÇØ</p>
                               </div>
                             </div>
                             <button
@@ -2089,7 +2083,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                                           onClick={() => handleInviteRemove(person.email)}
                                           aria-label={`Remover ${person.email}`}
                                         >
-                                          ×
+                                          ├ù
                                         </button>
                                       </span>
                                     ))}
@@ -2154,7 +2148,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                                           className="flex w-full items-center justify-between px-4 py-2 text-left text-xs text-slate-600 hover:bg-slate-50"
                                           onClick={() => handleInviteSubmit(shareInviteTrim)}
                                         >
-                                          Compartilhar com “{shareInviteTrim}”
+                                          Compartilhar com ÔÇ£{shareInviteTrim}ÔÇØ
                                         </button>
                                       </li>
                                     )}
@@ -2275,7 +2269,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
               {!previewSrc && !previewLoading && (
                 <div className="flex h-[min(75vh,560px)] flex-col items-center justify-center gap-3 text-slate-400">
                   <FileThumb className="h-12 w-12" />
-                  <p className="text-sm">Prévia indisponível</p>
+                  <p className="text-sm">Pr├®via indispon├¡vel</p>
                   {previewError && <p className="text-xs text-rose-500">{previewError}</p>}
                 </div>
               )}
@@ -2377,7 +2371,7 @@ function FileCard({
         video.src = url;
         video.muted = true;
         video.playsInline = true;
-        // Garantir o 1º frame: esperar metadata e fazer seek para 0 (com fallback 0.01)
+        // Garantir o 1┬║ frame: esperar metadata e fazer seek para 0 (com fallback 0.01)
         await new Promise<void>((resolve) => {
           const onLoaded = () => {
             const onSeeked = () => resolve();
@@ -2466,7 +2460,7 @@ function FileCard({
       </div>
       <button className="w-full" onClick={() => { if (!isFolder(meta)) onOpen(); }} title={isFolder(meta) ? "Pasta" : "Abrir"}>
         {thumb && !isFolder(meta) ? (
-          <img src={thumb} alt="capa do vídeo" className="aspect-video w-full object-cover" />
+          <img src={thumb} alt="capa do v├¡deo" className="aspect-video w-full object-cover" />
         ) : (
           <div className="aspect-video bg-slate-100 grid place-items-center">
             {isFolder(meta) ? (
@@ -2493,10 +2487,10 @@ function EmptyState({ onImport }: { onImport: () => void }) {
       <div className="max-w-sm space-y-2">
         <div className="flex items-center justify-center gap-2 text-slate-700">
           <LogoDrive className="h-6 w-6" />
-          <span className="font-medium">Seu Drive está vazio</span>
+          <span className="font-medium">Seu Drive est├í vazio</span>
         </div>
         <p className="text-sm">
-          As gravações feitas no UpConect aparecem aqui automaticamente. Você pode importar arquivos locais.
+          As grava├º├Áes feitas no UpConect aparecem aqui automaticamente. Voc├¬ pode importar arquivos locais.
         </p>
         <div className="pt-2">
           <button
@@ -2567,7 +2561,7 @@ function SortMenu({ sortKey, sortDir, onChange }: { sortKey: SortKey; sortDir: S
   );
 }
 
-/* ====== 'ícones/visuais ====== */
+/* ====== '├¡cones/visuais ====== */
 function PeopleMenu({
   query,
   onQuery,
@@ -2615,9 +2609,9 @@ function PeopleMenu({
           className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-sm"
           onClick={() => onSelect({ kind: "me" })}
         >
-          <AvatarCircle label={(selfEmail ?? "Você").charAt(0)} />
+          <AvatarCircle label={(selfEmail ?? "Voc├¬").charAt(0)} />
           <div className="min-w-0">
-            <div className="truncate">Você</div>
+            <div className="truncate">Voc├¬</div>
             {selfEmail ? <div className="text-xs text-slate-600 truncate">{selfEmail}</div> : null}
           </div>
           <span className="ml-auto opacity-50"></span>
@@ -2654,7 +2648,7 @@ function matchNav(meta: DriveRecordingMeta, nav: NavKey, selfEmail: string | nul
   const notTrashSpam = !(meta as any).trashed && !(meta as any).spam;
   switch (nav) {
     case 'my': {
-      // Meu Drive deve mostrar tudo que não está na lixeira ou spam
+      // Meu Drive deve mostrar tudo que n├úo est├í na lixeira ou spam
       return notTrashSpam;
     }
     case 'shared': {
@@ -2663,14 +2657,14 @@ function matchNav(meta: DriveRecordingMeta, nav: NavKey, selfEmail: string | nul
     }
     case 'shared_drives': {
       const isShared = (!!(meta.people && meta.people.length) || !!meta.anyone);
-      return notTrashSpam && isShared; // aproximação
+      return notTrashSpam && isShared; // aproxima├º├úo
     }
     case 'computers': {
       const src = (meta.source || '').toLowerCase();
       return notTrashSpam && (src === '' || src === 'local');
     }
     case 'recent': {
-      // 'úlyimos 30 dias (destaque inicial)
+      // '├║lyimos 30 dias (destaque inicial)
       if (!notTrashSpam) return false;
       const [from, to] = lastNDaysRange(30);
       return meta.createdAt >= from && meta.createdAt <= to;
@@ -3118,8 +3112,8 @@ function fmtDate(ts: number): string {
   }
 }
 function formatModifiedLabel(f: ModifiedFilter): string {
-  if (f.preset === 'last7') return "últimos 7 dias";
-  if (f.preset === 'last30') return "últimos 30 dias";
+  if (f.preset === 'last7') return "├║ltimos 7 dias";
+  if (f.preset === 'last30') return "├║ltimos 30 dias";
   if (f.preset !== 'custom') return labelForPreset(f);
   if (typeof f.from === 'number' && typeof f.to === 'number') {
     const yf = new Date(f.from).getFullYear();
@@ -3132,7 +3126,7 @@ function formatModifiedLabel(f: ModifiedFilter): string {
   return labelForPreset(f);
 }
 function fallbackName(r: DriveRecordingMeta): string {
-  return `Gravação (${fmtDate(r.createdAt)})`;
+  return `Grava├º├úo (${fmtDate(r.createdAt)})`;
 }
 
 function isFolder(meta: DriveRecordingMeta): boolean {
@@ -3148,15 +3142,15 @@ const TYPE_OPTIONS: { key: TypeKey; label: string; icon: (p: { className?: strin
   { key: "folders",    label: "Pastas",         icon: (p) => <IconFolder {...p} /> },
   { key: "documents",  label: "Documentos",     icon: (p) => <IconDoc {...p} /> },
   { key: "sheets",     label: "Planilhas",      icon: (p) => <IconSheet {...p} /> },
-  { key: "slides",     label: "Apresentações",  icon: (p) => <IconSlides {...p} /> },
+  { key: "slides",     label: "Apresenta├º├Áes",  icon: (p) => <IconSlides {...p} /> },
   { key: "vids",       label: "Vids",           icon: (p) => <IconPlay {...p} /> },
   { key: "gems",       label: "Gems",           icon: (p) => <IconStar {...p} /> },
-  { key: "forms",      label: "Formulários",    icon: (p) => <IconForm {...p} /> },
+  { key: "forms",      label: "Formul├írios",    icon: (p) => <IconForm {...p} /> },
   { key: "images",     label: "Fotos e imagens",icon: (p) => <IconImage {...p} /> },
   { key: "pdfs",       label: "PDFs",           icon: (p) => <IconPDF {...p} /> },
-  { key: "videos",     label: "Ví­deos",         icon: (p) => <IconVideoCam {...p} /> },
+  { key: "videos",     label: "V├¡┬¡deos",         icon: (p) => <IconVideoCam {...p} /> },
   { key: "archives",   label: "Arquivos (.zip)",icon: (p) => <IconZip {...p} /> },
-  { key: "audio",      label: "Áudio",          icon: (p) => <IconAudio {...p} /> },
+  { key: "audio",      label: "├üudio",          icon: (p) => <IconAudio {...p} /> },
   { key: "drawings",   label: "Desenhos",       icon: (p) => <IconBrush {...p} /> },
   { key: "sites",      label: "Sites",          icon: (p) => <IconGlobe {...p} /> },
   { key: "shortcuts",  label: "Atalhos",        icon: (p) => <IconShortcut {...p} /> },
@@ -3205,7 +3199,7 @@ function matchType(meta: DriveRecordingMeta, type: TypeKey): boolean {
     case "audio":
       return mime.startsWith("audio/") || AUDIO_EXT.has(ext);
     case "drawings":
-      return ext === "svg"; // aproximação
+      return ext === "svg"; // aproxima├º├úo
     case "sites":
       return ext === "html" || ext === "htm";
     case "shortcuts":
@@ -3259,18 +3253,18 @@ function labelForPreset(f: ModifiedFilter): string {
   const y = new Date().getFullYear();
   switch (f.preset) {
     case "today": return "Hoje";
-    case "last7": return "últimos 7 dias";
-    case "last30": return "últimos 30 dias";
+    case "last7": return "├║ltimos 7 dias";
+    case "last30": return "├║ltimos 30 dias";
     case "thisYear": return `Este ano (${y})`;
     case "lastYear": return `Ano passado (${y-1})`;
-    case "custom": return "Período Personalizado";
+    case "custom": return "Per├¡odo Personalizado";
     default: return "Todos";
   }
 }
 
 // ====== Fonte (Gmail/Meet)
 function formatSourceLabel(src?: string): string {
-  if (!src) return "Não informado";
+  if (!src) return "N├úo informado";
   switch (src.toLowerCase()) {
     case "gmail":
       return "Gmail";
@@ -3330,12 +3324,12 @@ function ModifiedMenu({ tmp, onTmpChange, from, to, onFrom, onTo, onApply, onCan
         <div className="grid grid-cols-[220px_1fr]">
           <div className="p-1">
             <Item label="Hoje" sel={tmp.preset === 'today'} onClick={() => { onTmpChange({ preset: 'today' }); onQuick?.({ preset: 'today' }); }} />
-            <Item label="últimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
-            <Item label="últimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
+            <Item label="├║ltimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
+            <Item label="├║ltimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
             <Item label={`Este ano (${y})`} sel={tmp.preset === 'thisYear'} onClick={() => { onTmpChange({ preset: 'thisYear' }); onQuick?.({ preset: 'thisYear' }); }} />
             <Item label={`Ano passado (${y-1})`} sel={tmp.preset === 'lastYear'} onClick={() => { onTmpChange({ preset: 'lastYear' }); onQuick?.({ preset: 'lastYear' }); }} />
             <div className={`px-3 py-2 rounded-lg bg-slate-100`}>
-              <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>Período personalizado</button>
+              <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>Per├¡odo personalizado</button>
             </div>
           </div>
           <div className="border-l border-slate-200 p-3">
@@ -3348,12 +3342,12 @@ function ModifiedMenu({ tmp, onTmpChange, from, to, onFrom, onTo, onApply, onCan
       ) : (
         <div className="p-1">
           <Item label="Hoje" sel={tmp.preset === 'today'} onClick={() => { onTmpChange({ preset: 'today' }); onQuick?.({ preset: 'today' }); }} />
-          <Item label="últimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
-          <Item label="últimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
+          <Item label="├║ltimos sete dias" sel={tmp.preset === 'last7'} onClick={() => { onTmpChange({ preset: 'last7' }); onQuick?.({ preset: 'last7' }); }} />
+          <Item label="├║ltimos 30 dias" sel={tmp.preset === 'last30'} onClick={() => { onTmpChange({ preset: 'last30' }); onQuick?.({ preset: 'last30' }); }} />
           <Item label={`Este ano (${y})`} sel={tmp.preset === 'thisYear'} onClick={() => { onTmpChange({ preset: 'thisYear' }); onQuick?.({ preset: 'thisYear' }); }} />
           <Item label={`Ano passado (${y-1})`} sel={tmp.preset === 'lastYear'} onClick={() => { onTmpChange({ preset: 'lastYear' }); onQuick?.({ preset: 'lastYear' }); }} />
           <div className={`px-3 py-2 rounded-lg hover:bg-slate-100`}>
-            <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>Período personalizado</button>
+            <button type="button" className="w-full text-left" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowCustom(true); onTmpChange({ preset: 'custom' }); }} onClick={(e) => e.stopPropagation()}>Per├¡odo personalizado</button>
           </div>
         </div>
       )}
@@ -3366,13 +3360,13 @@ function ModifiedMenu({ tmp, onTmpChange, from, to, onFrom, onTo, onApply, onCan
   );
 }
 function SidebarNav({ selfEmail, active, onFilter }: { selfEmail: string | null; active: NavKey; onFilter: (k: NavKey) => void }) {
-// Comparador central de ordenação
+// Comparador central de ordena├º├úo
 function compareRows(a: DriveRecordingMeta, b: DriveRecordingMeta): number {
   // Pastas primeiro (opcional)
   try {
-    // foldersTop e sortKey/sortDir estão em escopo do componente via closure; se não estiver definido, no padrão
+    // foldersTop e sortKey/sortDir est├úo em escopo do componente via closure; se n├úo estiver definido, no padr├úo
   } catch {}
-  // Implementado dentro do componente; esta declaração substituição abaixo via closure
+  // Implementado dentro do componente; esta declara├º├úo substitui├º├úo abaixo via closure
   return 0;
 }
   const Item = ({ k, label, icon }: { k: NavKey; label: string; icon: JSX.Element }) => (
@@ -3401,12 +3395,12 @@ function compareRows(a: DriveRecordingMeta, b: DriveRecordingMeta): number {
   );
 }
 
-// ====== Calendário compacto (custom) ======
+// ====== Calend├írio compacto (custom) ======
 function CalendarCompact({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const months = [
     "janeiro",
     "fevereiro",
-    "março",
+    "mar├ºo",
     "abril",
     "maio",
     "junho",
@@ -3458,8 +3452,8 @@ function CalendarCompact({ label, value, onChange }: { label: string; value: str
       <div className="flex items-center justify-between mb-1">
         <div className="text-sm font-medium capitalize">{months[month]} de {year}</div>
         <div className="inline-flex gap-1">
-          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month - 1, 1))} aria-label="Mês anterior"></button>
-          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month + 1, 1))} aria-label="Próximo mês"></button>
+          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month - 1, 1))} aria-label="M├¬s anterior"></button>
+          <button className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100" onClick={() => setCursor(new Date(year, month + 1, 1))} aria-label="Pr├│ximo m├¬s"></button>
         </div>
       </div>
       <div className="text-[11px] grid grid-cols-7 gap-1 text-center text-slate-500 mb-1">
@@ -3515,12 +3509,6 @@ function DateField({ label, value, onChange }: { label: string; value: string; o
     </div>
   );
 }
-
-
-
-
-
-
 
 
 

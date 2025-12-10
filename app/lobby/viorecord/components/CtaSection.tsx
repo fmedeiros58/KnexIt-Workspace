@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import ProductAppLink from "../../../viorecord/components/ProductAppLink";
 import { content } from "./content";
 

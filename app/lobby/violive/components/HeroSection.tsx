@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import ProductAppLink from "../../../violive/components/ProductAppLink";
 import { content } from "./content";
 
@@ -31,7 +31,7 @@ export default function HeroSection() {
             <div className="rounded-2xl border border-slate-200 bg-indigo-50/60 p-4 space-y-2 text-sm text-slate-700 leading-relaxed">
               <p>Este lobby leva você ao produto completo. Se não estiver logado, faremos o redirecionamento para login.</p>
               <p className="font-semibold text-slate-900">Dica:</p>
-              <p>Use o botão “Acessar produto” para entrar direto; o branding traz mais detalhes.</p>
+              <p>Use o botão "Acessar produto" para entrar direto; o branding traz mais detalhes.</p>
             </div>
           </div>
         </div>
