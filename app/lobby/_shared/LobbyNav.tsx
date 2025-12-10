@@ -224,15 +224,19 @@ const SOLUTIONS_RIGHT = [
 ];
 
 const SETORES_LIST = [
-  "Saúde e ciências biológicas",
-  "Varejo",
-  "Manufatura",
-  "Governo e setor público",
-  "Serviços profissionais",
-  "Tecnologia",
+  { title: "Saúde e ciências biológicas", href: "/lobby/setores/saude-e-ciencias-biologicas" },
+  { title: "Varejo", href: "/lobby/setores/varejo" },
+  { title: "Manufatura", href: "/lobby/setores/manufatura" },
+  { title: "Governo e setor público", href: "/lobby/setores/governo-setor-publico" },
+  { title: "Serviços profissionais", href: "/lobby/setores/servicos-profissionais" },
+  { title: "Tecnologia", href: "/lobby/setores/tecnologia" },
 ];
 
-const DEPARTAMENTOS_LIST = ["Vendas", "Marketing", "Recursos Humanos"];
+const DEPARTAMENTOS_LIST = [
+  { title: "Vendas", href: "/lobby/setores/vendas" },
+  { title: "Marketing", href: "/lobby/setores/marketing" },
+  { title: "Recursos Humanos", href: "/lobby/setores/recursos-humanos" },
+];
 
 export default function LobbyNav({ productSlug, productName, testLabel, loginHref }: LobbyNavProps) {
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null);
@@ -289,18 +293,18 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                 >
                   ×
                 </button>
-                <div className="flex w-full items-start">
-                  <div className="w-2/3 border-r border-slate-200 bg-white">
+                <div className="grid w-full grid-cols-[2fr_1fr] items-stretch">
+                  <div className="border-r border-slate-200 bg-white h-full">
                     <div className="px-8 py-6 flex flex-col">
                       <div className="text-lg font-semibold text-slate-900">Soluções</div>
                       <div className="border-b border-slate-200 my-5" />
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
                         {SOLUTIONS_COLUMNS.map((col) => (
-                          <div key={col.title} className="space-y-4">
+                          <div key={col.title} className="space-y-8">
                             <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">{col.title}</div>
-                            <div className="space-y-4">
+                            <div className="space-y-10">
                               {col.items.map((item) => (
-                                <Link key={item.title} href={item.href} className="space-y-1 no-underline">
+                                <Link key={item.title} href={item.href} className="block space-y-2 no-underline">
                                   <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">{item.title}</div>
                                   <div className="text-[12px] text-slate-600 leading-relaxed">{item.desc}</div>
                                 </Link>
@@ -311,11 +315,15 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                       </div>
                     </div>
                   </div>
-                  <div className="w-1/3 px-10 py-8 flex flex-col gap-6 bg-slate-50">
+                  <div className="px-10 py-8 flex flex-col gap-6 bg-slate-50 h-full">
                     <div className="text-[13px] font-semibold text-slate-800">Outros públicos</div>
                     <div className="space-y-5">
                       {SOLUTIONS_RIGHT.map((item) => (
-                        <Link key={item.title} href={item.href} className="text-sm font-semibold text-slate-900 no-underline hover:text-indigo-700">
+                        <Link
+                          key={item.title}
+                          href={item.href}
+                          className="block text-sm font-semibold text-slate-900 no-underline hover:text-indigo-700"
+                        >
                           {item.title}
                         </Link>
                       ))}
@@ -337,8 +345,8 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
             </button>
             {openMenu === "produtos" ? (
               <div className={panelBase}>
-                <div className="flex w-full items-start">
-                  <div className="w-2/3 border-r border-slate-200 bg-white">
+                <div className="grid w-full grid-cols-[2fr_1fr] items-stretch">
+                  <div className="border-r border-slate-200 bg-white h-full">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-5 place-items-center">
                       {PRODUCT_GRID.map((p) => (
                         <Link
@@ -364,7 +372,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                       ))}
                     </div>
                   </div>
-                  <div className="w-1/3 p-5 flex flex-col gap-3 bg-slate-50">
+                  <div className="p-5 flex flex-col gap-3 bg-slate-50 h-full">
                     {SIDE_LINKS.map((item) => (
                       <Link
                         key={item.title}
@@ -400,33 +408,50 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                 >
                   ×
                 </button>
-                <div className="flex w-full items-start">
-                  <div className="w-2/3 border-r border-slate-200 bg-white">
+                <div className="grid w-full grid-cols-[2fr_1fr] items-stretch">
+                  <div className="border-r border-slate-200 bg-white h-full">
                     <div className="px-8 py-6 flex flex-col gap-5">
                       <div className="text-lg font-semibold text-slate-900">Setores</div>
                       <div className="border-b border-slate-200" />
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <div className="space-y-3">
+                        <div className="space-y-5">
                           <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">Setores</div>
-                          <div className="space-y-3">
+                          <div className="space-y-5">
                             {SETORES_LIST.map((item) => (
-                              <div key={item} className="text-sm font-semibold text-slate-900">{item}</div>
+                              <Link
+                                key={item.title}
+                                href={item.href}
+                                className="block text-sm font-semibold text-slate-900 hover:text-indigo-700 no-underline"
+                              >
+                                {item.title}
+                              </Link>
                             ))}
                           </div>
                         </div>
-                        <div className="space-y-3">
+                        <div className="space-y-5">
                           <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">Departamentos</div>
-                          <div className="space-y-3">
+                          <div className="space-y-5">
                             {DEPARTAMENTOS_LIST.map((item) => (
-                              <div key={item} className="text-sm font-semibold text-slate-900">{item}</div>
+                              <Link
+                                key={item.title}
+                                href={item.href}
+                                className="block text-sm font-semibold text-slate-900 hover:text-indigo-700 no-underline"
+                              >
+                                {item.title}
+                              </Link>
                             ))}
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                  <div className="w-1/3 px-10 py-8 flex flex-col gap-6 bg-slate-50">
-                    <div className="text-sm font-semibold text-slate-900">Segurança</div>
+                  <div className="px-10 py-8 flex flex-col gap-6 bg-slate-50 h-full">
+                    <Link
+                      href="/lobby/setores/seguranca"
+                      className="text-sm font-semibold text-slate-900 hover:text-indigo-700 no-underline"
+                    >
+                      Segurança
+                    </Link>
                   </div>
                 </div>
               </div>
@@ -451,36 +476,36 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
             </button>
             {openMenu === "recursos" ? (
               <div className={panelBase}>
-                <div className="flex w-full items-start">
-                  <div className="w-2/3 border-r border-slate-200 bg-white">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-5 place-items-center">
-                      <div className="w-full max-w-xs rounded-lg border border-slate-200 bg-white p-4">
-                        <div className="text-sm font-semibold text-slate-900">Guias e templates</div>
-                        <div className="text-[12px] text-slate-600 mt-1">Modelos para aulas, fluxos e comunicações.</div>
-                      </div>
-                      <div className="w-full max-w-xs rounded-lg border border-slate-200 bg-white p-4">
-                        <div className="text-sm font-semibold text-slate-900">Base de conhecimento</div>
-                        <div className="text-[12px] text-slate-600 mt-1">Artigos, vídeos e treinamentos rápidos.</div>
-                      </div>
-                      <div className="w-full max-w-xs rounded-lg border border-slate-200 bg-white p-4">
-                        <div className="text-sm font-semibold text-slate-900">Em breve</div>
-                        <div className="text-[12px] text-slate-600 mt-1">Conteúdo adicional será inserido.</div>
-                      </div>
+                <div className="grid w-full grid-cols-[2fr_1fr] items-stretch">
+                  <div className="border-r border-slate-200 bg-white h-full">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 p-5">
+                      <Link href="/lobby/recursos/guias-templates" className="w-full space-y-2 no-underline hover:no-underline">
+                        <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">Guias e templates</div>
+                        <div className="text-[12px] text-slate-600">Modelos para aulas, fluxos e comunicações.</div>
+                      </Link>
+                      <Link href="/lobby/recursos/base-de-conhecimento" className="w-full space-y-2 no-underline hover:no-underline">
+                        <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">Base de conhecimento</div>
+                        <div className="text-[12px] text-slate-600">Artigos, vídeos e treinamentos rápidos.</div>
+                      </Link>
+                      <Link href="/lobby/recursos/em-breve" className="w-full space-y-2 no-underline hover:no-underline">
+                        <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">Em breve</div>
+                        <div className="text-[12px] text-slate-600">Conteúdo adicional será inserido.</div>
+                      </Link>
                     </div>
                   </div>
-                  <div className="w-1/3 p-5 flex flex-col gap-3 bg-slate-50">
-                    <div className="rounded-lg bg-white p-4 border border-slate-200">
-                      <div className="text-sm font-semibold text-slate-900">Tutoriais</div>
-                      <div className="text-[12px] text-slate-600 mt-1">Passo a passo rápido para começar.</div>
-                    </div>
-                    <div className="rounded-lg bg-white p-4 border border-slate-200">
-                      <div className="text-sm font-semibold text-slate-900">Checklists</div>
-                      <div className="text-[12px] text-slate-600 mt-1">Listas de verificação para equipes.</div>
-                    </div>
-                    <div className="rounded-lg bg-white p-4 border border-slate-200">
-                      <div className="text-sm font-semibold text-slate-900">FAQ</div>
-                      <div className="text-[12px] text-slate-600 mt-1">Dúvidas frequentes e atalhos úteis.</div>
-                    </div>
+                  <div className="p-5 flex flex-col gap-6 bg-slate-50 h-full">
+                    <Link href="/lobby/recursos/tutoriais" className="space-y-2 no-underline hover:no-underline">
+                      <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">Tutoriais</div>
+                      <div className="text-[12px] text-slate-600">Passo a passo rápido para começar.</div>
+                    </Link>
+                    <Link href="/lobby/recursos/checklists" className="space-y-2 no-underline hover:no-underline">
+                      <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">Checklists</div>
+                      <div className="text-[12px] text-slate-600">Listas de verificação para equipes.</div>
+                    </Link>
+                    <Link href="/lobby/recursos/faq" className="space-y-2 no-underline hover:no-underline">
+                      <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">FAQ</div>
+                      <div className="text-[12px] text-slate-600">Dúvidas frequentes e atalhos úteis.</div>
+                    </Link>
                   </div>
                 </div>
               </div>
