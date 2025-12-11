@@ -1,4 +1,4 @@
-﻿import { content } from "./content";
+import { content } from "./content";
 
 export default function AudienceSection() {
   if (!content.audiences?.length) return null;

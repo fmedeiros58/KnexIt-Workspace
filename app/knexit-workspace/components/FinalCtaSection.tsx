@@ -4,9 +4,9 @@ export default function FinalCtaSection() {
   return (
     <section id="contato" className="bg-slate-50 py-12">
       <div className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-indigo-50 p-6 text-center shadow-sm">
-        <h2 className="text-3xl font-bold text-slate-900">Pronto para conectar aulas, arquivos e IA em um so lugar?</h2>
+        <h2 className="text-3xl font-bold text-slate-900">Pronto para conectar aulas, arquivos e IA em um só lugar?</h2>
         <p className="mt-3 text-base text-slate-700">
-          Fale com o time para alinhar necessidades da sua instituicao ou revise os planos e comece agora mesmo.
+          Fale com o time para alinhar necessidades da sua instituição ou revise os planos e comece agora mesmo.
         </p>
         <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
           <Link

@@ -1,4 +1,4 @@
-﻿import { content } from "./content";
+import { content } from "./content";
 
 export default function FeaturesSection() {
   if (!content.features?.length) return null;

@@ -5,16 +5,16 @@ export default function HowItWorksSection() {
       body: "Use VioClass para aulas e trilhas e armazene apostilas, slides e provas no SupaDrive com pastas por turma.",
     },
     {
-      title: "Conecte aulas ao vivo, gravacoes e interacoes",
+      title: "Conecte aulas ao vivo, gravações e interações",
       body: "VioLive para encontros ao vivo, VioRecord para gravar, e KnexChat para manter conversas e avisos organizados.",
     },
     {
-      title: "Ative IA para leitura, revisao e busca",
-      body: "VioRead, KnexReview e KnexAI ajudam a traduzir, resumir e triar artigos; KnexSearch encontra conteudos em poucos cliques.",
+      title: "Ative IA para leitura, revisão e busca",
+      body: "VioRead, KnexReview e KnexAI ajudam a traduzir, resumir e triar artigos; KnexSearch encontra conteúdos em poucos cliques.",
     },
     {
       title: "Acompanhe resultados e ajuste caminhos",
-      body: "VioAnalytics mostra engajamento em video, KnexFlow organiza tarefas e fluxos, e os times tomam decisoes com dados.",
+      body: "VioAnalytics mostra engajamento em vídeo, KnexFlow organiza tarefas e fluxos, e os times tomam decisões com dados.",
     },
   ];
 
@@ -24,7 +24,7 @@ export default function HowItWorksSection() {
         <div className="space-y-2 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Como o KnexIT Workspace se encaixa no seu dia a dia</h2>
           <p className="text-lg text-slate-600 max-w-3xl mx-auto">
-            Fluxo simples para criar, transmitir, organizar e analisar conteudos em uma unica suite, com IA apoiando cada
+            Fluxo simples para criar, transmitir, organizar e analisar conteúdos em uma única suíte, com IA apoiando cada
             etapa.
           </p>
         </div>
