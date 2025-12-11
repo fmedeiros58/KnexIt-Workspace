@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getCurrentUser } from "@/lib/auth";
@@ -14,6 +14,7 @@ type LoginPageClientProps = {
 };
 
 const DEFAULT_PRODUCT = getProduct(DEFAULT_PRODUCT_SLUG)!;
+const ALLOWED_EMAILS = new Set(["fmedeiros58@gmail.com"]);
 
 function normalizeRedirect(product: ProductEntry, target: string | null, origin: string) {
   if (!target) return target;
@@ -48,7 +49,6 @@ export default function LoginPageClient({
   const [loginPassword, setLoginPassword] = useState("");
   const [loadingLogin, setLoadingLogin] = useState(false);
   const allowedDomain = process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "";
-  const allowedEmails = new Set(["fmedeiros58@gmail.com"]);
 
   const [name, setName] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
@@ -59,13 +59,13 @@ export default function LoginPageClient({
 
   const [err, setErr] = useState<string | null>(null);
 
-  const isAllowedEmail = (email?: string | null) => {
+  const isAllowedEmail = useCallback((email?: string | null) => {
     if (!email) return false;
     const lowered = email.toLowerCase();
-    if (allowedEmails.has(lowered)) return true;
+    if (ALLOWED_EMAILS.has(lowered)) return true;
     if (allowedDomain) return lowered.includes(allowedDomain);
     return true;
-  };
+  }, [allowedDomain]);
 
   const { targetRedirect, productLabel, activeProductSlug } = useMemo(() => {
     const resolveTarget = (value: string | null | undefined, base: string): string | null => {
@@ -136,7 +136,7 @@ export default function LoginPageClient({
       }
     });
     return () => sub.subscription.unsubscribe();
-  }, [postAuthRedirect, targetRedirect, router]);
+  }, [postAuthRedirect, targetRedirect, router, isAllowedEmail]);
 
   useEffect(() => {
     (async () => {
@@ -154,7 +154,7 @@ export default function LoginPageClient({
         }
       }
     })();
-  }, [postAuthRedirect, targetRedirect, router]);
+  }, [postAuthRedirect, targetRedirect, router, isAllowedEmail]);
 
   useEffect(() => {
     if (typeof document !== "undefined") {

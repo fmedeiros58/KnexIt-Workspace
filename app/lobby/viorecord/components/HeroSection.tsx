@@ -12,7 +12,7 @@ export default function HeroSection() {
           <p className="text-lg text-slate-700">{content.headline}</p>
           <p className="text-base text-slate-600">{content.intro}</p>
           <div className="flex flex-wrap gap-3">
-            <ProductAppLink slug={content.slug} label={content.ctaLabel ?? "Acessar produto"} />
+            <ProductAppLink slug={content.slug} label={content.ctaLabel ?? &ldquo;Acessar produto&rdquo;} />
             <Link
               href={`/branding/${content.slug}`}
               className="border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 px-6 py-3 rounded-xl font-semibold"
@@ -31,7 +31,7 @@ export default function HeroSection() {
             <div className="rounded-2xl border border-slate-200 bg-indigo-50/60 p-4 space-y-2 text-sm text-slate-700 leading-relaxed">
               <p>Este lobby leva você ao produto completo. Se não estiver logado, faremos o redirecionamento para login.</p>
               <p className="font-semibold text-slate-900">Dica:</p>
-              <p>Use o botão "Acessar produto" para entrar direto; o branding traz mais detalhes.</p>
+              <p>Use o botão &ldquo;Acessar produto&rdquo; para entrar direto; o branding traz mais detalhes.</p>
             </div>
           </div>
         </div>
