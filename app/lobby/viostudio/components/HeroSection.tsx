@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import ProductAppLink from "../../../viostudio/components/ProductAppLink";
 import { content } from "./content";
 
@@ -12,7 +12,7 @@ export default function HeroSection() {
           <p className="text-lg text-slate-700">{content.headline}</p>
           <p className="text-base text-slate-600">{content.intro}</p>
           <div className="flex flex-wrap gap-3">
-            <ProductAppLink slug={content.slug} label={content.ctaLabel ?? &ldquo;Acessar produto&rdquo;} />
+            <ProductAppLink slug={content.slug} label={content.ctaLabel ?? "Acessar produto"} />
             <Link
               href={`/branding/${content.slug}`}
               className="border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 px-6 py-3 rounded-xl font-semibold"
@@ -25,13 +25,13 @@ export default function HeroSection() {
         <div className="md:w-1/2">
           <div className="rounded-3xl border border-slate-200 bg-white shadow-lg p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-900">Pronto para comeÃ§ar</div>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">DisponÃ­vel</span>
+              <div className="text-sm font-semibold text-slate-900">Pronto para começar</div>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Disponível</span>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-indigo-50/60 p-4 space-y-2 text-sm text-slate-700 leading-relaxed">
-              <p>Este lobby leva vocÃª ao produto completo. Se nÃ£o estiver logado, faremos o redirecionamento para login.</p>
+              <p>Este lobby leva você ao produto completo. Se não estiver logado, faremos o redirecionamento para login.</p>
               <p className="font-semibold text-slate-900">Dica:</p>
-              <p>Use o botÃ£o &ldquo;Acessar produto&rdquo; para entrar direto; o branding traz mais detalhes.</p>
+              <p>Use o botão &ldquo;Acessar produto&rdquo; para entrar direto; o branding traz mais detalhes.</p>
             </div>
           </div>
         </div>
@@ -39,5 +39,3 @@ export default function HeroSection() {
     </section>
   );
 }
-
-

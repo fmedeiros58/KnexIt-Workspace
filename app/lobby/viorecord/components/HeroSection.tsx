@@ -12,7 +12,7 @@ export default function HeroSection() {
           <p className="text-lg text-slate-700">{content.headline}</p>
           <p className="text-base text-slate-600">{content.intro}</p>
           <div className="flex flex-wrap gap-3">
-            <ProductAppLink slug={content.slug} label={content.ctaLabel ?? &ldquo;Acessar produto&rdquo;} />
+            <ProductAppLink slug={content.slug} label={content.ctaLabel ?? "Acessar produto"} />
             <Link
               href={`/branding/${content.slug}`}
               className="border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 px-6 py-3 rounded-xl font-semibold"
@@ -39,4 +39,3 @@ export default function HeroSection() {
     </section>
   );
 }
-
