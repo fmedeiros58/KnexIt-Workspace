@@ -868,7 +868,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
 
   return (
     <div className="flex h-screen overflow-hidden bg-white text-slate-900">
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
       {/* Top bar estilo Drive */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200">
         <div className="px-4 md:px-6 h-16 flex items-center gap-4">
@@ -914,9 +914,9 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
       </header>
 
       <div className="border-b border-slate-200" />
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex flex-1 overflow-hidden">
-        <div className="flex h-full min-h-0 items-start gap-6 px-4 md:px-6 py-4">
+      <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="relative flex flex-1 min-h-0 h-full items-stretch gap-6 px-4 md:px-6 py-4 overflow-hidden">
           {/* Sidebar esquerda */}
           <aside className="flex-none w-[120px] sm:w-[140px] md:w-[160px] lg:w-[180px]">
             <div className="sticky top-[4.5rem] space-y-3">
@@ -990,10 +990,10 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
 
           {/* Cont�m principal */}
           <section className="min-w-0 flex-1 flex flex-col min-h-0">
-      <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white p-4 gap-4 overflow-hidden">
-      <div className="flex w-full flex-col gap-4 shrink-0">
+            <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white p-4 gap-2 overflow-hidden">
+              <div className="flex w-full flex-col gap-4 shrink-0">
               <div className="flex-1 min-w-0">
-                <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="mb-1 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h1 className="text-xl font-semibold text-slate-900">Meu Drive</h1>
@@ -1251,6 +1251,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
             </div>
           )}
       </div>
+      </div>
 
           {/* Lista ou Grade */}
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
@@ -1451,12 +1452,11 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
             </div>
             </div>
 
-          </div>
           </section>
 
           {showInfo && (
-            <aside className="w-[240px] md:w-[260px] lg:w-[280px] flex-none shrink-0 self-stretch bg-white">
-              <div className="sticky top-[4.5rem] rounded-xl border border-slate-200 overflow-hidden">
+            <aside className="w-[240px] md:w-[260px] lg:w-[280px] flex-none shrink-0 self-stretch min-h-0">
+              <div className="h-full rounded-xl border border-slate-200 overflow-hidden bg-white flex flex-col">
                 <div className="bg-slate-50 px-3 py-2 text-sm font-medium flex items-center gap-2">
                   <div className="h-6 w-6 rounded bg-indigo-600 text-white grid place-items-center text-xs font-bold">SD</div>
                   <div className="flex-1 min-w-0 truncate">SupaDrive</div>
@@ -1477,7 +1477,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                     </button>
                   </div>
                 </div>
-                <div className="p-3 space-y-3">
+                <div className="flex-1 overflow-y-auto p-3 space-y-3">
                   {infoTab === "detalhes" ? (
                     active ? (
                       <>
