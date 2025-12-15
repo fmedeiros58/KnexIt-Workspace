@@ -109,7 +109,7 @@ export default function DrivePage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [showInfo, setShowInfo] = useState(false);
 
-  // Remover scroll global da p�gina enquanto o SupaDrive estiver ativo
+  // Remover scroll global da página enquanto o SupaDrive estiver ativo
   useEffect(() => {
     if (typeof document === "undefined") return;
     const prevBody = document.body.style.overflow;
@@ -247,7 +247,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     refresh();
   }, [refresh]);
 
-  // Ler prefer�ncias hidrata��o para evitar mismatch SSR/CSR
+  // Ler preferências hidratação para evitar mismatch SSR/CSR
   useEffect(() => {
     try {
       const v = localStorage.getItem("drive:view") as ViewMode | null;
@@ -298,7 +298,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
-  // obter email do usu�rio) e persistir para saveRecording
+  // obter email do usuário) e persistir para saveRecording
   useEffect(() => {
     const fromLS = typeof localStorage !== "undefined" ? localStorage.getItem("drive:selfEmail") : null;
     if (fromLS) setSelfEmail(fromLS);
@@ -486,7 +486,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     }
   }, [shareWizardStep]);
 
-  // Comparador de ordena��o usado na lista/grade
+  // Comparador de ordenação usado na lista/grade
   const compareRows = useCallback((a: DriveRecordingMeta, b: DriveRecordingMeta) => {
     if (foldersTop) {
       const af = isFolder(a);
@@ -517,11 +517,11 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     if (sourceFilter !== "all") rows = rows.filter((r) => matchSource(r, sourceFilter));
     // 3) Busca por texto (opcional)
     if (term) rows = rows.filter((r) => (r.name || "").toLowerCase().includes(term));
-    // 4) Ordena��o
+    // 4) Ordenação
     rows = rows.sort(compareRows);    return rows;
   }, [items, navFilter, typeFilter, peopleFilter, selfEmail, modFilter, sourceFilter, q, sortKey, sortDir, foldersTop]);
   
-  // Ao trocar a "pasta" (menu lateral), limpar filtros secund�rio
+  // Ao trocar a "pasta" (menu lateral), limpar filtros secundário
   useEffect(() => {
     setTypeFilter("all");
     setPeopleFilter({ kind: "all" });
@@ -601,7 +601,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     }
   };
 
-  // A: move para lixeira por padr�o; exclui definitivamente quando visualizando a lixeira
+  // A: move para lixeira por padrão; exclui definitivamente quando visualizando a lixeira
   const doDelete = async (ids: number[]) => {
     if (navFilter === 'trash') {
       for (const id of ids) await deleteRecording(id);
@@ -665,7 +665,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
   };
 
   const onImportFolder = async (files: FileList | null) => {
-    // semelhante ao upload de arquivos; navegadores exp�em webkitRelativePath
+    // semelhante ao upload de arquivos; navegadores expõem webkitRelativePath
     await onImportFiles(files);
   };
 
@@ -675,7 +675,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
     try {
       await saveFolder(name);
       // opcional: marcar 'source' como folder
-      // n�o temos o id retornado aqui, mas ao listar veremos mime="inode/directory"
+      // não temos o id retornado aqui, mas ao listar veremos mime="inode/directory"
       await refresh();
     } catch (e) {
       console.error("Falha ao criar pasta", e);
@@ -988,11 +988,17 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
           </div>
           </aside>
 
-          {/* Cont�m principal */}
-          <section className="min-w-0 flex-1 flex flex-col min-h-0">
-            <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white p-4 gap-2 overflow-hidden">
+          {/* Contém principal */}
+          <section className="relative min-w-0 flex-1 flex flex-col min-h-0">
+            <div
+              className="
+                absolute inset-0
+                flex flex-col min-h-0
+                rounded-2xl border border-slate-200 bg-white
+                p-4 gap-2 overflow-hidden
+              "
+            >
               <div className="flex w-full flex-col gap-4 shrink-0">
-              <div className="flex-1 min-w-0">
                 <div className="mb-1 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -1196,7 +1202,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
                 </button>
               </div>
             </div>
-            {/* Grupo de visualiza��o direita */}
+            {/* Grupo de visualizaçÃo direita */}
             <div className="shrink-0 flex items-center gap-2">
               <div className="inline-flex items-center rounded-full ring-1 ring-slate-300 bg-white overflow-hidden">
                 <span className={`px-2 py-1.5 text-sm ${selected.size > 0 ? "text-indigo-700" : "text-slate-500"}`}>
@@ -1226,7 +1232,7 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
               </button>
             </div>
           </div>
-          {/* Barra de apresenta��o*/}
+          {/* Barra de apresentação */}
           {selected.size > 0 && (
             <div className="w-full mb-3 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
               <span className="text-slate-700">{selected.size} selecionado(s)</span>
@@ -1250,7 +1256,6 @@ const [rowSub, setRowSub] = useState<"share" | "organize" | null>(null);
               <button className="px-2 py-1.5 rounded hover:bg-slate-100" onClick={clearSelection}>Limpar</button>
             </div>
           )}
-      </div>
       </div>
 
           {/* Lista ou Grade */}
@@ -3488,13 +3493,13 @@ function ModifiedMenu({ tmp, onTmpChange, from, to, onFrom, onTo, onApply, onCan
   );
 }
 function SidebarNav({ selfEmail, active, onFilter }: { selfEmail: string | null; active: NavKey; onFilter: (k: NavKey) => void }) {
-// Comparador central de ordena��o
+// Comparador central de ordenação
 function compareRows(a: DriveRecordingMeta, b: DriveRecordingMeta): number {
   // Pastas primeiro (opcional)
   try {
-    // foldersTop e sortKey/sortDir est�o em escopo do componente via closure; se n�o estiver definido, no padr�o
+    // foldersTop e sortKey/sortDir estão em escopo do componente via closure; se não estiver definido, no padrão
   } catch {}
-  // Implementado dentro do componente; esta declara��o substitui��o abaixo via closure
+  // Implementado dentro do componente; esta declaração substituição abaixo via closure
   return 0;
 }
   const Item = ({ k, label, icon }: { k: NavKey; label: string; icon: JSX.Element }) => (
@@ -3523,12 +3528,12 @@ function compareRows(a: DriveRecordingMeta, b: DriveRecordingMeta): number {
   );
 }
 
-// ====== Calend�rio compacto (custom) ======
+// ====== Calendário compacto (custom) ======
 function CalendarCompact({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const months = [
     "janeiro",
     "fevereiro",
-    "mar�o",
+    "março",
     "abril",
     "maio",
     "junho",
