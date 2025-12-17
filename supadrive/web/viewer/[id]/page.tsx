@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getRecordingBlob, listRecordings, type DriveRecordingMeta } from "../../../lib/recstore";
+import { getRecordingBlob, listRecordings, type SupaDriveRecordingMeta } from "../../../lib/recstore";
 
-export default function DriveViewerPage({ params }: { params: { id: string } }) {
+export default function SupaDriveViewerPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const recordId = Number(params.id);
-  const [meta, setMeta] = useState<DriveRecordingMeta | null>(null);
+  const [meta, setMeta] = useState<SupaDriveRecordingMeta | null>(null);
   const [src, setSrc] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
