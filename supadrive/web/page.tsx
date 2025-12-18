@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 
 import {
   SupaDriveFilters,
@@ -9,7 +9,14 @@ import {
   SupaDriveAppsRail,
   SidebarNav,
   TopBar,
+  SupaDriveGrid,
 } from "./components";
+import type { SupaDriveItem, SupaDriveKind } from "./components";
+import { getThumbUrl } from "./lib/storage";
+import {
+  getPublicUrl as getStoragePublicUrl,
+  getSignedUrl as getStorageSignedUrl,
+} from "./lib/storageUrls";
 
 type ChipFilter = { id: string; label: string; active?: boolean };
 type InfoTab = { id: string; label: string; active?: boolean };
@@ -60,15 +67,138 @@ const secondaryNav = [
   { id: "trash", label: "Lixeira", icon: iconPath("trash") },
 ];
 
+const THUMBS_BUCKET = "thumbs";
+const FILES_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_FILES_BUCKET ?? "files";
+const isFilesBucketPrivate = process.env.NEXT_PUBLIC_SUPABASE_FILES_PRIVATE === "true";
+
+async function resolveFileUrl(path?: string | null) {
+  if (!path) return null;
+  if (isFilesBucketPrivate) {
+    return getStorageSignedUrl(FILES_BUCKET, path, 60 * 60);
+  }
+  return getStoragePublicUrl(FILES_BUCKET, path);
+}
+
 export default function SupaDrivePage() {
   const [appsRailOpen, setAppsRailOpen] = useState(true);
   const [infoPanelVisible, setInfoPanelVisible] = useState(true);
   const [chipFilters, setChipFilters] = useState<ChipFilter[]>(initialFilters);
+  const [driveItems, setDriveItems] = useState<SupaDriveItem[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleToggleFilter = (id: string) => {
     setChipFilters((prev) =>
       prev.map((chip) => (chip.id === id ? { ...chip, active: !chip.active } : chip))
     );
+  };
+
+  const handleCreateItem = async (type: string) => {
+    if (type === "file") {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    const presets: Record<string, { label: string; kind: SupaDriveKind; badge?: string }> = {
+      folder: { label: "Nova pasta", kind: "folder" },
+      "folder-upload": { label: "Pasta importada", kind: "folder" },
+      docs: { label: "Documento sem título", kind: "doc" },
+      sheets: { label: "Planilha sem título", kind: "sheet" },
+      slides: { label: "Apresentação sem título", kind: "slides" },
+      vids: { label: "Projeto de vídeo", kind: "vids" },
+      forms: { label: "Formulário sem título", kind: "forms" },
+      more: { label: "Atalho rápido", kind: "link" },
+    };
+    const preset = presets[type] ?? { label: "Arquivo", kind: "doc" as SupaDriveKind };
+    const duplicateIndex = driveItems.filter((item) => item.name.startsWith(preset.label)).length + 1;
+
+    const name = `${preset.label} ${duplicateIndex}`;
+    const meta = `Atualizado em ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+    const id = `${type}-${Date.now()}`;
+    let thumbnailPath: string | undefined;
+    let thumbnailUrl: string | null | undefined;
+    const filePath = preset.kind === "folder" ? undefined : `${id}`;
+    const fileUrl = filePath ? await resolveFileUrl(filePath) : null;
+
+    if (preset.kind !== "folder") {
+      thumbnailPath = `${THUMBS_BUCKET}/${id}.webp`;
+      thumbnailUrl = await getThumbUrl(THUMBS_BUCKET, thumbnailPath);
+    }
+
+    const newItem: SupaDriveItem = {
+      id,
+      name,
+      meta,
+      kind: preset.kind,
+      badge: preset.badge,
+      filePath,
+      fileUrl,
+      thumbnailPath,
+      thumbnailUrl: thumbnailUrl ?? null,
+    };
+
+    setDriveItems((prev) => [...prev, newItem]);
+  };
+
+  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+
+    const normalizeKind = (fileName: string): SupaDriveKind => {
+      const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+      if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif"].includes(ext)) return "image";
+      if (["doc", "docx", "txt", "rtf", "md"].includes(ext)) return "doc";
+      if (["xls", "xlsx", "csv"].includes(ext)) return "sheet";
+      if (["ppt", "pptx", "key"].includes(ext)) return "slides";
+      if (["mp4", "mov", "mkv", "avi"].includes(ext)) return "vids";
+      if (["pdf"].includes(ext)) return "pdf";
+      if (["form"].includes(ext)) return "forms";
+      return "link";
+    };
+
+    const baseTimestamp = Date.now();
+    const uploadedItems: SupaDriveItem[] = await Promise.all(
+      files.map(async (file, index) => {
+        const kind = normalizeKind(file.name);
+        const id = `upload-${baseTimestamp}-${index}`;
+        const meta = `Enviado em ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`;
+        let thumbnailPath: string | undefined;
+        let thumbnailUrl: string | null | undefined;
+        const filePath = `${id}/${file.name}`;
+        let fileUrl = await resolveFileUrl(filePath);
+
+        if (kind !== "folder") {
+          thumbnailPath = `${THUMBS_BUCKET}/${id}.webp`;
+          thumbnailUrl = await getThumbUrl(THUMBS_BUCKET, thumbnailPath);
+        }
+
+        if (kind === "image") {
+          fileUrl = fileUrl ?? URL.createObjectURL(file);
+          // Garantia: se nÇœo houver thumb gerada, usa o prÇüprio arquivo para preview imediato
+          thumbnailUrl = thumbnailUrl ?? fileUrl;
+        }
+
+        return {
+          id,
+          name: file.name,
+          meta,
+          kind,
+          filePath,
+          fileUrl: fileUrl ?? null,
+          thumbnailPath,
+          thumbnailUrl: thumbnailUrl ?? null,
+        };
+      })
+    );
+
+    setDriveItems((prev) => [...prev, ...uploadedItems]);
+
+    event.target.value = "";
   };
 
   return (
@@ -80,7 +210,7 @@ export default function SupaDrivePage() {
 
         {/* ✅ aqui está o ponto principal: altura do shell = viewport - TopBar */}
         <div
-          className="flex gap-3 pb-0 items-stretch"
+          className="flex gap-3 pb-0 items-stretch min-h-0 overflow-hidden"
           data-section="layout-shell"
           style={{ height: `calc(100vh - ${TOPBAR_OFFSET}px)` }}
         >
@@ -92,13 +222,14 @@ export default function SupaDrivePage() {
               storagePercent={84}
               storageUsed="84,88 GB"
               storageTotal="100 GB"
+              onCreateItem={handleCreateItem}
             />
           </div>
 
           {/* ✅ content ocupa toda a altura do shell */}
-          <div className="flex flex-1 h-full flex-col gap-2" data-section="content-stack">
+          <div className="flex flex-1 h-full min-h-0 flex-col gap-2" data-section="content-stack">
             <div
-              className="flex h-full flex-col gap-6 rounded-3xl bg-white p-3 shadow-sm"
+              className="flex h-full min-h-0 flex-col gap-6 overflow-hidden rounded-3xl bg-white p-3 shadow-sm"
               data-section="filters-container"
               style={{ minWidth: "560px" }}
             >
@@ -111,16 +242,8 @@ export default function SupaDrivePage() {
               </SupaDriveToolbar>
 
               {/* ✅ grid preenche o restante do card */}
-              <div
-                className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 text-sm text-slate-500"
-                data-section="visual-grid-container"
-              >
-                <div className="space-y-1 text-center">
-                  <p>Visual do grid em ajuste.</p>
-                  <p className="text-xs text-slate-400">
-                    Vamos reposicionar os documentos em breve.
-                  </p>
-                </div>
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <SupaDriveGrid items={driveItems} />
               </div>
             </div>
           </div>
@@ -162,6 +285,13 @@ export default function SupaDrivePage() {
             </div>
           </aside>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          multiple
+          onChange={handleFileUpload}
+        />
       </div>
     </main>
   );
