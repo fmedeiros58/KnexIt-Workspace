@@ -13,12 +13,6 @@ export function SupaDriveToolbar({ title, scopeLabel, children, onToggleInfo, in
     <div className="rounded-3xl border border-slate-200 bg-white px-6 py-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <span>{scopeLabel}</span>
-            <svg viewBox="0 0 12 12" className="h-3 w-3 text-slate-400" aria-hidden="true">
-              <path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
           <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
         </div>
         <div className="flex items-center gap-2 text-slate-500">

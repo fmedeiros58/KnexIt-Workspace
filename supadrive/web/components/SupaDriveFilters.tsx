@@ -1,4 +1,4 @@
-type FilterChip = {
+export type FilterChip = {
   id: string;
   label: string;
   active?: boolean;
@@ -6,14 +6,16 @@ type FilterChip = {
 
 type SupaDriveFiltersProps = {
   chips: FilterChip[];
+  onToggle?: (id: string) => void;
 };
 
-export function SupaDriveFilters({ chips }: SupaDriveFiltersProps) {
+export function SupaDriveFilters({ chips, onToggle }: SupaDriveFiltersProps) {
   return (
     <div className="flex flex-wrap gap-3">
       {chips.map((chip) => (
         <button
           key={chip.id}
+          onClick={() => onToggle?.(chip.id)}
           className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${
             chip.active
               ? "border-blue-200 bg-blue-50 text-blue-700"
