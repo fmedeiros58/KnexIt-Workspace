@@ -89,41 +89,43 @@ export function SidebarNav({ primary, secondary, storagePercent, storageTotal, s
 
   const renderItem = (item: NavItem) => {
     const active = Boolean(item.active);
+    const labelClasses =
+      "flex-1 text-left font-medium" + (item.id === "supadrive" ? " text-lg font-semibold" : "");
     return (
       <button
         key={item.id}
         type="button"
-        className={`group flex w-full items-center gap-2 rounded-full px-3 py-1.5 text-sm transition ${
+        className={`group flex w-full items-center gap-2 rounded-full px-3 py-1.5 text-base transition ${
           active ? "bg-[#d7ebff] text-blue-700" : "text-slate-700 hover:bg-slate-100"
         }`}
       >
-        <span className={`flex h-7 w-7 items-center justify-center ${active ? "text-blue-700" : "text-slate-500"}`}>
+        <span className={`flex h-8 w-8 items-center justify-center ${active ? "text-blue-700" : "text-slate-500"}`}>
           {item.icon ? (
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d={item.icon} />
             </svg>
           ) : null}
         </span>
-        <span className="flex-1 text-left">{item.label}</span>
+        <span className={labelClasses}>{item.label}</span>
         {item.badge ? <span className="text-xs text-slate-500">{item.badge}</span> : null}
       </button>
     );
   };
 
   return (
-    <aside className="flex h-full w-[280px] shrink-0 text-slate-900">
-      <div className="flex h-full w-[268px] flex-col gap-5 rounded-3xl bg-transparent p-2">
+    <aside className="relative z-20 flex h-full w-[280px] shrink-0 overflow-visible text-slate-900">
+      <div className="mb-4 flex h-full w-[268px] flex-col gap-5 rounded-3xl bg-transparent p-2">
         <div className="relative self-start">
           <button
-            className="ml-2 inline-flex h-11 w-fit items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+            className="ml-2 inline-flex h-12 w-fit items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
             type="button"
             onClick={() => setNewMenuOpen((open) => !open)}
           >
-            <span className="text-xl leading-none">＋</span>
+            <span className="text-2xl leading-none">+</span>
             Novo
           </button>
           {newMenuOpen ? (
-            <div className="absolute left-2 mt-2 w-80 rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="absolute left-2 mt-2 w-80 rounded-2xl border border-slate-200 bg-white shadow-2xl z-50">
               <ul className="divide-y divide-slate-100 p-2 text-sm text-slate-700">
                 {quickActions.map((action) => (
                   <li key={action.id}>
@@ -175,7 +177,7 @@ export function SidebarNav({ primary, secondary, storagePercent, storageTotal, s
           <div className="space-y-1">{secondary.map(renderItem)}</div>
         </nav>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-4 text-xs text-slate-600">
+        <div className="mb-2 rounded-3xl border border-slate-200 bg-white p-4 text-xs text-slate-600">
           <div className="text-sm font-semibold text-slate-700">Armazenamento ({storagePercent}% usado)</div>
           <div className="mt-2 h-2 rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-orange-400" style={{ width: `${storagePercent}%` }} />

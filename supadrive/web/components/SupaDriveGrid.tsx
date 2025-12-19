@@ -36,7 +36,7 @@ type SupaDriveGridProps = {
 
 type MenuAction = "open" | "details" | "rename" | "move_to_trash" | "delete_permanently";
 
-/** ✅ Drive-like: coluna fixa */
+/** âœ… Drive-like: coluna fixa */
 const FIXED_COL_W = 248;
 
 const kindConfig: Record<string, { icon: JSX.Element; color: string; label: string; previewMode: "paper" | "cover" }> = {
@@ -73,7 +73,7 @@ const kindConfig: Record<string, { icon: JSX.Element; color: string; label: stri
     ),
   },
   slides: {
-    label: "Apresentação",
+    label: "ApresentaÃ§Ã£o",
     color: "text-amber-600",
     previewMode: "paper",
     icon: (
@@ -84,7 +84,7 @@ const kindConfig: Record<string, { icon: JSX.Element; color: string; label: stri
     ),
   },
   vids: {
-    label: "Vídeo",
+    label: "VÃ­deo",
     color: "text-purple-600",
     previewMode: "paper",
     icon: (
@@ -95,7 +95,7 @@ const kindConfig: Record<string, { icon: JSX.Element; color: string; label: stri
     ),
   },
   forms: {
-    label: "Formulário",
+    label: "FormulÃ¡rio",
     color: "text-pink-600",
     previewMode: "paper",
     icon: (
@@ -244,7 +244,7 @@ export function SupaDriveGrid({
     return (
       <section className="flex h-full flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/70 text-center text-sm text-slate-500">
         <p>Sem pastas ou arquivos para exibir.</p>
-        <p className="text-xs text-slate-400">Use o menu “Novo” para adicionar conteúdo.</p>
+        <p className="text-xs text-slate-400">Use o menu â€œNovoâ€ para adicionar conteÃºdo.</p>
       </section>
     );
   }
@@ -265,11 +265,11 @@ export function SupaDriveGrid({
       ) : null}
 
       <div
-        className="grid flex-1 min-h-0 gap-4 overflow-y-auto overflow-x-hidden rounded-3xl border border-slate-100 bg-white/80 p-4"
+        className="grid flex-1 min-h-0 gap-4 overflow-visible rounded-3xl bg-white/80 p-4"
         style={{
           gridTemplateColumns,
           gridAutoFlow: "row",
-          justifyContent: "start", // ✅ NÃO estica as colunas
+          justifyContent: "start", // âœ… NÃƒO estica as colunas
           alignContent: "start",
         }}
       >
@@ -278,7 +278,7 @@ export function SupaDriveGrid({
           const selected = isSelected(item.id);
           const menuOpen = openMenuFor === item.id;
 
-          // ✅ fallback para imagem: se não tiver thumb, usa o próprio fileUrl
+          // âœ… fallback para imagem: se nÃ£o tiver thumb, usa o prÃ³prio fileUrl
           const effectiveThumb =
             item.thumbnailUrl ||
             (item.kind === "image" ? item.fileUrl : undefined);
@@ -340,7 +340,7 @@ export function SupaDriveGrid({
                           selected ? "border-blue-400 text-blue-600" : "border-slate-200 text-slate-400"
                         }`}
                       >
-                        {selected ? "✓" : ""}
+                        {selected ? "âœ“" : ""}
                       </span>
                     </button>
 
@@ -350,7 +350,7 @@ export function SupaDriveGrid({
                       </span>
                     ) : null}
 
-                    {/* ⋮ hover */}
+                    {/* â‹® hover */}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -358,10 +358,10 @@ export function SupaDriveGrid({
                         setOpenMenuFor((curr) => (curr === item.id ? null : item.id));
                       }}
                       className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100"
-                      aria-label="Mais ações"
+                      aria-label="Mais aÃ§Ãµes"
                     >
                       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-slate-600 hover:bg-white">
-                        ⋮
+                        â‹®
                       </span>
                     </button>
                   </div>

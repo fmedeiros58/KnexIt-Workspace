@@ -22,19 +22,19 @@ export function TopBar({
     <header className="w-full bg-slate-50" data-section="topbar">
       <div className="flex items-center gap-3 px-3 py-3">
         {/* Coluna esquerda (mesma largura do SidebarNav) */}
-        <div className="flex items-center gap-2" style={{ width: sidebarWidth }}>
+        <div className="flex items-center gap-3" style={{ width: sidebarWidth }}>
           {/* SD azul */}
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-[11px] font-semibold text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-2xl font-semibold text-white">
             SD
           </div>
 
-          <span className="text-sm font-semibold text-slate-900">{workspaceName}</span>
+          <span className="text-2xl font-semibold text-blue-700">{workspaceName}</span>
         </div>
 
         {/* Search: alinhada à esquerda e com offset para bater com a coluna do content */}
         <div className="flex flex-1 justify-start">
-          <div className="w-full max-w-[780px]" style={{ paddingLeft: contentOffset }}>
-            <div className="flex h-11 items-center gap-3 rounded-full border border-slate-200 bg-slate-100 px-4 text-slate-600 shadow-sm">
+          <div className="w-full max-w-[920px]" style={{ paddingLeft: contentOffset }}>
+            <div className="flex h-12 items-center gap-3 rounded-full border border-slate-200 bg-slate-100 px-4 pr-6 text-slate-600 shadow-sm">
               <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
                 <path
                   fill="currentColor"

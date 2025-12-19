@@ -85,6 +85,7 @@ export default function SupaDrivePage() {
   const [chipFilters, setChipFilters] = useState<ChipFilter[]>(initialFilters);
   const [driveItems, setDriveItems] = useState<SupaDriveItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const railCollapsed = !appsRailOpen && !infoPanelVisible;
 
   const handleToggleFilter = (id: string) => {
     setChipFilters((prev) =>
@@ -202,7 +203,7 @@ export default function SupaDrivePage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen bg-slate-50 text-slate-900 overflow-hidden">
       <div className="flex w-full flex-col gap-0 px-0 pb-0 pt-0">
         <div className="bg-transparent p-0" data-section="header-container">
           <TopBar workspaceName="SupaDrive" userInitials="FM" />
@@ -210,12 +211,12 @@ export default function SupaDrivePage() {
 
         {/* ✅ aqui está o ponto principal: altura do shell = viewport - TopBar */}
         <div
-          className="flex gap-3 pb-0 items-stretch min-h-0 overflow-hidden"
+          className="flex gap-3 pb-0 items-stretch min-h-0 overflow-y-hidden overflow-x-visible"
           data-section="layout-shell"
           style={{ height: `calc(100vh - ${TOPBAR_OFFSET}px)` }}
         >
           {/* ✅ garante que a sidebar “encoste” no fundo */}
-          <div className="h-full">
+          <div className="h-full mb-4">
             <SidebarNav
               primary={primaryNav}
               secondary={secondaryNav}
@@ -227,9 +228,13 @@ export default function SupaDrivePage() {
           </div>
 
           {/* ✅ content ocupa toda a altura do shell */}
-          <div className="flex flex-1 h-full min-h-0 flex-col gap-2" data-section="content-stack">
+          <div
+            className="flex flex-1 h-full min-h-0 flex-col gap-2"
+            data-section="content-stack"
+            style={railCollapsed ? { flexBasis: "100%" } : undefined}
+          >
             <div
-              className="flex h-full min-h-0 flex-col gap-6 overflow-hidden rounded-3xl bg-white p-3 shadow-sm"
+              className="mb-4 flex h-full min-h-0 flex-col gap-6 rounded-3xl bg-white p-3 shadow-sm"
               data-section="filters-container"
               style={{ minWidth: "560px" }}
             >
@@ -242,16 +247,24 @@ export default function SupaDrivePage() {
               </SupaDriveToolbar>
 
               {/* ✅ grid preenche o restante do card */}
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <SupaDriveGrid items={driveItems} />
-              </div>
+              <SupaDriveGrid items={driveItems} />
             </div>
           </div>
 
           {/* ✅ painel direito também com altura cheia */}
-          <aside className="flex h-full shrink-0 items-stretch gap-3" data-section="panel-stack">
+          <aside
+            className="relative flex h-full items-stretch"
+            data-section="panel-stack"
+            style={{
+              gap: infoPanelVisible && appsRailOpen ? "0.125rem" : appsRailOpen ? "0.4rem" : "0rem",
+              width: railCollapsed ? 0 : undefined,
+            }}
+          >
             {infoPanelVisible ? (
-              <div className="h-full rounded-3xl bg-white shadow-sm" data-section="info-panel">
+              <div
+                className="mb-4 flex-1 max-h-[calc(100%-16px)] rounded-3xl bg-white shadow-sm overflow-hidden"
+                data-section="info-panel"
+              >
                 <InfoPanel
                   title="Meu SupaDrive"
                   tabs={infoTabs}
@@ -262,7 +275,16 @@ export default function SupaDrivePage() {
             ) : null}
 
             <div
-              className="flex h-full flex-col items-center justify-between rounded-3xl bg-white p-3 shadow-sm"
+              className="flex h-full flex-none flex-col items-center justify-between rounded-3xl transition-all duration-200"
+              style={{
+                width: appsRailOpen ? 72 : 40,
+                padding: appsRailOpen ? "0.75rem" : "0.2rem",
+                marginLeft: appsRailOpen ? 0 : -24, // sobrepõe mais o painel quando recolhido
+                position: railCollapsed ? "absolute" : "relative",
+                right: railCollapsed ? "-12px" : undefined,
+                top: railCollapsed ? "50%" : undefined,
+                transform: railCollapsed ? "translateY(-50%)" : undefined,
+              }}
               data-section="toggles-container"
             >
               <div className="flex-1">{appsRailOpen ? <SupaDriveAppsRail /> : null}</div>
