@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useRef, useState, type ChangeEvent } from "react";
 
@@ -18,17 +18,17 @@ import {
   getSignedUrl as getStorageSignedUrl,
 } from "./lib/storageUrls";
 
-type ChipFilter = { id: string; label: string; active?: boolean };
+type ChipFilter = { id: string; label: string; baseLabel?: string; selectedLabel?: string; active?: boolean };
 type InfoTab = { id: string; label: string; active?: boolean };
 
 const TOPBAR_OFFSET = 72; // ajuste fino: 64/68/72/80 conforme a altura real do TopBar
 
 const initialFilters: ChipFilter[] = [
-  { id: "type", label: "Tipo" },
-  { id: "people", label: "Pessoas" },
-  { id: "modified", label: "Modificado", active: true },
-  { id: "source", label: "Fonte" },
-  { id: "cleanup", label: "Limpar filtros" },
+  { id: "type", label: "Tipo", baseLabel: "Tipo" },
+  { id: "people", label: "Pessoas", baseLabel: "Pessoas" },
+  { id: "modified", label: "Modificado", baseLabel: "Modificado", active: true },
+  { id: "source", label: "Fonte", baseLabel: "Fonte" },
+  { id: "cleanup", label: "Limpar filtros", baseLabel: "Limpar filtros" },
 ];
 
 const infoTabs: InfoTab[] = [
@@ -85,12 +85,84 @@ export default function SupaDrivePage() {
   const [chipFilters, setChipFilters] = useState<ChipFilter[]>(initialFilters);
   const [driveItems, setDriveItems] = useState<SupaDriveItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [focusedItem, setFocusedItem] = useState<SupaDriveItem | null>(null);
   const railCollapsed = !appsRailOpen && !infoPanelVisible;
 
   const handleToggleFilter = (id: string) => {
+    if (id === "cleanup") {
+      setChipFilters((prev) =>
+        prev.map((chip) => ({
+          ...chip,
+          active: false,
+          selectedLabel: undefined,
+        }))
+      );
+      return;
+    }
     setChipFilters((prev) =>
-      prev.map((chip) => (chip.id === id ? { ...chip, active: !chip.active } : chip))
+      prev.map((chip) =>
+        chip.id === id
+          ? { ...chip, active: true }
+          : chip
+      )
     );
+  };
+
+  const handleSelectFilterOption = (id: string, selected: string) => {
+    setChipFilters((prev) =>
+      prev.map((chip) =>
+        chip.id === id
+          ? {
+              ...chip,
+              active: true,
+              selectedLabel: selected,
+            }
+          : chip
+      )
+    );
+  };
+
+  const handleClearFilter = (id: string) => {
+    setChipFilters((prev) =>
+      prev.map((chip) =>
+        chip.id === id
+          ? {
+              ...chip,
+              active: false,
+              selectedLabel: undefined,
+            }
+          : chip
+      )
+    );
+  };
+
+  const handleOpenItem = (item: SupaDriveItem) => {
+    setFocusedItem(item);
+    setInfoPanelVisible(true);
+  };
+
+  const handleDetails = (item: SupaDriveItem) => {
+    setFocusedItem(item);
+    setInfoPanelVisible(true);
+  };
+
+  const handleRename = (item: SupaDriveItem) => {
+    const nextName = window.prompt("Renomear item", item.name)?.trim();
+    if (!nextName) return;
+    setDriveItems((prev) =>
+      prev.map((it) => (it.id === item.id ? { ...it, name: nextName } : it))
+    );
+    setFocusedItem((prev) => (prev?.id === item.id ? { ...item, name: nextName } : prev));
+  };
+
+  const handleMoveToTrash = (item: SupaDriveItem) => {
+    setDriveItems((prev) => prev.filter((it) => it.id !== item.id));
+    setFocusedItem((prev) => (prev?.id === item.id ? null : prev));
+  };
+
+  const handleDeletePermanently = (item: SupaDriveItem) => {
+    setDriveItems((prev) => prev.filter((it) => it.id !== item.id));
+    setFocusedItem((prev) => (prev?.id === item.id ? null : prev));
   };
 
   const handleCreateItem = async (type: string) => {
@@ -99,21 +171,21 @@ export default function SupaDrivePage() {
       return;
     }
 
-    const presets: Record<string, { label: string; kind: SupaDriveKind; badge?: string }> = {
+        const presets: Record<string, { label: string; kind: SupaDriveKind; badge?: string }> = {
       folder: { label: "Nova pasta", kind: "folder" },
       "folder-upload": { label: "Pasta importada", kind: "folder" },
-      docs: { label: "Documento sem título", kind: "doc" },
-      sheets: { label: "Planilha sem título", kind: "sheet" },
-      slides: { label: "Apresentação sem título", kind: "slides" },
-      vids: { label: "Projeto de vídeo", kind: "vids" },
-      forms: { label: "Formulário sem título", kind: "forms" },
-      more: { label: "Atalho rápido", kind: "link" },
+      docs: { label: "Documento sem titulo", kind: "doc" },
+      sheets: { label: "Planilha sem titulo", kind: "sheet" },
+      slides: { label: "Apresentacao sem titulo", kind: "slides" },
+      vids: { label: "Projeto de video", kind: "vids" },
+      forms: { label: "Formulario sem titulo", kind: "forms" },
+      more: { label: "Atalho rapido", kind: "link" },
     };
     const preset = presets[type] ?? { label: "Arquivo", kind: "doc" as SupaDriveKind };
     const duplicateIndex = driveItems.filter((item) => item.name.startsWith(preset.label)).length + 1;
 
     const name = `${preset.label} ${duplicateIndex}`;
-    const meta = `Atualizado em ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", {
+    const meta = `Atualizado em ${new Date().toLocaleDateString("pt-BR")} Ã s ${new Date().toLocaleTimeString("pt-BR", {
       hour: "2-digit",
       minute: "2-digit",
     })}`;
@@ -164,7 +236,7 @@ export default function SupaDrivePage() {
       files.map(async (file, index) => {
         const kind = normalizeKind(file.name);
         const id = `upload-${baseTimestamp}-${index}`;
-        const meta = `Enviado em ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", {
+        const meta = `Enviado em ${new Date().toLocaleDateString("pt-BR")} Ã s ${new Date().toLocaleTimeString("pt-BR", {
           hour: "2-digit",
           minute: "2-digit",
         })}`;
@@ -180,7 +252,7 @@ export default function SupaDrivePage() {
 
         if (kind === "image") {
           fileUrl = fileUrl ?? URL.createObjectURL(file);
-          // Garantia: se nÇœo houver thumb gerada, usa o prÇüprio arquivo para preview imediato
+          // Garantia: se nÃ‡Å“o houver thumb gerada, usa o prÃ‡Ã¼prio arquivo para preview imediato
           thumbnailUrl = thumbnailUrl ?? fileUrl;
         }
 
@@ -209,13 +281,13 @@ export default function SupaDrivePage() {
           <TopBar workspaceName="SupaDrive" userInitials="FM" />
         </div>
 
-        {/* ✅ aqui está o ponto principal: altura do shell = viewport - TopBar */}
+        {/* âœ… aqui estÃ¡ o ponto principal: altura do shell = viewport - TopBar */}
         <div
           className="flex gap-3 pb-0 items-stretch min-h-0 overflow-y-hidden overflow-x-visible"
           data-section="layout-shell"
           style={{ height: `calc(100vh - ${TOPBAR_OFFSET}px)` }}
         >
-          {/* ✅ garante que a sidebar “encoste” no fundo */}
+          {/* âœ… garante que a sidebar â€œencosteâ€ no fundo */}
           <div className="h-full mb-4">
             <SidebarNav
               primary={primaryNav}
@@ -227,7 +299,7 @@ export default function SupaDrivePage() {
             />
           </div>
 
-          {/* ✅ content ocupa toda a altura do shell */}
+          {/* âœ… content ocupa toda a altura do shell */}
           <div
             className="flex flex-1 h-full min-h-0 flex-col gap-2"
             data-section="content-stack"
@@ -243,15 +315,29 @@ export default function SupaDrivePage() {
                 onToggleInfo={() => setInfoPanelVisible((open) => !open)}
                 infoPanelVisible={infoPanelVisible}
               >
-                <SupaDriveFilters chips={chipFilters} onToggle={handleToggleFilter} />
+              <SupaDriveFilters
+                chips={chipFilters}
+                onToggle={handleToggleFilter}
+                onSelectOption={handleSelectFilterOption}
+                onClear={handleClearFilter}
+              />
               </SupaDriveToolbar>
 
-              {/* ✅ grid preenche o restante do card */}
-              <SupaDriveGrid items={driveItems} />
+              {/* âœ… grid preenche o restante do card */}
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <SupaDriveGrid
+                  items={driveItems}
+                  onOpen={handleOpenItem}
+                  onDetails={handleDetails}
+                  onRename={handleRename}
+                  onMoveToTrash={handleMoveToTrash}
+                  onDeletePermanently={handleDeletePermanently}
+                />
+              </div>
             </div>
           </div>
 
-          {/* ✅ painel direito também com altura cheia */}
+          {/* âœ… painel direito tambÃ©m com altura cheia */}
           <aside
             className="relative flex h-full items-stretch"
             data-section="panel-stack"
@@ -266,10 +352,13 @@ export default function SupaDrivePage() {
                 data-section="info-panel"
               >
                 <InfoPanel
-                  title="Meu SupaDrive"
+                  title={focusedItem?.name ?? "Meu SupaDrive"}
                   tabs={infoTabs}
-                  emptyTitle="Selecione um item"
-                  emptyMessage="Escolha uma pasta ou arquivo para ver os detalhes aqui."
+                  emptyTitle={focusedItem?.name ?? "Selecione um item"}
+                  emptyMessage={
+                    focusedItem?.meta ??
+                    "Escolha uma pasta ou arquivo para ver os detalhes aqui."
+                  }
                 />
               </div>
             ) : null}
@@ -279,7 +368,7 @@ export default function SupaDrivePage() {
               style={{
                 width: appsRailOpen ? 72 : 40,
                 padding: appsRailOpen ? "0.75rem" : "0.2rem",
-                marginLeft: appsRailOpen ? 0 : -24, // sobrepõe mais o painel quando recolhido
+                marginLeft: appsRailOpen ? 0 : -24, // sobrepÃµe mais o painel quando recolhido
                 position: railCollapsed ? "absolute" : "relative",
                 right: railCollapsed ? "-12px" : undefined,
                 top: railCollapsed ? "50%" : undefined,
@@ -318,3 +407,6 @@ export default function SupaDrivePage() {
     </main>
   );
 }
+
+
+
