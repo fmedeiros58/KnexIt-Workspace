@@ -18,15 +18,15 @@ import {
   getSignedUrl as getStorageSignedUrl,
 } from "./lib/storageUrls";
 
-type ChipFilter = { id: string; label: string; baseLabel?: string; selectedLabel?: string; active?: boolean };
+type ChipFilter = { id: string; label: string; baseLabel?: string; selectedLabel?: string };
 type InfoTab = { id: string; label: string; active?: boolean };
 
-const TOPBAR_OFFSET = 72; // ajuste fino: 64/68/72/80 conforme a altura real do TopBar
+const TOPBAR_OFFSET = 72;
 
 const initialFilters: ChipFilter[] = [
   { id: "type", label: "Tipo", baseLabel: "Tipo" },
   { id: "people", label: "Pessoas", baseLabel: "Pessoas" },
-  { id: "modified", label: "Modificado", baseLabel: "Modificado", active: true },
+  { id: "modified", label: "Modificado", baseLabel: "Modificado" },
   { id: "source", label: "Fonte", baseLabel: "Fonte" },
   { id: "cleanup", label: "Limpar filtros", baseLabel: "Limpar filtros" },
 ];
@@ -73,9 +73,7 @@ const isFilesBucketPrivate = process.env.NEXT_PUBLIC_SUPABASE_FILES_PRIVATE === 
 
 async function resolveFileUrl(path?: string | null) {
   if (!path) return null;
-  if (isFilesBucketPrivate) {
-    return getStorageSignedUrl(FILES_BUCKET, path, 60 * 60);
-  }
+  if (isFilesBucketPrivate) return getStorageSignedUrl(FILES_BUCKET, path, 60 * 60);
   return getStoragePublicUrl(FILES_BUCKET, path);
 }
 
@@ -89,22 +87,13 @@ export default function SupaDrivePage() {
   const railCollapsed = !appsRailOpen && !infoPanelVisible;
 
   const handleToggleFilter = (id: string) => {
-    if (id === "cleanup") {
-      setChipFilters((prev) =>
-        prev.map((chip) => ({
-          ...chip,
-          active: false,
-          selectedLabel: undefined,
-        }))
-      );
-      return;
-    }
+    if (id !== "cleanup") return;
+
     setChipFilters((prev) =>
-      prev.map((chip) =>
-        chip.id === id
-          ? { ...chip, active: true }
-          : chip
-      )
+      prev.map((chip) => ({
+        ...chip,
+        selectedLabel: undefined,
+      }))
     );
   };
 
@@ -112,11 +101,7 @@ export default function SupaDrivePage() {
     setChipFilters((prev) =>
       prev.map((chip) =>
         chip.id === id
-          ? {
-              ...chip,
-              active: true,
-              selectedLabel: selected,
-            }
+          ? { ...chip, selectedLabel: selected }
           : chip
       )
     );
@@ -125,13 +110,7 @@ export default function SupaDrivePage() {
   const handleClearFilter = (id: string) => {
     setChipFilters((prev) =>
       prev.map((chip) =>
-        chip.id === id
-          ? {
-              ...chip,
-              active: false,
-              selectedLabel: undefined,
-            }
-          : chip
+        chip.id === id ? { ...chip, selectedLabel: undefined } : chip
       )
     );
   };
@@ -149,9 +128,7 @@ export default function SupaDrivePage() {
   const handleRename = (item: SupaDriveItem) => {
     const nextName = window.prompt("Renomear item", item.name)?.trim();
     if (!nextName) return;
-    setDriveItems((prev) =>
-      prev.map((it) => (it.id === item.id ? { ...it, name: nextName } : it))
-    );
+    setDriveItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, name: nextName } : it)));
     setFocusedItem((prev) => (prev?.id === item.id ? { ...item, name: nextName } : prev));
   };
 
@@ -171,7 +148,7 @@ export default function SupaDrivePage() {
       return;
     }
 
-        const presets: Record<string, { label: string; kind: SupaDriveKind; badge?: string }> = {
+    const presets: Record<string, { label: string; kind: SupaDriveKind; badge?: string }> = {
       folder: { label: "Nova pasta", kind: "folder" },
       "folder-upload": { label: "Pasta importada", kind: "folder" },
       docs: { label: "Documento sem titulo", kind: "doc" },
@@ -181,17 +158,20 @@ export default function SupaDrivePage() {
       forms: { label: "Formulario sem titulo", kind: "forms" },
       more: { label: "Atalho rapido", kind: "link" },
     };
+
     const preset = presets[type] ?? { label: "Arquivo", kind: "doc" as SupaDriveKind };
     const duplicateIndex = driveItems.filter((item) => item.name.startsWith(preset.label)).length + 1;
 
     const name = `${preset.label} ${duplicateIndex}`;
-    const meta = `Atualizado em ${new Date().toLocaleDateString("pt-BR")} Ã s ${new Date().toLocaleTimeString("pt-BR", {
+    const meta = `Atualizado em ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", {
       hour: "2-digit",
       minute: "2-digit",
     })}`;
+
     const id = `${type}-${Date.now()}`;
     let thumbnailPath: string | undefined;
     let thumbnailUrl: string | null | undefined;
+
     const filePath = preset.kind === "folder" ? undefined : `${id}`;
     const fileUrl = filePath ? await resolveFileUrl(filePath) : null;
 
@@ -236,12 +216,14 @@ export default function SupaDrivePage() {
       files.map(async (file, index) => {
         const kind = normalizeKind(file.name);
         const id = `upload-${baseTimestamp}-${index}`;
-        const meta = `Enviado em ${new Date().toLocaleDateString("pt-BR")} Ã s ${new Date().toLocaleTimeString("pt-BR", {
+        const meta = `Enviado em ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", {
           hour: "2-digit",
           minute: "2-digit",
         })}`;
+
         let thumbnailPath: string | undefined;
         let thumbnailUrl: string | null | undefined;
+
         const filePath = `${id}/${file.name}`;
         let fileUrl = await resolveFileUrl(filePath);
 
@@ -252,7 +234,6 @@ export default function SupaDrivePage() {
 
         if (kind === "image") {
           fileUrl = fileUrl ?? URL.createObjectURL(file);
-          // Garantia: se nÃ‡Å“o houver thumb gerada, usa o prÃ‡Ã¼prio arquivo para preview imediato
           thumbnailUrl = thumbnailUrl ?? fileUrl;
         }
 
@@ -270,7 +251,6 @@ export default function SupaDrivePage() {
     );
 
     setDriveItems((prev) => [...prev, ...uploadedItems]);
-
     event.target.value = "";
   };
 
@@ -281,13 +261,11 @@ export default function SupaDrivePage() {
           <TopBar workspaceName="SupaDrive" userInitials="FM" />
         </div>
 
-        {/* âœ… aqui estÃ¡ o ponto principal: altura do shell = viewport - TopBar */}
         <div
           className="flex gap-3 pb-0 items-stretch min-h-0 overflow-y-hidden overflow-x-visible"
           data-section="layout-shell"
           style={{ height: `calc(100vh - ${TOPBAR_OFFSET}px)` }}
         >
-          {/* âœ… garante que a sidebar â€œencosteâ€ no fundo */}
           <div className="h-full mb-4">
             <SidebarNav
               primary={primaryNav}
@@ -299,31 +277,21 @@ export default function SupaDrivePage() {
             />
           </div>
 
-          {/* âœ… content ocupa toda a altura do shell */}
-          <div
-            className="flex flex-1 h-full min-h-0 flex-col gap-2"
-            data-section="content-stack"
-            style={railCollapsed ? { flexBasis: "100%" } : undefined}
-          >
-            <div
-              className="mb-4 flex h-full min-h-0 flex-col gap-6 rounded-3xl bg-white p-3 shadow-sm"
-              data-section="filters-container"
-              style={{ minWidth: "560px" }}
-            >
+          <div className="flex flex-1 h-full min-h-0 flex-col gap-2" style={railCollapsed ? { flexBasis: "100%" } : undefined}>
+            <div className="mb-4 flex h-full min-h-0 flex-col gap-6 rounded-3xl bg-white p-3 shadow-sm" style={{ minWidth: "560px" }}>
               <SupaDriveToolbar
                 title="Meu SupaDrive"
                 onToggleInfo={() => setInfoPanelVisible((open) => !open)}
                 infoPanelVisible={infoPanelVisible}
               >
-              <SupaDriveFilters
-                chips={chipFilters}
-                onToggle={handleToggleFilter}
-                onSelectOption={handleSelectFilterOption}
-                onClear={handleClearFilter}
-              />
+                <SupaDriveFilters
+                  chips={chipFilters}
+                  onToggle={handleToggleFilter}
+                  onSelectOption={handleSelectFilterOption}
+                  onClear={handleClearFilter}
+                />
               </SupaDriveToolbar>
 
-              {/* âœ… grid preenche o restante do card */}
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <SupaDriveGrid
                   items={driveItems}
@@ -337,28 +305,20 @@ export default function SupaDrivePage() {
             </div>
           </div>
 
-          {/* âœ… painel direito tambÃ©m com altura cheia */}
           <aside
             className="relative flex h-full items-stretch"
-            data-section="panel-stack"
             style={{
               gap: infoPanelVisible && appsRailOpen ? "0.125rem" : appsRailOpen ? "0.4rem" : "0rem",
               width: railCollapsed ? 0 : undefined,
             }}
           >
             {infoPanelVisible ? (
-              <div
-                className="mb-4 flex-1 max-h-[calc(100%-16px)] rounded-3xl bg-white shadow-sm overflow-hidden"
-                data-section="info-panel"
-              >
+              <div className="mb-4 flex-1 max-h-[calc(100%-16px)] rounded-3xl bg-white shadow-sm overflow-hidden">
                 <InfoPanel
                   title={focusedItem?.name ?? "Meu SupaDrive"}
                   tabs={infoTabs}
                   emptyTitle={focusedItem?.name ?? "Selecione um item"}
-                  emptyMessage={
-                    focusedItem?.meta ??
-                    "Escolha uma pasta ou arquivo para ver os detalhes aqui."
-                  }
+                  emptyMessage={focusedItem?.meta ?? "Escolha uma pasta ou arquivo para ver os detalhes aqui."}
                 />
               </div>
             ) : null}
@@ -368,13 +328,12 @@ export default function SupaDrivePage() {
               style={{
                 width: appsRailOpen ? 72 : 40,
                 padding: appsRailOpen ? "0.75rem" : "0.2rem",
-                marginLeft: appsRailOpen ? 0 : -24, // sobrepÃµe mais o painel quando recolhido
+                marginLeft: appsRailOpen ? 0 : -24,
                 position: railCollapsed ? "absolute" : "relative",
                 right: railCollapsed ? "-12px" : undefined,
                 top: railCollapsed ? "50%" : undefined,
                 transform: railCollapsed ? "translateY(-50%)" : undefined,
               }}
-              data-section="toggles-container"
             >
               <div className="flex-1">{appsRailOpen ? <SupaDriveAppsRail /> : null}</div>
 
@@ -384,9 +343,7 @@ export default function SupaDrivePage() {
                   type="button"
                   onClick={() => setAppsRailOpen((open) => !open)}
                   className={`flex h-10 w-10 items-center justify-center rounded-full border text-lg shadow transition ${
-                    appsRailOpen
-                      ? "border-slate-200 bg-white text-slate-500"
-                      : "border-slate-900 bg-slate-900 text-white"
+                    appsRailOpen ? "border-slate-200 bg-white text-slate-500" : "border-slate-900 bg-slate-900 text-white"
                   }`}
                   aria-label={appsRailOpen ? "Recolher apps" : "Mostrar apps"}
                 >
@@ -396,17 +353,9 @@ export default function SupaDrivePage() {
             </div>
           </aside>
         </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          multiple
-          onChange={handleFileUpload}
-        />
+
+        <input ref={fileInputRef} type="file" className="hidden" multiple onChange={handleFileUpload} />
       </div>
     </main>
   );
 }
-
-
-
