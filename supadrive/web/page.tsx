@@ -22,6 +22,7 @@ type ChipFilter = { id: string; label: string; baseLabel?: string; selectedLabel
 type InfoTab = { id: string; label: string; active?: boolean };
 
 const TOPBAR_OFFSET = 72;
+const EDGE_GAP = 16; // 16px (respiro padrão)
 
 const initialFilters: ChipFilter[] = [
   { id: "type", label: "Tipo", baseLabel: "Tipo" },
@@ -84,35 +85,23 @@ export default function SupaDrivePage() {
   const [driveItems, setDriveItems] = useState<SupaDriveItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [focusedItem, setFocusedItem] = useState<SupaDriveItem | null>(null);
-  const railCollapsed = !appsRailOpen && !infoPanelVisible;
+
+  // se ambos fechados, some o lado direito inteiro
+  const showRightColumn = infoPanelVisible || appsRailOpen;
+  const contentGap = infoPanelVisible ? "0.35rem" : "0rem";
+  const layoutRightPadding = !appsRailOpen ? EDGE_GAP : 0;
 
   const handleToggleFilter = (id: string) => {
     if (id !== "cleanup") return;
-
-    setChipFilters((prev) =>
-      prev.map((chip) => ({
-        ...chip,
-        selectedLabel: undefined,
-      }))
-    );
+    setChipFilters((prev) => prev.map((chip) => ({ ...chip, selectedLabel: undefined })));
   };
 
   const handleSelectFilterOption = (id: string, selected: string) => {
-    setChipFilters((prev) =>
-      prev.map((chip) =>
-        chip.id === id
-          ? { ...chip, selectedLabel: selected }
-          : chip
-      )
-    );
+    setChipFilters((prev) => prev.map((chip) => (chip.id === id ? { ...chip, selectedLabel: selected } : chip)));
   };
 
   const handleClearFilter = (id: string) => {
-    setChipFilters((prev) =>
-      prev.map((chip) =>
-        chip.id === id ? { ...chip, selectedLabel: undefined } : chip
-      )
-    );
+    setChipFilters((prev) => prev.map((chip) => (chip.id === id ? { ...chip, selectedLabel: undefined } : chip)));
   };
 
   const handleOpenItem = (item: SupaDriveItem) => {
@@ -261,10 +250,14 @@ export default function SupaDrivePage() {
           <TopBar workspaceName="SupaDrive" userInitials="FM" />
         </div>
 
+        {/* ✅ paddingRight fixo = EDGE_GAP -> mantém respiro mesmo sem aside */}
         <div
-          className="flex gap-3 pb-0 items-stretch min-h-0 overflow-y-hidden overflow-x-visible"
+          className="relative flex gap-4 pb-0 items-stretch min-h-0 overflow-y-hidden overflow-x-hidden"
           data-section="layout-shell"
-          style={{ height: `calc(100vh - ${TOPBAR_OFFSET}px)` }}
+          style={{
+            height: `calc(100vh - ${TOPBAR_OFFSET}px)`,
+            paddingRight: layoutRightPadding,
+          }}
         >
           <div className="h-full mb-4">
             <SidebarNav
@@ -277,81 +270,89 @@ export default function SupaDrivePage() {
             />
           </div>
 
-          <div className="flex flex-1 h-full min-h-0 flex-col gap-2" style={railCollapsed ? { flexBasis: "100%" } : undefined}>
-            <div className="mb-4 flex h-full min-h-0 flex-col gap-6 rounded-3xl bg-white p-3 shadow-sm" style={{ minWidth: "560px" }}>
-              <SupaDriveToolbar
-                title="Meu SupaDrive"
-                onToggleInfo={() => setInfoPanelVisible((open) => !open)}
-                infoPanelVisible={infoPanelVisible}
+          <div className="flex flex-1 min-w-0 items-stretch" style={{ columnGap: contentGap }}>
+            <div className="flex flex-1 h-full min-h-0 min-w-0 flex-col gap-2">
+              <div
+                className="mb-4 flex h-full min-h-0 flex-col gap-6 rounded-3xl bg-white p-4 shadow-sm overflow-hidden"
+                style={{ minWidth: "min(560px, 100%)" }}
               >
-                <SupaDriveFilters
-                  chips={chipFilters}
-                  onToggle={handleToggleFilter}
-                  onSelectOption={handleSelectFilterOption}
-                  onClear={handleClearFilter}
-                />
-              </SupaDriveToolbar>
+                <SupaDriveToolbar
+                  title="Meu SupaDrive"
+                  onToggleInfo={() => setInfoPanelVisible((open) => !open)}
+                  infoPanelVisible={infoPanelVisible}
+                >
+                  <SupaDriveFilters
+                    chips={chipFilters}
+                    onToggle={handleToggleFilter}
+                    onSelectOption={handleSelectFilterOption}
+                    onClear={handleClearFilter}
+                  />
+                </SupaDriveToolbar>
 
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <SupaDriveGrid
-                  items={driveItems}
-                  onOpen={handleOpenItem}
-                  onDetails={handleDetails}
-                  onRename={handleRename}
-                  onMoveToTrash={handleMoveToTrash}
-                  onDeletePermanently={handleDeletePermanently}
-                />
+                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+                  <SupaDriveGrid
+                    items={driveItems}
+                    onOpen={handleOpenItem}
+                    onDetails={handleDetails}
+                    onRename={handleRename}
+                    onMoveToTrash={handleMoveToTrash}
+                    onDeletePermanently={handleDeletePermanently}
+                  />
+                </div>
               </div>
             </div>
+
+            {/* Lado direito */}
+            {showRightColumn ? (
+              <aside
+                className="relative flex h-full items-stretch min-w-0"
+                style={{
+                  gap: infoPanelVisible && appsRailOpen ? "0.125rem" : "0rem",
+                }}
+              >
+                {infoPanelVisible ? (
+                  <div className="mb-4 flex-1 max-h-[calc(100%-16px)] rounded-3xl bg-white shadow-sm overflow-hidden">
+                    <InfoPanel
+                      title={focusedItem?.name ?? "Meu SupaDrive"}
+                      tabs={infoTabs}
+                      emptyTitle={focusedItem?.name ?? "Selecione um item"}
+                      emptyMessage={focusedItem?.meta ?? "Escolha uma pasta ou arquivo para ver os detalhes aqui."}
+                    />
+                  </div>
+                ) : null}
+
+                {/* Apps rail só aparece quando aberto */}
+                {appsRailOpen ? (
+                  <div
+                    className="mb-4 flex h-full flex-none flex-col items-center justify-between rounded-3xl transition-all duration-200"
+                    style={{ width: 72, padding: 0 }}
+                  >
+                    <div className="flex-1 w-full">
+                      <SupaDriveAppsRail compact />
+                    </div>
+                  </div>
+                ) : null}
+              </aside>
+            ) : null}
           </div>
 
-          <aside
-            className="relative flex h-full items-stretch"
+          {/* ✅ TOGGLE ÚNICO: sempre no mesmo lugar (canto inferior direito) */}
+          <button
+            type="button"
+            onClick={() => setAppsRailOpen((open) => !open)}
+            className={`absolute z-50 flex h-10 w-10 items-center justify-center rounded-full border text-lg shadow transition ${
+              appsRailOpen
+                ? "border-slate-200 bg-white text-slate-500"
+                : "border-slate-900 bg-slate-900 text-white"
+            }`}
             style={{
-              gap: infoPanelVisible && appsRailOpen ? "0.125rem" : appsRailOpen ? "0.4rem" : "0rem",
-              width: railCollapsed ? 0 : undefined,
+              right: 0,
+              bottom: EDGE_GAP,
             }}
+            aria-label={appsRailOpen ? "Recolher apps" : "Mostrar apps"}
           >
-            {infoPanelVisible ? (
-              <div className="mb-4 flex-1 max-h-[calc(100%-16px)] rounded-3xl bg-white shadow-sm overflow-hidden">
-                <InfoPanel
-                  title={focusedItem?.name ?? "Meu SupaDrive"}
-                  tabs={infoTabs}
-                  emptyTitle={focusedItem?.name ?? "Selecione um item"}
-                  emptyMessage={focusedItem?.meta ?? "Escolha uma pasta ou arquivo para ver os detalhes aqui."}
-                />
-              </div>
-            ) : null}
-
-            <div
-              className="flex h-full flex-none flex-col items-center justify-between rounded-3xl transition-all duration-200"
-              style={{
-                width: appsRailOpen ? 72 : 40,
-                padding: appsRailOpen ? "0.75rem" : "0.2rem",
-                marginLeft: appsRailOpen ? 0 : -24,
-                position: railCollapsed ? "absolute" : "relative",
-                right: railCollapsed ? "-12px" : undefined,
-                top: railCollapsed ? "50%" : undefined,
-                transform: railCollapsed ? "translateY(-50%)" : undefined,
-              }}
-            >
-              <div className="flex-1">{appsRailOpen ? <SupaDriveAppsRail /> : null}</div>
-
-              <div className="mt-6 flex flex-col items-center gap-2" id="apps-rail-toggle">
-                <div className="h-10 w-px bg-slate-200" />
-                <button
-                  type="button"
-                  onClick={() => setAppsRailOpen((open) => !open)}
-                  className={`flex h-10 w-10 items-center justify-center rounded-full border text-lg shadow transition ${
-                    appsRailOpen ? "border-slate-200 bg-white text-slate-500" : "border-slate-900 bg-slate-900 text-white"
-                  }`}
-                  aria-label={appsRailOpen ? "Recolher apps" : "Mostrar apps"}
-                >
-                  {appsRailOpen ? ">" : "<"}
-                </button>
-              </div>
-            </div>
-          </aside>
+            {appsRailOpen ? ">" : "<"}
+          </button>
         </div>
 
         <input ref={fileInputRef} type="file" className="hidden" multiple onChange={handleFileUpload} />
