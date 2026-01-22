@@ -44,6 +44,7 @@ export default function LoginPageClient({
   const appBaseUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
     (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -67,7 +68,7 @@ export default function LoginPageClient({
     return true;
   }, [allowedDomain]);
 
-  const { targetRedirect, productLabel, activeProductSlug } = useMemo(() => {
+  const { targetRedirect, productLabel, activeProductSlug, hasExplicitProduct } = useMemo(() => {
     const resolveTarget = (value: string | null | undefined, base: string): string | null => {
       if (!value) return null;
       try {
@@ -81,6 +82,7 @@ export default function LoginPageClient({
     const searchSlug = initialProduct;
     const requestedSlug = productSlug?.toLowerCase() ?? searchSlug?.toLowerCase();
     const resolvedProduct = getProduct(requestedSlug) ?? DEFAULT_PRODUCT;
+    const hasExplicitProduct = Boolean(productSlug || searchSlug || fromParam);
     const origin = typeof window !== "undefined" ? window.location.origin : appBaseUrl;
 
     const targetRaw =
@@ -94,6 +96,7 @@ export default function LoginPageClient({
       targetRedirect: target,
       productLabel: resolvedProduct.name,
       activeProductSlug: resolvedProduct.slug,
+      hasExplicitProduct,
     };
   }, [productSlug, initialFrom, initialProduct, initialRedirect, appBaseUrl]);
 
@@ -108,14 +111,16 @@ export default function LoginPageClient({
   }, [targetRedirect, appBaseUrl]);
 
   const loginReturnUrl = useMemo(() => {
-    const base = typeof window !== "undefined" ? window.location.href : `${appBaseUrl}/login`;
+    const base =
+      appBaseUrl || (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
     try {
       const url = new URL(base);
+      url.pathname = "/login";
       if (targetRedirect) url.searchParams.set("from", targetRedirect);
       if (activeProductSlug) url.searchParams.set("product", activeProductSlug);
       return url.toString();
     } catch {
-      return base;
+      return `${base}/login`;
     }
   }, [targetRedirect, activeProductSlug, appBaseUrl]);
 
@@ -158,9 +163,18 @@ export default function LoginPageClient({
 
   useEffect(() => {
     if (typeof document !== "undefined") {
-      document.title = productLabel ? `KNEXIT | Login - ${productLabel}` : "KNEXIT | Login";
+      document.title = hasExplicitProduct && productLabel ? `KNEXIT | Login - ${productLabel}` : "KNEXIT | Login";
     }
-  }, [productLabel]);
+  }, [productLabel, hasExplicitProduct]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hint = localStorage.getItem("loginEmailHint");
+    if (hint) {
+      setLoginEmail((prev) => prev || hint);
+      localStorage.removeItem("loginEmailHint");
+    }
+  }, []);
 
   async function handlePasswordLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -218,7 +232,7 @@ export default function LoginPageClient({
   }
 
   return (
-    <div className="min-h-[100svh] bg-neutral-50 text-neutral-900">
+    <div className="min-h-screen flex flex-col bg-neutral-50 text-neutral-900">
       <header className="w-full border-b border-neutral-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -226,14 +240,26 @@ export default function LoginPageClient({
             <span className="text-lg font-semibold tracking-tight text-blue-700">Knexit Workspace</span>
           </div>
           <div className="text-xs md:text-sm text-neutral-600">
-            Você será direcionado para <strong>{productLabel}</strong> após entrar.
+            {hasExplicitProduct ? (
+              <>
+                Você será direcionado para <strong>{productLabel}</strong> após entrar.
+              </>
+            ) : (
+              <>Você será direcionado após entrar.</>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-10">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+      <main className="flex-1 flex items-center justify-center">
+        <div className="w-full max-w-5xl px-4 py-10">
+          {err && (
+            <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {err}
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-5">
               <div className="h-9 w-9 rounded bg-neutral-900" aria-hidden />
               <div>
@@ -343,16 +369,12 @@ export default function LoginPageClient({
               </button>
 
             </form>
-            {err && (
-              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 border border-rose-200">
-                {err}
-              </p>
-            )}
-          </section>
+            </section>
+          </div>
         </div>
       </main>
 
-      <section className="mt-6 border-t border-neutral-200 bg-neutral-100/60">
+      <footer className="mt-auto border-t border-neutral-200 bg-neutral-100/60">
         <div className="mx-auto max-w-5xl px-4 py-6 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
           <div className="flex items-center gap-4 justify-center md:justify-start">
             <MascoteSVG />
@@ -394,7 +416,7 @@ export default function LoginPageClient({
             KNEXIT © 2025 — Todos os direitos reservados ©
           </div>
         </div>
-      </section>
+      </footer>
     </div>
   );
 }

@@ -129,13 +129,19 @@ export default function KnexItWorkspacePage() {
               Contato
             </a>
             <a
+              href="/admin/login"
+              className="inline-flex rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50 no-underline hover:no-underline"
+            >
+              Admin Console
+            </a>
+            <a
               href="#contato"
               className="hidden sm:inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50 no-underline hover:no-underline"
             >
               Fale com a equipe de vendas
             </a>
             <a
-              href="/knexit-workspace#planos"
+              href="/knexit-workspace/acesso"
               className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 no-underline hover:no-underline"
             >
               Iniciar agora
