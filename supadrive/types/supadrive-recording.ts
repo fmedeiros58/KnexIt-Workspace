@@ -1,4 +1,4 @@
-export type DriveRecordingMeta = {
+export type SupaDriveRecordingMeta = {
   id: number;
   name?: string;
   size: number;
