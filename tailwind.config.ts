@@ -1,11 +1,12 @@
-import type { Config } from "tailwindcss";
+﻿import type { Config } from "tailwindcss";
 
 export default {
   content: [
     "./app/**/*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
-    "./supadrive/**/*.{js,ts,jsx,tsx}",   // ✅ ADICIONE
-    "./src/**/*.{js,ts,jsx,tsx}",         // ✅ opcional (bom se você usa src)
+    "./supadrive/**/*.{js,ts,jsx,tsx}",   // âœ… ADICIONE
+    "./violive/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx}",         // âœ… opcional (bom se vocÃª usa src)
   ],
   theme: {
     extend: {
@@ -14,3 +15,4 @@ export default {
   },
   plugins: [],
 } satisfies Config;
+
