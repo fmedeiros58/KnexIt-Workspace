@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import KnexChatPage from "../../../knexchat/web/page";
+import KnexChatPage from "../../../../knexchat/web/page";
 
 export default function Page() {
   return (
