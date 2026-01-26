@@ -1,3 +1,11 @@
-"use client";
+import { Suspense } from "react";
 
-export { default } from "../../../../knexchat/web/page";
+import KnexChatPage from "../../../../knexchat/web/page";
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-white" />}>
+      <KnexChatPage />
+    </Suspense>
+  );
+}
