@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleDot,
   HelpCircle,
   Keyboard,
@@ -53,6 +56,12 @@ function KnexChatMotionStyles() {
         100% {
           stroke-dashoffset: 180;
         }
+      }
+      .knex-dash {
+        animation: knex-dash 10s linear infinite;
+      }
+      .knex-dash-reverse {
+        animation: knex-dash-reverse 11s linear infinite;
       }
       @keyframes knex-float-left {
         0%,
@@ -106,13 +115,13 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
           Fechado! Vou avisar o time.
         </div>
         <div className={`w-[68%] rounded-2xl bg-slate-200 ${textBase} text-slate-700 px-3 py-2`}>
-          Link da reuniao: knexchat.app/join
+          Link da reunião: knexchat.app/join
         </div>
         <div className={`ml-auto w-[58%] rounded-2xl bg-blue-500/20 ${textBase} text-blue-700 px-3 py-2`}>
           Agenda confirmada.
         </div>
         <div className={`w-[70%] rounded-2xl bg-slate-200 ${textBase} text-slate-700 px-3 py-2`}>
-          Encontros semanais as 18h.
+          Encontros semanais ?s 18h.
         </div>
         <div className={`ml-auto w-[54%] rounded-2xl bg-blue-500/20 ${textBase} text-blue-700 px-3 py-2`}>
           Perfeito, obrigado!
@@ -162,105 +171,6 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
   );
 }
 
-function KnexChatFlowOverlay() {
-  return (
-    <svg
-      className="pointer-events-none absolute inset-0 z-0 hidden lg:block"
-      viewBox="0 0 1200 700"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <defs>
-        <path id="knex-flow-top" d="M240 120 C 420 30 780 30 960 120" />
-        <path id="knex-flow-bottom" d="M1000 300 L 1000 520 L 180 520 L 180 360" />
-        <clipPath id="knex-avatar-clip" clipPathUnits="objectBoundingBox">
-          <circle cx="0.5" cy="0.5" r="0.5" />
-        </clipPath>
-        <filter id="knex-avatar-shadow" x="-50%" y="-50%" width="200%" height="200%">
-          <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="rgba(15,23,42,0.25)" />
-        </filter>
-      </defs>
-
-      <path
-        d="M240 120 C 420 30 780 30 960 120"
-        fill="none"
-        stroke="rgba(59,130,246,0.35)"
-        strokeWidth="1.6"
-        strokeDasharray="4 12"
-        strokeLinecap="round"
-      >
-        <animate attributeName="stroke-dashoffset" from="0" to="-120" dur="8s" repeatCount="indefinite" />
-      </path>
-      <path
-        d="M1000 300 L 1000 520 L 180 520 L 180 360"
-        fill="none"
-        stroke="rgba(59,130,246,0.3)"
-        strokeWidth="1.6"
-        strokeDasharray="4 12"
-        strokeLinecap="round"
-      >
-        <animate attributeName="stroke-dashoffset" from="0" to="120" dur="9s" repeatCount="indefinite" />
-      </path>
-
-      {[0, 3.5, 7].map((start) => (
-        <g key={`arrow-top-${start}`}>
-          <path d="M0 0 L10 4 L0 8 L3 4 Z" fill="rgba(59,130,246,0.55)" />
-          <animateMotion dur="10s" repeatCount="indefinite" begin={`${start}s`} rotate="auto">
-            <mpath href="#knex-flow-top" />
-          </animateMotion>
-        </g>
-      ))}
-      {[1.5, 5, 8.5].map((start) => (
-        <g key={`arrow-bottom-${start}`}>
-          <path d="M0 0 L10 4 L0 8 L3 4 Z" fill="rgba(59,130,246,0.45)" />
-          <animateMotion dur="11s" repeatCount="indefinite" begin={`${start}s`} rotate="auto">
-            <mpath href="#knex-flow-bottom" />
-          </animateMotion>
-        </g>
-      ))}
-
-      {[
-        { img: "https://i.pravatar.cc/120?img=12", begin: "0s", path: "#knex-flow-top" },
-        { img: "https://i.pravatar.cc/120?img=32", begin: "4s", path: "#knex-flow-top" },
-        { img: "https://i.pravatar.cc/120?img=8", begin: "8s", path: "#knex-flow-top" },
-      ].map((item) => (
-        <g key={item.img} filter="url(#knex-avatar-shadow)">
-          <image
-            href={item.img}
-            width="40"
-            height="40"
-            clipPath="url(#knex-avatar-clip)"
-            preserveAspectRatio="xMidYMid slice"
-          />
-          <circle cx="20" cy="20" r="20" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1" />
-          <animateMotion dur="14s" repeatCount="indefinite" begin={item.begin} rotate="0">
-            <mpath href={item.path} />
-          </animateMotion>
-        </g>
-      ))}
-      {[
-        { img: "https://i.pravatar.cc/120?img=45", begin: "1s", path: "#knex-flow-bottom" },
-        { img: "https://i.pravatar.cc/120?img=5", begin: "5s", path: "#knex-flow-bottom" },
-        { img: "https://i.pravatar.cc/120?img=18", begin: "9s", path: "#knex-flow-bottom" },
-      ].map((item) => (
-        <g key={item.img} filter="url(#knex-avatar-shadow)">
-          <image
-            href={item.img}
-            width="40"
-            height="40"
-            clipPath="url(#knex-avatar-clip)"
-            preserveAspectRatio="xMidYMid slice"
-          />
-          <circle cx="20" cy="20" r="20" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1" />
-          <animateMotion dur="15s" repeatCount="indefinite" begin={item.begin} rotate="0">
-            <mpath href={item.path} />
-          </animateMotion>
-        </g>
-      ))}
-    </svg>
-  );
-}
-
 function KnexChatGlowBackdrop() {
   return (
     <>
@@ -268,64 +178,6 @@ function KnexChatGlowBackdrop() {
       <div className="pointer-events-none absolute -bottom-[180px] -right-[180px] z-0 h-[820px] w-[820px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.24)_0%,transparent_70%)] blur-[90px] opacity-60" />
       <div className="pointer-events-none absolute -top-[120px] -right-[200px] z-0 h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
       <div className="pointer-events-none absolute -bottom-[160px] -left-[200px] z-0 h-[640px] w-[640px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
-      <KnexChatFlowOverlay />
-      <div className="pointer-events-none absolute left-6 top-10 z-0 hidden lg:block">
-        <div className="relative h-[600px] w-[320px] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
-          <div className="absolute inset-0 rounded-[54px] bg-slate-900 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.9)]" />
-          <div className="absolute inset-[6px] overflow-hidden rounded-[46px] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <KnexChatScreen variant="phone" />
-          </div>
-          <div className="absolute top-5 left-1/2 h-2 w-20 -translate-x-1/2 rounded-full bg-slate-800/70" />
-        </div>
-      </div>
-
-      <div className="pointer-events-none absolute right-6 top-14 z-0 hidden lg:block">
-        <div className="relative h-[456px] w-[520px] drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
-          <div className="flex h-full w-full flex-col">
-            <div className="relative flex-1 rounded-t-[20px] border border-slate-200/80 bg-slate-900 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
-              <div className="absolute inset-2 overflow-hidden rounded-[16px] bg-white">
-                <KnexChatScreen variant="laptop" />
-              </div>
-            </div>
-            <div className="relative h-40 w-full rounded-[0_0_28px_28px] bg-slate-200 shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
-              <div className="absolute inset-x-6 top-3 text-[9px] text-slate-500/80">
-                <div className="grid grid-cols-12 gap-1">
-                  {"QWERTYUIOP[]".split("").map((key) => (
-                    <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
-                      {key}
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-1 grid grid-cols-11 gap-1 px-1">
-                  {"ASDFGHJKL;".split("").map((key) => (
-                    <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
-                      {key}
-                    </div>
-                  ))}
-                  <div className="rounded-sm bg-white/70 px-1 py-0.5 text-center">Enter</div>
-                </div>
-                <div className="mt-1 grid grid-cols-12 gap-1">
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
-                  {"ZXCVBNM,.".split("").map((key) => (
-                    <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
-                      {key}
-                    </div>
-                  ))}
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
-                </div>
-                <div className="mt-1 grid grid-cols-12 gap-1">
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
-                  <div className="col-span-4 rounded-sm bg-white/70 px-1 py-0.5 text-center">space</div>
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
-                </div>
-              </div>
-              <div className="absolute bottom-2 left-1/2 h-5 w-32 -translate-x-1/2 rounded-md bg-slate-300" />
-            </div>
-          </div>
-        </div>
-      </div>
     </>
   );
 }
@@ -336,10 +188,11 @@ type Identity = {
   emailVerified: boolean;
   createdAt: string;
   deviceId: string;
+  name?: string;
 };
 
 type TabKey = "conversations" | "groups" | "contacts";
-type FilterKey = "all" | "unread" | "groups";
+type FilterKey = "all" | "unread" | "groups" | "contacts";
 
 type Thread = {
   id: string;
@@ -348,6 +201,7 @@ type Thread = {
   lastActivity: string;
   unread?: number;
   tab: TabKey;
+  avatarUrl?: string;
 };
 
 type Message = {
@@ -359,8 +213,9 @@ type Message = {
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "Tudo" },
-  { key: "unread", label: "Nao lidas" },
+  { key: "unread", label: "Não lidas" },
   { key: "groups", label: "Grupos" },
+  { key: "contacts", label: "Contatos" },
 ];
 
 const INITIAL_CONVERSATIONS: Thread[] = [
@@ -371,13 +226,15 @@ const INITIAL_CONVERSATIONS: Thread[] = [
     lastActivity: "Agora",
     unread: 2,
     tab: "conversations",
+    avatarUrl: "https://i.pravatar.cc/100?img=32",
   },
   {
     id: "conv-orientacao",
-    title: "Orientacao de TCC",
-    preview: "Revisao enviada para voce.",
+    title: "Orientação de TCC",
+    preview: "Revisão enviada para você.",
     lastActivity: "09:40",
     tab: "conversations",
+    avatarUrl: "https://i.pravatar.cc/100?img=47",
   },
   {
     id: "conv-projeto",
@@ -385,6 +242,7 @@ const INITIAL_CONVERSATIONS: Thread[] = [
     preview: "Vamos alinhar os canais.",
     lastActivity: "Ontem",
     tab: "conversations",
+    avatarUrl: "https://i.pravatar.cc/100?img=12",
   },
 ];
 
@@ -396,6 +254,7 @@ const INITIAL_GROUPS: Thread[] = [
     lastActivity: "08:10",
     unread: 1,
     tab: "groups",
+    avatarUrl: "https://i.pravatar.cc/100?img=15",
   },
   {
     id: "grp-turma-2025",
@@ -403,6 +262,7 @@ const INITIAL_GROUPS: Thread[] = [
     preview: "Bem-vindos!",
     lastActivity: "Ontem",
     tab: "groups",
+    avatarUrl: "https://i.pravatar.cc/100?img=8",
   },
 ];
 
@@ -413,13 +273,15 @@ const INITIAL_CONTACTS: Thread[] = [
     preview: "Online agora",
     lastActivity: "Ativo",
     tab: "contacts",
+    avatarUrl: "https://i.pravatar.cc/100?img=5",
   },
   {
     id: "ctt-vitor",
     title: "Mentor Vitor",
-    preview: "Disponivel ate 18h",
+    preview: "Disponível até 18h",
     lastActivity: "Ativo",
     tab: "contacts",
+    avatarUrl: "https://i.pravatar.cc/100?img=23",
   },
 ];
 
@@ -433,43 +295,43 @@ const SETTINGS_MENU = [
   {
     key: "account",
     label: "Conta",
-    description: "Notificacoes de seguranca, dados da conta",
+    description: "Notificações de segurança, dados da conta",
     icon: User,
   },
   {
     key: "privacy",
     label: "Privacidade",
-    description: "Contatos bloqueados, mensagens temporarias",
+    description: "Contatos bloqueados, mensagens temporárias",
     icon: Shield,
   },
   {
     key: "chats",
     label: "Conversas",
-    description: "Tema, papel de parede, configuracoes de conversas",
+    description: "Tema, papel de parede, configurações de conversas",
     icon: MessageSquare,
   },
   {
     key: "media",
-    label: "Video e voz",
-    description: "Camera, microfone e alto-falantes",
+    label: "Vídeo e voz",
+    description: "Câmera, microfone e alto-falantes",
     icon: Video,
   },
   {
     key: "notifications",
-    label: "Notificacoes",
-    description: "Notificacoes de mensagens",
+    label: "Notificações",
+    description: "Notificações de mensagens",
     icon: Bell,
   },
   {
     key: "shortcuts",
     label: "Atalhos do teclado",
-    description: "Acoes rapidas",
+    description: "Ações rápidas",
     icon: Keyboard,
   },
   {
     key: "help",
     label: "Ajuda e feedback",
-    description: "Central de Ajuda, fale conosco, Politica de Privacidade",
+    description: "Central de Ajuda, fale conosco, Política de Privacidade",
     icon: HelpCircle,
   },
 ] as const;
@@ -481,7 +343,7 @@ const MESSAGE_SEED: Record<string, Message[]> = {
     { id: "m3", author: "them", body: "Perfeito. Vou avisar o time.", time: "09:15" },
   ],
   "conv-orientacao": [
-    { id: "m1", author: "them", body: "Revisou o capitulo 2?", time: "09:03" },
+    { id: "m1", author: "them", body: "Revisou o capítulo 2?", time: "09:03" },
     { id: "m2", author: "me", body: "Sim, ajustei a metodologia.", time: "09:06" },
     { id: "m3", author: "them", body: "Vamos marcar uma call.", time: "09:08" },
   ],
@@ -490,12 +352,12 @@ const MESSAGE_SEED: Record<string, Message[]> = {
     { id: "m2", author: "me", body: "Em andamento, falta revisar o fluxo.", time: "Ontem" },
   ],
   "grp-lab-ia": [
-    { id: "m1", author: "them", body: "Reuniao hoje as 14h.", time: "08:05" },
-    { id: "m2", author: "me", body: "Confirmado. Levo o prototipo.", time: "08:07" },
+    { id: "m1", author: "them", body: "Reunião hoje às 14h.", time: "08:05" },
+    { id: "m2", author: "me", body: "Confirmado. Levo o protótipo.", time: "08:07" },
   ],
   "grp-turma-2025": [
     { id: "m1", author: "them", body: "Boas-vindas! Agenda liberada.", time: "Ontem" },
-    { id: "m2", author: "me", body: "Obrigado! Ja conferi o cronograma.", time: "Ontem" },
+    { id: "m2", author: "me", body: "Obrigado! Já conferi o cronograma.", time: "Ontem" },
   ],
   "ctt-luiza": [
     { id: "m1", author: "them", body: "Pode revisar o material do evento?", time: "08:50" },
@@ -503,7 +365,7 @@ const MESSAGE_SEED: Record<string, Message[]> = {
   ],
   "ctt-vitor": [
     { id: "m1", author: "them", body: "Quer discutir a proposta de pesquisa?", time: "Ontem" },
-    { id: "m2", author: "me", body: "Claro, estou livre amanha.", time: "Ontem" },
+    { id: "m2", author: "me", body: "Claro, estou livre amanhã.", time: "Ontem" },
   ],
 };
 
@@ -521,6 +383,10 @@ const THEME_STYLE: CSSProperties = {
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function normalizeName(name: string) {
+  return name.trim().replace(/\s+/g, " ");
 }
 
 function isValidEmail(email: string) {
@@ -544,7 +410,8 @@ function isIdentity(value: unknown): value is Identity {
     typeof record.email === "string" &&
     typeof record.emailVerified === "boolean" &&
     typeof record.createdAt === "string" &&
-    typeof record.deviceId === "string"
+    typeof record.deviceId === "string" &&
+    (record.name === undefined || typeof record.name === "string")
   );
 }
 
@@ -582,6 +449,7 @@ export default function KnexChatPage() {
 
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [registeringName, setRegisteringName] = useState("");
   const [registeringEmail, setRegisteringEmail] = useState("");
   const [activationStep, setActivationStep] = useState<"email" | "otp">("email");
   const [otpGenerated, setOtpGenerated] = useState<string | null>(null);
@@ -602,24 +470,43 @@ export default function KnexChatPage() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeSettingKey, setActiveSettingKey] = useState<(typeof SETTINGS_MENU)[number]["key"] | null>(null);
+  const [settingsState, setSettingsState] = useState({
+    openOnStart: true,
+    minimizeToTray: true,
+    language: "automatico",
+    fontSize: "100%",
+    spellCheck: true,
+    emojiReplace: true,
+    enterToSend: true,
+    theme: "light" as "light" | "dark" | "system",
+  });
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [pendingTheme, setPendingTheme] = useState<"light" | "dark" | "system">("light");
+  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
 
   const currentUser = useMemo(() => {
     if (!identity) return null;
+    const displayName = identity.name?.trim() ? identity.name : "Participante";
+    const avatarSource = identity.name?.trim()
+      ? identity.name
+      : identity.email.split("@")[0] ?? identity.email;
     return {
       id: "u1",
-      name: "Participante",
+      name: displayName,
       role: "student",
       email: identity.email,
-      avatarText: getAvatarText(identity.email.split("@")[0] ?? identity.email),
+      avatarText: getAvatarText(avatarSource),
     };
   }, [identity]);
 
   const combinedThreads = useMemo(() => [...conversations, ...groups], [conversations, groups]);
   const activeThreads = useMemo(() => {
     if (activeFilter === "groups") return groups;
+    if (activeFilter === "contacts") return contacts;
     if (activeFilter === "unread") return combinedThreads.filter((thread) => thread.unread);
     return combinedThreads;
-  }, [activeFilter, combinedThreads, groups]);
+  }, [activeFilter, combinedThreads, groups, contacts]);
   const activeThread = useMemo(() => {
     const allThreads = [...conversations, ...groups, ...contacts];
     return allThreads.find((thread) => thread.id === activeThreadId) ?? activeThreads[0] ?? null;
@@ -687,6 +574,19 @@ export default function KnexChatPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    setSystemPrefersDark(media.matches);
+    const handleChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches);
+    if (media.addEventListener) {
+      media.addEventListener("change", handleChange);
+      return () => media.removeEventListener("change", handleChange);
+    }
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, []);
+
+  useEffect(() => {
     if (!joinToken) {
       setPendingJoinToken(null);
       return;
@@ -738,9 +638,14 @@ export default function KnexChatPage() {
   }, [activationHref, chatHref, identity, isChatRoute, isReady, router]);
 
   const handleSendCode = async () => {
+    const normalizedName = normalizeName(registeringName);
+    if (!normalizedName) {
+      setActivationError("Informe seu nome.");
+      return;
+    }
     const normalized = normalizeEmail(registeringEmail);
     if (!normalized || !isValidEmail(normalized)) {
-      setActivationError("Informe um e-mail valido.");
+      setActivationError("Informe um e-mail válido.");
       return;
     }
     const generated = Math.floor(100000 + Math.random() * 900000).toString();
@@ -763,16 +668,16 @@ export default function KnexChatPage() {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const message = typeof payload?.message === "string" ? payload.message : "Falha ao enviar codigo.";
+        const message = typeof payload?.message === "string" ? payload.message : "Falha ao enviar código.";
         throw new Error(message);
       }
       setOtpGenerated(generated);
       setOtpInput("");
       setActivationError(null);
-      setActivationNotice("Codigo enviado para seu e-mail.");
+      setActivationNotice("Código enviado para seu e-mail.");
       setActivationStep("otp");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Falha ao enviar codigo.";
+      const message = err instanceof Error ? err.message : "Falha ao enviar código.";
       setActivationError(message);
       setActivationNotice(null);
     } finally {
@@ -782,9 +687,10 @@ export default function KnexChatPage() {
 
   const handleConfirmOtp = () => {
     if (!otpGenerated || otpInput.trim() !== otpGenerated) {
-      setActivationError("Codigo invalido");
+      setActivationError("Código inválido");
       return;
     }
+    const normalizedName = normalizeName(registeringName);
     const normalized = normalizeEmail(registeringEmail);
     const nextIdentity: Identity = {
       userId: "u1",
@@ -792,6 +698,7 @@ export default function KnexChatPage() {
       emailVerified: true,
       deviceId: `dev_${Math.random().toString(16).slice(2)}`,
       createdAt: new Date().toISOString(),
+      name: normalizedName || undefined,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextIdentity));
@@ -814,6 +721,7 @@ export default function KnexChatPage() {
       // Ignore storage errors.
     }
     setIdentity(null);
+    setRegisteringName("");
     setRegisteringEmail("");
     setOtpGenerated(null);
     setOtpInput("");
@@ -893,9 +801,29 @@ export default function KnexChatPage() {
   const navButtonClass = (active: boolean) =>
     `grid h-11 w-11 place-items-center rounded-2xl transition ${
       active
-        ? "bg-slate-100 text-slate-900 shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
-        : "text-slate-900 hover:bg-slate-100"
+        ? isDarkTheme
+          ? "bg-white/10 text-slate-100 shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
+          : "bg-slate-100 text-slate-900 shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
+        : isDarkTheme
+          ? "text-slate-300 hover:bg-white/10"
+          : "text-slate-900 hover:bg-slate-100"
     }`;
+
+  const toggleSetting = (key: "openOnStart" | "minimizeToTray" | "spellCheck" | "emojiReplace" | "enterToSend") => {
+    setSettingsState((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const themeLabel =
+    settingsState.theme === "dark" ? "Modo escuro" : settingsState.theme === "system" ? "Automático" : "Modo claro";
+  const isDarkTheme = settingsState.theme === "dark" || (settingsState.theme === "system" && systemPrefersDark);
+  const settingsPanelBase = isDarkTheme ? "bg-[#141414] text-slate-100" : "bg-white text-slate-900";
+  const settingsBorder = isDarkTheme ? "border-[#2a2a2a]" : "border-slate-200";
+  const settingsMuted = isDarkTheme ? "text-slate-400" : "text-slate-500";
+  const settingsField =
+    isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100" : "border-slate-200 bg-white text-slate-900";
+  const settingsHover = isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100";
+  const navRailBase = isDarkTheme ? "bg-[#0f0f0f]" : "bg-white";
+  const navRailDivider = isDarkTheme ? "bg-[#2a2a2a]" : "bg-slate-200";
 
   const activationBackdrop = !isChatRoute ? (
     <>
@@ -908,7 +836,7 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${manrope.className} relative min-h-screen bg-white overflow-hidden text-slate-900`}
+        className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
       >
         {activationBackdrop}
         <div className="relative z-10 flex min-h-screen items-center justify-center">
@@ -923,21 +851,23 @@ export default function KnexChatPage() {
       return (
         <main
           style={THEME_STYLE}
-          className={`${manrope.className} relative min-h-screen bg-white overflow-hidden text-slate-900`}
+          className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
         >
           <div className="relative z-10 flex min-h-screen items-center justify-center">
-            <div className="text-sm text-slate-400">Redirecionando para ativacao...</div>
+            <div className="text-sm text-slate-400">Redirecionando para ativa??o...</div>
           </div>
         </main>
       );
     }
     return (
-      <main className={`${manrope.className} relative min-h-screen bg-white overflow-hidden text-slate-900`}>
+      <main className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}>
         {activationBackdrop}
         <div className="relative z-10">
           <ActivationScreen
             headingClassName={spaceGrotesk.className}
+            registeringName={registeringName}
             registeringEmail={registeringEmail}
+            onNameChange={setRegisteringName}
             onEmailChange={setRegisteringEmail}
             activationStep={activationStep}
             otpInput={otpInput}
@@ -965,7 +895,7 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${manrope.className} relative min-h-screen bg-white overflow-hidden text-slate-900`}
+        className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
       >
         {activationBackdrop}
         <div className="relative z-10 flex min-h-screen items-center justify-center">
@@ -978,10 +908,14 @@ export default function KnexChatPage() {
   return (
     <main
       style={THEME_STYLE}
-      className={`${manrope.className} relative h-screen overflow-hidden bg-white text-slate-100`}
+      className={`${manrope.className} relative h-screen overflow-hidden ${
+        isDarkTheme ? "bg-[#141414]" : "bg-white"
+      } text-slate-100`}
     >
       <div className="relative z-10 flex h-full flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--knex-700)] bg-[var(--knex-850)]/80 px-4 py-3 backdrop-blur">
+        <header
+          className={`flex flex-wrap items-center justify-between gap-3 border-b ${settingsBorder} bg-[var(--knex-850)]/80 px-4 py-3 backdrop-blur`}
+        >
         <div className="flex items-center gap-3">
           <div className="relative h-10 w-10">
             <img
@@ -996,7 +930,9 @@ export default function KnexChatPage() {
                 KnexChat
               </span>
             </p>
-            <p className="text-xs text-slate-900">Mensageria com Knex ID por e-mail</p>
+            <p className={`text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
+              Mensageria com Knex ID por e-mail
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -1009,7 +945,7 @@ export default function KnexChatPage() {
               onClick={handleInstallApp}
               className="rounded-full border border-blue-300/70 bg-blue-200/90 px-3 py-1 text-xs font-semibold text-slate-900 transition hover:border-blue-300/90 hover:bg-blue-300/90 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!installPrompt}
-              title={installPrompt ? "Instalar Knexchat" : "Instalacao indisponivel no momento"}
+              title={installPrompt ? "Instalar Knexchat" : "Instalação indisponível no momento"}
             >
               Instalar
             </button>
@@ -1025,7 +961,9 @@ export default function KnexChatPage() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <nav className="hidden w-16 flex-col items-center gap-4 border-r border-[var(--knex-700)] bg-[var(--knex-900)]/90 py-5 lg:flex">
+        <nav
+          className={`hidden w-16 flex-col items-center gap-4 border-r ${settingsBorder} ${navRailBase} py-5 lg:flex`}
+        >
           <div className="relative">
             <button type="button" className={navButtonClass(!isSettingsOpen)} onClick={() => setIsSettingsOpen(false)}>
               <MessageCircle className="h-5 w-5" />
@@ -1044,7 +982,7 @@ export default function KnexChatPage() {
             <Users className="h-5 w-5" />
           </button>
           <div className="mt-auto flex flex-col items-center gap-3">
-            <div className="h-px w-8 bg-[var(--knex-700)]" />
+            <div className={`h-px w-8 ${navRailDivider}`} />
             <button type="button" className={navButtonClass(isSettingsOpen)} onClick={() => setIsSettingsOpen(true)}>
               <Settings className="h-5 w-5" />
             </button>
@@ -1052,67 +990,400 @@ export default function KnexChatPage() {
         </nav>
         {isSettingsOpen ? (
           <>
-            <aside className="flex w-full flex-col border-b border-slate-200 bg-white text-slate-900 lg:w-[360px] lg:border-b-0 lg:border-r">
-              <div className="border-b border-slate-200 px-6 py-4">
-                <h2 className="text-xl font-semibold">Configuracoes</h2>
-                <div className="mt-2 flex items-center gap-2 rounded-full border border-emerald-400/70 bg-white px-3 py-2 text-sm text-slate-500 shadow-sm">
-                  <Search className="h-4 w-4 text-emerald-500" />
-                  <span>Pesquisar configuracoes</span>
-                </div>
-              </div>
-              <div className="border-b border-slate-200 px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-12 w-12 place-items-center rounded-full bg-slate-900 text-sm font-semibold text-white">
-                    {getAvatarText(currentUser?.name ?? "KN")}
+            <aside
+              className={`flex w-full flex-col border-b ${settingsBorder} ${settingsPanelBase} lg:w-[340px] lg:border-b-0 lg:border-r`}
+            >
+              {activeSettingKey === "general" ? (
+                <div className="flex h-full flex-col">
+                  <div className={`flex items-center gap-3 border-b px-5 py-3 ${settingsBorder}`}>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSettingKey(null)}
+                      className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="text-base font-semibold">Geral</span>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{currentUser?.name ?? "Participante"}</p>
-                    <p className="text-xs text-slate-600">{currentUser?.email}</p>
-                    <p className="text-[11px] text-slate-500">"Onde ha igualdade, a amizade nao perde."</p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto px-4 py-3">
-                <div className="space-y-1">
-                  {SETTINGS_MENU.map((item) => {
-                    const Icon = item.icon;
-                    return (
+                  <div className="flex-1 space-y-6 px-5 py-4">
+                    <div className="space-y-3">
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Iniciar e fechar</p>
+                      <div className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b pb-3 ${settingsBorder}`}>
+                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          Iniciar o KnexChat ao entrar
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => toggleSetting("openOnStart")}
+                          className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
+                            settingsState.openOnStart
+                              ? "border-emerald-500 bg-emerald-500"
+                              : isDarkTheme
+                                ? "border-[#3a3a3a] bg-[#1f1f1f]"
+                                : "border-slate-300 bg-white"
+                          }`}
+                          aria-pressed={settingsState.openOnStart}
+                        >
+                          <span
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
+                              settingsState.openOnStart ? "translate-x-[20px]" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-4 pb-2">
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Minimizar para bandeja do sistema
+                          </p>
+                          <p className={`text-xs ${settingsMuted}`}>
+                            Mantenha o KnexChat em execução depois de fechar a janela do app.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleSetting("minimizeToTray")}
+                          className={`relative mt-0.5 h-6 w-11 justify-self-end rounded-full border transition ${
+                            settingsState.minimizeToTray
+                              ? "border-emerald-500 bg-emerald-500"
+                              : isDarkTheme
+                                ? "border-[#3a3a3a] bg-[#1f1f1f]"
+                                : "border-slate-300 bg-white"
+                          }`}
+                          aria-pressed={settingsState.minimizeToTray}
+                        >
+                          <span
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
+                              settingsState.minimizeToTray ? "translate-x-[20px]" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Idioma</p>
                       <button
-                        key={item.key}
                         type="button"
-                        className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-slate-100"
+                        className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-sm shadow-sm ${settingsField}`}
                       >
-                        <div className="grid h-9 w-9 place-items-center rounded-2xl bg-slate-100 text-slate-600">
-                          <Icon className="h-4 w-4" />
+                        <span>Automático (sistema: Português (Brasil))</span>
+                        <ChevronDown className={`h-4 w-4 ${settingsMuted}`} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Tamanho da fonte</p>
+                      <button
+                        type="button"
+                        className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-sm shadow-sm ${settingsField}`}
+                      >
+                        <span>{settingsState.fontSize} (padrão)</span>
+                        <ChevronDown className={`h-4 w-4 ${settingsMuted}`} />
+                      </button>
+                      <p className={`text-xs ${settingsMuted}`}>
+                        Pressione Ctrl +/- para aumentar ou diminuir o tamanho do texto.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : activeSettingKey === "chats" ? (
+                <div className="flex h-full flex-col">
+                  <div className={`flex items-center gap-3 border-b px-5 py-3 ${settingsBorder}`}>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSettingKey(null)}
+                      className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="text-base font-semibold">Conversas</span>
+                  </div>
+                  <div className="flex-1 space-y-6 px-5 py-4">
+                    <div className="space-y-2">
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Exibição</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingTheme(settingsState.theme);
+                          setIsThemeModalOpen(true);
+                        }}
+                        className={`flex w-full items-center justify-between border-b py-2 text-left ${settingsBorder}`}
+                      >
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Tema</p>
+                          <p className={`text-xs ${settingsMuted}`}>{themeLabel}</p>
+                        </div>
+                        <ChevronRight className={`h-4 w-4 ${settingsMuted}`} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex w-full items-center justify-between border-b py-2 text-left ${settingsBorder}`}
+                      >
+                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          Papel de parede
+                        </p>
+                        <ChevronRight className={`h-4 w-4 ${settingsMuted}`} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Configurações de conversas</p>
+                      <button
+                        type="button"
+                        className={`flex w-full items-center justify-between border-b py-2 text-left ${settingsBorder}`}
+                      >
+                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          Qualidade da mídia
+                        </p>
+                        <ChevronRight className={`h-4 w-4 ${settingsMuted}`} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex w-full items-center justify-between border-b py-2 text-left ${settingsBorder}`}
+                      >
+                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          Baixar mídia automaticamente
+                        </p>
+                        <ChevronRight className={`h-4 w-4 ${settingsMuted}`} />
+                      </button>
+                      <div className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b py-2 ${settingsBorder}`}>
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Verificação ortográfica
+                          </p>
+                          <p className={`text-xs ${settingsMuted}`}>Verificar ortografia ao digitar.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleSetting("spellCheck")}
+                          className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
+                            settingsState.spellCheck
+                              ? "border-emerald-500 bg-emerald-500"
+                              : isDarkTheme
+                                ? "border-[#3a3a3a] bg-[#1f1f1f]"
+                                : "border-slate-300 bg-white"
+                          }`}
+                          aria-pressed={settingsState.spellCheck}
+                        >
+                          <span
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
+                              settingsState.spellCheck ? "translate-x-[20px]" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <div className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b py-2 ${settingsBorder}`}>
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Substituição de texto por emoji
+                          </p>
+                          <p className={`text-xs ${settingsMuted}`}>Substitui textos específicos por emojis ao digitar.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleSetting("emojiReplace")}
+                          className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
+                            settingsState.emojiReplace
+                              ? "border-emerald-500 bg-emerald-500"
+                              : isDarkTheme
+                                ? "border-[#3a3a3a] bg-[#1f1f1f]"
+                                : "border-slate-300 bg-white"
+                          }`}
+                          aria-pressed={settingsState.emojiReplace}
+                        >
+                          <span
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
+                              settingsState.emojiReplace ? "translate-x-[20px]" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-4 py-2">
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Enviar com Enter
+                          </p>
+                          <p className={`text-xs ${settingsMuted}`}>A tecla Enter envia a mensagem.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleSetting("enterToSend")}
+                          className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
+                            settingsState.enterToSend
+                              ? "border-emerald-500 bg-emerald-500"
+                              : isDarkTheme
+                                ? "border-[#3a3a3a] bg-[#1f1f1f]"
+                                : "border-slate-300 bg-white"
+                          }`}
+                          aria-pressed={settingsState.enterToSend}
+                        >
+                          <span
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
+                              settingsState.enterToSend ? "translate-x-[20px]" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className={`border-b px-5 py-3 ${settingsBorder}`}>
+                    <h2 className="text-xl font-semibold">Configurações</h2>
+                    <div
+                      className={`mt-2 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm ${
+                        isDarkTheme
+                          ? "border-emerald-500/60 bg-[#1b1b1b] text-slate-300"
+                          : "border-emerald-400/70 bg-white text-slate-500"
+                      }`}
+                    >
+                      <Search className="h-4 w-4 text-emerald-500" />
+                      <span>Pesquisar configurações</span>
+                    </div>
+                  </div>
+                  <div className={`border-b px-5 py-3 ${settingsBorder}`}>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`grid h-10 w-10 place-items-center rounded-full text-sm font-semibold ${
+                          isDarkTheme ? "bg-[#0d0d0d] text-slate-100" : "bg-slate-900 text-white"
+                        }`}
+                      >
+                        {getAvatarText(currentUser?.name ?? "KN")}
+                      </div>
+                      <div>
+                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          {currentUser?.name ?? "Participante"}
+                        </p>
+                        <p className={`text-xs ${isDarkTheme ? "text-slate-400" : "text-slate-600"}`}>
+                          {currentUser?.email}
+                        </p>
+                        <p className={`text-[10px] ${settingsMuted}`}>"Onde há igualdade, a amizade não perde."</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex-1 px-4 py-2">
+                    <div className="space-y-0.5">
+                      {SETTINGS_MENU.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = activeSettingKey === item.key;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setActiveSettingKey(item.key)}
+                            className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition ${
+                              isActive ? (isDarkTheme ? "bg-white/10" : "bg-slate-100") : settingsHover
+                            }`}
+                          >
+                            <div
+                              className={`grid h-8 w-8 place-items-center rounded-2xl ${
+                                isDarkTheme ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                                {item.label}
+                              </p>
+                              <p className={`text-[11px] ${settingsMuted}`}>{item.description}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className={`mt-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-rose-500 transition ${
+                          isDarkTheme ? "hover:bg-rose-500/10" : "hover:bg-rose-50"
+                        }`}
+                      >
+                        <div
+                          className={`grid h-8 w-8 place-items-center rounded-2xl ${
+                            isDarkTheme ? "bg-rose-500/10 text-rose-300" : "bg-rose-100 text-rose-500"
+                          }`}
+                        >
+                          <LogOut className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">{item.label}</p>
-                          <p className="text-xs text-slate-500">{item.description}</p>
+                          <p className="text-sm font-semibold">Desconectar</p>
                         </div>
                       </button>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="mt-2 flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-rose-600 transition hover:bg-rose-50"
-                  >
-                    <div className="grid h-9 w-9 place-items-center rounded-2xl bg-rose-100 text-rose-500">
-                      <LogOut className="h-4 w-4" />
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold">Desconectar</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
+                  </div>
+                </>
+              )}
             </aside>
-            <section className="flex min-h-0 flex-1 items-center justify-center bg-slate-50">
+            <section className={`flex min-h-0 flex-1 items-center justify-center ${isDarkTheme ? "bg-[#141414]" : "bg-slate-50"}`}>
               <div className="text-center">
-                <Settings className="mx-auto h-16 w-16 text-slate-300" />
-                <p className="mt-4 text-2xl font-semibold text-slate-700">Configuracoes</p>
+                <Settings className={`mx-auto h-16 w-16 ${isDarkTheme ? "text-slate-500" : "text-slate-300"}`} />
+                <p className={`mt-4 text-2xl font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-700"}`}>
+                  Configurações
+                </p>
               </div>
             </section>
+            {isThemeModalOpen ? (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
+                  <h3 className="text-lg font-semibold text-slate-900">Tema</h3>
+                  <div className="mt-4 space-y-3">
+                    {[
+                      { key: "light", label: "Claro" },
+                      { key: "dark", label: "Escuro" },
+                      { key: "system", label: "Automático (sistema)" },
+                    ].map((option) => {
+                      const isSelected = pendingTheme === option.key;
+                      return (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => setPendingTheme(option.key as "light" | "dark" | "system")}
+                          className="flex w-full items-center gap-3 text-left text-sm text-slate-900"
+                        >
+                          <span
+                            className={`relative h-5 w-5 rounded-full border-2 ${
+                              isSelected ? "border-emerald-500" : "border-slate-300"
+                            }`}
+                          >
+                            {isSelected ? (
+                              <span className="absolute inset-0 m-1 rounded-full bg-emerald-500" />
+                            ) : null}
+                          </span>
+                          <span>{option.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-6 flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsThemeModalOpen(false)}
+                      className="rounded-full px-4 py-2 text-sm font-semibold text-emerald-600 transition hover:bg-emerald-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSettingsState((prev) => ({ ...prev, theme: pendingTheme }));
+                        setIsThemeModalOpen(false);
+                      }}
+                      className="rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                    >
+                      OK
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </>
         ) : (
           <>
@@ -1127,7 +1398,7 @@ export default function KnexChatPage() {
                 <p className="text-xs text-slate-900">{currentUser?.email}</p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
               {FILTERS.map((filter) => {
                 const isActive = filter.key === activeFilter;
                 return (
@@ -1135,10 +1406,14 @@ export default function KnexChatPage() {
                     key={filter.key}
                     type="button"
                     onClick={() => setActiveFilter(filter.key)}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                      isActive
-                        ? "bg-emerald-500/30 text-emerald-100"
-                        : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                      isDarkTheme
+                        ? isActive
+                          ? "bg-emerald-500/30 text-emerald-100"
+                          : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                        : isActive
+                          ? "border border-blue-200 bg-blue-100 text-blue-800"
+                          : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
                     }`}
                   >
                     {filter.label}
@@ -1157,19 +1432,52 @@ export default function KnexChatPage() {
                     type="button"
                     onClick={() => setActiveThreadId(thread.id)}
                     className={`flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
+                      isDarkTheme ? "" : "font-['Arial']"
+                    } ${
                       isActive
-                        ? "border-emerald-500/40 bg-emerald-500/10"
-                        : "border-transparent bg-slate-900/40 hover:border-slate-700/70"
+                        ? isDarkTheme
+                          ? "border-emerald-500/40 bg-emerald-500/10"
+                          : "border-blue-200 bg-blue-50"
+                        : isDarkTheme
+                          ? "border-transparent bg-slate-900/40 hover:border-slate-700/70"
+                          : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50"
                     }`}
                   >
-                    <div>
-                      <p className="text-sm font-semibold">{thread.title}</p>
-                      <p className="text-xs text-slate-300">{thread.preview}</p>
+                    <div className="flex items-center gap-3">
+                      {thread.avatarUrl ? (
+                        <img
+                          src={thread.avatarUrl}
+                          alt={`Avatar de ${thread.title}`}
+                          className="h-12 w-12 rounded-2xl object-cover"
+                        />
+                      ) : (
+                        <div
+                          className={`grid h-12 w-12 place-items-center rounded-2xl text-xs font-semibold ${
+                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {getAvatarText(thread.title)}
+                        </div>
+                      )}
+                      <div>
+                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          {thread.title}
+                        </p>
+                        <p className={`text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
+                          {thread.preview}
+                        </p>
+                      </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <span className="text-[11px] text-slate-300">{thread.lastActivity}</span>
+                      <span className={`text-[11px] ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
+                        {thread.lastActivity}
+                      </span>
                       {thread.unread ? (
-                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            isDarkTheme ? "bg-emerald-500/20 text-emerald-200" : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
                           {thread.unread}
                         </span>
                       ) : null}
@@ -1227,22 +1535,38 @@ export default function KnexChatPage() {
                 const bubbleBase = isMe
                   ? "border-emerald-500/30 bg-emerald-500/10"
                   : "border-slate-800/80 bg-slate-900/70";
+                const bubble = (
+                  <div className={`max-w-[72%] rounded-2xl border px-4 py-3 ${bubbleBase}`}>
+                    <p className="text-sm text-slate-100">{message.body}</p>
+                    <p className="mt-1 text-[11px] text-slate-300">{message.time}</p>
+                  </div>
+                );
+                const incomingAvatar = activeThread?.tab === "groups" && activeThread.avatarUrl ? (
+                  <img
+                    src={activeThread.avatarUrl}
+                    alt={`Avatar de ${activeThread.title}`}
+                    className="h-9 w-9 rounded-xl object-cover"
+                  />
+                ) : (
+                  <div className="grid h-9 w-9 place-items-center rounded-xl bg-slate-900 text-xs font-semibold text-slate-200">
+                    {getAvatarText(activeThread?.title ?? "KN")}
+                  </div>
+                );
                 return (
                   <div
                     key={message.id}
-                    className={`flex items-end gap-3 ${isMe ? "justify-end" : "justify-start"}`}
+                    className={`flex gap-3 ${isMe ? "items-end justify-end" : "items-start justify-start"}`}
                   >
                     {!isMe ? (
-                      <div className="grid h-9 w-9 place-items-center rounded-2xl bg-slate-900 text-xs font-semibold text-slate-200">
-                        {getAvatarText(activeThread?.title ?? "KN")}
-                      </div>
-                    ) : null}
-                    <div className={`max-w-[72%] rounded-2xl border px-4 py-3 ${bubbleBase}`}>
-                      <p className="text-sm text-slate-100">{message.body}</p>
-                      <p className="mt-1 text-[11px] text-slate-300">{message.time}</p>
-                    </div>
+                      <>
+                        {incomingAvatar}
+                        {bubble}
+                      </>
+                    ) : (
+                      bubble
+                    )}
                     {isMe ? (
-                      <div className="grid h-9 w-9 place-items-center rounded-2xl bg-emerald-500/20 text-xs font-semibold text-emerald-200">
+                      <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-500/20 text-xs font-semibold text-emerald-200">
                         {currentUser?.avatarText ?? "KN"}
                       </div>
                     ) : null}
@@ -1286,7 +1610,9 @@ export default function KnexChatPage() {
 
 type ActivationScreenProps = {
   headingClassName: string;
+  registeringName: string;
   registeringEmail: string;
+  onNameChange: (value: string) => void;
   onEmailChange: (value: string) => void;
   activationStep: "email" | "otp";
   otpInput: string;
@@ -1303,7 +1629,9 @@ type ActivationScreenProps = {
 
 function ActivationScreen({
   headingClassName,
+  registeringName,
   registeringEmail,
+  onNameChange,
   onEmailChange,
   activationStep,
   otpInput,
@@ -1317,110 +1645,157 @@ function ActivationScreen({
   onConfirmOtp,
   onEditEmail,
 }: ActivationScreenProps) {
-  return (
-    <div className="relative flex min-h-screen w-full items-center justify-center px-6 py-12">
-      <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-8 shadow-2xl shadow-black/20 backdrop-blur">
-        <div className="text-center">
-          <h1 className={`${headingClassName} text-4xl font-semibold md:text-5xl`}>
-            <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
-              KnexChat
-            </span>
-          </h1>
-        </div>
-        <div className="mt-6 space-y-2 text-left">
-          <p className={`${headingClassName} text-lg font-semibold text-slate-900`}>Ativar KnexChat</p>
-          <p className="text-sm text-slate-700">
-            Use seu e-mail para criar seu Knex ID (equivalente ao numero do WhatsApp).
-          </p>
-        </div>
+  // Trilhas/linhas removidas a pedido.
 
-        {activationStep === "email" ? (
-          <form
-            className="mt-6 space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSendCode();
-            }}
-          >
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
-              <input
-                type="email"
-                value={registeringEmail}
-                onChange={(event) => onEmailChange(event.target.value)}
-                placeholder="voce@exemplo.com"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                disabled={isSendingOtp}
-                required
-              />
-            </div>
-            {showOtpPreview ? (
-              <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
-            ) : null}
-            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-            <button
-              type="submit"
-              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSendingOtp}
+  return (
+    <div className="relative w-full min-h-[100svh] overflow-x-hidden overflow-y-auto md:overflow-hidden">
+      <div className="relative mx-auto flex min-h-[100svh] w-full max-w-[1400px] flex-col justify-center px-4 py-[clamp(16px,4vh,48px)] box-border md:px-8 lg:px-10">
+        <div className="relative z-10 grid w-full items-center gap-8 lg:gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)_minmax(0,1fr)]">
+          <div className="relative z-20 order-2 flex w-full justify-center lg:order-1 lg:justify-start" aria-hidden="true">
+            <div
+              className="pointer-events-none relative w-[clamp(240px,26vw,320px)] aspect-[9/19] overflow-hidden rounded-[clamp(18px,3.6vw,30px)] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]"
             >
-              {isSendingOtp ? "Enviando..." : "Enviar codigo"}
-            </button>
-          </form>
-        ) : (
-          <form
-            className="mt-6 space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onConfirmOtp();
-            }}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-              <span>E-mail: {registeringEmail}</span>
-              <button
-                type="button"
-                onClick={onEditEmail}
-                className="text-blue-600 transition hover:text-blue-500"
-              >
-                Editar e-mail
-              </button>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Codigo de 6 digitos</label>
-              <input
-                type="text"
-                value={otpInput}
-                onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                disabled={isSendingOtp}
+              <img
+                src="https://ead.ufac.br/video/envio/uploads/imagem%20do%20celular_page-0001.png"
+                alt="Celular KnexChat"
+                className="absolute inset-0 h-full w-full object-cover scale-[1.12]"
               />
             </div>
-            {activationNotice ? <p className="text-sm text-slate-700">{activationNotice}</p> : null}
-            {showOtpPreview && otpGenerated ? (
-              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-slate-700">
-                Codigo (debug): <span className="font-semibold text-slate-900">{otpGenerated}</span>
+          </div>
+
+          <div className="order-1 flex justify-center lg:order-2">
+            <div className="relative z-30 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-8 shadow-2xl shadow-black/20 backdrop-blur">
+              <div className="text-center">
+                <h1 className={`${headingClassName} text-4xl font-semibold md:text-5xl`}>
+                  <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+                    KnexChat
+                  </span>
+                </h1>
               </div>
-            ) : null}
-            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-            <button
-              type="submit"
-              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSendingOtp}
+              <div className="mt-6 space-y-2 text-left">
+                <p className={`${headingClassName} text-lg font-semibold text-slate-900`}>Ativar KnexChat</p>
+                <p className="text-sm text-slate-700">
+                  Use seu e-mail para criar seu Knex ID (equivalente ao número do WhatsApp).
+                </p>
+              </div>
+
+              {activationStep === "email" ? (
+                <form
+                  className="mt-6 space-y-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    onSendCode();
+                  }}
+                >
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">NOME</label>
+                    <input
+                      type="text"
+                      value={registeringName}
+                      onChange={(event) => onNameChange(event.target.value)}
+                      placeholder="Seu nome"
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                      disabled={isSendingOtp}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
+                    <input
+                      type="email"
+                      value={registeringEmail}
+                      onChange={(event) => onEmailChange(event.target.value)}
+                      placeholder="voce@exemplo.com"
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                      disabled={isSendingOtp}
+                      required
+                    />
+                  </div>
+                  {showOtpPreview ? (
+                    <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
+                  ) : null}
+                  {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
+                  <button
+                    type="submit"
+                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSendingOtp}
+                  >
+                    {isSendingOtp ? "Enviando..." : "Enviar código"}
+                  </button>
+                </form>
+              ) : (
+                <form
+                  className="mt-6 space-y-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    onConfirmOtp();
+                  }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                    <span>E-mail: {registeringEmail}</span>
+                    <button
+                      type="button"
+                      onClick={onEditEmail}
+                      className="text-blue-600 transition hover:text-blue-500"
+                    >
+                      Editar e-mail
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Código de 6 dígitos</label>
+                    <input
+                      type="text"
+                      value={otpInput}
+                      onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="000000"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                      disabled={isSendingOtp}
+                    />
+                  </div>
+                  {activationNotice ? <p className="text-sm text-slate-700">{activationNotice}</p> : null}
+                  {showOtpPreview && otpGenerated ? (
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-slate-700">
+                      Código (debug): <span className="font-semibold text-slate-900">{otpGenerated}</span>
+                    </div>
+                  ) : null}
+                  {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
+                  <button
+                    type="submit"
+                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSendingOtp}
+                  >
+                    Confirmar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onSendCode}
+                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-2 text-xs font-semibold text-slate-700 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSendingOtp}
+                  >
+                    {isSendingOtp ? "Enviando..." : "Enviar novo código"}
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+
+          <div
+            className="relative z-20 order-3 flex w-full justify-center lg:order-3 lg:justify-end"
+            aria-hidden="true"
+          >
+            <div
+              className="pointer-events-none relative w-[clamp(320px,44vw,560px)] max-w-full drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]"
             >
-              Confirmar
-            </button>
-            <button
-              type="button"
-              onClick={onSendCode}
-              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-2 text-xs font-semibold text-slate-700 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSendingOtp}
-            >
-              {isSendingOtp ? "Enviando..." : "Enviar novo codigo"}
-            </button>
-          </form>
-        )}
+              <img
+                src="https://ead.ufac.br/video/envio/uploads/iamgem%20do%20laptop.png"
+                alt="Laptop KnexChat"
+                className="h-auto w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
