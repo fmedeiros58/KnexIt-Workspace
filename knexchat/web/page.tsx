@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
@@ -13,11 +13,19 @@ import {
   LogOut,
   MessageCircle,
   MessageSquare,
+  MoreVertical,
+  Pause,
   Phone,
+  Play,
+  SendHorizontal,
+  Mic,
   Search,
   Settings,
   Shield,
   SlidersHorizontal,
+  Smile,
+  Timer,
+  Trash2,
   User,
   Users,
   Video,
@@ -84,6 +92,34 @@ function KnexChatMotionStyles() {
           transform: translate3d(-16px, 14px, 0);
           opacity: 0.78;
         }
+      }
+      @keyframes knex-record-bar {
+        0%,
+        100% {
+          height: 3px;
+          opacity: 0.35;
+        }
+        50% {
+          height: 12px;
+          opacity: 0.9;
+        }
+      }
+      .knex-record-wave {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 12px;
+      }
+      .knex-record-bar {
+        width: 2px;
+        border-radius: 999px;
+        background: #1d4ed8;
+        animation: knex-record-bar 1.6s ease-in-out infinite;
+        animation-delay: calc(var(--i) * -0.12s);
+      }
+      .knex-record-wave.is-paused .knex-record-bar {
+        animation-play-state: paused;
+        opacity: 0.35;
       }
     `}</style>
   );
@@ -202,6 +238,7 @@ type Thread = {
   unread?: number;
   tab: TabKey;
   avatarUrl?: string;
+  onlineCount?: number;
 };
 
 type Message = {
@@ -209,6 +246,15 @@ type Message = {
   author: "me" | "them";
   body: string;
   time: string;
+  senderName?: string;
+  audioUrl?: string;
+  audioDuration?: string;
+};
+
+type WallpaperOption = {
+  key: string;
+  label: string;
+  color?: string;
 };
 
 const FILTERS: { key: FilterKey; label: string }[] = [
@@ -216,6 +262,29 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "unread", label: "Não lidas" },
   { key: "groups", label: "Grupos" },
   { key: "contacts", label: "Contatos" },
+];
+
+const WALLPAPER_OPTIONS: WallpaperOption[] = [
+  { key: "default", label: "Padrão", color: "#efe8e1" },
+  { key: "mist", label: "Névoa", color: "#eef2f7" },
+  { key: "ice", label: "Gelo", color: "#e3f2ff" },
+  { key: "mint", label: "Menta", color: "#ddf5ec" },
+  { key: "sky", label: "Céu", color: "#d8f1ff" },
+  { key: "sand", label: "Areia", color: "#f4efe7" },
+  { key: "lilac", label: "Lilás", color: "#ece7ff" },
+  { key: "lemon", label: "Limão", color: "#fff6bf" },
+  { key: "rose", label: "Rosa", color: "#ffdbe6" },
+  { key: "peach", label: "Pêssego", color: "#ffd9b0" },
+  { key: "coral", label: "Coral", color: "#ffd0c7" },
+  { key: "lagoon", label: "Laguna", color: "#d8f7f3" },
+  { key: "sage", label: "Sálvia", color: "#e2efe5" },
+  { key: "stone", label: "Pedra", color: "#e4e7ec" },
+  { key: "denim", label: "Denim", color: "#c7d8ff" },
+  { key: "night", label: "Noite", color: "#1b2230" },
+  { key: "graphite", label: "Grafite", color: "#2b2f38" },
+  { key: "plum", label: "Ameixa", color: "#3b1f3b" },
+  { key: "forest", label: "Floresta", color: "#1f3a33" },
+  { key: "navy", label: "Marinho", color: "#1a2b4f" },
 ];
 
 const INITIAL_CONVERSATIONS: Thread[] = [
@@ -252,6 +321,7 @@ const INITIAL_GROUPS: Thread[] = [
     title: "Lab IA",
     preview: "Nova pauta adicionada.",
     lastActivity: "08:10",
+    onlineCount: 6,
     unread: 1,
     tab: "groups",
     avatarUrl: "https://i.pravatar.cc/100?img=15",
@@ -261,6 +331,7 @@ const INITIAL_GROUPS: Thread[] = [
     title: "Turma 2025",
     preview: "Bem-vindos!",
     lastActivity: "Ontem",
+    onlineCount: 18,
     tab: "groups",
     avatarUrl: "https://i.pravatar.cc/100?img=8",
   },
@@ -352,11 +423,11 @@ const MESSAGE_SEED: Record<string, Message[]> = {
     { id: "m2", author: "me", body: "Em andamento, falta revisar o fluxo.", time: "Ontem" },
   ],
   "grp-lab-ia": [
-    { id: "m1", author: "them", body: "Reunião hoje às 14h.", time: "08:05" },
+    { id: "m1", author: "them", body: "Reunião hoje às 14h.", time: "08:05", senderName: "Camila Souza" },
     { id: "m2", author: "me", body: "Confirmado. Levo o protótipo.", time: "08:07" },
   ],
   "grp-turma-2025": [
-    { id: "m1", author: "them", body: "Boas-vindas! Agenda liberada.", time: "Ontem" },
+    { id: "m1", author: "them", body: "Boas-vindas! Agenda liberada.", time: "Ontem", senderName: "Coordenação" },
     { id: "m2", author: "me", body: "Obrigado! Já conferi o cronograma.", time: "Ontem" },
   ],
   "ctt-luiza": [
@@ -400,6 +471,34 @@ function getAvatarText(label: string) {
   const first = parts[0]?.[0] ?? "";
   const second = parts[1]?.[0] ?? parts[0]?.[1] ?? "";
   return `${first}${second}`.toUpperCase();
+}
+
+const SENDER_COLOR_CLASSES = [
+  "text-blue-700",
+  "text-emerald-700",
+  "text-rose-600",
+  "text-indigo-700",
+  "text-amber-700",
+  "text-sky-700",
+  "text-fuchsia-700",
+  "text-teal-700",
+  "text-violet-700",
+  "text-orange-700",
+];
+
+function getSenderColorClass(label: string) {
+  let hash = 0;
+  for (let i = 0; i < label.length; i += 1) {
+    hash = (hash * 31 + label.charCodeAt(i)) % 2147483647;
+  }
+  const index = Math.abs(hash) % SENDER_COLOR_CLASSES.length;
+  return SENDER_COLOR_CLASSES[index];
+}
+
+function formatDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function isIdentity(value: unknown): value is Identity {
@@ -467,10 +566,15 @@ export default function KnexChatPage() {
   const [contacts, setContacts] = useState<Thread[]>(INITIAL_CONTACTS);
   const [messageDraft, setMessageDraft] = useState("");
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(MESSAGE_SEED);
+  const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused">("idle");
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingKey, setActiveSettingKey] = useState<(typeof SETTINGS_MENU)[number]["key"] | null>(null);
+  const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
+  const [wallpaperHoverKey, setWallpaperHoverKey] = useState<string | null>(null);
+  const [headerInfoStep, setHeaderInfoStep] = useState(0);
   const [settingsState, setSettingsState] = useState({
     openOnStart: true,
     minimizeToTray: true,
@@ -479,11 +583,19 @@ export default function KnexChatPage() {
     spellCheck: true,
     emojiReplace: true,
     enterToSend: true,
+    wallpaper: "default",
     theme: "light" as "light" | "dark" | "system",
   });
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [pendingTheme, setPendingTheme] = useState<"light" | "dark" | "system">("light");
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordingIntervalRef = useRef<number | null>(null);
+  const recordingSecondsRef = useRef(0);
+  const recordingActionRef = useRef<"send" | "discard">("discard");
+  const recordingDurationRef = useRef(0);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const currentUser = useMemo(() => {
     if (!identity) return null;
@@ -511,6 +623,59 @@ export default function KnexChatPage() {
     const allThreads = [...conversations, ...groups, ...contacts];
     return allThreads.find((thread) => thread.id === activeThreadId) ?? activeThreads[0] ?? null;
   }, [activeThreadId, conversations, groups, contacts, activeThreads]);
+  const headerInfo = useMemo(() => {
+    const thread = activeThread;
+    const isContact = thread?.tab === "contacts";
+    const isGroup = thread?.tab === "groups";
+    const previewLower = thread?.preview?.toLowerCase() ?? "";
+    const onlineCount = thread?.onlineCount ?? 0;
+    const isOnline = isContact
+      ? Boolean(previewLower.includes("online") || previewLower.includes("disponível") || thread?.lastActivity === "Ativo")
+      : isGroup
+        ? onlineCount > 0
+        : false;
+    const statusLabel = isGroup
+      ? `${onlineCount} participante${onlineCount === 1 ? "" : "s"} online`
+      : isOnline
+        ? "Online agora"
+        : "Offline";
+    const lastActivityLabel = thread?.lastActivity === "Ativo" ? "Agora" : thread?.lastActivity;
+    const lastSeenLabel = lastActivityLabel ? `Último acesso: ${lastActivityLabel}` : "Último acesso indisponível";
+    const hintLabel = isContact
+      ? "clique para mostrar dados do contato"
+      : isGroup
+        ? "clique para mostrar dados do grupo"
+        : "clique para mostrar dados";
+    const dotClass = isOnline ? "bg-emerald-400" : "bg-slate-300";
+    return { statusLabel, lastSeenLabel, hintLabel, dotClass };
+  }, [activeThread]);
+  const headerInfoItems = useMemo(
+    () => [headerInfo.statusLabel, headerInfo.lastSeenLabel, headerInfo.hintLabel].filter(Boolean),
+    [headerInfo],
+  );
+
+  useEffect(() => {
+    setHeaderInfoStep(0);
+    if (headerInfoItems.length <= 1) return;
+    const interval = setInterval(() => {
+      setHeaderInfoStep((prev) => (prev + 1) % headerInfoItems.length);
+    }, 3200);
+    return () => clearInterval(interval);
+  }, [activeThreadId, headerInfoItems.length]);
+
+  useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) {
+        window.clearInterval(recordingIntervalRef.current);
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const activeMessages = useMemo(() => {
     if (!activeThread) return [];
@@ -791,6 +956,130 @@ export default function KnexChatPage() {
     setMessageDraft("");
   };
 
+  const stopRecordingTimer = () => {
+    if (recordingIntervalRef.current) {
+      window.clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+  };
+
+  const startRecordingTimer = (reset = false) => {
+    if (reset) {
+      recordingSecondsRef.current = 0;
+      setRecordingSeconds(0);
+    }
+    stopRecordingTimer();
+    recordingIntervalRef.current = window.setInterval(() => {
+      recordingSecondsRef.current += 1;
+      setRecordingSeconds(recordingSecondsRef.current);
+    }, 1000);
+  };
+
+  const finalizeRecording = (action: "send" | "discard", blob: Blob | null) => {
+    const durationLabel = formatDuration(recordingDurationRef.current);
+    if (action === "send" && blob && activeThread && currentUser) {
+      const timeLabel = new Date().toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const audioUrl = URL.createObjectURL(blob);
+      const newMessage: Message = {
+        id: `m_${Date.now()}`,
+        author: "me",
+        body: "Mensagem de áudio",
+        time: timeLabel,
+        audioUrl,
+        audioDuration: durationLabel,
+      };
+      setMessagesByThread((prev) => ({
+        ...prev,
+        [activeThread.id]: [...(prev[activeThread.id] ?? []), newMessage],
+      }));
+      const updateThread = (threads: Thread[]) =>
+        threads.map((thread) =>
+          thread.id === activeThread.id
+            ? { ...thread, preview: "Mensagem de áudio", lastActivity: timeLabel }
+            : thread,
+        );
+      if (activeThread.tab === "conversations") {
+        setConversations(updateThread);
+      } else if (activeThread.tab === "groups") {
+        setGroups(updateThread);
+      } else {
+        setContacts(updateThread);
+      }
+    }
+    setRecordingState("idle");
+    setRecordingSeconds(0);
+    recordingSecondsRef.current = 0;
+    recordingDurationRef.current = 0;
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+  };
+
+  const startRecording = async () => {
+    if (recordingState !== "idle") return;
+    if (typeof window === "undefined") return;
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      recordingActionRef.current = "discard";
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const blob = audioChunksRef.current.length
+          ? new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" })
+          : null;
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+        finalizeRecording(recordingActionRef.current, blob);
+      };
+      recorder.start();
+      setRecordingState("recording");
+      startRecordingTimer(true);
+    } catch {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+    }
+  };
+
+  const stopRecording = (action: "send" | "discard") => {
+    recordingActionRef.current = action;
+    recordingDurationRef.current = recordingSecondsRef.current;
+    stopRecordingTimer();
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    } else {
+      finalizeRecording(action, null);
+    }
+  };
+
+  const toggleRecordingPause = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    if (recordingState === "recording") {
+      recorder.pause();
+      setRecordingState("paused");
+      stopRecordingTimer();
+    } else if (recordingState === "paused") {
+      recorder.resume();
+      setRecordingState("recording");
+      startRecordingTimer(false);
+    }
+  };
+
   const handleInstallApp = async () => {
     if (!installPrompt) return;
     await installPrompt.prompt();
@@ -816,6 +1105,12 @@ export default function KnexChatPage() {
   const themeLabel =
     settingsState.theme === "dark" ? "Modo escuro" : settingsState.theme === "system" ? "Automático" : "Modo claro";
   const isDarkTheme = settingsState.theme === "dark" || (settingsState.theme === "system" && systemPrefersDark);
+  const wallpaperPreviewKey = isWallpaperModalOpen ? wallpaperHoverKey ?? settingsState.wallpaper : settingsState.wallpaper;
+  const wallpaperColor = useMemo(() => {
+    const option = WALLPAPER_OPTIONS.find((item) => item.key === wallpaperPreviewKey);
+    return option?.color;
+  }, [wallpaperPreviewKey]);
+  const wallpaperPreviewColor = wallpaperColor ?? (isDarkTheme ? "#141414" : "#ffffff");
   const settingsPanelBase = isDarkTheme ? "bg-[#141414] text-slate-100" : "bg-white text-slate-900";
   const settingsBorder = isDarkTheme ? "border-[#2a2a2a]" : "border-slate-200";
   const settingsMuted = isDarkTheme ? "text-slate-400" : "text-slate-500";
@@ -912,6 +1207,7 @@ export default function KnexChatPage() {
         isDarkTheme ? "bg-[#141414]" : "bg-white"
       } text-slate-100`}
     >
+      <KnexChatMotionStyles />
       <div className="relative z-10 flex h-full flex-col">
         <header
           className={`flex flex-wrap items-center justify-between gap-3 border-b ${settingsBorder} bg-[var(--knex-850)]/80 px-4 py-3 backdrop-blur`}
@@ -936,14 +1232,14 @@ export default function KnexChatPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full border border-blue-300/70 bg-blue-200/80 px-3 py-1 text-xs text-slate-900">
+          <span className="rounded-full border border-blue-700/80 bg-blue-600 px-3 py-1 text-xs font-bold text-white">
             Knex ID: {identity.email}
           </span>
           {!isInstalled ? (
             <button
               type="button"
               onClick={handleInstallApp}
-              className="rounded-full border border-blue-300/70 bg-blue-200/90 px-3 py-1 text-xs font-semibold text-slate-900 transition hover:border-blue-300/90 hover:bg-blue-300/90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-full border border-blue-700/80 bg-blue-600 px-3 py-1 text-xs font-bold text-slate-900 transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!installPrompt}
               title={installPrompt ? "Instalar Knexchat" : "Instalação indisponível no momento"}
             >
@@ -953,7 +1249,7 @@ export default function KnexChatPage() {
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-full border border-rose-300/70 bg-rose-200/90 px-3 py-1 text-xs font-semibold text-slate-900 transition hover:border-rose-300/90 hover:bg-rose-300/90"
+            className="rounded-full border border-rose-500/80 bg-rose-500 px-3 py-1 text-xs font-bold text-slate-900 transition hover:border-rose-600 hover:bg-rose-600"
           >
             Sair
           </button>
@@ -968,7 +1264,7 @@ export default function KnexChatPage() {
             <button type="button" className={navButtonClass(!isSettingsOpen)} onClick={() => setIsSettingsOpen(false)}>
               <MessageCircle className="h-5 w-5" />
             </button>
-            <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-emerald-400 text-[10px] font-semibold text-slate-900">
+            <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-[10px] font-semibold text-white">
               67
             </span>
           </div>
@@ -1095,7 +1391,14 @@ export default function KnexChatPage() {
                   <div className={`flex items-center gap-3 border-b px-5 py-3 ${settingsBorder}`}>
                     <button
                       type="button"
-                      onClick={() => setActiveSettingKey(null)}
+                      onClick={() => {
+                        if (isWallpaperModalOpen) {
+                          setIsWallpaperModalOpen(false);
+                          setWallpaperHoverKey(null);
+                        } else {
+                          setActiveSettingKey(null);
+                        }
+                      }}
                       className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
                         isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
                       }`}
@@ -1103,8 +1406,43 @@ export default function KnexChatPage() {
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </button>
-                    <span className="text-base font-semibold">Conversas</span>
+                    <span className="text-base font-semibold">{isWallpaperModalOpen ? "Papel de parede" : "Conversas"}</span>
                   </div>
+                  {isWallpaperModalOpen ? (
+                    <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Definir papel de parede da conversa</p>
+                      <div className="mt-4 grid grid-cols-4 gap-3" onMouseLeave={() => setWallpaperHoverKey(null)}>
+                        {WALLPAPER_OPTIONS.map((option) => {
+                          const isSelected = settingsState.wallpaper === option.key;
+                          const isPreview = wallpaperPreviewKey === option.key;
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onMouseEnter={() => setWallpaperHoverKey(option.key)}
+                              onFocus={() => setWallpaperHoverKey(option.key)}
+                              onClick={() => {
+                                setSettingsState((prev) => ({ ...prev, wallpaper: option.key }));
+                                setWallpaperHoverKey(option.key);
+                              }}
+                              className={`flex h-12 w-full items-center justify-center rounded-lg border text-[10px] font-semibold transition ${
+                                isPreview
+                                  ? "border-blue-600 ring-2 ring-blue-200"
+                                  : isSelected
+                                    ? "border-blue-600"
+                                    : "border-slate-200 hover:border-slate-300"
+                              }`}
+                              style={option.color ? { backgroundColor: option.color } : undefined}
+                            >
+                              <span className={option.color ? "sr-only" : isDarkTheme ? "text-slate-100" : "text-slate-700"}>
+                                {option.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
                   <div className="flex-1 space-y-6 px-5 py-4">
                     <div className="space-y-2">
                       <p className={`text-xs font-semibold ${settingsMuted}`}>Exibição</p>
@@ -1124,6 +1462,10 @@ export default function KnexChatPage() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => {
+                          setWallpaperHoverKey(null);
+                          setIsWallpaperModalOpen(true);
+                        }}
                         className={`flex w-full items-center justify-between border-b py-2 text-left ${settingsBorder}`}
                       >
                         <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
@@ -1233,6 +1575,7 @@ export default function KnexChatPage() {
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1322,13 +1665,25 @@ export default function KnexChatPage() {
                 </>
               )}
             </aside>
-            <section className={`flex min-h-0 flex-1 items-center justify-center ${isDarkTheme ? "bg-[#141414]" : "bg-slate-50"}`}>
-              <div className="text-center">
-                <Settings className={`mx-auto h-16 w-16 ${isDarkTheme ? "text-slate-500" : "text-slate-300"}`} />
-                <p className={`mt-4 text-2xl font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-700"}`}>
-                  Configurações
-                </p>
-              </div>
+            <section className={`flex min-h-0 flex-1 ${isDarkTheme ? "bg-[#141414]" : "bg-slate-50"}`}>
+              {activeSettingKey === "chats" && isWallpaperModalOpen ? (
+                <div className="flex h-full w-full flex-col p-6">
+                  <p className={`text-xs font-semibold ${settingsMuted}`}>Pré-visualizar papel de parede</p>
+                  <div
+                    className={`mt-4 flex-1 rounded-2xl border ${settingsBorder}`}
+                    style={{ backgroundColor: wallpaperPreviewColor }}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-1 items-center justify-center">
+                  <div className="text-center">
+                    <Settings className={`mx-auto h-16 w-16 ${isDarkTheme ? "text-slate-500" : "text-slate-300"}`} />
+                    <p className={`mt-4 text-2xl font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-700"}`}>
+                      Configurações
+                    </p>
+                  </div>
+                </div>
+              )}
             </section>
             {isThemeModalOpen ? (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
@@ -1443,7 +1798,7 @@ export default function KnexChatPage() {
                           : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50"
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       {thread.avatarUrl ? (
                         <img
                           src={thread.avatarUrl}
@@ -1459,11 +1814,13 @@ export default function KnexChatPage() {
                           {getAvatarText(thread.title)}
                         </div>
                       )}
-                      <div>
-                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      <div className="min-w-0">
+                        <p
+                          className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+                        >
                           {thread.title}
                         </p>
-                        <p className={`text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
+                        <p className={`truncate text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
                           {thread.preview}
                         </p>
                       </div>
@@ -1475,7 +1832,7 @@ export default function KnexChatPage() {
                       {thread.unread ? (
                         <span
                           className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                            isDarkTheme ? "bg-emerald-500/20 text-emerald-200" : "bg-blue-100 text-blue-800"
+                            isDarkTheme ? "bg-blue-500 text-white" : "bg-blue-600 text-white"
                           }`}
                         >
                           {thread.unread}
@@ -1492,112 +1849,231 @@ export default function KnexChatPage() {
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--knex-700)] bg-[var(--knex-850)]/40 px-4 py-3">
             <div>
-              <p className={`${spaceGrotesk.className} text-lg font-semibold`}>
+              <p
+                className={`${spaceGrotesk.className} text-lg font-semibold ${
+                  isDarkTheme ? "text-slate-100" : "text-slate-900"
+                }`}
+              >
                 {activeThread?.title ?? "Selecione uma conversa"}
               </p>
-              <p className="text-xs text-slate-300">{activeThread?.preview ?? "Aguardando thread..."}</p>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-300">
-              <span className="rounded-full border border-[var(--knex-700)] px-3 py-1">
-                {activeThread?.tab === "groups"
-                  ? "Grupo ativo"
-                  : activeThread?.tab === "contacts"
-                    ? "Contato direto"
-                    : "Conversa direta"}
-              </span>
-            </div>
-          </div>
-
-          {pendingJoinToken ? (
-            <div className="mx-4 mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold">Convite detectado</p>
-                  <p className="text-xs text-emerald-100/80">
-                    Token: {pendingJoinToken} - Clique para entrar no grupo.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAcceptJoin}
-                  className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
-                >
-                  Entrar
-                </button>
+              <div className={`mt-1 flex items-center gap-2 text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-500"}`}>
+                <span className={`h-2 w-2 rounded-full ${headerInfo.dotClass}`} />
+                <span>{headerInfoItems[headerInfoStep] ?? ""}</span>
               </div>
             </div>
-          ) : null}
-
-          <div className="flex-1 overflow-y-auto px-4 py-6">
-            <div className="space-y-4">
-              {activeMessages.map((message) => {
-                const isMe = message.author === "me";
-                const bubbleBase = isMe
-                  ? "border-emerald-500/30 bg-emerald-500/10"
-                  : "border-slate-800/80 bg-slate-900/70";
-                const bubble = (
-                  <div className={`max-w-[72%] rounded-2xl border px-4 py-3 ${bubbleBase}`}>
-                    <p className="text-sm text-slate-100">{message.body}</p>
-                    <p className="mt-1 text-[11px] text-slate-300">{message.time}</p>
-                  </div>
-                );
-                const incomingAvatar = activeThread?.tab === "groups" && activeThread.avatarUrl ? (
-                  <img
-                    src={activeThread.avatarUrl}
-                    alt={`Avatar de ${activeThread.title}`}
-                    className="h-9 w-9 rounded-xl object-cover"
-                  />
-                ) : (
-                  <div className="grid h-9 w-9 place-items-center rounded-xl bg-slate-900 text-xs font-semibold text-slate-200">
-                    {getAvatarText(activeThread?.title ?? "KN")}
-                  </div>
-                );
-                return (
-                  <div
-                    key={message.id}
-                    className={`flex gap-3 ${isMe ? "items-end justify-end" : "items-start justify-start"}`}
-                  >
-                    {!isMe ? (
-                      <>
-                        {incomingAvatar}
-                        {bubble}
-                      </>
-                    ) : (
-                      bubble
-                    )}
-                    {isMe ? (
-                      <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-500/20 text-xs font-semibold text-emerald-200">
-                        {currentUser?.avatarText ?? "KN"}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                aria-label="Iniciar videochamada"
+                className={`rounded-full p-2 transition ${
+                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                }`}
+              >
+                <Video className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Iniciar chamada"
+                className={`rounded-full p-2 transition ${
+                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                }`}
+              >
+                <Phone className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Buscar na conversa"
+                className={`rounded-full p-2 transition ${
+                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                }`}
+              >
+                <Search className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Mais opções"
+                className={`rounded-full p-2 transition ${
+                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                }`}
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
             </div>
           </div>
 
-          <div className="border-t border-[var(--knex-700)] bg-[var(--knex-850)]/70 px-4 py-4">
-            <form
-              className="flex flex-wrap items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleSendMessage();
-              }}
-            >
-              <input
-                type="text"
-                value={messageDraft}
-                onChange={(event) => setMessageDraft(event.target.value)}
-                placeholder="Digite uma mensagem..."
-                className="min-w-[200px] flex-1 rounded-2xl border border-[var(--knex-700)] bg-[var(--knex-900)] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-400 focus:border-emerald-500/60 focus:outline-none"
-              />
-              <button
-                type="submit"
-                className="rounded-2xl bg-emerald-500/20 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/30"
+          <div
+            className="relative flex-1 min-h-0 transition-colors"
+            style={wallpaperColor ? { backgroundColor: wallpaperColor } : undefined}
+          >
+            <div className="absolute inset-0 overflow-y-auto px-4 py-6">
+              {pendingJoinToken ? (
+                <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">Convite detectado</p>
+                      <p className="text-xs text-emerald-100/80">
+                        Token: {pendingJoinToken} - Clique para entrar no grupo.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAcceptJoin}
+                      className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
+                    >
+                      Entrar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div className="space-y-4">
+                {activeMessages.map((message) => {
+                  const isMe = message.author === "me";
+                  const showSender = !isMe && activeThread?.tab === "groups";
+                  const senderLabel = message.senderName ?? "Participante";
+                  const senderColorClass = getSenderColorClass(senderLabel);
+                  const bubbleBase = isMe
+                    ? "border-blue-500/30 bg-blue-600"
+                    : "border-slate-200 bg-white";
+                  const bubbleText = isMe ? "text-white" : "text-slate-900";
+                  const bubbleTime = isMe ? "text-blue-100" : "text-slate-500";
+                  const bubble = (
+                    <div className={`max-w-[72%] rounded-2xl border px-4 py-3 ${bubbleBase}`}>
+                      {showSender ? (
+                        <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
+                      ) : null}
+                      <p className={`text-sm ${bubbleText}`}>{message.body}</p>
+                      <p className={`mt-1 text-[11px] ${bubbleTime}`}>{message.time}</p>
+                    </div>
+                  );
+                  const incomingAvatar = activeThread?.tab === "groups" && activeThread.avatarUrl ? (
+                    <img
+                      src={activeThread.avatarUrl}
+                      alt={`Avatar de ${activeThread.title}`}
+                      className="h-9 w-9 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <div className="grid h-9 w-9 place-items-center rounded-xl bg-slate-900 text-xs font-semibold text-slate-200">
+                      {getAvatarText(activeThread?.title ?? "KN")}
+                    </div>
+                  );
+                  return (
+                    <div
+                      key={message.id}
+                      className={`flex gap-3 ${isMe ? "items-end justify-end" : "items-start justify-start"}`}
+                    >
+                      {!isMe ? (
+                        <>
+                          {incomingAvatar}
+                          {bubble}
+                        </>
+                      ) : (
+                        bubble
+                      )}
+                      {isMe ? (
+                        <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-500/20 text-xs font-semibold text-emerald-200">
+                          {currentUser?.avatarText ?? "KN"}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="absolute inset-x-4 bottom-4">
+              <form
+                className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (recordingState === "idle") {
+                    handleSendMessage();
+                  }
+                }}
               >
-                Enviar
-              </button>
-            </form>
+                <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
+                  <button
+                    type="button"
+                    aria-label="Adicionar"
+                    className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Emojis"
+                    className="text-slate-600 transition hover:text-slate-900"
+                  >
+                    <Smile className="h-5 w-5" />
+                  </button>
+                  <input
+                    type="text"
+                    value={messageDraft}
+                    onChange={(event) => setMessageDraft(event.target.value)}
+                    placeholder="Digite uma mensagem"
+                    className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+                  />
+                  {recordingState !== "idle" ? (
+                    <div className="ml-auto flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label="Cancelar gravação"
+                        onClick={() => stopRecording("discard")}
+                        className="text-slate-500 transition hover:text-slate-900"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <span className="h-2 w-2 rounded-full bg-rose-500" />
+                        {formatDuration(recordingSeconds)}
+                      </span>
+                      <span className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`} aria-hidden="true">
+                        {Array.from({ length: 14 }).map((_, index) => (
+                          <span
+                            key={index}
+                            className="knex-record-bar"
+                            style={{ "--i": 13 - index } as CSSProperties}
+                          />
+                        ))}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
+                        onClick={toggleRecordingPause}
+                        className="text-slate-500 transition hover:text-slate-900"
+                      >
+                        {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                      </button>
+                      <Timer className="h-4 w-4 text-slate-400" />
+                      <button
+                        type="button"
+                        aria-label="Enviar áudio"
+                        onClick={() => stopRecording("send")}
+                        className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
+                      >
+                        <SendHorizontal className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label="Gravar áudio"
+                      onClick={startRecording}
+                      className="ml-auto text-blue-600 transition hover:text-blue-700"
+                    >
+                      <Mic className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
+                {recordingState === "idle" && messageDraft.trim() ? (
+                  <button
+                    type="submit"
+                    className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                  >
+                    Enviar
+                  </button>
+                ) : null}
+              </form>
+            </div>
           </div>
         </section>
           </>
