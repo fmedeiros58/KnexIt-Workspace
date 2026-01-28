@@ -48,7 +48,7 @@ import {
   Users,
   Video,
 } from "lucide-react";
-import EmojiPicker from "emoji-picker-react";
+import EmojiPicker, { Theme } from "emoji-picker-react";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties } from "react";
 
@@ -2858,7 +2858,7 @@ export default function KnexChatPage() {
                                 width={groupEmojiSize.width}
                                 height={groupEmojiSize.height}
                                 onEmojiClick={(emojiData) => setNewGroupName((prev) => `${prev}${emojiData.emoji}`)}
-                                theme={isDarkTheme ? "dark" : "light"}
+                                theme={isDarkTheme ? Theme.DARK : Theme.LIGHT}
                               />
                               <button
                                 type="button"
