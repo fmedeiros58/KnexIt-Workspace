@@ -4,20 +4,34 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
   HelpCircle,
+  Hash,
+  Radio,
+  Shapes,
+  Grip,
+  Image as ImageIcon,
   Keyboard,
   LogOut,
+  MessageCirclePlus,
+  AtSign,
+  Mail,
   MessageCircle,
   MessageSquare,
   MoreVertical,
+  Plus,
+  Smartphone,
+  Users2,
   Pause,
   Phone,
   Play,
   SendHorizontal,
+  UserPlus,
+  ZoomIn,
   Mic,
   Search,
   Settings,
@@ -120,6 +134,48 @@ function KnexChatMotionStyles() {
       .knex-record-wave.is-paused .knex-record-bar {
         animation-play-state: paused;
         opacity: 0.35;
+      }
+      .knex-bubble {
+        display: inline-flex;
+        flex-direction: column;
+        max-width: 75%;
+        width: fit-content;
+        padding: 10px 14px;
+        border-radius: 18px;
+        line-height: 1.35;
+        word-break: break-word;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+        position: relative;
+      }
+      .knex-bubble--in {
+        align-self: flex-start;
+        margin-right: auto;
+        background: #ffffff;
+        color: #1f1f1f;
+        border-radius: 4px 18px 18px 18px;
+      }
+      .knex-bubble--out {
+        align-self: flex-end;
+        margin-left: auto;
+        background: #0b5ed7;
+        color: #ffffff;
+        border-radius: 18px 4px 18px 18px;
+      }
+      .knex-bubble__text {
+        font-size: 14px;
+      }
+      .knex-bubble__time {
+        font-size: 11px;
+        margin-top: 4px;
+        align-self: flex-end;
+        white-space: nowrap;
+      }
+      .knex-bubble--in .knex-bubble__time {
+        color: #8a8a8a;
+      }
+      .knex-bubble--out .knex-bubble__time {
+        color: rgba(255, 255, 255, 0.75);
       }
     `}</style>
   );
@@ -570,7 +626,32 @@ export default function KnexChatPage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [activeNavKey, setActiveNavKey] = useState<
+    "conversations" | "calls" | "status" | "channels" | "communities" | "contacts" | "settings"
+  >("conversations");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [profileTarget, setProfileTarget] = useState<"thread" | "self" | null>(null);
+  const [isProfileAvatarPreviewOpen, setIsProfileAvatarPreviewOpen] = useState(false);
+  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [isNewChatEmailOpen, setIsNewChatEmailOpen] = useState(false);
+  const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
+  const [isGroupsPanelOpen, setIsGroupsPanelOpen] = useState(false);
+  const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
+  const [isCommunityListOpen, setIsCommunityListOpen] = useState(false);
+  const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [isGroupsExpanded, setIsGroupsExpanded] = useState(false);
+  const [conversationSearch, setConversationSearch] = useState("");
+  const [newChatSearch, setNewChatSearch] = useState("");
+  const [newGroupSearch, setNewGroupSearch] = useState("");
+  const [newChatEmail, setNewChatEmail] = useState("");
+  const [newContactFirstName, setNewContactFirstName] = useState("");
+  const [newContactLastName, setNewContactLastName] = useState("");
+  const [newContactEmail, setNewContactEmail] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [newContactSync, setNewContactSync] = useState(false);
+  const [selfAvatarUrl, setSelfAvatarUrl] = useState<string | null>(null);
+  const [threadAvatarOverrides, setThreadAvatarOverrides] = useState<Record<string, string>>({});
   const [activeSettingKey, setActiveSettingKey] = useState<(typeof SETTINGS_MENU)[number]["key"] | null>(null);
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
   const [wallpaperHoverKey, setWallpaperHoverKey] = useState<string | null>(null);
@@ -608,9 +689,10 @@ export default function KnexChatPage() {
       name: displayName,
       role: "student",
       email: identity.email,
+      avatarUrl: selfAvatarUrl,
       avatarText: getAvatarText(avatarSource),
     };
-  }, [identity]);
+  }, [identity, selfAvatarUrl]);
 
   const combinedThreads = useMemo(() => [...conversations, ...groups], [conversations, groups]);
   const activeThreads = useMemo(() => {
@@ -623,6 +705,60 @@ export default function KnexChatPage() {
     const allThreads = [...conversations, ...groups, ...contacts];
     return allThreads.find((thread) => thread.id === activeThreadId) ?? activeThreads[0] ?? null;
   }, [activeThreadId, conversations, groups, contacts, activeThreads]);
+  const filteredActiveThreads = useMemo(() => {
+    const query = conversationSearch.trim().toLowerCase();
+    if (!query) return activeThreads;
+    return activeThreads.filter((thread) => {
+      const haystack = `${thread.title} ${thread.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [activeThreads, conversationSearch]);
+  const newChatContacts = useMemo(() => {
+    const baseContacts = contacts.map((contact) => ({
+      id: contact.id,
+      title: contact.title,
+      preview: contact.preview,
+      avatarUrl: contact.avatarUrl ?? null,
+    }));
+    if (!currentUser) return baseContacts;
+    return [
+      {
+        id: "self-contact",
+        title: `${currentUser.name} (você)`,
+        preview: "Mensagens para mim",
+        avatarUrl: currentUser.avatarUrl ?? null,
+      },
+      ...baseContacts,
+    ];
+  }, [contacts, currentUser]);
+  const groupContacts = useMemo(
+    () => newChatContacts.filter((contact) => contact.id !== "self-contact"),
+    [newChatContacts],
+  );
+  const filteredNewChatContacts = useMemo(() => {
+    const query = newChatSearch.trim().toLowerCase();
+    if (!query) return newChatContacts;
+    return newChatContacts.filter((contact) => {
+      const haystack = `${contact.title} ${contact.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [newChatContacts, newChatSearch]);
+  const filteredGroupContacts = useMemo(() => {
+    const query = newGroupSearch.trim().toLowerCase();
+    if (!query) return groupContacts;
+    return groupContacts.filter((contact) => {
+      const haystack = `${contact.title} ${contact.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [groupContacts, newGroupSearch]);
+  const isNewContactPhoneValid = useMemo(() => {
+    const digits = newContactPhone.replace(/\D/g, "");
+    return digits.length >= 10;
+  }, [newContactPhone]);
+  const activeThreadAvatarUrl = useMemo(() => {
+    if (!activeThread) return null;
+    return threadAvatarOverrides[activeThread.id] ?? activeThread.avatarUrl ?? null;
+  }, [activeThread, threadAvatarOverrides]);
   const headerInfo = useMemo(() => {
     const thread = activeThread;
     const isContact = thread?.tab === "contacts";
@@ -653,6 +789,75 @@ export default function KnexChatPage() {
     () => [headerInfo.statusLabel, headerInfo.lastSeenLabel, headerInfo.hintLabel].filter(Boolean),
     [headerInfo],
   );
+  const profileData = useMemo(() => {
+    if (profileTarget === "self") {
+      return {
+        title: currentUser?.name ?? "Participante",
+        avatarUrl: currentUser?.avatarUrl ?? null,
+        avatarText: currentUser?.avatarText ?? "KN",
+        recado: "Onde há igualdade, a amizade não perde.",
+        phone: "Não informado",
+      };
+    }
+    if (activeThread) {
+      return {
+        title: activeThread.title,
+        avatarUrl: activeThreadAvatarUrl ?? null,
+        avatarText: getAvatarText(activeThread.title),
+        recado: activeThread.preview ?? "Sem recado",
+        phone: activeThread.tab === "groups" ? "Grupo sem telefone" : "+55 68 9614-3009",
+      };
+    }
+    return null;
+  }, [activeThread, activeThreadAvatarUrl, currentUser, profileTarget]);
+  const profileAvatarCta = profileData?.avatarUrl ? "Mudar foto de perfil" : "Adicionar foto de perfil";
+
+  const handleOpenProfile = (target: "thread" | "self") => {
+    setIsProfileOpen(true);
+    setProfileTarget(target);
+    setIsProfileAvatarPreviewOpen(false);
+    setIsNewChatOpen(false);
+    setIsNewChatEmailOpen(false);
+    setIsNewGroupOpen(false);
+    setIsCommunityListOpen(false);
+    setIsGroupsPanelOpen(false);
+    setIsGroupCreateOpen(false);
+    if (target === "thread") {
+      setIsSettingsOpen(false);
+      setActiveSettingKey(null);
+    } else {
+      setIsSettingsOpen(false);
+      setActiveSettingKey(null);
+    }
+  };
+
+  const handleCloseProfile = () => {
+    setIsProfileOpen(false);
+    setProfileTarget(null);
+    setIsProfileAvatarPreviewOpen(false);
+  };
+
+  const handleProfileAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      if (!result) return;
+      if (profileTarget === "self") {
+        setSelfAvatarUrl(result);
+      } else if (activeThread) {
+        setThreadAvatarOverrides((prev) => ({ ...prev, [activeThread.id]: result }));
+        const updateThread = (threads: Thread[]) =>
+          threads.map((thread) => (thread.id === activeThread.id ? { ...thread, avatarUrl: result } : thread));
+        setConversations(updateThread);
+        setGroups(updateThread);
+        setContacts(updateThread);
+      }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
 
   useEffect(() => {
     setHeaderInfoStep(0);
@@ -1091,12 +1296,16 @@ export default function KnexChatPage() {
     `grid h-11 w-11 place-items-center rounded-2xl transition ${
       active
         ? isDarkTheme
-          ? "bg-white/10 text-slate-100 shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
-          : "bg-slate-100 text-slate-900 shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
+          ? "bg-blue-600 text-white shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
+          : "bg-blue-600 text-white shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
         : isDarkTheme
-          ? "text-slate-300 hover:bg-white/10"
-          : "text-slate-900 hover:bg-slate-100"
+          ? "text-slate-300 hover:bg-blue-600 hover:text-white"
+          : "text-slate-900 hover:bg-blue-600 hover:text-white"
     }`;
+  const avatarFrameLg = "rounded-[26px]";
+  const avatarFrameMd = "rounded-[8.5px]";
+  const avatarFrameSm = "rounded-[7.5px]";
+  const avatarFrameXs = "rounded-[7px]";
 
   const toggleSetting = (key: "openOnStart" | "minimizeToTray" | "spellCheck" | "emojiReplace" | "enterToSend") => {
     setSettingsState((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1117,8 +1326,12 @@ export default function KnexChatPage() {
   const settingsField =
     isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100" : "border-slate-200 bg-white text-slate-900";
   const settingsHover = isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100";
-  const navRailBase = isDarkTheme ? "bg-[#0f0f0f]" : "bg-white";
-  const navRailDivider = isDarkTheme ? "bg-[#2a2a2a]" : "bg-slate-200";
+  const navRailBase = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[#F5F5F5]";
+  const navRailDivider = "bg-slate-200";
+  const shellSurface = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[#F5F5F5]";
+  const headerLineLeft = isSettingsOpen ? "calc(3.5rem + 340px)" : "calc(3.5rem + 24rem)";
+  const messagePanelBg = isDarkTheme ? "bg-[#141414]" : "bg-slate-50";
+  const messagePanelBodyStyle = wallpaperColor ? { backgroundColor: wallpaperColor } : undefined;
 
   const activationBackdrop = !isChatRoute ? (
     <>
@@ -1210,24 +1423,14 @@ export default function KnexChatPage() {
       <KnexChatMotionStyles />
       <div className="relative z-10 flex h-full flex-col">
         <header
-          className={`flex flex-wrap items-center justify-between gap-3 border-b ${settingsBorder} bg-[var(--knex-850)]/80 px-4 py-3 backdrop-blur`}
+          className={`relative flex flex-wrap items-center justify-between gap-3 ${shellSurface} px-4 py-2`}
         >
         <div className="flex items-center gap-3">
-          <div className="relative h-10 w-10">
-            <img
-              src="/knexchat/icons/knexchat-logo.png"
-              alt="Knexchat"
-              className="absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-[28px] object-contain drop-shadow-[0_18px_36px_rgba(59,130,246,0.35)]"
-            />
-          </div>
           <div>
             <p className={`${spaceGrotesk.className} text-lg font-semibold`}>
               <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
                 KnexChat
               </span>
-            </p>
-            <p className={`text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
-              Mensageria com Knex ID por e-mail
             </p>
           </div>
         </div>
@@ -1256,38 +1459,187 @@ export default function KnexChatPage() {
         </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className={`relative flex min-h-0 flex-1 flex-col lg:flex-row ${shellSurface}`}>
         <nav
-          className={`hidden w-16 flex-col items-center gap-4 border-r ${settingsBorder} ${navRailBase} py-5 lg:flex`}
+          className={`hidden w-14 flex-col items-center gap-4 ${navRailBase} py-5 lg:flex`}
         >
-          <div className="relative">
-            <button type="button" className={navButtonClass(!isSettingsOpen)} onClick={() => setIsSettingsOpen(false)}>
+          <div className="relative group">
+            <button
+              type="button"
+              className={navButtonClass(activeNavKey === "conversations")}
+              onClick={() => {
+                setActiveNavKey("conversations");
+                setIsSettingsOpen(false);
+                setIsProfileOpen(false);
+                setProfileTarget(null);
+                setIsNewChatOpen(false);
+                setIsNewChatEmailOpen(false);
+                setIsNewGroupOpen(false);
+                setIsCommunityListOpen(false);
+                setIsGroupsPanelOpen(false);
+                setIsGroupCreateOpen(false);
+                setIsNewContactOpen(false);
+                setIsGroupsExpanded(false);
+              }}
+              aria-label="Conversas"
+              title="Conversas"
+            >
               <MessageCircle className="h-5 w-5" />
             </button>
-            <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-[10px] font-semibold text-white">
+            <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-orange-500 text-[10px] font-semibold text-white">
               67
             </span>
+            <span
+              className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+              } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+            >
+              Conversas
+            </span>
           </div>
-          <button type="button" className={navButtonClass(false)}>
-            <Phone className="h-5 w-5" />
-          </button>
-          <button type="button" className={navButtonClass(false)}>
-            <CircleDot className="h-5 w-5" />
-          </button>
-          <button type="button" className={navButtonClass(false)}>
-            <Users className="h-5 w-5" />
-          </button>
+          <div className="relative group">
+            <button
+              type="button"
+              className={navButtonClass(activeNavKey === "calls")}
+              aria-label="Ligações"
+              title="Ligações"
+              onClick={() => setActiveNavKey("calls")}
+            >
+              <Phone className="h-5 w-5" />
+            </button>
+            <span
+              className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+              } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+            >
+              Ligações
+            </span>
+          </div>
+          <div className="relative group">
+            <button
+              type="button"
+              className={navButtonClass(activeNavKey === "status")}
+              aria-label="Status"
+              title="Status"
+              onClick={() => setActiveNavKey("status")}
+            >
+              <CircleDot className="h-5 w-5" />
+            </button>
+            <span
+              className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+              } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+            >
+              Status
+            </span>
+          </div>
+          <div className="relative group">
+            <button
+              type="button"
+              className={navButtonClass(activeNavKey === "channels")}
+              aria-label="Canais"
+              title="Canais"
+              onClick={() => setActiveNavKey("channels")}
+            >
+              <Radio className="h-5 w-5" />
+            </button>
+            <span
+              className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+              } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+            >
+              Canais
+            </span>
+          </div>
+          <div className="relative group">
+            <button
+              type="button"
+              className={navButtonClass(activeNavKey === "communities")}
+              aria-label="Comunidades"
+              title="Comunidades"
+              onClick={() => {
+                setActiveNavKey("communities");
+                setIsNewChatOpen(true);
+                setIsCommunityListOpen(true);
+                setIsNewChatEmailOpen(false);
+                setIsNewGroupOpen(false);
+                setIsGroupsPanelOpen(false);
+                setIsGroupCreateOpen(false);
+                setIsGroupsExpanded(false);
+                setIsNewContactOpen(false);
+                setIsSettingsOpen(false);
+                setIsProfileOpen(false);
+                setProfileTarget(null);
+              }}
+            >
+              <Shapes className="h-5 w-5" />
+            </button>
+            <span
+              className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+              } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+            >
+              Comunidades
+            </span>
+          </div>
+          <div className="relative group">
+            <button
+              type="button"
+              className={navButtonClass(activeNavKey === "contacts")}
+              aria-label="Novo contato ou conversa"
+              title="Novo contato ou conversa"
+              onClick={() => setActiveNavKey("contacts")}
+            >
+              <UserPlus className="h-5 w-5 text-blue-600 group-hover:text-white" />
+            </button>
+            <span
+              className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+              } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+            >
+              Novo contato/conversa
+            </span>
+          </div>
           <div className="mt-auto flex flex-col items-center gap-3">
             <div className={`h-px w-8 ${navRailDivider}`} />
-            <button type="button" className={navButtonClass(isSettingsOpen)} onClick={() => setIsSettingsOpen(true)}>
-              <Settings className="h-5 w-5" />
-            </button>
+            <div className="relative group">
+              <button
+                type="button"
+                className={navButtonClass(activeNavKey === "settings")}
+                onClick={() => {
+                  setActiveNavKey("settings");
+                  setIsSettingsOpen(true);
+                  setIsProfileOpen(false);
+                  setProfileTarget(null);
+                  setActiveSettingKey(null);
+                setIsNewChatOpen(false);
+                setIsNewChatEmailOpen(false);
+                setIsNewGroupOpen(false);
+                setIsCommunityListOpen(false);
+                setIsGroupsPanelOpen(false);
+                setIsGroupCreateOpen(false);
+                setIsNewContactOpen(false);
+                setIsGroupsExpanded(false);
+              }}
+                aria-label="Configurações"
+                title="Configurações"
+              >
+                <Settings className="h-5 w-5" />
+              </button>
+              <span
+                className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                  isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+                } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+              >
+                Configurações
+              </span>
+            </div>
           </div>
         </nav>
         {isSettingsOpen ? (
           <>
             <aside
-              className={`flex w-full flex-col border-b ${settingsBorder} ${settingsPanelBase} lg:w-[340px] lg:border-b-0 lg:border-r`}
+              className={`flex w-full flex-col border-b border-t ${settingsBorder} ${settingsPanelBase} lg:w-[340px] lg:border-b-0 lg:border-l lg:border-r lg:rounded-tl-md`}
             >
               {activeSettingKey === "general" ? (
                 <div className="flex h-full flex-col">
@@ -1593,14 +1945,26 @@ export default function KnexChatPage() {
                     </div>
                   </div>
                   <div className={`border-b px-5 py-3 ${settingsBorder}`}>
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`grid h-10 w-10 place-items-center rounded-full text-sm font-semibold ${
-                          isDarkTheme ? "bg-[#0d0d0d] text-slate-100" : "bg-slate-900 text-white"
-                        }`}
-                      >
-                        {getAvatarText(currentUser?.name ?? "KN")}
-                      </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProfile("self")}
+                      className="flex w-full items-center gap-3 text-left"
+                    >
+                      {currentUser?.avatarUrl ? (
+                        <img
+                          src={currentUser.avatarUrl}
+                          alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                          className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                        />
+                      ) : (
+                        <div
+                          className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-sm font-semibold ${
+                            isDarkTheme ? "bg-[#0d0d0d] text-slate-100" : "bg-slate-900 text-white"
+                          }`}
+                        >
+                          {getAvatarText(currentUser?.name ?? "KN")}
+                        </div>
+                      )}
                       <div>
                         <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
                           {currentUser?.name ?? "Participante"}
@@ -1610,7 +1974,7 @@ export default function KnexChatPage() {
                         </p>
                         <p className={`text-[10px] ${settingsMuted}`}>"Onde há igualdade, a amizade não perde."</p>
                       </div>
-                    </div>
+                    </button>
                   </div>
                   <div className="flex-1 px-4 py-2">
                     <div className="space-y-0.5">
@@ -1665,7 +2029,11 @@ export default function KnexChatPage() {
                 </>
               )}
             </aside>
-            <section className={`flex min-h-0 flex-1 ${isDarkTheme ? "bg-[#141414]" : "bg-slate-50"}`}>
+            <section
+              className={`flex min-h-0 flex-1 border-t ${settingsBorder} ${
+                isDarkTheme ? "bg-[#141414]" : "bg-slate-50"
+              }`}
+            >
               {activeSettingKey === "chats" && isWallpaperModalOpen ? (
                 <div className="flex h-full w-full flex-col p-6">
                   <p className={`text-xs font-semibold ${settingsMuted}`}>Pré-visualizar papel de parede</p>
@@ -1742,344 +2110,1239 @@ export default function KnexChatPage() {
           </>
         ) : (
           <>
-        <aside className="flex w-full flex-col border-b border-[var(--knex-700)] bg-[var(--knex-850)]/60 lg:w-80 lg:border-b-0 lg:border-r">
-          <div className="flex flex-col gap-4 border-b border-[var(--knex-700)] px-4 py-4">
-            <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-900 text-base font-semibold text-emerald-200">
-                {currentUser?.avatarText ?? "KN"}
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
-                <p className="text-xs text-slate-900">{currentUser?.email}</p>
-              </div>
-            </div>
-            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-              {FILTERS.map((filter) => {
-                const isActive = filter.key === activeFilter;
-                return (
-                  <button
-                    key={filter.key}
-                    type="button"
-                    onClick={() => setActiveFilter(filter.key)}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
-                      isDarkTheme
-                        ? isActive
-                          ? "bg-emerald-500/30 text-emerald-100"
-                          : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
-                        : isActive
-                          ? "border border-blue-200 bg-blue-100 text-blue-800"
-                          : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto px-3 py-4">
-            <div className="space-y-2">
-              {activeThreads.map((thread) => {
-                const isActive = thread.id === activeThread?.id;
-                return (
-                  <button
-                    key={thread.id}
-                    type="button"
-                    onClick={() => setActiveThreadId(thread.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
-                      isDarkTheme ? "" : "font-['Arial']"
-                    } ${
-                      isActive
-                        ? isDarkTheme
-                          ? "border-emerald-500/40 bg-emerald-500/10"
-                          : "border-blue-200 bg-blue-50"
-                        : isDarkTheme
-                          ? "border-transparent bg-slate-900/40 hover:border-slate-700/70"
-                          : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50"
-                    }`}
-                  >
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
-                      {thread.avatarUrl ? (
-                        <img
-                          src={thread.avatarUrl}
-                          alt={`Avatar de ${thread.title}`}
-                          className="h-12 w-12 rounded-2xl object-cover"
-                        />
-                      ) : (
-                        <div
-                          className={`grid h-12 w-12 place-items-center rounded-2xl text-xs font-semibold ${
-                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
-                          }`}
-                        >
-                          {getAvatarText(thread.title)}
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <p
-                          className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
-                        >
-                          {thread.title}
-                        </p>
-                        <p className={`truncate text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
-                          {thread.preview}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <span className={`text-[11px] ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
-                        {thread.lastActivity}
-                      </span>
-                      {thread.unread ? (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                            isDarkTheme ? "bg-blue-500 text-white" : "bg-blue-600 text-white"
-                          }`}
-                        >
-                          {thread.unread}
-                        </span>
-                      ) : null}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </aside>
-
-        <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--knex-700)] bg-[var(--knex-850)]/40 px-4 py-3">
-            <div>
-              <p
-                className={`${spaceGrotesk.className} text-lg font-semibold ${
-                  isDarkTheme ? "text-slate-100" : "text-slate-900"
-                }`}
-              >
-                {activeThread?.title ?? "Selecione uma conversa"}
-              </p>
-              <div className={`mt-1 flex items-center gap-2 text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-500"}`}>
-                <span className={`h-2 w-2 rounded-full ${headerInfo.dotClass}`} />
-                <span>{headerInfoItems[headerInfoStep] ?? ""}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-label="Iniciar videochamada"
-                className={`rounded-full p-2 transition ${
-                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                }`}
-              >
-                <Video className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                aria-label="Iniciar chamada"
-                className={`rounded-full p-2 transition ${
-                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                }`}
-              >
-                <Phone className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                aria-label="Buscar na conversa"
-                className={`rounded-full p-2 transition ${
-                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                }`}
-              >
-                <Search className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                aria-label="Mais opções"
-                className={`rounded-full p-2 transition ${
-                  isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                }`}
-              >
-                <MoreVertical className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          <div
-            className="relative flex-1 min-h-0 transition-colors"
-            style={wallpaperColor ? { backgroundColor: wallpaperColor } : undefined}
+        {isProfileOpen ? (
+          <aside
+            className={`flex w-full flex-col border-b border-t ${settingsBorder} ${
+              isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
+            } lg:w-96 lg:border-b-0 lg:border-l lg:border-r lg:rounded-tl-md lg:overflow-hidden`}
           >
-            <div className="absolute inset-0 overflow-y-auto px-4 py-6">
-              {pendingJoinToken ? (
-                <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">Convite detectado</p>
-                      <p className="text-xs text-emerald-100/80">
-                        Token: {pendingJoinToken} - Clique para entrar no grupo.
+            <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+              <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Perfil</span>
+              <button
+                type="button"
+                onClick={handleCloseProfile}
+                className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                aria-label="Voltar"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex flex-col items-center gap-3 px-4 py-6">
+              <div className="flex items-center gap-3">
+                <label
+                  className="group relative cursor-pointer"
+                  aria-label={profileAvatarCta ?? "Adicionar foto de perfil"}
+                  title={profileAvatarCta}
+                >
+                  {profileData?.avatarUrl ? (
+                    <img
+                      src={profileData.avatarUrl}
+                      alt={`Avatar de ${profileData.title}`}
+                      className={`h-32 w-32 ${avatarFrameLg} object-cover`}
+                    />
+                  ) : (
+                    <div
+                      className={`grid h-32 w-32 place-items-center ${avatarFrameLg} text-lg font-semibold ${
+                        isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      {profileData?.avatarText ?? "KN"}
+                    </div>
+                  )}
+                  <span
+                    className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${avatarFrameLg} bg-black/55 px-3 text-center text-[11px] font-semibold text-white opacity-0 transition group-hover:opacity-100 ${
+                      isDarkTheme ? "bg-black/60" : "bg-slate-900/65"
+                    }`}
+                  >
+                    <ImageIcon className="h-5 w-5" />
+                    <span>{profileAvatarCta}</span>
+                  </span>
+                  <input type="file" accept="image/*" className="sr-only" onChange={handleProfileAvatarChange} />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsProfileAvatarPreviewOpen(true)}
+                  className={`flex h-11 w-11 items-center justify-center rounded-full border transition ${
+                    isDarkTheme
+                      ? "border-white/10 text-slate-200 hover:bg-white/10"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-100"
+                  }`}
+                  aria-label="Ampliar foto de perfil"
+                  title="Ampliar foto de perfil"
+                >
+                  <ZoomIn className="h-5 w-5" />
+                </button>
+              </div>
+              <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                {profileData?.title ?? "Perfil"}
+              </p>
+            </div>
+            <div className="space-y-5 px-4 pb-6 text-sm">
+              <div className="space-y-1">
+                <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Nome</p>
+                <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                  {profileData?.title ?? "Perfil"}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Recado</p>
+                <p className={`${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
+                  {profileData?.recado ?? "Sem recado"}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Telefone</p>
+                <p className={`${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
+                  {profileData?.phone ?? "Não informado"}
+                </p>
+              </div>
+            </div>
+          </aside>
+        ) : (
+          <aside
+            className={`flex w-full flex-col border-b border-t ${settingsBorder} ${
+              isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
+            } lg:w-96 lg:border-b-0 lg:border-l lg:border-r lg:rounded-tl-md lg:overflow-hidden`}
+          >
+            {isGroupsPanelOpen ? (
+              <div className={`flex flex-col gap-4 border-b px-4 py-4 ${settingsBorder}`}>
+                {isGroupCreateOpen ? (
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsGroupCreateOpen(false)}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-blue-200 hover:bg-blue-500/10" : "text-blue-600 hover:bg-blue-50"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <p className={`text-base font-semibold ${isDarkTheme ? "text-blue-200" : "text-blue-600"}`}>
+                      Novo grupo
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                        Grupos
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => setIsGroupCreateOpen(true)}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                          isDarkTheme
+                            ? "border-blue-400/60 text-blue-200 hover:bg-blue-500/10"
+                            : "border-blue-500 text-blue-600 hover:bg-blue-50"
+                        }`}
+                        aria-label="Novo grupo"
+                        title="Novo grupo"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
                     </div>
                     <button
                       type="button"
-                      onClick={handleAcceptJoin}
-                      className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
+                      onClick={() => setIsGroupCreateOpen(true)}
+                      className="flex items-center gap-3 text-left"
                     >
-                      Entrar
+                      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                        <Users2 className="h-5 w-5" />
+                      </span>
+                      <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                        Novo grupo
+                      </span>
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
+                <div className="flex items-center gap-3">
+                  {currentUser?.avatarUrl ? (
+                    <img
+                      src={currentUser.avatarUrl}
+                      alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                      className={`h-12 w-12 ${avatarFrameMd} object-cover`}
+                    />
+                  ) : (
+                    <div
+                      className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
+                    >
+                      {currentUser?.avatarText ?? "KN"}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                    Conversas
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition ${
+                        isDarkTheme
+                          ? "text-blue-300 hover:bg-white/10"
+                          : "text-blue-600 hover:bg-blue-50"
+                      }`}
+                      aria-label="Nova conversa"
+                      title="Nova conversa"
+                      onClick={() => {
+                        setIsNewChatOpen(true);
+                        setIsNewChatEmailOpen(false);
+                        setIsNewGroupOpen(false);
+                        setIsCommunityListOpen(false);
+                        setIsGroupsPanelOpen(false);
+                        setIsGroupCreateOpen(false);
+                        setIsGroupsExpanded(false);
+                        setIsNewContactOpen(false);
+                      }}
+                    >
+                      <MessageCirclePlus className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme
+                          ? "text-slate-200 hover:bg-white/10"
+                          : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                      aria-label="Mais opções"
+                      title="Mais opções"
+                    >
+                      <MoreVertical className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
-              ) : null}
-              <div className="space-y-4">
-                {activeMessages.map((message) => {
-                  const isMe = message.author === "me";
-                  const showSender = !isMe && activeThread?.tab === "groups";
-                  const senderLabel = message.senderName ?? "Participante";
-                  const senderColorClass = getSenderColorClass(senderLabel);
-                  const bubbleBase = isMe
-                    ? "border-blue-500/30 bg-blue-600"
-                    : "border-slate-200 bg-white";
-                  const bubbleText = isMe ? "text-white" : "text-slate-900";
-                  const bubbleTime = isMe ? "text-blue-100" : "text-slate-500";
-                  const bubble = (
-                    <div className={`max-w-[72%] rounded-2xl border px-4 py-3 ${bubbleBase}`}>
-                      {showSender ? (
-                        <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
-                      ) : null}
-                      <p className={`text-sm ${bubbleText}`}>{message.body}</p>
-                      <p className={`mt-1 text-[11px] ${bubbleTime}`}>{message.time}</p>
+                {isNewChatOpen ? null : (
+                  <div
+                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                      isDarkTheme
+                        ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
+                        : "border-blue-400 bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                    <input
+                      type="text"
+                      placeholder="Pesquisar conversas"
+                      value={conversationSearch}
+                      onChange={(event) => setConversationSearch(event.target.value)}
+                      className={`w-full bg-transparent text-xs placeholder:font-medium focus:outline-none ${
+                        isDarkTheme
+                          ? "placeholder:text-slate-400 text-slate-100"
+                          : "placeholder:text-slate-400 text-slate-700"
+                      }`}
+                    />
+                  </div>
+                )}
+                {isNewChatOpen ? null : (
+                  <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+                    {FILTERS.map((filter) => {
+                      const isActive = filter.key === activeFilter;
+                      return (
+                        <button
+                          key={filter.key}
+                          type="button"
+                          onClick={() => setActiveFilter(filter.key)}
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                            isDarkTheme
+                              ? isActive
+                                ? "bg-emerald-500/30 text-emerald-100"
+                                : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                              : isActive
+                                ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                          }`}
+                        >
+                          {filter.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto px-3 py-4">
+              {isGroupsPanelOpen ? (
+                isGroupCreateOpen ? (
+                  <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-10 text-center">
+                    <div className="relative">
+                      <div
+                        className={`grid h-32 w-32 place-items-center rounded-full border-2 ${
+                          isDarkTheme ? "border-blue-400/40 bg-blue-500/10" : "border-blue-300 bg-blue-50"
+                        }`}
+                      >
+                        <div
+                          className={`grid h-16 w-12 place-items-center rounded-2xl border ${
+                            isDarkTheme ? "border-blue-400/60 bg-[#0f1012]" : "border-blue-300 bg-white"
+                          }`}
+                        >
+                          <div className="flex flex-col gap-1">
+                            <span className="h-1 w-8 rounded-full bg-blue-500/70" />
+                            <span className="h-1 w-8 rounded-full bg-blue-500/70" />
+                            <span className="h-1 w-6 rounded-full bg-blue-500/70" />
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={`absolute -bottom-1 -right-1 grid h-10 w-10 place-items-center rounded-full ${
+                          isDarkTheme ? "bg-blue-500 text-white" : "bg-blue-600 text-white"
+                        }`}
+                      >
+                        <span className="flex items-center justify-center gap-0.5">
+                          <Users2 className="h-4 w-4" />
+                          <Plus className="h-3 w-3 stroke-[2.5]" />
+                        </span>
+                      </div>
                     </div>
-                  );
-                  const incomingAvatar = activeThread?.tab === "groups" && activeThread.avatarUrl ? (
+                    <p className={`mt-6 text-lg font-semibold ${isDarkTheme ? "text-blue-200" : "text-blue-700"}`}>
+                      Criar grupo
+                    </p>
+                    <p className={`mt-2 max-w-xs text-xs ${settingsMuted}`}>
+                      Reúna pessoas para conversar em um só lugar. Crie grupos para organizar temas e compartilhar avisos.
+                    </p>
+                    <button
+                      type="button"
+                      className={`mt-4 text-xs font-semibold ${
+                        isDarkTheme ? "text-blue-200" : "text-blue-600"
+                      }`}
+                    >
+                      Exemplos de grupos
+                    </button>
+                    <button
+                      type="button"
+                      className={`mt-8 rounded-full px-6 py-2 text-sm font-semibold text-white transition ${
+                        isDarkTheme ? "bg-blue-500 hover:bg-blue-400" : "bg-blue-600 hover:bg-blue-500"
+                      }`}
+                    >
+                      Começar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {(isGroupsExpanded ? groups : groups.slice(0, 2)).map((group) => (
+                      <button
+                        key={group.id}
+                        type="button"
+                        className={`flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition ${
+                          isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                        }`}
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          {group.avatarUrl ? (
+                            <img
+                              src={group.avatarUrl}
+                              alt={`Avatar de ${group.title}`}
+                              className={`h-11 w-11 ${avatarFrameMd} object-cover`}
+                            />
+                          ) : (
+                            <div
+                              className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {getAvatarText(group.title)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                              {group.title}
+                            </p>
+                            <p className={`truncate text-xs ${settingsMuted}`}>{group.preview}</p>
+                          </div>
+                        </div>
+                        <span className={`text-[11px] ${settingsMuted}`}>{group.lastActivity}</span>
+                      </button>
+                    ))}
+                    {groups.length > 2 ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsGroupsExpanded((prev) => !prev)}
+                        className="px-1 text-sm font-semibold text-blue-600"
+                      >
+                        {isGroupsExpanded ? "Ver menos" : "Ver todos"}
+                      </button>
+                    ) : null}
+                  </div>
+                )
+              ) : isNewChatOpen ? (
+                <div className={`flex h-full flex-col rounded-2xl ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                  <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+                  <button
+                    type="button"
+                      onClick={() => {
+                        if (isNewChatEmailOpen) {
+                          setIsNewChatEmailOpen(false);
+                        } else if (isNewGroupOpen) {
+                          setIsNewGroupOpen(false);
+                        } else if (isCommunityListOpen) {
+                          setIsCommunityListOpen(false);
+                        } else if (isNewContactOpen) {
+                          setIsNewContactOpen(false);
+                        } else {
+                          setIsNewChatOpen(false);
+                          setIsNewChatEmailOpen(false);
+                          setIsNewGroupOpen(false);
+                          setIsCommunityListOpen(false);
+                          setIsNewContactOpen(false);
+                        }
+                      }}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                        aria-label="Voltar"
+                      >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      {isNewGroupOpen
+                        ? "Adicionar pessoas ao grupo"
+                        : isNewChatEmailOpen
+                          ? "E-mail"
+                          : isCommunityListOpen
+                            ? "Comunidades"
+                          : isNewContactOpen
+                            ? "Novo contato"
+                            : "Nova conversa"}
+                    </p>
+                    {isCommunityListOpen ? (
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                          isDarkTheme
+                            ? "border-blue-400/60 text-blue-200 hover:bg-blue-500/10"
+                            : "border-blue-500 text-blue-600 hover:bg-blue-50"
+                        }`}
+                        aria-label="Nova comunidade"
+                        title="Nova comunidade"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    ) : isNewGroupOpen || isNewChatEmailOpen || isNewContactOpen ? (
+                      <span className="h-8 w-8" aria-hidden="true" />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsNewChatEmailOpen(true)}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                        aria-label="Opções"
+                      >
+                        <Grip className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {isNewChatEmailOpen ? (
+                    <>
+                      <div className="border-b px-4 py-3">
+                        <div
+                          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-blue-400/60 text-slate-200"
+                              : "border-blue-400 text-slate-600"
+                          }`}
+                        >
+                          <AtSign className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="email"
+                            value={newChatEmail}
+                            onChange={(event) => setNewChatEmail(event.target.value)}
+                            placeholder="nome@exemplo.com"
+                            className={`w-full bg-transparent text-xs focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                        </div>
+                        <p className={`mt-3 text-xs ${settingsMuted}`}>
+                          Insira um e-mail para iniciar uma conversa
+                        </p>
+                      </div>
+                      <div className="flex-1 px-4 py-6">
+                        <div className="grid grid-cols-2 gap-3">
+                          {["@knexit.com", "@gmail.com", "@outlook.com", "@icloud.com"].map((domain) => (
+                            <button
+                              key={domain}
+                              type="button"
+                              onClick={() =>
+                                setNewChatEmail((prev) => {
+                                  if (!prev || prev.includes("@")) return prev;
+                                  return `${prev}${domain}`;
+                                })
+                              }
+                              className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                                isDarkTheme
+                                  ? "border-blue-400/30 text-blue-200 hover:bg-blue-500/10"
+                                  : "border-blue-200 text-blue-600 hover:bg-blue-50"
+                              }`}
+                            >
+                              {domain}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : isNewGroupOpen ? (
+                    <>
+                      <div className="border-b px-4 py-3">
+                        <div
+                          className={`flex items-center gap-2 border-b px-1 py-2 text-xs ${
+                            isDarkTheme ? "border-blue-400/60 text-slate-200" : "border-blue-400 text-slate-600"
+                          }`}
+                        >
+                          <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="text"
+                            placeholder="Pesquisar nome ou número"
+                            value={newGroupSearch}
+                            onChange={(event) => setNewGroupSearch(event.target.value)}
+                            className={`w-full bg-transparent text-xs focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto px-4 py-4">
+                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>#</p>
+                        <div className="mt-3 space-y-3">
+                          {filteredGroupContacts.map((contact) => (
+                            <button
+                              key={contact.id}
+                              type="button"
+                              className="flex w-full items-center gap-3 text-left"
+                            >
+                              {contact.avatarUrl ? (
+                                <img
+                                  src={contact.avatarUrl}
+                                  alt={`Avatar de ${contact.title}`}
+                                  className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                                />
+                              ) : (
+                                <div
+                                  className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                                    isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                  }`}
+                                >
+                                  {getAvatarText(contact.title)}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p
+                                  className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+                                >
+                                  {contact.title}
+                                </p>
+                                <p className={`truncate text-xs ${settingsMuted}`}>{contact.preview}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : isCommunityListOpen ? (
+                    <div className="flex-1 px-4 py-4">
+                      <button type="button" className="flex items-center gap-3 text-left">
+                        <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                          <Shapes className="h-5 w-5" />
+                        </span>
+                        <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          Nova comunidade
+                        </span>
+                      </button>
+                      <div className="mt-6 space-y-4">
+                        {[
+                          {
+                            id: "comm-uab",
+                            title: "Comunidade Polo UAB Rio Branco",
+                            preview: "Avisos",
+                            lastActivity: "15/11/2025",
+                          },
+                          {
+                            id: "comm-ufac",
+                            title: "Ufac - Especialização em Educação",
+                            preview: "~ Escobar: Tranquilo, obrigado pensei que já estav...",
+                            lastActivity: "19/12/2025",
+                          },
+                        ].map((community) => (
+                          <button key={community.id} type="button" className="flex w-full items-center gap-3 text-left">
+                            <div
+                              className={`grid h-11 w-11 place-items-center ${avatarFrameMd} ${
+                                isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              <Shapes className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+                              >
+                                {community.title}
+                              </p>
+                              <p className={`truncate text-xs ${settingsMuted}`}>{community.preview}</p>
+                            </div>
+                            <span className={`text-[11px] ${settingsMuted}`}>{community.lastActivity}</span>
+                          </button>
+                        ))}
+                        <button type="button" className="px-1 text-sm font-semibold text-blue-600">
+                          Ver todos
+                        </button>
+                      </div>
+                    </div>
+                  ) : isNewContactOpen ? (
+                    <div className="flex-1 px-4 py-4">
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3 border-b pb-2">
+                          <User className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="text"
+                            value={newContactFirstName}
+                            onChange={(event) => setNewContactFirstName(event.target.value)}
+                            placeholder="Nome"
+                            className={`w-full bg-transparent text-sm focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                        </div>
+                        <div className="flex items-center gap-3 border-b pb-2">
+                          <User className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="text"
+                            value={newContactLastName}
+                            onChange={(event) => setNewContactLastName(event.target.value)}
+                            placeholder="Sobrenome"
+                            className={`w-full bg-transparent text-sm focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                        </div>
+                        <div className="flex items-center gap-3 border-b pb-2">
+                          <Mail className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="email"
+                            value={newContactEmail}
+                            onChange={(event) => setNewContactEmail(event.target.value)}
+                            placeholder="E-mail"
+                            className={`w-full bg-transparent text-sm focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-3 border-b pb-2">
+                            <Phone className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                            <button
+                              type="button"
+                              className={`flex items-center gap-2 text-sm font-semibold ${
+                                isDarkTheme ? "text-slate-200" : "text-slate-700"
+                              }`}
+                            >
+                              BR +55
+                              <ChevronDown className="h-4 w-4" />
+                            </button>
+                            <input
+                              type="text"
+                              value={newContactPhone}
+                              onChange={(event) => setNewContactPhone(event.target.value)}
+                              placeholder="Número de telefone"
+                              className={`w-full bg-transparent text-sm font-['Arial'] focus:outline-none ${
+                                isDarkTheme
+                                  ? "placeholder:text-slate-400 text-slate-100"
+                                  : "placeholder:text-slate-400 text-slate-700"
+                              }`}
+                            />
+                            {isNewContactPhoneValid ? (
+                              <Check className="h-5 w-5 text-blue-600" aria-label="Número válido" />
+                            ) : null}
+                          </div>
+                          <p className={`mt-2 text-xs ${settingsMuted}`}>
+                            O e-mail é a chave principal. Associe um número de telefone para facilitar o contato.
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl border px-4 py-3">
+                          <div className="flex items-start gap-3">
+                            <Smartphone className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                            <div>
+                              <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                                Sincronizar contato com celular
+                              </p>
+                              <p className={`text-xs ${settingsMuted}`}>
+                                O contato será adicionado à lista do seu dispositivo.
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setNewContactSync((prev) => !prev)}
+                            className={`relative h-6 w-11 rounded-full border transition ${
+                              newContactSync
+                                ? "border-blue-500 bg-blue-500"
+                                : isDarkTheme
+                                  ? "border-[#3a3a3a] bg-[#1f1f1f]"
+                                  : "border-slate-300 bg-white"
+                            }`}
+                            aria-pressed={newContactSync}
+                          >
+                            <span
+                              className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
+                                newContactSync ? "translate-x-[13px]" : "translate-x-0"
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="border-b px-4 py-3">
+                        <div
+                          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-blue-400/60 text-slate-200"
+                              : "border-blue-400 text-slate-600"
+                          }`}
+                        >
+                          <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="text"
+                            placeholder="Pesquisar nome ou número"
+                            value={newChatSearch}
+                            onChange={(event) => setNewChatSearch(event.target.value)}
+                            className={`w-full bg-transparent text-xs focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3 border-b px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsNewGroupOpen(true);
+                            setIsNewChatEmailOpen(false);
+                          }}
+                          className="flex items-center gap-3 text-left"
+                        >
+                          <span className="flex h-11 w-11 items-center justify-center gap-[1px] rounded-2xl bg-blue-600 text-white">
+                            <Users2 className="h-5 w-5" />
+                            <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
+                          </span>
+                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Novo grupo
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsNewContactOpen(true);
+                            setIsNewChatEmailOpen(false);
+                            setIsNewGroupOpen(false);
+                          }}
+                          className="flex items-center gap-3 text-left"
+                        >
+                          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                            <UserPlus className="h-5 w-5" />
+                          </span>
+                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Novo contato
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCommunityListOpen(true);
+                            setIsNewChatEmailOpen(false);
+                            setIsNewGroupOpen(false);
+                            setIsNewContactOpen(false);
+                          }}
+                          className="flex items-center gap-3 text-left"
+                        >
+                          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                            <Shapes className="h-5 w-5" />
+                          </span>
+                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Nova comunidade
+                          </span>
+                        </button>
+                        <button type="button" className="flex items-center gap-3 text-left">
+                          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                            <MessageSquare className="h-5 w-5" />
+                          </span>
+                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Novo Fórum
+                          </span>
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto px-4 py-4">
+                        <p className={`text-xs font-semibold ${settingsMuted}`}>Contatos no KnexChat</p>
+                        <div className="mt-3 space-y-3">
+                          {filteredNewChatContacts.map((contact) => (
+                            <button
+                              key={contact.id}
+                              type="button"
+                              className="flex w-full items-center gap-3 text-left"
+                            >
+                              {contact.avatarUrl ? (
+                                <img
+                                  src={contact.avatarUrl}
+                                  alt={`Avatar de ${contact.title}`}
+                                  className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                                />
+                              ) : (
+                                <div
+                                  className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                                    isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                  }`}
+                                >
+                                  {getAvatarText(contact.title)}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p
+                                  className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+                                >
+                                  {contact.title}
+                                </p>
+                                <p className={`truncate text-xs ${settingsMuted}`}>{contact.preview}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredActiveThreads.map((thread) => {
+                    const isActive = thread.id === activeThread?.id;
+                    const threadAvatarUrl = threadAvatarOverrides[thread.id] ?? thread.avatarUrl;
+                    return (
+                      <button
+                        key={thread.id}
+                        type="button"
+                        onClick={() => setActiveThreadId(thread.id)}
+                        className={`flex w-full items-center justify-between rounded-2xl border px-3 py-1 text-left transition ${
+                          isDarkTheme ? "" : "font-['Arial']"
+                        } ${
+                          isActive
+                            ? isDarkTheme
+                              ? "border-emerald-500/40 bg-emerald-500/10"
+                              : "border-blue-200 bg-blue-50"
+                            : isDarkTheme
+                              ? "border-transparent bg-slate-900/40 hover:border-slate-700/70"
+                              : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50"
+                        }`}
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          {threadAvatarUrl ? (
+                            <img
+                              src={threadAvatarUrl}
+                              alt={`Avatar de ${thread.title}`}
+                              className={`h-12 w-12 ${avatarFrameMd} object-cover`}
+                            />
+                          ) : (
+                            <div
+                              className={`grid h-12 w-12 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {getAvatarText(thread.title)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p
+                              className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+                            >
+                              {thread.title}
+                            </p>
+                            <p className={`truncate text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
+                              {thread.preview}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className={`text-[11px] ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
+                            {thread.lastActivity}
+                          </span>
+                          {thread.unread ? (
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                isDarkTheme ? "bg-blue-500 text-white" : "bg-blue-600 text-white"
+                              }`}
+                            >
+                              {thread.unread}
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+
+        <section className={`flex min-h-0 flex-1 flex-col overflow-hidden ${messagePanelBg}`}>
+          {isProfileOpen ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className={`border-b border-t ${settingsBorder} px-6 py-4`}>
+                <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Publicações</p>
+                <p className={`text-xs ${isDarkTheme ? "text-slate-400" : "text-slate-500"}`}>
+                  Feed de {profileData?.title ?? "participante"}
+                </p>
+              </div>
+              <div className="flex flex-1 items-center justify-center p-6">
+                <div className="text-center">
+                  <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-200" : "text-slate-900"}`}>
+                    Nenhuma postagem ainda
+                  </p>
+                  <p className={`mt-1 text-xs ${isDarkTheme ? "text-slate-400" : "text-slate-500"}`}>
+                    As postagens de status deste participante aparecerão aqui.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div
+                className={`flex flex-wrap items-center justify-between gap-3 border-b border-t ${settingsBorder} ${
+                  isDarkTheme ? "bg-[var(--knex-850)]/40 text-white" : "bg-slate-50"
+                } px-4 py-0`}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleOpenProfile("thread")}
+                  className="flex items-center gap-3 text-left"
+                  title="Abrir perfil"
+                >
+                  {activeThread ? (
+                    activeThreadAvatarUrl ? (
+                      <img
+                        src={activeThreadAvatarUrl}
+                        alt={`Avatar de ${activeThread.title}`}
+                        className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {getAvatarText(activeThread.title)}
+                      </div>
+                    )
+                  ) : null}
+                  <div>
+                    <p
+                      className={`${spaceGrotesk.className} text-lg font-semibold ${
+                        isDarkTheme ? "text-slate-100" : "text-slate-900"
+                      }`}
+                    >
+                      {activeThread?.title ?? "Selecione uma conversa"}
+                    </p>
+                    <div className={`mt-1 flex items-center gap-2 text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-500"}`}>
+                      <span className={`h-2 w-2 rounded-full ${headerInfo.dotClass}`} />
+                      <span>{headerInfoItems[headerInfoStep] ?? ""}</span>
+                    </div>
+                  </div>
+                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    aria-label="Iniciar videochamada"
+                    className={`rounded-full p-2 transition ${
+                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                    }`}
+                  >
+                    <Video className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Iniciar chamada"
+                    className={`rounded-full p-2 transition ${
+                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                    }`}
+                  >
+                    <Phone className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Buscar na conversa"
+                    className={`rounded-full p-2 transition ${
+                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                    }`}
+                  >
+                    <Search className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Mais opções"
+                    className={`rounded-full p-2 transition ${
+                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                    }`}
+                  >
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div
+                className={`relative flex-1 min-h-0 transition-colors ${messagePanelBg}`}
+                style={messagePanelBodyStyle}
+              >
+                <div className="absolute inset-0 overflow-y-auto px-6 py-6">
+                  {pendingJoinToken ? (
+                    <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">Convite detectado</p>
+                          <p className="text-xs text-emerald-100/80">
+                            Token: {pendingJoinToken} - Clique para entrar no grupo.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAcceptJoin}
+                          className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
+                        >
+                          Entrar
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="space-y-4">
+                    {activeMessages.map((message) => {
+                      const isMe = message.author === "me";
+                      const isGroupChat = activeThread?.tab === "groups";
+                      const showSender = !isMe && isGroupChat;
+                      const senderLabel = message.senderName ?? "Participante";
+                      const senderColorClass = getSenderColorClass(senderLabel);
+                      const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
+                      const bubble = (
+                        <div className={`knex-bubble ${bubbleVariant}`}>
+                          {showSender ? (
+                            <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
+                          ) : null}
+                          <p className="knex-bubble__text">{message.body}</p>
+                          <p className="knex-bubble__time">{message.time}</p>
+                        </div>
+                      );
+                  const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
                     <img
-                      src={activeThread.avatarUrl}
+                      src={activeThreadAvatarUrl}
                       alt={`Avatar de ${activeThread.title}`}
-                      className="h-9 w-9 rounded-xl object-cover"
+                      className={`h-9 w-9 ${avatarFrameXs} object-cover`}
                     />
                   ) : (
-                    <div className="grid h-9 w-9 place-items-center rounded-xl bg-slate-900 text-xs font-semibold text-slate-200">
+                    <div
+                      className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
+                    >
                       {getAvatarText(activeThread?.title ?? "KN")}
                     </div>
                   );
-                  return (
-                    <div
-                      key={message.id}
-                      className={`flex gap-3 ${isMe ? "items-end justify-end" : "items-start justify-start"}`}
-                    >
-                      {!isMe ? (
-                        <>
-                          {incomingAvatar}
-                          {bubble}
-                        </>
+                      const showIncomingAvatar = !isMe && isGroupChat;
+                      const showOutgoingAvatar = isMe && isGroupChat;
+                    return (
+                      <div
+                        key={message.id}
+                        className={`flex ${isMe ? "items-end justify-end" : "items-start justify-start"} ${
+                          isGroupChat ? "gap-3" : "gap-0"
+                        }`}
+                      >
+                        {!isMe ? (
+                          <>
+                            {showIncomingAvatar ? incomingAvatar : null}
+                            {bubble}
+                          </>
+                        ) : (
+                          bubble
+                        )}
+                    {showOutgoingAvatar ? (
+                      currentUser?.avatarUrl ? (
+                        <img
+                          src={currentUser.avatarUrl}
+                          alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                          className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                        />
                       ) : (
-                        bubble
-                      )}
-                      {isMe ? (
-                        <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-500/20 text-xs font-semibold text-emerald-200">
+                        <div
+                          className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-emerald-500/20 text-xs font-semibold text-emerald-200`}
+                        >
                           {currentUser?.avatarText ?? "KN"}
                         </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="absolute inset-x-4 bottom-4">
-              <form
-                className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (recordingState === "idle") {
-                    handleSendMessage();
-                  }
-                }}
-              >
-                <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
-                  <button
-                    type="button"
-                    aria-label="Adicionar"
-                    className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Emojis"
-                    className="text-slate-600 transition hover:text-slate-900"
-                  >
-                    <Smile className="h-5 w-5" />
-                  </button>
-                  <input
-                    type="text"
-                    value={messageDraft}
-                    onChange={(event) => setMessageDraft(event.target.value)}
-                    placeholder="Digite uma mensagem"
-                    className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
-                  />
-                  {recordingState !== "idle" ? (
-                    <div className="ml-auto flex items-center gap-2">
-                      <button
-                        type="button"
-                        aria-label="Cancelar gravação"
-                        onClick={() => stopRecording("discard")}
-                        className="text-slate-500 transition hover:text-slate-900"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                      <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                        <span className="h-2 w-2 rounded-full bg-rose-500" />
-                        {formatDuration(recordingSeconds)}
-                      </span>
-                      <span className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`} aria-hidden="true">
-                        {Array.from({ length: 14 }).map((_, index) => (
-                          <span
-                            key={index}
-                            className="knex-record-bar"
-                            style={{ "--i": 13 - index } as CSSProperties}
-                          />
-                        ))}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
-                        onClick={toggleRecordingPause}
-                        className="text-slate-500 transition hover:text-slate-900"
-                      >
-                        {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                      </button>
-                      <Timer className="h-4 w-4 text-slate-400" />
-                      <button
-                        type="button"
-                        aria-label="Enviar áudio"
-                        onClick={() => stopRecording("send")}
-                        className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
-                      >
-                        <SendHorizontal className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label="Gravar áudio"
-                      onClick={startRecording}
-                      className="ml-auto text-blue-600 transition hover:text-blue-700"
-                    >
-                      <Mic className="h-5 w-5" />
-                    </button>
-                  )}
+                      )
+                    ) : null}
+                      </div>
+                    );
+                  })}
+                  </div>
                 </div>
-                {recordingState === "idle" && messageDraft.trim() ? (
-                  <button
-                    type="submit"
-                    className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+
+                <div className="absolute inset-x-4 bottom-0.5">
+                  <form
+                    className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (recordingState === "idle") {
+                        handleSendMessage();
+                      }
+                    }}
                   >
-                    Enviar
-                  </button>
-                ) : null}
-              </form>
-            </div>
-          </div>
+                    <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
+                      <button
+                        type="button"
+                        aria-label="Adicionar"
+                        className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Emojis"
+                        className="text-slate-600 transition hover:text-slate-900"
+                      >
+                        <Smile className="h-5 w-5" />
+                      </button>
+                      <input
+                        type="text"
+                        value={messageDraft}
+                        onChange={(event) => setMessageDraft(event.target.value)}
+                        placeholder="Digite uma mensagem"
+                        className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+                      />
+                      {recordingState !== "idle" ? (
+                        <div className="ml-auto flex items-center gap-2">
+                          <button
+                            type="button"
+                            aria-label="Cancelar gravação"
+                            onClick={() => stopRecording("discard")}
+                            className="text-slate-500 transition hover:text-slate-900"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <span className="h-2 w-2 rounded-full bg-rose-500" />
+                            {formatDuration(recordingSeconds)}
+                          </span>
+                          <span className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`} aria-hidden="true">
+                            {Array.from({ length: 14 }).map((_, index) => (
+                              <span
+                                key={index}
+                                className="knex-record-bar"
+                                style={{ "--i": 13 - index } as CSSProperties}
+                              />
+                            ))}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
+                            onClick={toggleRecordingPause}
+                            className="text-slate-500 transition hover:text-slate-900"
+                          >
+                            {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                          </button>
+                          <Timer className="h-4 w-4 text-slate-400" />
+                          <button
+                            type="button"
+                            aria-label="Enviar áudio"
+                            onClick={() => stopRecording("send")}
+                            className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
+                          >
+                            <SendHorizontal className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          aria-label="Gravar áudio"
+                          onClick={startRecording}
+                          className="ml-auto text-blue-600 transition hover:text-blue-700"
+                        >
+                          <Mic className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                    {recordingState === "idle" && messageDraft.trim() ? (
+                      <button
+                        type="submit"
+                        className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                      >
+                        Enviar
+                      </button>
+                    ) : null}
+                  </form>
+                </div>
+              </div>
+            </>
+          )}
         </section>
           </>
         )}
         </div>
       </div>
+      {isProfileOpen && isProfileAvatarPreviewOpen ? (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => setIsProfileAvatarPreviewOpen(false)}
+          role="presentation"
+        >
+          <div
+            className={`relative flex w-[92vw] max-w-none flex-col items-center gap-6 rounded-3xl p-8 shadow-2xl ${
+              isDarkTheme ? "bg-[#1b1b1b]" : "bg-white"
+            }`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setIsProfileAvatarPreviewOpen(false)}
+              className={`absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full transition ${
+                isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+              }`}
+              aria-label="Fechar pré-visualização"
+            >
+              <ChevronDown className="h-5 w-5" />
+            </button>
+            {profileData?.avatarUrl ? (
+              <img
+                src={profileData.avatarUrl}
+                alt={`Avatar ampliado de ${profileData.title}`}
+                className={`h-[min(78vh,78vw)] w-[min(78vh,78vw)] ${avatarFrameLg} object-cover`}
+              />
+            ) : (
+              <div
+                className={`grid h-[min(78vh,78vw)] w-[min(78vh,78vw)] place-items-center ${avatarFrameLg} text-2xl font-semibold ${
+                  isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {profileData?.avatarText ?? "KN"}
+              </div>
+            )}
+            <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+              Foto de perfil
+            </p>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
