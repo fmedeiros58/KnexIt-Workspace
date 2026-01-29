@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
+  ArrowRight,
+  X,
+  Camera,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -24,6 +27,7 @@ import {
   MessageSquare,
   MoreVertical,
   Plus,
+  FolderOpen,
   Smartphone,
   Users2,
   Pause,
@@ -44,6 +48,7 @@ import {
   Users,
   Video,
 } from "lucide-react";
+import EmojiPicker, { Theme } from "emoji-picker-react";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties } from "react";
 
@@ -636,15 +641,34 @@ export default function KnexChatPage() {
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isNewChatEmailOpen, setIsNewChatEmailOpen] = useState(false);
   const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
+  const [isNewGroupCreateOpen, setIsNewGroupCreateOpen] = useState(false);
   const [isGroupsPanelOpen, setIsGroupsPanelOpen] = useState(false);
   const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
   const [isCommunityListOpen, setIsCommunityListOpen] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
   const [isGroupsExpanded, setIsGroupsExpanded] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
   const [newChatSearch, setNewChatSearch] = useState("");
   const [newGroupSearch, setNewGroupSearch] = useState("");
   const [newChatEmail, setNewChatEmail] = useState("");
+  const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupImageUrl, setNewGroupImageUrl] = useState<string | null>(null);
+  const [isGroupImageMenuOpen, setIsGroupImageMenuOpen] = useState(false);
+  const groupImageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const groupImageCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const groupEmojiAnchorRef = useRef<HTMLDivElement | null>(null);
+  const groupEmojiMenuRef = useRef<HTMLDivElement | null>(null);
+  const [groupEmojiMenuStyle, setGroupEmojiMenuStyle] = useState<CSSProperties | null>(null);
+  const [groupEmojiSize, setGroupEmojiSize] = useState({ width: 420, height: 360 });
+  const [isGroupEmojiResizing, setIsGroupEmojiResizing] = useState(false);
+  const groupEmojiResizeRef = useRef<{
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
   const [newContactFirstName, setNewContactFirstName] = useState("");
   const [newContactLastName, setNewContactLastName] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
@@ -751,6 +775,94 @@ export default function KnexChatPage() {
       return haystack.includes(query);
     });
   }, [groupContacts, newGroupSearch]);
+  const selectedGroupMembers = useMemo(
+    () => groupContacts.filter((contact) => selectedGroupMemberIds.includes(contact.id)),
+    [groupContacts, selectedGroupMemberIds],
+  );
+
+  useEffect(() => {
+    if (!isNewGroupCreateOpen) {
+      setIsGroupEmojiOpen(false);
+    }
+  }, [isNewGroupCreateOpen]);
+
+  useEffect(() => {
+    if (!isGroupEmojiOpen) {
+      setGroupEmojiMenuStyle(null);
+      return;
+    }
+    if (!groupEmojiAnchorRef.current) return;
+    const margin = 12;
+    const updatePosition = () => {
+      if (!groupEmojiAnchorRef.current) return;
+      const anchor = groupEmojiAnchorRef.current.getBoundingClientRect();
+      const effectiveWidth = Math.min(groupEmojiSize.width, Math.floor(window.innerWidth * 0.8));
+      const effectiveHeight = Math.min(groupEmojiSize.height, Math.floor(window.innerHeight * 0.8));
+      let left = anchor.right + margin;
+      if (left + effectiveWidth > window.innerWidth - margin) {
+        left = window.innerWidth - effectiveWidth - margin;
+      }
+      if (left < margin) {
+        left = margin;
+      }
+      let top = anchor.bottom + margin;
+      if (top + effectiveHeight > window.innerHeight - margin) {
+        top = anchor.top - effectiveHeight - margin;
+      }
+      if (top < margin) {
+        top = margin;
+      }
+      setGroupEmojiMenuStyle({ left, top });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isGroupEmojiOpen, groupEmojiSize.width, groupEmojiSize.height]);
+
+  useEffect(() => {
+    if (!isGroupEmojiOpen || !groupEmojiMenuRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const nextWidth = Math.round(entry.contentRect.width);
+      const nextHeight = Math.round(entry.contentRect.height);
+      setGroupEmojiSize((prev) => {
+        if (prev.width === nextWidth && prev.height === nextHeight) return prev;
+        return { width: nextWidth, height: nextHeight };
+      });
+    });
+    observer.observe(groupEmojiMenuRef.current);
+    return () => observer.disconnect();
+  }, [isGroupEmojiOpen]);
+
+  useEffect(() => {
+    if (!isGroupEmojiResizing) return;
+    const handleMove = (event: MouseEvent) => {
+      if (!groupEmojiResizeRef.current) return;
+      const { startX, startY, startWidth, startHeight } = groupEmojiResizeRef.current;
+      const deltaX = event.clientX - startX;
+      const deltaY = event.clientY - startY;
+      const maxWidth = Math.floor(window.innerWidth * 0.8);
+      const maxHeight = Math.floor(window.innerHeight * 0.8);
+      const nextWidth = Math.min(Math.max(startWidth + deltaX, 280), maxWidth);
+      const nextHeight = Math.min(Math.max(startHeight + deltaY, 240), maxHeight);
+      setGroupEmojiSize({ width: nextWidth, height: nextHeight });
+    };
+    const handleUp = () => {
+      setIsGroupEmojiResizing(false);
+      groupEmojiResizeRef.current = null;
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [isGroupEmojiResizing]);
   const isNewContactPhoneValid = useMemo(() => {
     const digits = newContactPhone.replace(/\D/g, "");
     return digits.length >= 10;
@@ -819,9 +931,11 @@ export default function KnexChatPage() {
     setIsNewChatOpen(false);
     setIsNewChatEmailOpen(false);
     setIsNewGroupOpen(false);
+    setIsNewGroupCreateOpen(false);
     setIsCommunityListOpen(false);
     setIsGroupsPanelOpen(false);
     setIsGroupCreateOpen(false);
+    setSelectedGroupMemberIds([]);
     if (target === "thread") {
       setIsSettingsOpen(false);
       setActiveSettingKey(null);
@@ -854,6 +968,52 @@ export default function KnexChatPage() {
         setGroups(updateThread);
         setContacts(updateThread);
       }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const handleCreateGroup = () => {
+    const trimmedName = newGroupName.trim();
+    const groupId = `grp-${Date.now()}`;
+    const memberCount = selectedGroupMemberIds.length;
+    const title = trimmedName || "Novo grupo";
+    const newGroup: Thread = {
+      id: groupId,
+      title,
+      preview: memberCount ? `${memberCount} participante${memberCount === 1 ? "" : "s"} selecionado${memberCount === 1 ? "" : "s"}` : "Grupo criado",
+      lastActivity: "Agora",
+      tab: "groups",
+      avatarUrl: newGroupImageUrl ?? undefined,
+      onlineCount: memberCount,
+    };
+    setGroups((prev) => [newGroup, ...prev]);
+    setMessagesByThread((prev) => ({
+      ...prev,
+      [groupId]: [
+        { id: "m1", author: "them", body: "Grupo criado.", time: "Agora" },
+      ],
+    }));
+    setActiveFilter("groups");
+    setActiveThreadId(groupId);
+    setIsNewChatOpen(false);
+    setIsNewGroupOpen(false);
+    setIsNewGroupCreateOpen(false);
+    setIsCommunityListOpen(false);
+    setSelectedGroupMemberIds([]);
+    setNewGroupName("");
+    setNewGroupImageUrl(null);
+  };
+
+  const handleGroupImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      if (!result) return;
+      setNewGroupImageUrl(result);
+      setIsGroupImageMenuOpen(false);
     };
     reader.readAsDataURL(file);
     event.target.value = "";
@@ -1475,11 +1635,13 @@ export default function KnexChatPage() {
                 setIsNewChatOpen(false);
                 setIsNewChatEmailOpen(false);
                 setIsNewGroupOpen(false);
+                setIsNewGroupCreateOpen(false);
                 setIsCommunityListOpen(false);
                 setIsGroupsPanelOpen(false);
                 setIsGroupCreateOpen(false);
                 setIsNewContactOpen(false);
                 setIsGroupsExpanded(false);
+                setSelectedGroupMemberIds([]);
               }}
               aria-label="Conversas"
               title="Conversas"
@@ -1590,7 +1752,11 @@ export default function KnexChatPage() {
               title="Novo contato ou conversa"
               onClick={() => setActiveNavKey("contacts")}
             >
-              <UserPlus className="h-5 w-5 text-blue-600 group-hover:text-white" />
+              <UserPlus
+                className={`h-5 w-5 ${
+                  activeNavKey === "contacts" ? "text-white" : "text-blue-600 group-hover:text-white"
+                }`}
+              />
             </button>
             <span
               className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
@@ -1615,11 +1781,13 @@ export default function KnexChatPage() {
                 setIsNewChatOpen(false);
                 setIsNewChatEmailOpen(false);
                 setIsNewGroupOpen(false);
+                setIsNewGroupCreateOpen(false);
                 setIsCommunityListOpen(false);
                 setIsGroupsPanelOpen(false);
                 setIsGroupCreateOpen(false);
                 setIsNewContactOpen(false);
                 setIsGroupsExpanded(false);
+                setSelectedGroupMemberIds([]);
               }}
                 aria-label="Configurações"
                 title="Configurações"
@@ -2369,7 +2537,7 @@ export default function KnexChatPage() {
                 )}
               </div>
             )}
-            <div className="flex-1 overflow-y-auto px-3 py-4">
+            <div className={`flex-1 overflow-y-auto ${isNewChatOpen ? "px-0 py-0" : "px-3 py-4"}`}>
               {isGroupsPanelOpen ? (
                 isGroupCreateOpen ? (
                   <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-10 text-center">
@@ -2473,15 +2641,18 @@ export default function KnexChatPage() {
                   </div>
                 )
               ) : isNewChatOpen ? (
-                <div className={`flex h-full flex-col rounded-2xl ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                <div className={`flex h-full flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
                   <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
                   <button
                     type="button"
                       onClick={() => {
-                        if (isNewChatEmailOpen) {
+                        if (isNewGroupCreateOpen) {
+                          setIsNewGroupCreateOpen(false);
+                        } else if (isNewChatEmailOpen) {
                           setIsNewChatEmailOpen(false);
                         } else if (isNewGroupOpen) {
                           setIsNewGroupOpen(false);
+                          setSelectedGroupMemberIds([]);
                         } else if (isCommunityListOpen) {
                           setIsCommunityListOpen(false);
                         } else if (isNewContactOpen) {
@@ -2490,6 +2661,7 @@ export default function KnexChatPage() {
                           setIsNewChatOpen(false);
                           setIsNewChatEmailOpen(false);
                           setIsNewGroupOpen(false);
+                          setIsNewGroupCreateOpen(false);
                           setIsCommunityListOpen(false);
                           setIsNewContactOpen(false);
                         }
@@ -2502,17 +2674,21 @@ export default function KnexChatPage() {
                       <ChevronLeft className="h-5 w-5" />
                     </button>
                     <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                      {isNewGroupOpen
-                        ? "Adicionar pessoas ao grupo"
-                        : isNewChatEmailOpen
-                          ? "E-mail"
-                          : isCommunityListOpen
-                            ? "Comunidades"
-                          : isNewContactOpen
-                            ? "Novo contato"
-                            : "Nova conversa"}
+                      {isNewGroupCreateOpen
+                        ? "Novo grupo"
+                        : isNewGroupOpen
+                          ? "Adicionar pessoas ao grupo"
+                          : isNewChatEmailOpen
+                            ? "E-mail"
+                            : isCommunityListOpen
+                              ? "Comunidades"
+                              : isNewContactOpen
+                                ? "Novo contato"
+                                : "Nova conversa"}
                     </p>
-                    {isCommunityListOpen ? (
+                    {isNewGroupCreateOpen ? (
+                      <span className="h-8 w-8" aria-hidden="true" />
+                    ) : isCommunityListOpen ? (
                       <button
                         type="button"
                         className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
@@ -2540,7 +2716,213 @@ export default function KnexChatPage() {
                       </button>
                     )}
                   </div>
-                  {isNewChatEmailOpen ? (
+                  {isNewGroupCreateOpen ? (
+                    <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-10 text-center">
+                      <div className="relative">
+                        {isGroupImageMenuOpen ? (
+                          <button
+                            type="button"
+                            aria-label="Fechar menu de imagem"
+                            className="fixed inset-0 z-10 cursor-default"
+                            onClick={() => setIsGroupImageMenuOpen(false)}
+                          />
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => setIsGroupImageMenuOpen((prev) => !prev)}
+                          className={`relative flex h-28 w-28 flex-col items-center justify-center gap-1 ${avatarFrameLg} ${
+                            isDarkTheme ? "bg-slate-700 text-slate-100" : "bg-slate-300 text-slate-800"
+                          }`}
+                          aria-label="Adicionar imagem do grupo"
+                        >
+                          {newGroupImageUrl ? (
+                            <img
+                              src={newGroupImageUrl}
+                              alt="Imagem do grupo"
+                              className={`absolute inset-0 h-full w-full ${avatarFrameLg} object-cover`}
+                            />
+                          ) : null}
+                          <div className={`${newGroupImageUrl ? "relative z-10" : ""}`}>
+                            <ImageIcon className="mx-auto h-6 w-6" />
+                            <span className="mt-1 block text-center text-[10px] font-semibold leading-tight">
+                              Adicionar imagem do grupo
+                            </span>
+                          </div>
+                        </button>
+                        <input
+                          ref={groupImageFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={handleGroupImageChange}
+                        />
+                        <input
+                          ref={groupImageCameraInputRef}
+                          type="file"
+                          accept="image/*"
+                          capture="user"
+                          className="sr-only"
+                          onChange={handleGroupImageChange}
+                        />
+                        {isGroupImageMenuOpen ? (
+                          <div
+                            className={`absolute left-1/2 top-full z-20 mt-3 w-56 -translate-x-1/2 rounded-2xl border p-2 text-left shadow-lg ${
+                              isDarkTheme
+                                ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100"
+                                : "border-slate-200 bg-white text-slate-700"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => groupImageCameraInputRef.current?.click()}
+                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
+                                isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                              }`}
+                            >
+                              <Camera className="h-4 w-4" />
+                              Tirar foto
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => groupImageFileInputRef.current?.click()}
+                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
+                                isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                              }`}
+                            >
+                              <FolderOpen className="h-4 w-4" />
+                              Carregar foto
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsGroupImageMenuOpen(false)}
+                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
+                                isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                              }`}
+                            >
+                              <Smile className="h-4 w-4" />
+                              Emoji e figurinha
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="mt-8 flex w-full items-center gap-3 border-b pb-2">
+                        <input
+                          type="text"
+                          value={newGroupName}
+                          onChange={(event) => setNewGroupName(event.target.value)}
+                          placeholder="Nome do grupo (opcional)"
+                          className={`w-full bg-transparent text-sm font-medium focus:outline-none ${
+                            isDarkTheme
+                              ? "placeholder:text-slate-400 text-slate-100"
+                              : "placeholder:text-slate-400 text-slate-700"
+                          }`}
+                        />
+                        <div className="relative" ref={groupEmojiAnchorRef}>
+                          {isGroupEmojiOpen ? (
+                            <button
+                              type="button"
+                              aria-label="Fechar seletor de emojis"
+                              className="fixed inset-0 z-10 cursor-default"
+                              onClick={() => setIsGroupEmojiOpen(false)}
+                            />
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setIsGroupEmojiOpen((prev) => !prev)}
+                            className={`relative z-20 flex h-7 w-7 items-center justify-center rounded-full transition ${
+                              isDarkTheme ? "text-blue-200 hover:bg-blue-500/10" : "text-blue-600 hover:bg-blue-50"
+                            }`}
+                            aria-label="Adicionar emoji"
+                          >
+                            <Smile className="h-4 w-4" />
+                          </button>
+                          {isGroupEmojiOpen && groupEmojiMenuStyle ? (
+                            <div
+                              ref={groupEmojiMenuRef}
+                              className={`fixed z-40 overflow-hidden rounded-2xl border shadow-2xl ${
+                                isDarkTheme
+                                  ? "border-[#2a2a2a] bg-[#1b1b1b]"
+                                  : "border-slate-200 bg-white"
+                              }`}
+                              style={{
+                                ...groupEmojiMenuStyle,
+                                width: groupEmojiSize.width,
+                                height: groupEmojiSize.height,
+                                maxWidth: "80vw",
+                                maxHeight: "80vh",
+                                minWidth: 280,
+                                minHeight: 240,
+                              }}
+                            >
+                              <EmojiPicker
+                                width={groupEmojiSize.width}
+                                height={groupEmojiSize.height}
+                                onEmojiClick={(emojiData) => setNewGroupName((prev) => `${prev}${emojiData.emoji}`)}
+                                theme={isDarkTheme ? Theme.DARK : Theme.LIGHT}
+                              />
+                              <button
+                                type="button"
+                                aria-label="Redimensionar seletor de emojis"
+                                className={`absolute bottom-2 right-2 z-20 h-5 w-5 cursor-nwse-resize rounded-md border text-[10px] ${
+                                  isDarkTheme
+                                    ? "border-[#303030] bg-white/10 text-slate-200"
+                                    : "border-slate-200 bg-white text-slate-500"
+                                }`}
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  groupEmojiResizeRef.current = {
+                                    startX: event.clientX,
+                                    startY: event.clientY,
+                                    startWidth: groupEmojiSize.width,
+                                    startHeight: groupEmojiSize.height,
+                                  };
+                                  setIsGroupEmojiResizing(true);
+                                }}
+                              >
+                                ↘
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="mt-6 w-full space-y-4 text-left">
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between"
+                        >
+                          <div>
+                            <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                              Mensagens temporárias
+                            </p>
+                            <p className={`text-xs ${settingsMuted}`}>Desativadas</p>
+                          </div>
+                          <ChevronRight className={`h-4 w-4 ${settingsMuted}`} />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between"
+                        >
+                          <div>
+                            <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                              Permissões do grupo
+                            </p>
+                          </div>
+                          <ChevronRight className={`h-4 w-4 ${settingsMuted}`} />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCreateGroup}
+                        className={`mt-10 flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg transition ${
+                          isDarkTheme ? "bg-blue-500 hover:bg-blue-400" : "bg-blue-600 hover:bg-blue-700"
+                        }`}
+                        aria-label="Criar grupo"
+                      >
+                        <Check className="h-5 w-5" />
+                      </button>
+                    </div>
+                  ) : isNewChatEmailOpen ? (
                     <>
                       <div className="border-b px-4 py-3">
                         <div
@@ -2593,6 +2975,30 @@ export default function KnexChatPage() {
                     </>
                   ) : isNewGroupOpen ? (
                     <>
+                      {selectedGroupMembers.length ? (
+                        <div className="flex flex-wrap gap-2 border-b px-4 py-3">
+                          {selectedGroupMembers.map((member) => (
+                            <button
+                              key={member.id}
+                              type="button"
+                              onClick={() =>
+                                setSelectedGroupMemberIds((prev) => prev.filter((id) => id !== member.id))
+                              }
+                              className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold transition ${
+                                isDarkTheme
+                                  ? "bg-white/10 text-slate-100 hover:bg-white/20"
+                                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                              }`}
+                            >
+                              <span className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[9px] font-bold text-slate-600">
+                                {getAvatarText(member.title)}
+                              </span>
+                              <span className="truncate">{member.title}</span>
+                              <X className="h-3 w-3" />
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="border-b px-4 py-3">
                         <div
                           className={`flex items-center gap-2 border-b px-1 py-2 text-xs ${
@@ -2613,13 +3019,24 @@ export default function KnexChatPage() {
                           />
                         </div>
                       </div>
-                      <div className="flex-1 overflow-y-auto px-4 py-4">
+                      <div
+                        className={`relative flex-1 overflow-y-auto px-4 py-4 ${
+                          selectedGroupMembers.length ? "pb-20" : ""
+                        }`}
+                      >
                         <p className={`text-[11px] font-semibold ${settingsMuted}`}>#</p>
                         <div className="mt-3 space-y-3">
                           {filteredGroupContacts.map((contact) => (
                             <button
                               key={contact.id}
                               type="button"
+                              onClick={() =>
+                                setSelectedGroupMemberIds((prev) =>
+                                  prev.includes(contact.id)
+                                    ? prev.filter((id) => id !== contact.id)
+                                    : [...prev, contact.id],
+                                )
+                              }
                               className="flex w-full items-center gap-3 text-left"
                             >
                               {contact.avatarUrl ? (
@@ -2648,6 +3065,20 @@ export default function KnexChatPage() {
                             </button>
                           ))}
                         </div>
+                        {selectedGroupMembers.length ? (
+                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+                            <button
+                              type="button"
+                              onClick={() => setIsNewGroupCreateOpen(true)}
+                              className={`flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg transition ${
+                                isDarkTheme ? "bg-blue-600 hover:bg-blue-500" : "bg-blue-600 hover:bg-blue-700"
+                              }`}
+                              aria-label="Avançar"
+                            >
+                              <ArrowRight className="h-5 w-5" />
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     </>
                   ) : isCommunityListOpen ? (
@@ -2838,6 +3269,8 @@ export default function KnexChatPage() {
                           onClick={() => {
                             setIsNewGroupOpen(true);
                             setIsNewChatEmailOpen(false);
+                            setIsNewGroupCreateOpen(false);
+                            setSelectedGroupMemberIds([]);
                           }}
                           className="flex items-center gap-3 text-left"
                         >
