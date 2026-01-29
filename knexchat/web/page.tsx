@@ -932,7 +932,7 @@ export default function KnexChatPage() {
   const shareRecordingActionRef = useRef<"keep" | "discard">("keep");
   const shareAudioContextRef = useRef<AudioContext | null>(null);
   const shareAnalyserRef = useRef<AnalyserNode | null>(null);
-  const shareWaveDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const shareWaveDataRef = useRef<Uint8Array | null>(null);
   const shareWaveRafRef = useRef<number | null>(null);
   const shareWaveLastUpdateRef = useRef(0);
   const shareAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -2252,7 +2252,7 @@ export default function KnexChatPage() {
       source.connect(analyser);
       shareAudioContextRef.current = context;
       shareAnalyserRef.current = analyser;
-      const dataArray = new Uint8Array(analyser.fftSize) as Uint8Array<ArrayBuffer>;
+      const dataArray = new Uint8Array(analyser.fftSize);
       shareWaveDataRef.current = dataArray;
       setShareRecordingWave(Array.from({ length: shareWaveBarCount }, () => 0.15));
 
@@ -2260,7 +2260,9 @@ export default function KnexChatPage() {
         if (!shareAnalyserRef.current || !shareWaveDataRef.current) return;
         if (timestamp - shareWaveLastUpdateRef.current >= 80) {
           shareWaveLastUpdateRef.current = timestamp;
-          shareAnalyserRef.current.getByteTimeDomainData(shareWaveDataRef.current);
+          shareAnalyserRef.current.getByteTimeDomainData(
+            shareWaveDataRef.current as unknown as Uint8Array<ArrayBuffer>,
+          );
           let sum = 0;
           for (let i = 0; i < shareWaveDataRef.current.length; i += 1) {
             const value = (shareWaveDataRef.current[i] - 128) / 128;
