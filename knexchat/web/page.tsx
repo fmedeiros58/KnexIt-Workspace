@@ -2260,9 +2260,7 @@ export default function KnexChatPage() {
         if (!shareAnalyserRef.current || !shareWaveDataRef.current) return;
         if (timestamp - shareWaveLastUpdateRef.current >= 80) {
           shareWaveLastUpdateRef.current = timestamp;
-          shareAnalyserRef.current.getByteTimeDomainData(
-            shareWaveDataRef.current as unknown as Uint8Array<ArrayBuffer>,
-          );
+          shareAnalyserRef.current.getByteTimeDomainData(shareWaveDataRef.current);
           let sum = 0;
           for (let i = 0; i < shareWaveDataRef.current.length; i += 1) {
             const value = (shareWaveDataRef.current[i] - 128) / 128;
