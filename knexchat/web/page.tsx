@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDot,
+  Download,
   HelpCircle,
   Hash,
   Radio,
@@ -20,6 +21,7 @@ import {
   Image as ImageIcon,
   Keyboard,
   LogOut,
+  LayoutGrid,
   MessageCirclePlus,
   AtSign,
   Mail,
@@ -29,6 +31,7 @@ import {
   Plus,
   FolderOpen,
   Smartphone,
+  Star,
   Users2,
   Pause,
   Phone,
@@ -37,6 +40,7 @@ import {
   UserPlus,
   ZoomIn,
   Mic,
+  Square,
   Search,
   Settings,
   Shield,
@@ -56,6 +60,7 @@ const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"] });
 
 const STORAGE_KEY = "knexchat.identity";
+const CHAT_STATE_KEY = "knexchat.state.v1";
 const SHOW_OTP_PREVIEW = process.env.NEXT_PUBLIC_KNEXCHAT_SHOW_OTP === "1";
 const MOCK_RESEND_WARNING =
   "The knexit.com domain is not verified. Please, add and verify your domain on https://resend.com/domains";
@@ -169,6 +174,22 @@ function KnexChatMotionStyles() {
       }
       .knex-bubble__text {
         font-size: 14px;
+      }
+      .knex-bubble--media {
+        padding: 8px;
+      }
+      .knex-bubble__media {
+        width: clamp(180px, 22vw, 240px);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .knex-bubble__image {
+        width: 100%;
+        aspect-ratio: 9 / 16;
+        border-radius: 12px;
+        display: block;
+        object-fit: cover;
       }
       .knex-bubble__time {
         font-size: 11px;
@@ -290,6 +311,7 @@ type Identity = {
 
 type TabKey = "conversations" | "groups" | "contacts";
 type FilterKey = "all" | "unread" | "groups" | "contacts";
+type MediaTabKey = "media" | "docs" | "links";
 
 type Thread = {
   id: string;
@@ -310,6 +332,20 @@ type Message = {
   senderName?: string;
   audioUrl?: string;
   audioDuration?: string;
+  imageUrl?: string;
+  imageName?: string;
+};
+
+type MediaItem = {
+  id: string;
+  threadId: string;
+  label: string;
+  caption?: string;
+  src: string;
+  sizeKb?: number;
+  isFavorite?: boolean;
+  mediaType?: "image" | "video";
+  duration?: string;
 };
 
 type WallpaperOption = {
@@ -347,6 +383,18 @@ const WALLPAPER_OPTIONS: WallpaperOption[] = [
   { key: "forest", label: "Floresta", color: "#1f3a33" },
   { key: "navy", label: "Marinho", color: "#1a2b4f" },
 ];
+
+const DEFAULT_SETTINGS_STATE = {
+  openOnStart: true,
+  minimizeToTray: true,
+  language: "automatico",
+  fontSize: "100%",
+  spellCheck: true,
+  emojiReplace: true,
+  enterToSend: true,
+  wallpaper: "default",
+  theme: "light" as "light" | "dark" | "system",
+};
 
 const INITIAL_CONVERSATIONS: Thread[] = [
   {
@@ -414,6 +462,131 @@ const INITIAL_CONTACTS: Thread[] = [
     lastActivity: "Ativo",
     tab: "contacts",
     avatarUrl: "https://i.pravatar.cc/100?img=23",
+  },
+];
+
+const MEDIA_TABS: { key: MediaTabKey; label: string }[] = [
+  { key: "media", label: "Mídias" },
+  { key: "docs", label: "Documentos" },
+  { key: "links", label: "Links" },
+];
+
+const MEDIA_LIBRARY_SEED: MediaItem[] = [
+  {
+    id: "media-1",
+    threadId: "conv-geral",
+    label: "Professor Rafael",
+    caption: "+55 68 9252-4050",
+    src: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 263,
+  },
+  {
+    id: "media-2",
+    threadId: "conv-orientacao",
+    label: "Arquivo de reunião",
+    caption: "+55 68 9985-1895",
+    src: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 148,
+  },
+  {
+    id: "media-3",
+    threadId: "conv-projeto",
+    label: "Workshop Knex",
+    caption: "+55 68 9985-1895",
+    src: "https://images.unsplash.com/photo-1517832606299-7ae9b720a186?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 212,
+  },
+  {
+    id: "media-4",
+    threadId: "grp-lab-ia",
+    label: "Entrega final",
+    caption: "+55 68 9985-1895",
+    src: "https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 196,
+  },
+  {
+    id: "media-5",
+    threadId: "grp-turma-2025",
+    label: "Equipe Knex",
+    caption: "+55 68 9985-0407",
+    src: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 174,
+  },
+  {
+    id: "media-6",
+    threadId: "ctt-luiza",
+    label: "Status diário",
+    caption: "+55 68 9252-4050",
+    src: "https://images.unsplash.com/photo-1452626038306-9aae5e071dd3?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 221,
+  },
+  {
+    id: "media-6b",
+    threadId: "ctt-luiza",
+    label: "Vídeo rápido",
+    caption: "Medeiros vivo",
+    src: "https://images.unsplash.com/photo-1529933037286-0472cf1fc4f8?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 1460,
+    mediaType: "video",
+    duration: "0:11",
+  },
+  {
+    id: "media-7",
+    threadId: "ctt-vitor",
+    label: "Academia",
+    caption: "Sandrão Pelada",
+    src: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 187,
+  },
+  {
+    id: "media-8",
+    threadId: "conv-geral",
+    label: "Treino",
+    caption: "Ericson Pelada",
+    src: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 205,
+  },
+  {
+    id: "media-9",
+    threadId: "conv-orientacao",
+    label: "Projeto",
+    caption: "Medeiros vivo",
+    src: "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 233,
+  },
+  {
+    id: "media-9b",
+    threadId: "conv-orientacao",
+    label: "Trecho reunião",
+    caption: "Medeiros vivo",
+    src: "https://images.unsplash.com/photo-1489515217757-5fd1be406fef?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 1820,
+    mediaType: "video",
+    duration: "0:30",
+  },
+  {
+    id: "media-10",
+    threadId: "conv-projeto",
+    label: "Agenda",
+    caption: "Medeiros vivo",
+    src: "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 192,
+  },
+  {
+    id: "media-11",
+    threadId: "grp-lab-ia",
+    label: "Registro",
+    caption: "Thwnay Pelada",
+    src: "https://images.unsplash.com/photo-1454165205744-3b78555e5572?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 176,
+  },
+  {
+    id: "media-12",
+    threadId: "grp-turma-2025",
+    label: "Relatório",
+    caption: "Thwnay Pelada",
+    src: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=900&q=80",
+    sizeKb: 208,
   },
 ];
 
@@ -521,6 +694,15 @@ function normalizeName(name: string) {
   return name.trim().replace(/\s+/g, " ");
 }
 
+function formatMediaSize(kilobytes: number) {
+  if (!kilobytes) return "0 KB";
+  if (kilobytes >= 1024) {
+    const mb = kilobytes / 1024;
+    return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+  }
+  return `${Math.round(kilobytes)} KB`;
+}
+
 function isValidEmail(email: string) {
   return /\S+@\S+\.\S+/.test(email);
 }
@@ -575,13 +757,18 @@ function isIdentity(value: unknown): value is Identity {
   );
 }
 
-function safeParseIdentity(raw: string): Identity | null {
+function safeParseJson<T>(raw: string | null): T | null {
+  if (!raw || !raw.trim()) return null;
   try {
-    const parsed = JSON.parse(raw);
-    return isIdentity(parsed) ? parsed : null;
+    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
+}
+
+function safeParseIdentity(raw: string): Identity | null {
+  const parsed = safeParseJson<unknown>(raw);
+  return parsed && isIdentity(parsed) ? parsed : null;
 }
 
 export default function KnexChatPage() {
@@ -625,6 +812,19 @@ export default function KnexChatPage() {
   const [conversations, setConversations] = useState<Thread[]>(INITIAL_CONVERSATIONS);
   const [groups, setGroups] = useState<Thread[]>(INITIAL_GROUPS);
   const [contacts, setContacts] = useState<Thread[]>(INITIAL_CONTACTS);
+  const [unreadByThread, setUnreadByThread] = useState<Record<string, number>>(() => {
+    const seed: Record<string, number> = {};
+    INITIAL_CONVERSATIONS.forEach((thread) => {
+      if (thread.unread) seed[thread.id] = thread.unread;
+    });
+    INITIAL_GROUPS.forEach((thread) => {
+      if (thread.unread) seed[thread.id] = thread.unread;
+    });
+    INITIAL_CONTACTS.forEach((thread) => {
+      if (thread.unread) seed[thread.id] = thread.unread;
+    });
+    return seed;
+  });
   const [messageDraft, setMessageDraft] = useState("");
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(MESSAGE_SEED);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused">("idle");
@@ -632,7 +832,7 @@ export default function KnexChatPage() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [activeNavKey, setActiveNavKey] = useState<
-    "conversations" | "calls" | "status" | "channels" | "communities" | "contacts" | "settings"
+    "conversations" | "calls" | "status" | "channels" | "communities" | "contacts" | "images" | "settings"
   >("conversations");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -647,6 +847,30 @@ export default function KnexChatPage() {
   const [isCommunityListOpen, setIsCommunityListOpen] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
   const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
+  const [activeMediaTab, setActiveMediaTab] = useState<MediaTabKey>("media");
+  const [mediaLibrary, setMediaLibrary] = useState<MediaItem[]>(MEDIA_LIBRARY_SEED);
+  const [isMediaSelectMode, setIsMediaSelectMode] = useState(false);
+  const [selectedMediaIds, setSelectedMediaIds] = useState<string[]>([]);
+  const [mediaGridVariant, setMediaGridVariant] = useState<"compact" | "comfortable">("comfortable");
+  const [isMediaFilterOpen, setIsMediaFilterOpen] = useState(false);
+  const [mediaFilterSender, setMediaFilterSender] = useState<"all" | "me" | "others">("all");
+  const [mediaFilterOrder, setMediaFilterOrder] = useState<"recent" | "old" | "big">("recent");
+  const [isMediaShareOpen, setIsMediaShareOpen] = useState(false);
+  const [shareSearch, setShareSearch] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
+  const [selectedShareContactIds, setSelectedShareContactIds] = useState<string[]>([]);
+  const [shareAudioFiles, setShareAudioFiles] = useState<
+    { id: string; file: File; url: string; duration?: string; durationSeconds?: number; waveform?: number[] }[]
+  >([]);
+  const shareAudioLimit = 4;
+  const [shareRecordingState, setShareRecordingState] = useState<"idle" | "recording">("idle");
+  const [shareRecordingSeconds, setShareRecordingSeconds] = useState(0);
+  const shareWaveBarCount = 18;
+  const [shareRecordingWave, setShareRecordingWave] = useState<number[]>(
+    () => Array.from({ length: shareWaveBarCount }, () => 0.15),
+  );
+  const [shareAudioPlaybackSeconds, setShareAudioPlaybackSeconds] = useState(0);
   const [isGroupsExpanded, setIsGroupsExpanded] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
   const [newChatSearch, setNewChatSearch] = useState("");
@@ -680,20 +904,15 @@ export default function KnexChatPage() {
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
   const [wallpaperHoverKey, setWallpaperHoverKey] = useState<string | null>(null);
   const [headerInfoStep, setHeaderInfoStep] = useState(0);
-  const [settingsState, setSettingsState] = useState({
-    openOnStart: true,
-    minimizeToTray: true,
-    language: "automatico",
-    fontSize: "100%",
-    spellCheck: true,
-    emojiReplace: true,
-    enterToSend: true,
-    wallpaper: "default",
-    theme: "light" as "light" | "dark" | "system",
-  });
+  const chatStateKey = useMemo(() => {
+    if (!identity?.email) return null;
+    return `${CHAT_STATE_KEY}:${normalizeEmail(identity.email)}`;
+  }, [identity?.email]);
+  const [settingsState, setSettingsState] = useState(DEFAULT_SETTINGS_STATE);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [pendingTheme, setPendingTheme] = useState<"light" | "dark" | "system">("light");
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+  const [isChatStateHydrated, setIsChatStateHydrated] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordingIntervalRef = useRef<number | null>(null);
@@ -701,6 +920,27 @@ export default function KnexChatPage() {
   const recordingActionRef = useRef<"send" | "discard">("discard");
   const recordingDurationRef = useRef(0);
   const audioChunksRef = useRef<Blob[]>([]);
+  const messageImageInputRef = useRef<HTMLInputElement | null>(null);
+  const shareThumbsRef = useRef<HTMLDivElement | null>(null);
+  const shareAudioInputRef = useRef<HTMLInputElement | null>(null);
+  const shareRecorderRef = useRef<MediaRecorder | null>(null);
+  const shareStreamRef = useRef<MediaStream | null>(null);
+  const shareRecordingIntervalRef = useRef<number | null>(null);
+  const shareRecordingSecondsRef = useRef(0);
+  const shareRecordingDurationRef = useRef(0);
+  const shareAudioChunksRef = useRef<Blob[]>([]);
+  const shareRecordingActionRef = useRef<"keep" | "discard">("keep");
+  const shareAudioContextRef = useRef<AudioContext | null>(null);
+  const shareAnalyserRef = useRef<AnalyserNode | null>(null);
+  const shareWaveDataRef = useRef<Uint8Array | null>(null);
+  const shareWaveRafRef = useRef<number | null>(null);
+  const shareWaveLastUpdateRef = useRef(0);
+  const shareAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const shareAudioPlaybackRafRef = useRef<number | null>(null);
+  const [shareAudioPlayingId, setShareAudioPlayingId] = useState<string | null>(null);
+  const [shareAudioIsPaused, setShareAudioIsPaused] = useState(false);
+  const incomingCountRef = useRef<Record<string, number>>({});
+  const unreadInitializedRef = useRef(false);
 
   const currentUser = useMemo(() => {
     if (!identity) return null;
@@ -718,13 +958,45 @@ export default function KnexChatPage() {
     };
   }, [identity, selfAvatarUrl]);
 
+  const resetChatState = useCallback(() => {
+    setConversations(INITIAL_CONVERSATIONS);
+    setGroups(INITIAL_GROUPS);
+    setContacts(INITIAL_CONTACTS);
+    setUnreadByThread(() => {
+      const seed: Record<string, number> = {};
+      INITIAL_CONVERSATIONS.forEach((thread) => {
+        if (thread.unread) seed[thread.id] = thread.unread;
+      });
+      INITIAL_GROUPS.forEach((thread) => {
+        if (thread.unread) seed[thread.id] = thread.unread;
+      });
+      INITIAL_CONTACTS.forEach((thread) => {
+        if (thread.unread) seed[thread.id] = thread.unread;
+      });
+      return seed;
+    });
+    incomingCountRef.current = {};
+    unreadInitializedRef.current = false;
+    setMessagesByThread(MESSAGE_SEED);
+    setSettingsState({ ...DEFAULT_SETTINGS_STATE });
+    setSelfAvatarUrl(null);
+    setThreadAvatarOverrides({});
+    setMediaLibrary(MEDIA_LIBRARY_SEED);
+    setActiveFilter("all");
+    setActiveThreadId(INITIAL_CONVERSATIONS[0]?.id ?? "");
+  }, []);
+
   const combinedThreads = useMemo(() => [...conversations, ...groups], [conversations, groups]);
   const activeThreads = useMemo(() => {
     if (activeFilter === "groups") return groups;
     if (activeFilter === "contacts") return contacts;
-    if (activeFilter === "unread") return combinedThreads.filter((thread) => thread.unread);
+    if (activeFilter === "unread") {
+      return combinedThreads.filter(
+        (thread) => (unreadByThread[thread.id] ?? thread.unread ?? 0) > 0,
+      );
+    }
     return combinedThreads;
-  }, [activeFilter, combinedThreads, groups, contacts]);
+  }, [activeFilter, combinedThreads, groups, contacts, unreadByThread]);
   const activeThread = useMemo(() => {
     const allThreads = [...conversations, ...groups, ...contacts];
     return allThreads.find((thread) => thread.id === activeThreadId) ?? activeThreads[0] ?? null;
@@ -767,6 +1039,56 @@ export default function KnexChatPage() {
       return haystack.includes(query);
     });
   }, [newChatContacts, newChatSearch]);
+  useEffect(() => {
+    const allThreads = [...conversations, ...groups, ...contacts];
+    const nextIncoming = { ...incomingCountRef.current };
+    if (!unreadInitializedRef.current) {
+      allThreads.forEach((thread) => {
+        const totalCount = (messagesByThread[thread.id] ?? []).length;
+        nextIncoming[thread.id] = totalCount;
+      });
+      incomingCountRef.current = nextIncoming;
+      unreadInitializedRef.current = true;
+      return;
+    }
+    const increments: Record<string, number> = {};
+    allThreads.forEach((thread) => {
+      const totalCount = (messagesByThread[thread.id] ?? []).length;
+      const previous = incomingCountRef.current[thread.id] ?? 0;
+      if (totalCount > previous) {
+        increments[thread.id] = totalCount - previous;
+      }
+      nextIncoming[thread.id] = totalCount;
+    });
+    incomingCountRef.current = nextIncoming;
+    if (!Object.keys(increments).length) return;
+    setUnreadByThread((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.entries(increments).forEach(([id, delta]) => {
+        if (id === activeThreadId) {
+          if (next[id]) {
+            next[id] = 0;
+            changed = true;
+          }
+          return;
+        }
+        next[id] = (next[id] ?? 0) + delta;
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [activeThreadId, contacts, conversations, groups, messagesByThread]);
+  useEffect(() => {
+    if (!activeThreadId) return;
+    setUnreadByThread((prev) => {
+      if (!prev[activeThreadId]) return prev;
+      return { ...prev, [activeThreadId]: 0 };
+    });
+    const totalCount = (messagesByThread[activeThreadId] ?? []).length;
+    incomingCountRef.current = { ...incomingCountRef.current, [activeThreadId]: totalCount };
+  }, [activeThreadId, messagesByThread]);
+  const isShareAudioLimitReached = shareAudioFiles.length >= shareAudioLimit;
   const filteredGroupContacts = useMemo(() => {
     const query = newGroupSearch.trim().toLowerCase();
     if (!query) return groupContacts;
@@ -779,6 +1101,329 @@ export default function KnexChatPage() {
     () => groupContacts.filter((contact) => selectedGroupMemberIds.includes(contact.id)),
     [groupContacts, selectedGroupMemberIds],
   );
+  const threadLookup = useMemo(() => {
+    const map = new Map<string, Thread>();
+    [...conversations, ...groups, ...contacts].forEach((thread) => {
+      map.set(thread.id, thread);
+    });
+    return map;
+  }, [conversations, groups, contacts]);
+  const mediaItems = useMemo(
+    () => {
+      const mapped = mediaLibrary.map((item) => ({
+        ...item,
+        thread: threadLookup.get(item.threadId) ?? null,
+      }));
+      const filteredBySender = mapped.filter((item) => {
+        if (mediaFilterSender === "all") return true;
+        if (mediaFilterSender === "me") return item.caption?.toLowerCase().includes("você") ?? false;
+        return !item.caption?.toLowerCase().includes("você");
+      });
+      const sorted = [...filteredBySender];
+      if (mediaFilterOrder === "old") {
+        sorted.reverse();
+      } else if (mediaFilterOrder === "big") {
+        sorted.sort((a, b) => a.label.localeCompare(b.label));
+      }
+      return sorted;
+    },
+    [mediaLibrary, threadLookup, mediaFilterOrder, mediaFilterSender],
+  );
+  const shareCommunityItems = useMemo(
+    () => [
+      {
+        id: "comm-uab",
+        title: "Comunidade Polo UAB Rio Branco",
+        preview: "Avisos",
+        avatarUrl: null,
+      },
+      {
+        id: "comm-ufac",
+        title: "Ufac - Especialização em Educação",
+        preview: "~ Escobar: Tranquilo, obrigado pensei que já estav...",
+        avatarUrl: null,
+      },
+    ],
+    [],
+  );
+  const shareForumItems = useMemo(
+    () => [
+      {
+        id: "forum-knex",
+        title: "Fórum KnexChat",
+        preview: "Fórum",
+        avatarUrl: null,
+      },
+    ],
+    [],
+  );
+  const shareRecentContacts = useMemo(() => {
+    const query = shareSearch.trim().toLowerCase();
+    const base = combinedThreads;
+    if (!query) return base;
+    return base.filter((contact) => {
+      const haystack = `${contact.title} ${contact.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [combinedThreads, shareSearch]);
+  const shareDirectoryContacts = useMemo(() => {
+    const query = shareSearch.trim().toLowerCase();
+    const items = [
+      ...(currentUser
+        ? [
+            {
+              id: "self-contact",
+              title: `${currentUser.name} (você)`,
+              preview: "Mensagens para mim",
+              avatarUrl: currentUser.avatarUrl ?? null,
+            },
+          ]
+        : []),
+      ...contacts,
+      ...groups,
+      ...shareCommunityItems,
+      ...shareForumItems,
+    ];
+    const map = new Map<string, typeof items[number]>();
+    items.forEach((item) => {
+      if (!map.has(item.id)) {
+        map.set(item.id, item);
+      }
+    });
+    const all = Array.from(map.values());
+    if (!query) return all;
+    return all.filter((contact) => {
+      const haystack = `${contact.title} ${contact.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [contacts, currentUser, groups, shareCommunityItems, shareForumItems, shareSearch]);
+  const shareAllSelectable = useMemo(() => {
+    const map = new Map<string, { id: string; title: string; preview?: string; avatarUrl?: string | null }>();
+    [...shareRecentContacts, ...shareDirectoryContacts].forEach((item) => {
+      if (!map.has(item.id)) {
+        map.set(item.id, item);
+      }
+    });
+    return Array.from(map.values());
+  }, [shareDirectoryContacts, shareRecentContacts]);
+  const clearShareAudios = useCallback(() => {
+    setShareAudioFiles((prev) => {
+      prev.forEach((item) => URL.revokeObjectURL(item.url));
+      return [];
+    });
+    if (shareAudioPlayerRef.current) {
+      shareAudioPlayerRef.current.pause();
+      shareAudioPlayerRef.current = null;
+    }
+    setShareAudioPlayingId(null);
+  }, []);
+  const handleShareSend = useCallback(() => {
+    if (!selectedShareContactIds.length) return;
+    const timeLabel = new Date().toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const trimmedMessage = shareMessage.trim();
+    const mediaToShare = mediaLibrary.filter((item) => selectedMediaIds.includes(item.id));
+    const audioToShare = shareAudioFiles;
+    const resolveTitle = (id: string) =>
+      shareAllSelectable.find((item) => item.id === id)?.title ?? "Participante";
+    const resolveAvatar = (id: string) =>
+      shareAllSelectable.find((item) => item.id === id)?.avatarUrl ?? null;
+    const previewByRecipient = new Map<string, string>();
+    const resolveRecipientTab = (id: string): TabKey => {
+      if (conversations.some((thread) => thread.id === id)) return "conversations";
+      if (groups.some((thread) => thread.id === id)) return "groups";
+      if (contacts.some((thread) => thread.id === id)) return "contacts";
+      if (id.startsWith("comm-") || id.startsWith("forum-")) return "groups";
+      return "contacts";
+    };
+    const recipientsByTab: Record<TabKey, string[]> = {
+      conversations: [],
+      groups: [],
+      contacts: [],
+    };
+    selectedShareContactIds.forEach((id) => {
+      recipientsByTab[resolveRecipientTab(id)].push(id);
+    });
+
+    setMessagesByThread((prev) => {
+      const next = { ...prev };
+      selectedShareContactIds.forEach((recipientId) => {
+        const existing = next[recipientId] ?? [];
+        const outgoing: Message[] = [];
+        if (trimmedMessage && !mediaToShare.length && !audioToShare.length) {
+          outgoing.push({
+            id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            author: "me",
+            body: trimmedMessage,
+            time: timeLabel,
+          });
+        }
+        mediaToShare.forEach((item, index) => {
+          const body =
+            trimmedMessage && mediaToShare.length === 1 && !audioToShare.length
+              ? trimmedMessage
+              : item.caption ?? item.label ?? `Mídia ${index + 1}`;
+          outgoing.push({
+            id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            author: "me",
+            body,
+            time: timeLabel,
+            imageUrl: item.src,
+            imageName: item.label,
+          });
+        });
+        audioToShare.forEach((entry) => {
+          const audioUrl = URL.createObjectURL(entry.file);
+          outgoing.push({
+            id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            author: "me",
+            body: trimmedMessage || "Mensagem de áudio",
+            time: timeLabel,
+            audioUrl,
+            audioDuration: entry.duration,
+          });
+        });
+        if (outgoing.length) {
+          next[recipientId] = [...existing, ...outgoing];
+          const last = outgoing[outgoing.length - 1];
+          const preview =
+            last.imageUrl ? "Imagem enviada" : last.audioUrl ? "Mensagem de áudio" : last.body || "Mensagem enviada";
+          previewByRecipient.set(recipientId, preview);
+        }
+      });
+      return next;
+    });
+
+    setMediaLibrary((prev) => {
+      if (!mediaToShare.length) return prev;
+      const forwarded: MediaItem[] = [];
+      selectedShareContactIds.forEach((recipientId) => {
+        mediaToShare.forEach((item) => {
+          forwarded.push({
+            ...item,
+            id: `media_${Date.now()}_${recipientId}_${item.id}`,
+            threadId: recipientId,
+            caption: `Encaminhado por ${currentUser?.name ?? "Você"}`,
+          });
+        });
+      });
+      return [...forwarded, ...prev];
+    });
+
+    const upsertThread =
+      (tab: TabKey, ids: string[]) =>
+      (threads: Thread[]) => {
+        if (!ids.length) return threads;
+        let updated = threads;
+        ids.forEach((recipientId) => {
+          const exists = updated.some((thread) => thread.id === recipientId);
+          if (exists) {
+            updated = updated.map((thread) =>
+              thread.id === recipientId
+                ? {
+                    ...thread,
+                    preview: previewByRecipient.get(recipientId) ?? thread.preview,
+                    lastActivity: timeLabel,
+                  }
+                : thread,
+            );
+            return;
+          }
+          const title = resolveTitle(recipientId);
+          updated = [
+            {
+              id: recipientId,
+              title,
+              preview: previewByRecipient.get(recipientId) ?? "Mensagem enviada",
+              lastActivity: timeLabel,
+              tab,
+              avatarUrl: resolveAvatar(recipientId) ?? undefined,
+            },
+            ...updated,
+          ];
+        });
+        return updated;
+      };
+
+    setConversations(upsertThread("conversations", recipientsByTab.conversations));
+    setGroups(upsertThread("groups", recipientsByTab.groups));
+    setContacts(upsertThread("contacts", recipientsByTab.contacts));
+
+    setShareMessage("");
+    setShareSearch("");
+    setSelectedShareContactIds([]);
+    setSelectedMediaIds([]);
+    setIsMediaSelectMode(false);
+    clearShareAudios();
+  }, [
+    clearShareAudios,
+    currentUser?.name,
+    contacts,
+    conversations,
+    groups,
+    mediaLibrary,
+    selectedMediaIds,
+    selectedShareContactIds,
+    setContacts,
+    setConversations,
+    setGroups,
+    setMediaLibrary,
+    setMessagesByThread,
+    shareAllSelectable,
+    shareAudioFiles,
+    shareMessage,
+  ]);
+  const selectedMediaSummary = useMemo(() => {
+    const totalKb = selectedMediaIds.reduce((sum, id) => {
+      const match = mediaLibrary.find((item) => item.id === id);
+      return sum + (match?.sizeKb ?? 0);
+    }, 0);
+    return {
+      count: selectedMediaIds.length,
+      sizeLabel: formatMediaSize(totalKb),
+    };
+  }, [mediaLibrary, selectedMediaIds]);
+
+  const handleFavoriteSelected = useCallback(() => {
+    if (!selectedMediaIds.length) return;
+    setMediaLibrary((prev) => {
+      const selectedSet = new Set(selectedMediaIds);
+      const allFavorited = prev
+        .filter((item) => selectedSet.has(item.id))
+        .every((item) => item.isFavorite);
+      return prev.map((item) =>
+        selectedSet.has(item.id) ? { ...item, isFavorite: !allFavorited } : item,
+      );
+    });
+  }, [selectedMediaIds]);
+
+  const handleDownloadSelected = useCallback(async () => {
+    if (!selectedMediaIds.length) return;
+    const items = mediaLibrary.filter((item) => selectedMediaIds.includes(item.id));
+    for (const item of items) {
+      const filename = item.label ? `${item.label.replace(/\s+/g, "_")}.jpg` : "imagem.jpg";
+      try {
+        const response = await fetch(item.src);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch {
+        const link = document.createElement("a");
+        link.href = item.src;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.click();
+      }
+    }
+  }, [mediaLibrary, selectedMediaIds]);
 
   useEffect(() => {
     if (!isNewGroupCreateOpen) {
@@ -1058,7 +1703,7 @@ export default function KnexChatPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
+      if (!raw || !raw.trim()) {
         setIsReady(true);
         return;
       }
@@ -1074,6 +1719,125 @@ export default function KnexChatPage() {
       setIsReady(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!chatStateKey) {
+      resetChatState();
+      setIsChatStateHydrated(true);
+      return;
+    }
+    resetChatState();
+    try {
+      let raw = localStorage.getItem(chatStateKey);
+      if (!raw || !raw.trim()) {
+        const legacyRaw = localStorage.getItem(CHAT_STATE_KEY);
+        if (legacyRaw && legacyRaw.trim()) {
+          raw = legacyRaw;
+          localStorage.setItem(chatStateKey, legacyRaw);
+        }
+      }
+      if (!raw || !raw.trim()) {
+        setIsChatStateHydrated(true);
+        return;
+      }
+      const parsed = safeParseJson<Partial<{
+        conversations: Thread[];
+        groups: Thread[];
+        contacts: Thread[];
+        messagesByThread: Record<string, Message[]>;
+        unreadByThread: Record<string, number>;
+        settingsState: typeof DEFAULT_SETTINGS_STATE;
+        selfAvatarUrl: string | null;
+        threadAvatarOverrides: Record<string, string>;
+        mediaLibrary: MediaItem[];
+        activeFilter: FilterKey;
+        activeThreadId: string;
+      }>>(raw);
+      if (!parsed) {
+        localStorage.removeItem(chatStateKey);
+        setIsChatStateHydrated(true);
+        return;
+      }
+      if (Array.isArray(parsed.conversations)) {
+        setConversations(parsed.conversations);
+      }
+      if (Array.isArray(parsed.groups)) {
+        setGroups(parsed.groups);
+      }
+      if (Array.isArray(parsed.contacts)) {
+        setContacts(parsed.contacts);
+      }
+      if (parsed.messagesByThread && typeof parsed.messagesByThread === "object") {
+        setMessagesByThread(parsed.messagesByThread);
+      }
+      if (parsed.unreadByThread && typeof parsed.unreadByThread === "object") {
+        setUnreadByThread(parsed.unreadByThread);
+      }
+      if (parsed.settingsState && typeof parsed.settingsState === "object") {
+        setSettingsState((prev) => ({ ...prev, ...parsed.settingsState }));
+      }
+      if (typeof parsed.selfAvatarUrl === "string" || parsed.selfAvatarUrl === null) {
+        setSelfAvatarUrl(parsed.selfAvatarUrl ?? null);
+      }
+      if (parsed.threadAvatarOverrides && typeof parsed.threadAvatarOverrides === "object") {
+        setThreadAvatarOverrides(parsed.threadAvatarOverrides);
+      }
+      if (Array.isArray(parsed.mediaLibrary)) {
+        setMediaLibrary(parsed.mediaLibrary);
+      }
+      if (parsed.activeFilter) {
+        setActiveFilter(parsed.activeFilter);
+      }
+      if (parsed.activeThreadId) {
+        setActiveThreadId(parsed.activeThreadId);
+      }
+    } catch {
+      localStorage.removeItem(chatStateKey);
+    } finally {
+      setIsChatStateHydrated(true);
+    }
+  }, [chatStateKey, resetChatState]);
+
+  useEffect(() => {
+    if (!isChatStateHydrated || !chatStateKey) return;
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          chatStateKey,
+          JSON.stringify({
+            conversations,
+            groups,
+            contacts,
+            messagesByThread,
+            unreadByThread,
+            settingsState,
+            selfAvatarUrl,
+            threadAvatarOverrides,
+            mediaLibrary,
+            activeFilter,
+            activeThreadId,
+          }),
+        );
+      } catch {
+        // Ignore storage errors.
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeFilter,
+    activeThreadId,
+    chatStateKey,
+    contacts,
+    conversations,
+    groups,
+    isChatStateHydrated,
+    mediaLibrary,
+    messagesByThread,
+    unreadByThread,
+    selfAvatarUrl,
+    settingsState,
+    threadAvatarOverrides,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1260,6 +2024,7 @@ export default function KnexChatPage() {
     setIsSendingOtp(false);
     setActivationStep("email");
     setHandledJoinToken(null);
+    resetChatState();
     router.replace(activationHref);
   };
 
@@ -1320,6 +2085,419 @@ export default function KnexChatPage() {
     }
     setMessageDraft("");
   };
+
+  const handleSendImage = (file: File) => {
+    if (!activeThread || !currentUser) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imageUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!imageUrl) return;
+      const timeLabel = new Date().toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const newMessage: Message = {
+        id: `m_${Date.now()}`,
+        author: "me",
+        body: file.name ?? "Imagem enviada",
+        time: timeLabel,
+        imageUrl,
+        imageName: file.name,
+      };
+      setMessagesByThread((prev) => ({
+        ...prev,
+        [activeThread.id]: [...(prev[activeThread.id] ?? []), newMessage],
+      }));
+      const updateThread = (threads: Thread[]) =>
+        threads.map((thread) =>
+          thread.id === activeThread.id
+            ? { ...thread, preview: "Imagem enviada", lastActivity: timeLabel }
+            : thread,
+        );
+      if (activeThread.tab === "conversations") {
+        setConversations(updateThread);
+      } else if (activeThread.tab === "groups") {
+        setGroups(updateThread);
+      } else {
+        setContacts(updateThread);
+      }
+      const mediaItem: MediaItem = {
+        id: `media_${Date.now()}`,
+        threadId: activeThread.id,
+        label: file.name ?? "Imagem",
+        caption: `Enviado por ${currentUser.name ?? "Você"}`,
+        src: imageUrl,
+        sizeKb: file.size ? Math.max(1, Math.round(file.size / 1024)) : undefined,
+        isFavorite: false,
+        mediaType: "image",
+      };
+      setMediaLibrary((prev) => [mediaItem, ...prev]);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleMessageImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    handleSendImage(file);
+    event.target.value = "";
+  };
+
+  const toggleMediaSelectMode = useCallback(() => {
+    setIsMediaSelectMode((prev) => {
+      if (prev) {
+        setSelectedMediaIds([]);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const toggleMediaSelection = useCallback((id: string) => {
+    setSelectedMediaIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  }, []);
+  const toggleShareContact = useCallback((id: string) => {
+    setSelectedShareContactIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  }, []);
+  const scrollShareThumbs = useCallback((direction: "left" | "right") => {
+    if (!shareThumbsRef.current) return;
+    const delta = direction === "left" ? -80 : 80;
+    shareThumbsRef.current.scrollBy({ left: delta, behavior: "smooth" });
+  }, []);
+  const updateShareAudioDuration = useCallback((id: string, duration: string, durationSeconds?: number) => {
+    setShareAudioFiles((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, duration, durationSeconds: durationSeconds ?? item.durationSeconds } : item,
+      ),
+    );
+  }, []);
+  const loadShareAudioWaveform = useCallback(
+    async (file: File, id: string) => {
+      if (typeof window === "undefined") return;
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const context = new AudioContextClass();
+        const audioBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
+        const channelData = audioBuffer.getChannelData(0);
+        const samplesPerBar = Math.max(1, Math.floor(channelData.length / shareWaveBarCount));
+        const waveform: number[] = [];
+        let peakMax = 0;
+        for (let i = 0; i < shareWaveBarCount; i += 1) {
+          const start = i * samplesPerBar;
+          const end = i === shareWaveBarCount - 1 ? channelData.length : start + samplesPerBar;
+          let peak = 0;
+          for (let j = start; j < end; j += 1) {
+            const value = Math.abs(channelData[j]);
+            if (value > peak) peak = value;
+          }
+          waveform.push(peak);
+          if (peak > peakMax) peakMax = peak;
+        }
+        const normalized =
+          peakMax > 0 ? waveform.map((value) => value / peakMax) : waveform.map(() => 0.15);
+        const durationSeconds = Math.round(audioBuffer.duration);
+        context.close().catch(() => null);
+        setShareAudioFiles((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  waveform: normalized,
+                  durationSeconds,
+                  duration: item.duration ?? formatDuration(durationSeconds),
+                }
+              : item,
+          ),
+        );
+      } catch {
+        // ignore waveform errors
+      }
+    },
+    [shareWaveBarCount],
+  );
+  const stopShareWaveMeter = useCallback(() => {
+    if (shareWaveRafRef.current) {
+      cancelAnimationFrame(shareWaveRafRef.current);
+      shareWaveRafRef.current = null;
+    }
+    shareWaveLastUpdateRef.current = 0;
+    shareWaveDataRef.current = null;
+    shareAnalyserRef.current = null;
+    if (shareAudioContextRef.current) {
+      shareAudioContextRef.current.close().catch(() => null);
+      shareAudioContextRef.current = null;
+    }
+    setShareRecordingWave(Array.from({ length: shareWaveBarCount }, () => 0.15));
+  }, [shareWaveBarCount]);
+  const startShareWaveMeter = useCallback(
+    (stream: MediaStream) => {
+      if (typeof window === "undefined") return;
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      stopShareWaveMeter();
+      const context = new AudioContextClass();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.7;
+      const source = context.createMediaStreamSource(stream);
+      source.connect(analyser);
+      shareAudioContextRef.current = context;
+      shareAnalyserRef.current = analyser;
+      const dataArray = new Uint8Array(analyser.fftSize);
+      shareWaveDataRef.current = dataArray;
+      setShareRecordingWave(Array.from({ length: shareWaveBarCount }, () => 0.15));
+
+      const updateWave = (timestamp: number) => {
+        if (!shareAnalyserRef.current || !shareWaveDataRef.current) return;
+        if (timestamp - shareWaveLastUpdateRef.current >= 80) {
+          shareWaveLastUpdateRef.current = timestamp;
+          shareAnalyserRef.current.getByteTimeDomainData(shareWaveDataRef.current);
+          let sum = 0;
+          for (let i = 0; i < shareWaveDataRef.current.length; i += 1) {
+            const value = (shareWaveDataRef.current[i] - 128) / 128;
+            sum += value * value;
+          }
+          const rms = Math.sqrt(sum / shareWaveDataRef.current.length);
+          const intensity = Math.min(1, rms * 2.6);
+          const nextValue = Math.max(0.12, intensity);
+          setShareRecordingWave((prev) => {
+            const base =
+              prev.length === shareWaveBarCount
+                ? [...prev]
+                : Array.from({ length: shareWaveBarCount }, () => 0.15);
+            base.shift();
+            base.push(nextValue);
+            return base;
+          });
+        }
+        shareWaveRafRef.current = requestAnimationFrame(updateWave);
+      };
+      shareWaveRafRef.current = requestAnimationFrame(updateWave);
+      context.resume().catch(() => null);
+    },
+    [shareWaveBarCount, stopShareWaveMeter],
+  );
+  const addShareAudioFile = useCallback(
+    (file: File, duration?: string) => {
+      if (shareAudioFiles.length >= shareAudioLimit) return;
+      const id = `audio_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      const url = URL.createObjectURL(file);
+      setShareAudioFiles((prev) => {
+        if (prev.length >= shareAudioLimit) {
+          URL.revokeObjectURL(url);
+          return prev;
+        }
+        return [...prev, { id, file, url, duration }];
+      });
+      void loadShareAudioWaveform(file, id);
+    },
+    [shareAudioFiles.length, shareAudioLimit, loadShareAudioWaveform],
+  );
+  const removeShareAudioById = useCallback(
+    (id: string) => {
+      setShareAudioFiles((prev) => {
+        const target = prev.find((item) => item.id === id);
+        if (target) {
+          URL.revokeObjectURL(target.url);
+        }
+        return prev.filter((item) => item.id !== id);
+      });
+      if (shareAudioPlayingId === id) {
+        if (shareAudioPlayerRef.current) {
+          shareAudioPlayerRef.current.pause();
+          shareAudioPlayerRef.current = null;
+        }
+        setShareAudioPlayingId(null);
+        setShareAudioPlaybackSeconds(0);
+      }
+    },
+    [shareAudioPlayingId],
+  );
+  const handleShareAudioChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (shareAudioFiles.length >= shareAudioLimit) {
+        event.target.value = "";
+        return;
+      }
+      addShareAudioFile(file);
+      event.target.value = "";
+    },
+    [addShareAudioFile, shareAudioFiles.length, shareAudioLimit],
+  );
+  const stopShareRecordingTimer = useCallback(() => {
+    if (shareRecordingIntervalRef.current) {
+      window.clearInterval(shareRecordingIntervalRef.current);
+      shareRecordingIntervalRef.current = null;
+    }
+  }, []);
+  const startShareRecordingTimer = useCallback(() => {
+    shareRecordingSecondsRef.current = 0;
+    setShareRecordingSeconds(0);
+    stopShareRecordingTimer();
+    shareRecordingIntervalRef.current = window.setInterval(() => {
+      shareRecordingSecondsRef.current += 1;
+      setShareRecordingSeconds(shareRecordingSecondsRef.current);
+    }, 1000);
+  }, [stopShareRecordingTimer]);
+  const stopShareRecording = useCallback(
+    (action: "keep" | "discard" = "keep") => {
+      const recorder = shareRecorderRef.current;
+      shareRecordingActionRef.current = action;
+      shareRecordingDurationRef.current = shareRecordingSecondsRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      }
+      if (shareStreamRef.current) {
+        shareStreamRef.current.getTracks().forEach((track) => track.stop());
+        shareStreamRef.current = null;
+      }
+      stopShareRecordingTimer();
+      stopShareWaveMeter();
+      setShareRecordingState("idle");
+      setShareRecordingSeconds(0);
+      shareRecordingSecondsRef.current = 0;
+    },
+    [stopShareRecordingTimer, stopShareWaveMeter],
+  );
+  const startShareRecording = useCallback(async () => {
+    if (shareRecordingState !== "idle") return;
+    if (shareAudioFiles.length >= shareAudioLimit) return;
+    if (typeof window === "undefined") return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      shareAudioInputRef.current?.click();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      shareStreamRef.current = stream;
+      startShareWaveMeter(stream);
+      const recorder = new MediaRecorder(stream);
+      shareRecorderRef.current = recorder;
+      shareAudioChunksRef.current = [];
+      shareRecordingActionRef.current = "keep";
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) {
+          shareAudioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const action = shareRecordingActionRef.current;
+        const durationLabel = formatDuration(shareRecordingDurationRef.current);
+        if (action === "keep" && shareAudioChunksRef.current.length) {
+          const blob = new Blob(shareAudioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          const file = new File([blob], `audio-${Date.now()}.webm`, { type: blob.type });
+          addShareAudioFile(file, durationLabel);
+        }
+        shareAudioChunksRef.current = [];
+      };
+      recorder.start();
+      setShareRecordingState("recording");
+      startShareRecordingTimer();
+    } catch {
+      shareAudioInputRef.current?.click();
+    }
+  }, [addShareAudioFile, shareRecordingState, shareAudioFiles.length, shareAudioLimit, startShareRecordingTimer, startShareWaveMeter]);
+  const stopShareAudioProgress = useCallback((reset = true) => {
+    if (shareAudioPlaybackRafRef.current) {
+      cancelAnimationFrame(shareAudioPlaybackRafRef.current);
+      shareAudioPlaybackRafRef.current = null;
+    }
+    if (reset) {
+      setShareAudioPlaybackSeconds(0);
+    }
+  }, []);
+  const stopShareAudioPlayback = useCallback(() => {
+    if (shareAudioPlayerRef.current) {
+      shareAudioPlayerRef.current.pause();
+      shareAudioPlayerRef.current.currentTime = 0;
+    }
+    shareAudioPlayerRef.current = null;
+    setShareAudioPlayingId(null);
+    setShareAudioIsPaused(false);
+    stopShareAudioProgress(true);
+  }, [stopShareAudioProgress]);
+  const startShareAudioProgress = useCallback(() => {
+    if (shareAudioPlaybackRafRef.current) {
+      cancelAnimationFrame(shareAudioPlaybackRafRef.current);
+    }
+    const tick = () => {
+      const player = shareAudioPlayerRef.current;
+      if (!player) {
+        shareAudioPlaybackRafRef.current = null;
+        return;
+      }
+      setShareAudioPlaybackSeconds(player.currentTime);
+      if (!player.paused && !player.ended) {
+        shareAudioPlaybackRafRef.current = requestAnimationFrame(tick);
+      } else {
+        shareAudioPlaybackRafRef.current = null;
+      }
+    };
+    shareAudioPlaybackRafRef.current = requestAnimationFrame(tick);
+  }, []);
+  const toggleShareAudioPlayback = useCallback(
+    (entry: { id: string; url: string }) => {
+      if (shareAudioPlayingId === entry.id && shareAudioPlayerRef.current) {
+        const player = shareAudioPlayerRef.current;
+        if (player.paused) {
+          player.play().catch(() => null);
+        } else {
+          player.pause();
+        }
+        return;
+      }
+      stopShareAudioPlayback();
+      stopShareAudioProgress(true);
+      const audio = new Audio(entry.url);
+      shareAudioPlayerRef.current = audio;
+      setShareAudioPlayingId(entry.id);
+      setShareAudioPlaybackSeconds(0);
+      setShareAudioIsPaused(false);
+      audio.onloadedmetadata = () => {
+        if (!Number.isNaN(audio.duration)) {
+          updateShareAudioDuration(entry.id, formatDuration(Math.round(audio.duration)), Math.round(audio.duration));
+        }
+      };
+      audio.onplay = () => {
+        setShareAudioIsPaused(false);
+        startShareAudioProgress();
+      };
+      audio.onpause = () => {
+        setShareAudioIsPaused(true);
+        stopShareAudioProgress(false);
+      };
+      audio.onended = () => {
+        setShareAudioPlayingId((prev) => (prev === entry.id ? null : prev));
+        shareAudioPlayerRef.current = null;
+        setShareAudioIsPaused(false);
+        stopShareAudioProgress(true);
+      };
+      audio.play().catch(() => {
+        setShareAudioPlayingId(null);
+        shareAudioPlayerRef.current = null;
+        setShareAudioIsPaused(false);
+        stopShareAudioProgress(true);
+      });
+    },
+    [
+      shareAudioPlayingId,
+      startShareAudioProgress,
+      stopShareAudioPlayback,
+      stopShareAudioProgress,
+      updateShareAudioDuration,
+    ],
+  );
 
   const stopRecordingTimer = () => {
     if (recordingIntervalRef.current) {
@@ -1466,6 +2644,44 @@ export default function KnexChatPage() {
   const avatarFrameMd = "rounded-[8.5px]";
   const avatarFrameSm = "rounded-[7.5px]";
   const avatarFrameXs = "rounded-[7px]";
+  const renderShareContact = (contact: { id: string; title: string; preview?: string; avatarUrl?: string | null }) => {
+    const isSelected = selectedShareContactIds.includes(contact.id);
+    return (
+      <button
+        key={contact.id}
+        type="button"
+        onClick={() => toggleShareContact(contact.id)}
+        className="flex w-full items-center gap-3 text-left"
+      >
+        <span
+          className={`flex h-5 w-5 items-center justify-center rounded border ${
+            isSelected
+              ? "border-blue-500 bg-blue-500 text-white"
+              : isDarkTheme
+                ? "border-[#3a3a3a] text-slate-200"
+                : "border-slate-300 text-slate-600"
+          }`}
+        >
+          {isSelected ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+        </span>
+        {contact.avatarUrl ? (
+          <img src={contact.avatarUrl} alt={contact.title} className={`h-10 w-10 ${avatarFrameSm} object-cover`} />
+        ) : (
+          <div
+            className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+              isDarkTheme ? "bg-slate-800 text-slate-100" : "bg-slate-200 text-slate-600"
+            }`}
+          >
+            {getAvatarText(contact.title)}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{contact.title}</p>
+          {contact.preview ? <p className={`truncate text-xs ${settingsMuted}`}>{contact.preview}</p> : null}
+        </div>
+      </button>
+    );
+  };
 
   const toggleSetting = (key: "openOnStart" | "minimizeToTray" | "spellCheck" | "emojiReplace" | "enterToSend") => {
     setSettingsState((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1767,6 +2983,39 @@ export default function KnexChatPage() {
             </span>
           </div>
           <div className="mt-auto flex flex-col items-center gap-3">
+            <div className="relative group">
+              <button
+                type="button"
+                className={navButtonClass(activeNavKey === "images")}
+                onClick={() => {
+                  setActiveNavKey("images");
+                  setIsMediaModalOpen(true);
+                  setActiveMediaTab("media");
+                  setIsMediaSelectMode(false);
+                  setSelectedMediaIds([]);
+                  setIsMediaFilterOpen(false);
+                  setIsMediaShareOpen(false);
+                  setShareSearch("");
+                  setShareMessage("");
+                  setSelectedShareContactIds([]);
+                  clearShareAudios();
+                  if (shareRecordingState === "recording") {
+                    stopShareRecording("discard");
+                  }
+                }}
+                aria-label="Imagens"
+                title="Imagens"
+              >
+                <ImageIcon className="h-5 w-5" />
+              </button>
+              <span
+                className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
+                  isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
+                } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+              >
+                Imagens
+              </span>
+            </div>
             <div className={`h-px w-8 ${navRailDivider}`} />
             <div className="relative group">
               <button
@@ -3368,6 +4617,7 @@ export default function KnexChatPage() {
                   {filteredActiveThreads.map((thread) => {
                     const isActive = thread.id === activeThread?.id;
                     const threadAvatarUrl = threadAvatarOverrides[thread.id] ?? thread.avatarUrl;
+                    const unreadCount = unreadByThread[thread.id] ?? thread.unread ?? 0;
                     return (
                       <button
                         key={thread.id}
@@ -3416,13 +4666,13 @@ export default function KnexChatPage() {
                           <span className={`text-[11px] ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
                             {thread.lastActivity}
                           </span>
-                          {thread.unread ? (
+                          {unreadCount ? (
                             <span
                               className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                isDarkTheme ? "bg-blue-500 text-white" : "bg-blue-600 text-white"
+                                isDarkTheme ? "bg-orange-500 text-white" : "bg-orange-500 text-white"
                               }`}
                             >
-                              {thread.unread}
+                              {unreadCount}
                             </span>
                           ) : null}
                         </div>
@@ -3571,12 +4821,24 @@ export default function KnexChatPage() {
                       const senderLabel = message.senderName ?? "Participante";
                       const senderColorClass = getSenderColorClass(senderLabel);
                       const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
+                      const isMediaMessage = Boolean(message.imageUrl);
                       const bubble = (
-                        <div className={`knex-bubble ${bubbleVariant}`}>
+                        <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
                           {showSender ? (
                             <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
                           ) : null}
-                          <p className="knex-bubble__text">{message.body}</p>
+                          {message.imageUrl ? (
+                            <div className="knex-bubble__media">
+                              <img
+                                src={message.imageUrl}
+                                alt={message.imageName ?? "Imagem enviada"}
+                                className="knex-bubble__image"
+                              />
+                              {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
+                            </div>
+                          ) : (
+                            <p className="knex-bubble__text">{message.body}</p>
+                          )}
                           <p className="knex-bubble__time">{message.time}</p>
                         </div>
                       );
@@ -3645,10 +4907,18 @@ export default function KnexChatPage() {
                       <button
                         type="button"
                         aria-label="Adicionar"
+                        onClick={() => messageImageInputRef.current?.click()}
                         className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
                       >
                         +
                       </button>
+                      <input
+                        ref={messageImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={handleMessageImageChange}
+                      />
                       <button
                         type="button"
                         aria-label="Emojis"
@@ -3773,6 +5043,811 @@ export default function KnexChatPage() {
             <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
               Foto de perfil
             </p>
+          </div>
+        </div>
+      ) : null}
+      {isMediaModalOpen ? (
+        <div
+          className="absolute inset-0 z-[60] flex items-center justify-center bg-black/50 px-4"
+          onClick={() => {
+            setIsMediaModalOpen(false);
+            setIsMediaSelectMode(false);
+            setSelectedMediaIds([]);
+            setIsMediaShareOpen(false);
+            setShareSearch("");
+            setShareMessage("");
+            setSelectedShareContactIds([]);
+            clearShareAudios();
+            if (shareRecordingState === "recording") {
+              stopShareRecording("discard");
+            }
+          }}
+          role="presentation"
+        >
+          <div
+            className={`relative flex h-[min(82vh,720px)] w-[min(94vw,1200px)] flex-col overflow-hidden rounded-3xl shadow-2xl ${
+              isDarkTheme ? "bg-[#161616] text-slate-100" : "bg-white text-slate-900"
+            } ${isMediaShareOpen ? "border-0" : `border ${settingsBorder}`}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {isMediaFilterOpen ? (
+              <button
+                type="button"
+                aria-label="Fechar filtros"
+                className="fixed inset-0 z-[60] cursor-default"
+                onClick={() => setIsMediaFilterOpen(false)}
+              />
+            ) : null}
+            <div className={`flex flex-wrap items-center gap-4 border-b px-5 py-4 ${settingsBorder}`}>
+              <div className="min-w-[160px]">
+                <p className="text-sm font-semibold">Mídia</p>
+                <p className={`text-xs ${settingsMuted}`}>Mídias de todas as conversas</p>
+              </div>
+              <div className="flex flex-1 items-center justify-center gap-6">
+                {MEDIA_TABS.map((tab) => {
+                  const isActive = activeMediaTab === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setActiveMediaTab(tab.key)}
+                      className={`relative pb-2 text-sm font-semibold transition ${
+                        isActive ? "text-blue-600" : settingsMuted
+                      }`}
+                    >
+                      {tab.label}
+                      <span
+                        className={`absolute inset-x-0 -bottom-[1px] h-[2px] ${
+                          isActive ? "bg-blue-500" : "bg-transparent"
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="ml-auto flex items-center gap-3">
+                <button
+                  type="button"
+                  className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                    isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                  aria-label="Pesquisar mídia"
+                >
+                  <Search className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMediaGridVariant((prev) => (prev === "comfortable" ? "compact" : "comfortable"))
+                  }
+                  className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                    isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                  aria-label="Alterar tamanho do grid"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsMediaFilterOpen((prev) => !prev)}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                    aria-label="Filtrar"
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </button>
+                  {isMediaFilterOpen ? (
+                    <div
+                      className={`absolute right-0 top-12 z-[70] w-56 rounded-2xl border p-4 shadow-xl ${
+                        isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b]" : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Enviado por</p>
+                      <div className="mt-2 space-y-2">
+                        {[
+                          { key: "all", label: "Todas" },
+                          { key: "me", label: "Você" },
+                          { key: "others", label: "Outros" },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setMediaFilterSender(item.key as "all" | "me" | "others")}
+                            className="flex w-full items-center gap-3 text-sm"
+                          >
+                            <span
+                              className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                                mediaFilterSender === item.key
+                                  ? "border-blue-500"
+                                  : isDarkTheme
+                                    ? "border-[#3a3a3a]"
+                                    : "border-slate-300"
+                              }`}
+                            >
+                              {mediaFilterSender === item.key ? (
+                                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                              ) : null}
+                            </span>
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className={`my-4 h-px ${settingsBorder}`} />
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Ordenar por</p>
+                      <div className="mt-2 space-y-2">
+                        {[
+                          { key: "recent", label: "Mais recentes" },
+                          { key: "old", label: "Mais antigas" },
+                          { key: "big", label: "Maior" },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setMediaFilterOrder(item.key as "recent" | "old" | "big")}
+                            className="flex w-full items-center gap-3 text-sm"
+                          >
+                            <span
+                              className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                                mediaFilterOrder === item.key
+                                  ? "border-blue-500"
+                                  : isDarkTheme
+                                    ? "border-[#3a3a3a]"
+                                    : "border-slate-300"
+                              }`}
+                            >
+                              {mediaFilterOrder === item.key ? (
+                                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                              ) : null}
+                            </span>
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                {isMediaSelectMode ? (
+                  <button
+                    type="button"
+                    onClick={toggleMediaSelectMode}
+                    className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
+                      isDarkTheme
+                        ? "border-[#2a2a2a] text-blue-200 hover:bg-white/10"
+                        : "border-slate-200 text-blue-600 hover:bg-blue-50"
+                    }`}
+                    aria-label="Cancelar seleção de mídias"
+                  >
+                    Cancelar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={toggleMediaSelectMode}
+                    className={`flex h-7 w-7 items-center justify-center rounded-full border-2 transition ${
+                      isDarkTheme
+                        ? "border-slate-200 text-slate-200 hover:bg-white/10"
+                        : "border-slate-600 text-slate-600 hover:bg-slate-100"
+                    }`}
+                    aria-label="Selecionar mídias"
+                  >
+                    <Check className="h-4 w-4" />
+                  </button>
+                )}
+                {!isMediaSelectMode ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMediaModalOpen(false);
+                    setIsMediaSelectMode(false);
+                    setSelectedMediaIds([]);
+                    setIsMediaShareOpen(false);
+                    setShareSearch("");
+                    setShareMessage("");
+                    setSelectedShareContactIds([]);
+                    clearShareAudios();
+                    if (shareRecordingState === "recording") {
+                      stopShareRecording("discard");
+                    }
+                  }}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full transition ${
+                    isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                  aria-label="Fechar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              ) : null}
+              </div>
+            </div>
+            {isMediaShareOpen ? (
+              <div
+                className="absolute inset-0 z-[75] flex items-center justify-center bg-black/40 p-4"
+                onClick={() => {
+                  setIsMediaShareOpen(false);
+                  setShareMessage("");
+                  setShareSearch("");
+                  setSelectedShareContactIds([]);
+                  clearShareAudios();
+                  if (shareRecordingState === "recording") {
+                    stopShareRecording("discard");
+                  }
+                }}
+                role="presentation"
+              >
+                <div
+                  className={`relative flex h-[min(82vh,640px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border shadow-2xl ${
+                    isDarkTheme ? "bg-[#161616] text-slate-100" : "bg-white text-slate-900"
+                  } ${settingsBorder}`}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className={`flex items-center gap-3 border-b px-4 py-3 ${settingsBorder}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMediaShareOpen(false);
+                        setShareMessage("");
+                        setShareSearch("");
+                        setSelectedShareContactIds([]);
+                        clearShareAudios();
+                        if (shareRecordingState === "recording") {
+                          stopShareRecording("discard");
+                        }
+                      }}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="text-sm font-semibold">Encaminhar mensagem para</span>
+                  </div>
+                  <div className={`border-b px-4 py-3 ${settingsBorder}`}>
+                    <div
+                      className={`flex items-center gap-2 rounded-full border border-[1.5px] px-3 py-2 text-xs ${
+                        isDarkTheme
+                          ? "border-blue-400/60 text-slate-200"
+                          : "border-blue-400 text-slate-600"
+                      }`}
+                    >
+                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <input
+                        type="text"
+                        value={shareSearch}
+                        onChange={(event) => setShareSearch(event.target.value)}
+                        placeholder="Pesquisar nome ou e-mail"
+                        className={`w-full bg-transparent text-xs focus:outline-none ${
+                          isDarkTheme
+                            ? "placeholder:text-slate-400 text-slate-100"
+                            : "placeholder:text-slate-400 text-slate-700"
+                        }`}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-4 py-4">
+                    <p className={`text-[11px] font-semibold ${settingsMuted}`}>Conversas recentes</p>
+                    {shareRecentContacts.length ? (
+                      <div className="mt-3 space-y-3">
+                        {shareRecentContacts.map((contact) => renderShareContact(contact))}
+                      </div>
+                    ) : (
+                      <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma conversa recente.</p>
+                    )}
+                    <p className={`mt-6 text-[11px] font-semibold ${settingsMuted}`}>Todos os contatos</p>
+                    {shareDirectoryContacts.length ? (
+                      <div className="mt-3 space-y-3">
+                        {shareDirectoryContacts.map((contact) => renderShareContact(contact))}
+                      </div>
+                    ) : (
+                      <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhum contato encontrado.</p>
+                    )}
+                  </div>
+                  <div
+                    className={`border-t px-3 pt-3 pb-3 ${settingsBorder} ${
+                      isDarkTheme ? "bg-[#1b1b1b]" : "bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {selectedMediaIds.length ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-[70px] min-w-0 flex-1 items-center gap-2">
+                            {selectedMediaIds.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => scrollShareThumbs("left")}
+                                className={`flex h-6 w-6 items-center justify-center rounded-full transition ${
+                                  isDarkTheme
+                                    ? "text-slate-200 hover:bg-white/10"
+                                    : "text-slate-600 hover:bg-slate-100"
+                                }`}
+                                aria-label="Voltar miniaturas"
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                            <div
+                              ref={shareThumbsRef}
+                              className={`flex min-w-[52px] flex-1 items-center gap-2 ${
+                                selectedMediaIds.length > 1
+                                  ? "overflow-x-auto overflow-y-visible scroll-smooth pr-2"
+                                  : "overflow-visible"
+                              }`}
+                            >
+                              {selectedMediaIds.map((id) => {
+                                const item = mediaLibrary.find((media) => media.id === id);
+                                if (!item) return null;
+                                return (
+                                  <div key={id} className="relative flex-shrink-0">
+                                    <img
+                                      src={item.src}
+                                      alt={item.label}
+                                      className="h-[70px] w-[70px] rounded-md object-cover"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectedMediaIds((prev) => prev.filter((mediaId) => mediaId !== id))
+                                      }
+                                      className={`absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold text-white shadow ${
+                                        isDarkTheme ? "bg-blue-500" : "bg-blue-600"
+                                      }`}
+                                      aria-label="Remover imagem selecionada"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {selectedMediaIds.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => scrollShareThumbs("right")}
+                                className={`flex h-6 w-6 items-center justify-center rounded-full transition ${
+                                  isDarkTheme
+                                    ? "text-slate-200 hover:bg-white/10"
+                                    : "text-slate-600 hover:bg-slate-100"
+                                }`}
+                                aria-label="Avancar miniaturas"
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                          </div>
+                          {selectedMediaIds.length > 1 ? (
+                            <>
+                              <div className={`h-10 w-px ${isDarkTheme ? "bg-[#2a2a2a]" : "bg-slate-200"}`} />
+                              <div className="ml-4 flex min-w-[80px] flex-col">
+                                <span className="text-[11px] font-semibold">Foto</span>
+                                <span className={`text-[10px] ${settingsMuted}`}>
+                                  {selectedMediaIds.length} imagens
+                                </span>
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {selectedMediaIds.length <= 1 ? (
+                        <div className={`w-full ${selectedMediaIds.length ? "pl-2" : "pl-0"}`}>
+                          <div className="flex items-start gap-2">
+                            <div className="relative flex-1">
+                              <textarea
+                                value={shareMessage}
+                                onChange={(event) => setShareMessage(event.target.value)}
+                                placeholder="Adicione uma mensagem..."
+                                rows={2}
+                                className={`h-[70px] w-full resize-none rounded-md border px-3 pb-8 pt-2 text-xs focus:outline-none ${
+                                  isDarkTheme
+                                    ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100 placeholder:text-slate-500"
+                                    : "border-slate-200 bg-white text-slate-700 placeholder:text-slate-400"
+                                }`}
+                              />
+                              {shareRecordingState === "recording" ? (
+                                <div
+                                  className={`absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2 text-[10px] ${
+                                    isDarkTheme ? "text-slate-100" : "text-slate-600"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => stopShareRecording("discard")}
+                                      className={`flex h-5 w-5 items-center justify-center rounded-full transition ${
+                                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+                                      }`}
+                                      aria-label="Descartar áudio"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                    <span className="h-2 w-2 rounded-full bg-rose-500" />
+                                    <span className="font-semibold">{formatDuration(shareRecordingSeconds)}</span>
+                                  </div>
+                                  <div className="mx-2 flex-1">
+                                    <span className="knex-record-wave" aria-hidden="true">
+                                      {shareRecordingWave.map((value, index) => {
+                                        const height = 4 + value * 14;
+                                        return (
+                                          <span
+                                            key={`share-wave-${index}`}
+                                            className="knex-record-bar"
+                                            style={{
+                                              height: `${height}px`,
+                                              animation: "none",
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => stopShareRecording("keep")}
+                                      className={`flex h-5 w-5 items-center justify-center rounded-full transition ${
+                                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+                                      }`}
+                                      aria-label="Encerrar áudio"
+                                    >
+                                      <Pause className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (shareRecordingState === "recording") return;
+                                if (isShareAudioLimitReached) return;
+                                startShareRecording();
+                              }}
+                              className={`flex h-[70px] w-10 items-center justify-center rounded-md border transition ${
+                                isDarkTheme
+                                  ? "border-[#2a2a2a] text-slate-200 hover:bg-white/10"
+                                  : "border-slate-200 text-slate-600 hover:bg-slate-100"
+                              }`}
+                              aria-label="Gravar áudio"
+                              title={isShareAudioLimitReached ? "Limite de 4 áudios" : "Gravar áudio"}
+                              disabled={shareRecordingState === "recording" || isShareAudioLimitReached}
+                            >
+                              <Mic className="h-4 w-4" />
+                            </button>
+                            <input
+                              ref={shareAudioInputRef}
+                              type="file"
+                              accept="audio/*"
+                              className="sr-only"
+                              onChange={handleShareAudioChange}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    {shareAudioFiles.length ? (
+                      <div className="mt-2 grid grid-cols-2 gap-2 justify-items-center">
+                        {shareAudioFiles.map((entry, index) => {
+                          const isPlaying = shareAudioPlayingId === entry.id;
+                          const isPaused = isPlaying && shareAudioIsPaused;
+                          const isOddLast =
+                            shareAudioFiles.length % 2 === 1 &&
+                            index === shareAudioFiles.length - 1;
+                          const playbackWave =
+                            entry.waveform && entry.waveform.length
+                              ? entry.waveform
+                              : Array.from({ length: shareWaveBarCount }, () => 0.18);
+                          const totalSeconds =
+                            entry.durationSeconds ??
+                            (entry.duration
+                              ? entry.duration
+                                  .split(":")
+                                  .map((part) => Number(part))
+                                  .reduce((acc, value) => acc * 60 + value, 0)
+                              : 0);
+                          const progress =
+                            totalSeconds > 0 ? Math.min(1, shareAudioPlaybackSeconds / totalSeconds) : 0;
+                          return (
+                            <div
+                              key={entry.id}
+                              className={`w-full max-w-[240px] justify-self-center ${
+                                isOddLast ? "col-span-2 max-w-[260px]" : ""
+                              }`}
+                            >
+                              <div
+                                className={`flex w-full items-center gap-2 rounded-full px-3 py-2 text-[11px] font-semibold ${
+                                  isDarkTheme
+                                    ? "bg-blue-500/20 text-blue-100"
+                                    : "bg-blue-100 text-blue-700"
+                                }`}
+                              >
+                                {isPlaying ? (
+                                  <div className="flex w-full flex-col gap-1">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleShareAudioPlayback(entry)}
+                                        className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                                          isDarkTheme ? "text-blue-100" : "text-blue-700"
+                                        }`}
+                                        aria-label={isPaused ? "Retomar áudio" : "Pausar áudio"}
+                                      >
+                                        {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+                                      </button>
+                                      <span className={`h-2 w-2 rounded-full ${isDarkTheme ? "bg-blue-300" : "bg-blue-500"}`} />
+                                      <span className="flex flex-1 justify-center">
+                                        <span className="relative inline-flex h-5 items-end gap-1" aria-hidden="true">
+                                          {playbackWave.map((value, waveIndex) => {
+                                            const height = 4 + value * 16;
+                                            const baseColor = isDarkTheme ? "rgba(148,163,184,0.75)" : "rgba(148,163,184,0.9)";
+                                            return (
+                                              <span
+                                                key={`play-wave-${entry.id}-${waveIndex}`}
+                                                className="rounded-full"
+                                                style={{
+                                                  width: "2px",
+                                                  height: `${height}px`,
+                                                  backgroundColor: baseColor,
+                                                }}
+                                              />
+                                            );
+                                          })}
+                                          {totalSeconds > 0 ? (
+                                            <span
+                                              className="pointer-events-none absolute bottom-0 h-5 w-0.5"
+                                              style={{
+                                                left: `${Math.min(100, Math.max(0, progress * 100))}%`,
+                                                backgroundColor: isDarkTheme ? "#60a5fa" : "#2563eb",
+                                                boxShadow: isDarkTheme
+                                                  ? "0 0 6px rgba(96,165,250,0.9)"
+                                                  : "0 0 6px rgba(37,99,235,0.8)",
+                                              }}
+                                            />
+                                          ) : null}
+                                        </span>
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeShareAudioById(entry.id)}
+                                        className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                                          isDarkTheme
+                                            ? "text-blue-100 hover:bg-blue-500/30"
+                                            : "text-blue-700 hover:bg-blue-200/60"
+                                        }`}
+                                        aria-label="Remover áudio"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                    <div
+                                      className={`flex items-center justify-between text-[10px] font-medium ${
+                                        isDarkTheme ? "text-blue-100/80" : "text-blue-700/70"
+                                      }`}
+                                    >
+                                      <span>{formatDuration(Math.floor(shareAudioPlaybackSeconds))}</span>
+                                      <span>{totalSeconds ? formatDuration(totalSeconds) : entry.duration ?? ""}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleShareAudioPlayback(entry)}
+                                      className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                                        isDarkTheme ? "text-blue-100" : "text-blue-700"
+                                      }`}
+                                      aria-label="Ouvir áudio"
+                                    >
+                                      <Play className="h-3 w-3" />
+                                    </button>
+                                    <span className="flex-1">
+                                      Áudio {index + 1}
+                                      {entry.duration ? ` · ${entry.duration}` : ""}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeShareAudioById(entry.id)}
+                                      className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                                        isDarkTheme
+                                          ? "text-blue-100 hover:bg-blue-500/30"
+                                          : "text-blue-700 hover:bg-blue-200/60"
+                                      }`}
+                                      aria-label="Remover áudio"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    {selectedShareContactIds.length ? (
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">
+                            {selectedShareContactIds
+                              .map(
+                                (id) =>
+                                  shareAllSelectable.find((contact) => contact.id === id)?.title ?? "Selecionado",
+                              )
+                              .join(", ")}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleShareSend}
+                          className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-white shadow transition hover:bg-blue-700"
+                          aria-label="Enviar"
+                        >
+                          <SendHorizontal className="h-5 w-5" />
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            <div className="flex flex-1 min-h-0 flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+                {activeMediaTab === "media" ? (
+                  <div
+                    className={`grid gap-3 ${
+                      mediaGridVariant === "compact"
+                        ? "grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+                        : "grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                    }`}
+                  >
+                    {mediaItems.map((item) => {
+                      const isSelected = selectedMediaIds.includes(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          className={`group relative aspect-square overflow-hidden rounded-xl border shadow-sm transition ${
+                            isDarkTheme ? "border-[#2a2a2a] bg-[#202020]" : "border-slate-200 bg-slate-100"
+                          } ${isMediaSelectMode && isSelected ? "ring-2 ring-blue-500" : ""}`}
+                        >
+                        <img
+                          src={item.src}
+                          alt={item.label}
+                          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                        />
+                        {item.isFavorite ? (
+                          <span className="absolute left-3 top-3 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-amber-500 shadow">
+                            <Star className="h-4 w-4" />
+                          </span>
+                        ) : null}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3">
+                          {item.mediaType === "video" ? (
+                            <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold text-white">
+                              <Video className="h-3.5 w-3.5" />
+                              <span>{item.duration ?? "0:00"}</span>
+                            </div>
+                          ) : null}
+                          <p className="text-xs font-semibold text-white">
+                            {item.thread?.title ?? item.label}
+                          </p>
+                            <p className="text-[10px] text-white/80">{item.caption ?? item.label}</p>
+                          </div>
+                          {isMediaSelectMode ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleMediaSelection(item.id)}
+                              className={`absolute right-3 top-3 grid h-6 w-6 place-items-center rounded-full border text-xs font-semibold transition ${
+                                isSelected
+                                  ? "border-blue-500 bg-blue-500 text-white"
+                                  : isDarkTheme
+                                    ? "border-[#3a3a3a] bg-black/30 text-slate-100"
+                                    : "border-slate-200 bg-white/80 text-slate-600"
+                              }`}
+                              aria-label={isSelected ? "Remover seleção" : "Selecionar mídia"}
+                            >
+                              {isSelected ? <Check className="h-3 w-3" /> : null}
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm">
+                    <span className={settingsMuted}>
+                      {activeMediaTab === "docs"
+                        ? "Nenhum documento compartilhado ainda."
+                        : "Nenhum link compartilhado ainda."}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {activeMediaTab === "media" && isMediaSelectMode ? (
+                <div
+                  className={`sticky bottom-0 flex items-center justify-between border-t px-5 py-3 text-xs ${settingsBorder} ${
+                    isDarkTheme ? "bg-[#161616]" : "bg-white"
+                  }`}
+                >
+                  <div
+                    className="flex items-center gap-2"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selectedMediaIds.length) return;
+                        setMediaLibrary((prev) => prev.filter((item) => !selectedMediaIds.includes(item.id)));
+                        setSelectedMediaIds([]);
+                      }}
+                      className={`flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-semibold transition ${
+                        selectedMediaSummary.count
+                          ? "bg-rose-500 text-white hover:bg-rose-600"
+                          : "bg-rose-200 text-white"
+                      }`}
+                      aria-label="Excluir selecionadas"
+                      disabled={!selectedMediaSummary.count}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span>{selectedMediaSummary.sizeLabel}</span>
+                    </button>
+                  </div>
+                  <span className={`text-xs ${settingsMuted}`}>
+                    {selectedMediaSummary.count} selecionada{selectedMediaSummary.count === 1 ? "" : "s"}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleFavoriteSelected}
+                      disabled={!selectedMediaSummary.count}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        selectedMediaSummary.count
+                          ? isDarkTheme
+                            ? "text-slate-100 hover:bg-white/10"
+                            : "text-slate-600 hover:bg-slate-100"
+                          : "text-slate-400 opacity-50"
+                      }`}
+                      aria-label="Favoritar"
+                    >
+                      <Star className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadSelected}
+                      disabled={!selectedMediaSummary.count}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        selectedMediaSummary.count
+                          ? isDarkTheme
+                            ? "text-slate-100 hover:bg-white/10"
+                            : "text-slate-600 hover:bg-slate-100"
+                          : "text-slate-400 opacity-50"
+                      }`}
+                      aria-label="Baixar"
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selectedMediaSummary.count) return;
+                        setIsMediaShareOpen(true);
+                        setIsMediaFilterOpen(false);
+                        setShareSearch("");
+                        setShareMessage("");
+                        setSelectedShareContactIds([]);
+                        clearShareAudios();
+                      }}
+                      disabled={!selectedMediaSummary.count}
+                      className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                        selectedMediaSummary.count
+                          ? "bg-blue-600 text-white hover:bg-blue-700"
+                          : "bg-blue-200 text-white opacity-60"
+                      }`}
+                      aria-label="Compartilhar"
+                    >
+                      <SendHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
