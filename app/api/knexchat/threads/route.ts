@@ -6,13 +6,16 @@ export const runtime = "nodejs";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error("Missing Supabase service role env vars: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
-}
-
-const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+let supabaseAdmin: ReturnType<typeof createClient> | null = null;
+const getSupabaseAdmin = () => {
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return supabaseAdmin;
+};
 
 const allowedKinds = new Set(["direct", "group", "forum"]);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
@@ -24,9 +27,11 @@ const extractToken = (req: NextRequest) => {
 };
 
 async function requireAuthEmail(req: NextRequest) {
+  const admin = getSupabaseAdmin();
+  if (!admin) return null;
   const token = extractToken(req);
   if (!token) return null;
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  const { data, error } = await admin.auth.getUser(token);
   if (error) return null;
   const email = data?.user?.email ? normalizeEmail(data.user.email) : "";
   return email || null;
@@ -67,7 +72,11 @@ async function attachParticipantNames(
 
   if (!allEmails.size) return participantsByThread;
 
-  const { data: directoryRows, error } = await supabaseAdmin
+  const admin = getSupabaseAdmin();
+  if (!admin) {
+    throw new Error("Supabase service role not configured");
+  }
+  const { data: directoryRows, error } = await admin
     .from("knexchat_directory")
     .select("email, name")
     .in("email", Array.from(allEmails));
@@ -91,6 +100,9 @@ async function attachParticipantNames(
 }
 
 export async function GET(req: NextRequest) {
+  if (!getSupabaseAdmin()) {
+    return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+  }
   const authEmail = await requireAuthEmail(req);
   if (!authEmail) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
@@ -111,7 +123,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { data: participantRows, error: participantsError } = await supabaseAdmin
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+    }
+    const { data: participantRows, error: participantsError } = await admin
       .from("knexchat_thread_participants")
       .select("thread_id")
       .eq("email", email);
@@ -123,7 +139,7 @@ export async function GET(req: NextRequest) {
       return Response.json({ threads: [] }, { status: 200 });
     }
 
-    const { data: threads, error: threadsError } = await supabaseAdmin
+    const { data: threads, error: threadsError } = await admin
       .from("knexchat_threads")
       .select("id, kind, title, created_by, created_at, updated_at, last_message_at")
       .in("id", threadIds);
@@ -136,7 +152,7 @@ export async function GET(req: NextRequest) {
     let lastMessageByThread: Record<string, unknown> = {};
 
     if (includeParticipants) {
-      const { data: participantData, error: participantDataError } = await supabaseAdmin
+      const { data: participantData, error: participantDataError } = await admin
         .from("knexchat_thread_participants")
         .select("thread_id, email, role")
         .in("thread_id", threadIds);
@@ -154,7 +170,7 @@ export async function GET(req: NextRequest) {
 
     if (includeLastMessage) {
       const lastMessagePromises = threadIds.map(async (threadId) => {
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await admin
           .from("knexchat_messages")
           .select("id, thread_id, sender_email, body, kind, media_url, media_name, created_at")
           .eq("thread_id", threadId)
@@ -188,6 +204,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!getSupabaseAdmin()) {
+    return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+  }
   const authEmail = await requireAuthEmail(req);
   if (!authEmail) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
@@ -223,7 +242,11 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "Direct threads need 2 participants" }, { status: 400 });
     }
 
-    const { data: directoryRows, error: directoryError } = await supabaseAdmin
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+    }
+    const { data: directoryRows, error: directoryError } = await admin
       .from("knexchat_directory")
       .select("email")
       .in("email", participants);
@@ -239,13 +262,13 @@ export async function POST(req: NextRequest) {
 
     if (kindRaw === "direct" && participants.length === 2) {
       const [first, second] = participants;
-      const { data: firstRows, error: firstError } = await supabaseAdmin
+      const { data: firstRows, error: firstError } = await admin
         .from("knexchat_thread_participants")
         .select("thread_id")
         .eq("email", first);
       if (firstError) throw firstError;
 
-      const { data: secondRows, error: secondError } = await supabaseAdmin
+      const { data: secondRows, error: secondError } = await admin
         .from("knexchat_thread_participants")
         .select("thread_id")
         .eq("email", second);
@@ -257,7 +280,7 @@ export async function POST(req: NextRequest) {
       );
 
       if (sharedIds.length) {
-        const { data: existingThreads, error: existingError } = await supabaseAdmin
+        const { data: existingThreads, error: existingError } = await admin
           .from("knexchat_threads")
           .select("id, kind, title, created_by, created_at, updated_at, last_message_at")
           .in("id", sharedIds)
@@ -268,7 +291,7 @@ export async function POST(req: NextRequest) {
 
         const existing = existingThreads?.[0];
         if (existing) {
-          const { data: participantData, error: participantError } = await supabaseAdmin
+          const { data: participantData, error: participantError } = await admin
             .from("knexchat_thread_participants")
             .select("email, role")
             .eq("thread_id", existing.id);
@@ -292,7 +315,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { data: thread, error: threadError } = await supabaseAdmin
+    const { data: thread, error: threadError } = await admin
       .from("knexchat_threads")
       .insert({
         kind: kindRaw,
@@ -316,12 +339,12 @@ export async function POST(req: NextRequest) {
       role: adminSet.has(email) ? "admin" : "member",
     }));
 
-    const { error: participantsInsertError } = await supabaseAdmin
+    const { error: participantsInsertError } = await admin
       .from("knexchat_thread_participants")
       .insert(participantRows);
 
     if (participantsInsertError) {
-      await supabaseAdmin.from("knexchat_threads").delete().eq("id", thread.id);
+      await admin.from("knexchat_threads").delete().eq("id", thread.id);
       throw participantsInsertError;
     }
 

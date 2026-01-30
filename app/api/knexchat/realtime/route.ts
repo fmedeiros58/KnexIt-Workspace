@@ -6,18 +6,25 @@ export const runtime = "nodejs";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error("Missing Supabase service role env vars: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
-}
-
-const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+let supabaseAdmin: ReturnType<typeof createClient> | null = null;
+const getSupabaseAdmin = () => {
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return supabaseAdmin;
+};
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
 
 export async function GET(req: NextRequest) {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
+    return new Response("Supabase service role not configured", { status: 500 });
+  }
   const { searchParams } = new URL(req.url);
   const token = searchParams.get("token") || "";
 
@@ -25,7 +32,7 @@ export async function GET(req: NextRequest) {
     return new Response("Missing token", { status: 401 });
   }
 
-  const { data, error: authError } = await supabaseAdmin.auth.getUser(token);
+  const { data, error: authError } = await admin.auth.getUser(token);
   const authEmail = data?.user?.email ?? "";
   const email = normalizeEmail(authEmail);
 
@@ -41,7 +48,7 @@ export async function GET(req: NextRequest) {
     writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
   };
 
-  let channel: ReturnType<typeof supabaseAdmin.channel> | null = null;
+  let channel: ReturnType<typeof admin.channel> | null = null;
   let keepAliveTimer: NodeJS.Timeout | null = null;
 
   const cleanup = async () => {
@@ -65,7 +72,7 @@ export async function GET(req: NextRequest) {
   });
 
   try {
-    const { data: participantRows, error } = await supabaseAdmin
+    const { data: participantRows, error } = await admin
       .from("knexchat_thread_participants")
       .select("thread_id")
       .eq("email", email);
@@ -74,7 +81,7 @@ export async function GET(req: NextRequest) {
 
     const threadIds = Array.from(new Set((participantRows ?? []).map((row) => row.thread_id)));
 
-    channel = supabaseAdmin.channel(`knexchat:${email}:${Date.now()}`);
+    channel = admin.channel(`knexchat:${email}:${Date.now()}`);
 
     threadIds.forEach((threadId) => {
       channel = channel?.on(
