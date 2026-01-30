@@ -6,11 +6,11 @@ export const runtime = "nodejs";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-let supabaseAdmin: ReturnType<typeof createClient> | null = null;
+let supabaseAdmin: ReturnType<typeof createClient<any>> | null = null;
 const getSupabaseAdmin = () => {
   if (!supabaseUrl || !serviceRoleKey) return null;
   if (!supabaseAdmin) {
-    supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    supabaseAdmin = createClient<any>(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
   }
