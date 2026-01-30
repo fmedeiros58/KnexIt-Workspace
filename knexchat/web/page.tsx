@@ -4,15 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
+  BellOff,
   ArrowRight,
   X,
+  XCircle,
   Camera,
   Check,
+  CheckSquare,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
   Download,
+  Flag,
   HelpCircle,
   Hash,
   Radio,
@@ -20,6 +24,7 @@ import {
   Grip,
   Image as ImageIcon,
   Keyboard,
+  Lock,
   LogOut,
   LayoutGrid,
   MessageCirclePlus,
@@ -47,23 +52,32 @@ import {
   SlidersHorizontal,
   Smile,
   Timer,
+  Trash,
   Trash2,
   User,
   Users,
   Video,
+  Pencil,
+  Link2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { Session } from "@supabase/supabase-js";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"] });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"] });
 
 const STORAGE_KEY = "knexchat.identity";
 const CHAT_STATE_KEY = "knexchat.state.v1";
+const DIRECTORY_KEY = "knexchat.directory.v1";
+const INBOX_KEY = "knexchat.inbox.v1";
 const SHOW_OTP_PREVIEW = process.env.NEXT_PUBLIC_KNEXCHAT_SHOW_OTP === "1";
 const MOCK_RESEND_WARNING =
   "The knexit.com domain is not verified. Please, add and verify your domain on https://resend.com/domains";
+const OTP_CODE_REGEX = /^\d{6}$/;
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -309,6 +323,27 @@ type Identity = {
   name?: string;
 };
 
+type DirectoryEntry = {
+  email: string;
+  name?: string;
+  createdAt: string;
+};
+
+type InboxMessage = {
+  id: string;
+  to: string;
+  from: string;
+  fromName?: string;
+  body: string;
+  time: string;
+  sentAt: number;
+  kind?: "text" | "image" | "audio";
+  imageUrl?: string;
+  imageName?: string;
+  audioUrl?: string;
+  audioDuration?: string;
+};
+
 type TabKey = "conversations" | "groups" | "contacts";
 type FilterKey = "all" | "unread" | "groups" | "contacts";
 type MediaTabKey = "media" | "docs" | "links";
@@ -318,10 +353,45 @@ type Thread = {
   title: string;
   preview: string;
   lastActivity: string;
+  lastActivityAt?: number;
   unread?: number;
   tab: TabKey;
   avatarUrl?: string;
   onlineCount?: number;
+  contactEmail?: string;
+  participantRoles?: { email: string; role: "admin" | "member"; name?: string | null }[];
+};
+
+type ThreadMenuItem = {
+  label: string;
+  icon: LucideIcon;
+  action?: "contact-info" | "group-info";
+  tone?: "danger";
+};
+
+type ApiParticipant = { email: string; role: "admin" | "member"; name?: string | null };
+
+type ApiThread = {
+  id: string;
+  kind: "direct" | "group" | "forum";
+  title?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  last_message_at?: string | null;
+  participants?: ApiParticipant[];
+  lastMessage?: ApiMessage | null;
+};
+
+type ApiMessage = {
+  id: string;
+  thread_id: string;
+  sender_email: string;
+  body: string | null;
+  kind: "text" | "image" | "audio" | "file";
+  media_url?: string | null;
+  media_name?: string | null;
+  created_at: string;
 };
 
 type Message = {
@@ -352,6 +422,14 @@ type WallpaperOption = {
   key: string;
   label: string;
   color?: string;
+};
+
+type GroupPermissions = {
+  editGroupSettings: boolean;
+  sendMessages: boolean;
+  addMembers: boolean;
+  inviteViaLink: boolean;
+  approveNewMembers: boolean;
 };
 
 const FILTERS: { key: FilterKey; label: string }[] = [
@@ -393,77 +471,23 @@ const DEFAULT_SETTINGS_STATE = {
   emojiReplace: true,
   enterToSend: true,
   wallpaper: "default",
+  profileRecado: "Onde há igualdade, a amizade não perde.",
   theme: "light" as "light" | "dark" | "system",
 };
 
-const INITIAL_CONVERSATIONS: Thread[] = [
-  {
-    id: "conv-geral",
-    title: "Geral",
-    preview: "Checklist do sprint fechado.",
-    lastActivity: "Agora",
-    unread: 2,
-    tab: "conversations",
-    avatarUrl: "https://i.pravatar.cc/100?img=32",
-  },
-  {
-    id: "conv-orientacao",
-    title: "Orientação de TCC",
-    preview: "Revisão enviada para você.",
-    lastActivity: "09:40",
-    tab: "conversations",
-    avatarUrl: "https://i.pravatar.cc/100?img=47",
-  },
-  {
-    id: "conv-projeto",
-    title: "Projeto KnexIt",
-    preview: "Vamos alinhar os canais.",
-    lastActivity: "Ontem",
-    tab: "conversations",
-    avatarUrl: "https://i.pravatar.cc/100?img=12",
-  },
-];
+const DEFAULT_GROUP_PERMISSIONS: GroupPermissions = {
+  editGroupSettings: true,
+  sendMessages: true,
+  addMembers: true,
+  inviteViaLink: false,
+  approveNewMembers: false,
+};
 
-const INITIAL_GROUPS: Thread[] = [
-  {
-    id: "grp-lab-ia",
-    title: "Lab IA",
-    preview: "Nova pauta adicionada.",
-    lastActivity: "08:10",
-    onlineCount: 6,
-    unread: 1,
-    tab: "groups",
-    avatarUrl: "https://i.pravatar.cc/100?img=15",
-  },
-  {
-    id: "grp-turma-2025",
-    title: "Turma 2025",
-    preview: "Bem-vindos!",
-    lastActivity: "Ontem",
-    onlineCount: 18,
-    tab: "groups",
-    avatarUrl: "https://i.pravatar.cc/100?img=8",
-  },
-];
+const INITIAL_CONVERSATIONS: Thread[] = [];
 
-const INITIAL_CONTACTS: Thread[] = [
-  {
-    id: "ctt-luiza",
-    title: "Luiza Costa",
-    preview: "Online agora",
-    lastActivity: "Ativo",
-    tab: "contacts",
-    avatarUrl: "https://i.pravatar.cc/100?img=5",
-  },
-  {
-    id: "ctt-vitor",
-    title: "Mentor Vitor",
-    preview: "Disponível até 18h",
-    lastActivity: "Ativo",
-    tab: "contacts",
-    avatarUrl: "https://i.pravatar.cc/100?img=23",
-  },
-];
+const INITIAL_GROUPS: Thread[] = [];
+
+const INITIAL_CONTACTS: Thread[] = [];
 
 const MEDIA_TABS: { key: MediaTabKey; label: string }[] = [
   { key: "media", label: "Mídias" },
@@ -471,124 +495,7 @@ const MEDIA_TABS: { key: MediaTabKey; label: string }[] = [
   { key: "links", label: "Links" },
 ];
 
-const MEDIA_LIBRARY_SEED: MediaItem[] = [
-  {
-    id: "media-1",
-    threadId: "conv-geral",
-    label: "Professor Rafael",
-    caption: "+55 68 9252-4050",
-    src: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 263,
-  },
-  {
-    id: "media-2",
-    threadId: "conv-orientacao",
-    label: "Arquivo de reunião",
-    caption: "+55 68 9985-1895",
-    src: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 148,
-  },
-  {
-    id: "media-3",
-    threadId: "conv-projeto",
-    label: "Workshop Knex",
-    caption: "+55 68 9985-1895",
-    src: "https://images.unsplash.com/photo-1517832606299-7ae9b720a186?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 212,
-  },
-  {
-    id: "media-4",
-    threadId: "grp-lab-ia",
-    label: "Entrega final",
-    caption: "+55 68 9985-1895",
-    src: "https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 196,
-  },
-  {
-    id: "media-5",
-    threadId: "grp-turma-2025",
-    label: "Equipe Knex",
-    caption: "+55 68 9985-0407",
-    src: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 174,
-  },
-  {
-    id: "media-6",
-    threadId: "ctt-luiza",
-    label: "Status diário",
-    caption: "+55 68 9252-4050",
-    src: "https://images.unsplash.com/photo-1452626038306-9aae5e071dd3?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 221,
-  },
-  {
-    id: "media-6b",
-    threadId: "ctt-luiza",
-    label: "Vídeo rápido",
-    caption: "Medeiros vivo",
-    src: "https://images.unsplash.com/photo-1529933037286-0472cf1fc4f8?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 1460,
-    mediaType: "video",
-    duration: "0:11",
-  },
-  {
-    id: "media-7",
-    threadId: "ctt-vitor",
-    label: "Academia",
-    caption: "Sandrão Pelada",
-    src: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 187,
-  },
-  {
-    id: "media-8",
-    threadId: "conv-geral",
-    label: "Treino",
-    caption: "Ericson Pelada",
-    src: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 205,
-  },
-  {
-    id: "media-9",
-    threadId: "conv-orientacao",
-    label: "Projeto",
-    caption: "Medeiros vivo",
-    src: "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 233,
-  },
-  {
-    id: "media-9b",
-    threadId: "conv-orientacao",
-    label: "Trecho reunião",
-    caption: "Medeiros vivo",
-    src: "https://images.unsplash.com/photo-1489515217757-5fd1be406fef?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 1820,
-    mediaType: "video",
-    duration: "0:30",
-  },
-  {
-    id: "media-10",
-    threadId: "conv-projeto",
-    label: "Agenda",
-    caption: "Medeiros vivo",
-    src: "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 192,
-  },
-  {
-    id: "media-11",
-    threadId: "grp-lab-ia",
-    label: "Registro",
-    caption: "Thwnay Pelada",
-    src: "https://images.unsplash.com/photo-1454165205744-3b78555e5572?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 176,
-  },
-  {
-    id: "media-12",
-    threadId: "grp-turma-2025",
-    label: "Relatório",
-    caption: "Thwnay Pelada",
-    src: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=900&q=80",
-    sizeKb: 208,
-  },
-];
+const MEDIA_LIBRARY_SEED: MediaItem[] = [];
 
 const SETTINGS_MENU = [
   {
@@ -641,38 +548,7 @@ const SETTINGS_MENU = [
   },
 ] as const;
 
-const MESSAGE_SEED: Record<string, Message[]> = {
-  "conv-geral": [
-    { id: "m1", author: "them", body: "Bom dia! Fechamos a pauta de hoje?", time: "09:12" },
-    { id: "m2", author: "me", body: "Sim, subi o resumo e o checklist.", time: "09:14" },
-    { id: "m3", author: "them", body: "Perfeito. Vou avisar o time.", time: "09:15" },
-  ],
-  "conv-orientacao": [
-    { id: "m1", author: "them", body: "Revisou o capítulo 2?", time: "09:03" },
-    { id: "m2", author: "me", body: "Sim, ajustei a metodologia.", time: "09:06" },
-    { id: "m3", author: "them", body: "Vamos marcar uma call.", time: "09:08" },
-  ],
-  "conv-projeto": [
-    { id: "m1", author: "them", body: "Preciso do status do onboarding.", time: "Ontem" },
-    { id: "m2", author: "me", body: "Em andamento, falta revisar o fluxo.", time: "Ontem" },
-  ],
-  "grp-lab-ia": [
-    { id: "m1", author: "them", body: "Reunião hoje às 14h.", time: "08:05", senderName: "Camila Souza" },
-    { id: "m2", author: "me", body: "Confirmado. Levo o protótipo.", time: "08:07" },
-  ],
-  "grp-turma-2025": [
-    { id: "m1", author: "them", body: "Boas-vindas! Agenda liberada.", time: "Ontem", senderName: "Coordenação" },
-    { id: "m2", author: "me", body: "Obrigado! Já conferi o cronograma.", time: "Ontem" },
-  ],
-  "ctt-luiza": [
-    { id: "m1", author: "them", body: "Pode revisar o material do evento?", time: "08:50" },
-    { id: "m2", author: "me", body: "Sim, mando ainda hoje.", time: "08:52" },
-  ],
-  "ctt-vitor": [
-    { id: "m1", author: "them", body: "Quer discutir a proposta de pesquisa?", time: "Ontem" },
-    { id: "m2", author: "me", body: "Claro, estou livre amanhã.", time: "Ontem" },
-  ],
-};
+const MESSAGE_SEED: Record<string, Message[]> = {};
 
 const THEME_STYLE: CSSProperties = {
   "--knex-900": "#05070d",
@@ -705,6 +581,72 @@ function formatMediaSize(kilobytes: number) {
 
 function isValidEmail(email: string) {
   return /\S+@\S+\.\S+/.test(email);
+}
+
+function extractEmail(value?: string | null) {
+  if (!value) return null;
+  const match = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? normalizeEmail(match[0]) : null;
+}
+
+function formatNameFromEmail(email: string) {
+  const local = email.split("@")[0] ?? email;
+  const spaced = local.replace(/[._-]+/g, " ").trim();
+  if (!spaced) return email;
+  return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function contactIdFromEmail(email: string) {
+  const normalized = normalizeEmail(email);
+  const slug = normalized.replace(/[^a-z0-9]+/g, "-");
+  return `ctt-${slug}`;
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value?: string | null) {
+  if (!value) return false;
+  return UUID_REGEX.test(value);
+}
+
+function toTimestampMs(value?: string | number | null) {
+  if (!value) return null;
+  const date = typeof value === "number" ? new Date(value) : new Date(value);
+  const time = date.getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+function formatTimestampLabel(value?: string | number | null) {
+  const time = toTimestampMs(value);
+  if (!time) return "";
+  const date = new Date(time);
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (sameDay) {
+    return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate();
+  if (isYesterday) return "Ontem";
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function getThreadActivityTimestamp(thread: Thread) {
+  return typeof thread.lastActivityAt === "number" ? thread.lastActivityAt : 0;
+}
+
+function getContactPrimaryKey(thread: Thread) {
+  if (thread.contactEmail) return normalizeEmail(thread.contactEmail);
+  const previewEmail = extractEmail(thread.preview);
+  if (previewEmail) return previewEmail;
+  return thread.id;
 }
 
 function getAvatarText(label: string) {
@@ -771,6 +713,62 @@ function safeParseIdentity(raw: string): Identity | null {
   return parsed && isIdentity(parsed) ? parsed : null;
 }
 
+function normalizeDirectoryEntries(raw: string | null): DirectoryEntry[] {
+  const parsed = safeParseJson<unknown>(raw);
+  if (!Array.isArray(parsed)) return [];
+  const entries: DirectoryEntry[] = [];
+  const seen = new Set<string>();
+  parsed.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const record = item as Record<string, unknown>;
+    if (typeof record.email !== "string") return;
+    const email = normalizeEmail(record.email);
+    if (!email || !isValidEmail(email)) return;
+    if (seen.has(email)) return;
+    seen.add(email);
+    const name = typeof record.name === "string" ? normalizeName(record.name) : undefined;
+    const createdAt =
+      typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString();
+    entries.push({ email, name: name || undefined, createdAt });
+  });
+  return entries;
+}
+
+function normalizeInboxMessages(raw: string | null): InboxMessage[] {
+  const parsed = safeParseJson<unknown>(raw);
+  if (!Array.isArray(parsed)) return [];
+  const messages: InboxMessage[] = [];
+  parsed.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const record = item as Record<string, unknown>;
+    if (typeof record.to !== "string" || typeof record.from !== "string") return;
+    if (typeof record.body !== "string" || typeof record.time !== "string") return;
+    if (typeof record.sentAt !== "number" || !Number.isFinite(record.sentAt)) return;
+    const to = normalizeEmail(record.to);
+    const from = normalizeEmail(record.from);
+    if (!to || !from) return;
+    const kind =
+      typeof record.kind === "string" && ["text", "image", "audio"].includes(record.kind)
+        ? (record.kind as "text" | "image" | "audio")
+        : undefined;
+    messages.push({
+      id: typeof record.id === "string" ? record.id : `m_${record.sentAt}`,
+      to,
+      from,
+      fromName: typeof record.fromName === "string" ? record.fromName : undefined,
+      body: record.body,
+      time: record.time,
+      sentAt: record.sentAt,
+      kind,
+      imageUrl: typeof record.imageUrl === "string" ? record.imageUrl : undefined,
+      imageName: typeof record.imageName === "string" ? record.imageName : undefined,
+      audioUrl: typeof record.audioUrl === "string" ? record.audioUrl : undefined,
+      audioDuration: typeof record.audioDuration === "string" ? record.audioDuration : undefined,
+    });
+  });
+  return messages;
+}
+
 export default function KnexChatPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -795,7 +793,16 @@ export default function KnexChatPage() {
   }, [searchParams]);
 
   const [identity, setIdentity] = useState<Identity | null>(null);
+  const [authSession, setAuthSession] = useState<Session | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [directoryEntries, setDirectoryEntries] = useState<DirectoryEntry[]>([]);
+  const [directoryLookupCache, setDirectoryLookupCache] = useState<Record<string, boolean>>({});
+  const serverMessagingEnabled = true;
+  const [isServerSyncing, setIsServerSyncing] = useState(false);
+  const [serverSyncError, setServerSyncError] = useState<string | null>(null);
+  const [realtimeKey, setRealtimeKey] = useState(0);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [registeringName, setRegisteringName] = useState("");
   const [registeringEmail, setRegisteringEmail] = useState("");
   const [activationStep, setActivationStep] = useState<"email" | "otp">("email");
@@ -806,7 +813,7 @@ export default function KnexChatPage() {
   const [isSendingOtp, setIsSendingOtp] = useState(false);
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
-  const [activeThreadId, setActiveThreadId] = useState<string>(INITIAL_CONVERSATIONS[0].id);
+  const [activeThreadId, setActiveThreadId] = useState<string>(INITIAL_CONVERSATIONS[0]?.id ?? "");
   const [pendingJoinToken, setPendingJoinToken] = useState<string | null>(null);
   const [handledJoinToken, setHandledJoinToken] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Thread[]>(INITIAL_CONVERSATIONS);
@@ -826,6 +833,7 @@ export default function KnexChatPage() {
     return seed;
   });
   const [messageDraft, setMessageDraft] = useState("");
+  const [messageSendNotice, setMessageSendNotice] = useState<string | null>(null);
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(MESSAGE_SEED);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -838,6 +846,34 @@ export default function KnexChatPage() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<"thread" | "self" | null>(null);
   const [isProfileAvatarPreviewOpen, setIsProfileAvatarPreviewOpen] = useState(false);
+  const [profileNameDraft, setProfileNameDraft] = useState("");
+  const [profileRecadoDraft, setProfileRecadoDraft] = useState("");
+  const [chatListWidth, setChatListWidth] = useState(384);
+  const [isChatListResizing, setIsChatListResizing] = useState(false);
+  const [isThreadMenuOpen, setIsThreadMenuOpen] = useState(false);
+  const [isContactInfoOpen, setIsContactInfoOpen] = useState(false);
+  const [isContactEditOpen, setIsContactEditOpen] = useState(false);
+  const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
+  const [isGroupPermissionsOpen, setIsGroupPermissionsOpen] = useState(false);
+  const [isGroupAdminsModalOpen, setIsGroupAdminsModalOpen] = useState(false);
+  const [groupDescriptions, setGroupDescriptions] = useState<Record<string, string>>({});
+  const [groupPermissionsById, setGroupPermissionsById] = useState<Record<string, GroupPermissions>>({});
+  const [groupAdminIdsByGroup, setGroupAdminIdsByGroup] = useState<Record<string, string[]>>({});
+  const [groupAdminSearch, setGroupAdminSearch] = useState("");
+  const [selectedGroupAdminIds, setSelectedGroupAdminIds] = useState<string[]>([]);
+  const [isDeleteContactConfirmOpen, setIsDeleteContactConfirmOpen] = useState(false);
+  const [deleteContactTargetId, setDeleteContactTargetId] = useState<string | null>(null);
+  const [deleteContactTargetName, setDeleteContactTargetName] = useState("");
+  const [isGroupNameEditing, setIsGroupNameEditing] = useState(false);
+  const [groupNameDraft, setGroupNameDraft] = useState("");
+  const [groupDescriptionDraft, setGroupDescriptionDraft] = useState("");
+  const [isGroupDescriptionEditing, setIsGroupDescriptionEditing] = useState(false);
+  const groupNameInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [editContactFirstName, setEditContactFirstName] = useState("");
+  const [editContactLastName, setEditContactLastName] = useState("");
+  const [editContactEmail, setEditContactEmail] = useState("");
+  const [editContactPhone, setEditContactPhone] = useState("");
+  const [editContactSync, setEditContactSync] = useState(false);
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isNewChatEmailOpen, setIsNewChatEmailOpen] = useState(false);
   const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
@@ -847,6 +883,7 @@ export default function KnexChatPage() {
   const [isCommunityListOpen, setIsCommunityListOpen] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
   const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
+  const [isGroupMembersExpanded, setIsGroupMembersExpanded] = useState(false);
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
   const [activeMediaTab, setActiveMediaTab] = useState<MediaTabKey>("media");
   const [mediaLibrary, setMediaLibrary] = useState<MediaItem[]>(MEDIA_LIBRARY_SEED);
@@ -887,6 +924,7 @@ export default function KnexChatPage() {
   const [groupEmojiMenuStyle, setGroupEmojiMenuStyle] = useState<CSSProperties | null>(null);
   const [groupEmojiSize, setGroupEmojiSize] = useState({ width: 420, height: 360 });
   const [isGroupEmojiResizing, setIsGroupEmojiResizing] = useState(false);
+  const groupAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const groupEmojiResizeRef = useRef<{
     startX: number;
     startY: number;
@@ -898,6 +936,8 @@ export default function KnexChatPage() {
   const [newContactEmail, setNewContactEmail] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactSync, setNewContactSync] = useState(false);
+  const [newContactError, setNewContactError] = useState<string | null>(null);
+  const [newContactInviteNotice, setNewContactInviteNotice] = useState<string | null>(null);
   const [selfAvatarUrl, setSelfAvatarUrl] = useState<string | null>(null);
   const [threadAvatarOverrides, setThreadAvatarOverrides] = useState<Record<string, string>>({});
   const [activeSettingKey, setActiveSettingKey] = useState<(typeof SETTINGS_MENU)[number]["key"] | null>(null);
@@ -941,6 +981,9 @@ export default function KnexChatPage() {
   const [shareAudioIsPaused, setShareAudioIsPaused] = useState(false);
   const incomingCountRef = useRef<Record<string, number>>({});
   const unreadInitializedRef = useRef(false);
+  const chatListResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const threadMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const threadMenuRef = useRef<HTMLDivElement | null>(null);
 
   const currentUser = useMemo(() => {
     if (!identity) return null;
@@ -979,6 +1022,9 @@ export default function KnexChatPage() {
     unreadInitializedRef.current = false;
     setMessagesByThread(MESSAGE_SEED);
     setSettingsState({ ...DEFAULT_SETTINGS_STATE });
+    setGroupDescriptions({});
+    setGroupPermissionsById({});
+    setGroupAdminIdsByGroup({});
     setSelfAvatarUrl(null);
     setThreadAvatarOverrides({});
     setMediaLibrary(MEDIA_LIBRARY_SEED);
@@ -986,21 +1032,62 @@ export default function KnexChatPage() {
     setActiveThreadId(INITIAL_CONVERSATIONS[0]?.id ?? "");
   }, []);
 
-  const combinedThreads = useMemo(() => [...conversations, ...groups], [conversations, groups]);
+  const contactNameByEmail = useMemo(() => {
+    const map = new Map<string, { name: string; avatarUrl?: string | null }>();
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (!email) return;
+      if (!map.has(email)) {
+        map.set(email, { name: contact.title, avatarUrl: contact.avatarUrl ?? null });
+      }
+    });
+    return map;
+  }, [contacts]);
+
+  const allThreads = useMemo(() => [...conversations, ...groups, ...contacts], [conversations, groups, contacts]);
+  const allThreadsRef = useRef<Thread[]>([]);
+  useEffect(() => {
+    allThreadsRef.current = allThreads;
+  }, [allThreads]);
+  const contactsWithMessages = useMemo(
+    () =>
+      contacts.filter((contact) => (messagesByThread[contact.id] ?? []).length > 0),
+    [contacts, messagesByThread],
+  );
+  const conversationThreads = useMemo(
+    () => [...conversations, ...groups, ...contactsWithMessages],
+    [conversations, groups, contactsWithMessages],
+  );
   const activeThreads = useMemo(() => {
-    if (activeFilter === "groups") return groups;
-    if (activeFilter === "contacts") return contacts;
-    if (activeFilter === "unread") {
-      return combinedThreads.filter(
+    const conversationKeys = new Set(conversations.map((thread) => getContactPrimaryKey(thread)));
+    let base = conversationThreads;
+    if (activeFilter === "groups") {
+      base = groups;
+    } else if (activeFilter === "contacts") {
+      base = [...conversations, ...contactsWithMessages];
+    } else if (activeFilter === "unread") {
+      base = conversationThreads.filter(
         (thread) => (unreadByThread[thread.id] ?? thread.unread ?? 0) > 0,
       );
     }
-    return combinedThreads;
-  }, [activeFilter, combinedThreads, groups, contacts, unreadByThread]);
+    const sorted = [...base].sort(
+      (a, b) => getThreadActivityTimestamp(b) - getThreadActivityTimestamp(a),
+    );
+    const seen = new Set<string>();
+    return sorted.filter((thread) => {
+      if (thread.tab !== "contacts") return true;
+      const key = getContactPrimaryKey(thread);
+      if (conversationKeys.has(key)) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [activeFilter, contactsWithMessages, conversationThreads, conversations, groups, unreadByThread]);
   const activeThread = useMemo(() => {
-    const allThreads = [...conversations, ...groups, ...contacts];
     return allThreads.find((thread) => thread.id === activeThreadId) ?? activeThreads[0] ?? null;
-  }, [activeThreadId, conversations, groups, contacts, activeThreads]);
+  }, [activeThreadId, activeThreads, allThreads]);
   const filteredActiveThreads = useMemo(() => {
     const query = conversationSearch.trim().toLowerCase();
     if (!query) return activeThreads;
@@ -1009,14 +1096,22 @@ export default function KnexChatPage() {
       return haystack.includes(query);
     });
   }, [activeThreads, conversationSearch]);
+  const baseContacts = useMemo(
+    () =>
+      contacts.map((contact) => ({
+        id: contact.id,
+        title: contact.title,
+        preview: contact.preview,
+        avatarUrl: contact.avatarUrl ?? null,
+      })),
+    [contacts],
+  );
+  const sortedBaseContacts = useMemo(
+    () => [...baseContacts].sort((a, b) => a.title.localeCompare(b.title, "pt-BR", { sensitivity: "base" })),
+    [baseContacts],
+  );
   const newChatContacts = useMemo(() => {
-    const baseContacts = contacts.map((contact) => ({
-      id: contact.id,
-      title: contact.title,
-      preview: contact.preview,
-      avatarUrl: contact.avatarUrl ?? null,
-    }));
-    if (!currentUser) return baseContacts;
+    if (!currentUser) return sortedBaseContacts;
     return [
       {
         id: "self-contact",
@@ -1024,23 +1119,22 @@ export default function KnexChatPage() {
         preview: "Mensagens para mim",
         avatarUrl: currentUser.avatarUrl ?? null,
       },
-      ...baseContacts,
+      ...sortedBaseContacts,
     ];
-  }, [contacts, currentUser]);
-  const groupContacts = useMemo(
-    () => newChatContacts.filter((contact) => contact.id !== "self-contact"),
-    [newChatContacts],
-  );
+  }, [currentUser, sortedBaseContacts]);
+  const groupContacts = useMemo(() => sortedBaseContacts, [sortedBaseContacts]);
   const filteredNewChatContacts = useMemo(() => {
     const query = newChatSearch.trim().toLowerCase();
     if (!query) return newChatContacts;
-    return newChatContacts.filter((contact) => {
+    const filtered = newChatContacts.filter((contact) => {
       const haystack = `${contact.title} ${contact.preview}`.toLowerCase();
       return haystack.includes(query);
     });
+    const selfContact = filtered.find((contact) => contact.id === "self-contact") ?? null;
+    const others = filtered.filter((contact) => contact.id !== "self-contact");
+    return selfContact ? [selfContact, ...others] : others;
   }, [newChatContacts, newChatSearch]);
   useEffect(() => {
-    const allThreads = [...conversations, ...groups, ...contacts];
     const nextIncoming = { ...incomingCountRef.current };
     if (!unreadInitializedRef.current) {
       allThreads.forEach((thread) => {
@@ -1078,7 +1172,7 @@ export default function KnexChatPage() {
       });
       return changed ? next : prev;
     });
-  }, [activeThreadId, contacts, conversations, groups, messagesByThread]);
+  }, [activeThreadId, allThreads, messagesByThread]);
   useEffect(() => {
     if (!activeThreadId) return;
     setUnreadByThread((prev) => {
@@ -1103,11 +1197,11 @@ export default function KnexChatPage() {
   );
   const threadLookup = useMemo(() => {
     const map = new Map<string, Thread>();
-    [...conversations, ...groups, ...contacts].forEach((thread) => {
+    allThreads.forEach((thread) => {
       map.set(thread.id, thread);
     });
     return map;
-  }, [conversations, groups, contacts]);
+  }, [allThreads]);
   const mediaItems = useMemo(
     () => {
       const mapped = mediaLibrary.map((item) => ({
@@ -1159,13 +1253,13 @@ export default function KnexChatPage() {
   );
   const shareRecentContacts = useMemo(() => {
     const query = shareSearch.trim().toLowerCase();
-    const base = combinedThreads;
+    const base = conversationThreads;
     if (!query) return base;
     return base.filter((contact) => {
       const haystack = `${contact.title} ${contact.preview}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [combinedThreads, shareSearch]);
+  }, [conversationThreads, shareSearch]);
   const shareDirectoryContacts = useMemo(() => {
     const query = shareSearch.trim().toLowerCase();
     const items = [
@@ -1223,6 +1317,7 @@ export default function KnexChatPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
+    const activityAt = Date.now();
     const trimmedMessage = shareMessage.trim();
     const mediaToShare = mediaLibrary.filter((item) => selectedMediaIds.includes(item.id));
     const audioToShare = shareAudioFiles;
@@ -1326,6 +1421,7 @@ export default function KnexChatPage() {
                     ...thread,
                     preview: previewByRecipient.get(recipientId) ?? thread.preview,
                     lastActivity: timeLabel,
+                    lastActivityAt: activityAt,
                   }
                 : thread,
             );
@@ -1338,6 +1434,7 @@ export default function KnexChatPage() {
               title,
               preview: previewByRecipient.get(recipientId) ?? "Mensagem enviada",
               lastActivity: timeLabel,
+              lastActivityAt: activityAt,
               tab,
               avatarUrl: resolveAvatar(recipientId) ?? undefined,
             },
@@ -1508,10 +1605,688 @@ export default function KnexChatPage() {
       window.removeEventListener("mouseup", handleUp);
     };
   }, [isGroupEmojiResizing]);
+  useEffect(() => {
+    if (!isChatListResizing) return;
+    const handleMove = (event: MouseEvent) => {
+      if (!chatListResizeRef.current) return;
+      const { startX, startWidth } = chatListResizeRef.current;
+      const deltaX = event.clientX - startX;
+      const minWidth = 280;
+      const maxWidth = Math.floor(window.innerWidth * 0.6);
+      const nextWidth = Math.min(Math.max(startWidth + deltaX, minWidth), maxWidth);
+      setChatListWidth(nextWidth);
+    };
+    const handleUp = () => {
+      setIsChatListResizing(false);
+      chatListResizeRef.current = null;
+    };
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [isChatListResizing]);
+  useEffect(() => {
+    if (!activeThread || activeThread.tab === "groups") {
+      setIsContactInfoOpen(false);
+    }
+  }, [activeThread]);
+  useEffect(() => {
+    if (!activeThread || activeThread.tab !== "groups") {
+      setIsGroupInfoOpen(false);
+      setIsGroupPermissionsOpen(false);
+      setIsGroupAdminsModalOpen(false);
+    }
+  }, [activeThread]);
+  useEffect(() => {
+    if (isProfileOpen) {
+      setIsContactInfoOpen(false);
+      setIsGroupInfoOpen(false);
+    }
+  }, [isProfileOpen]);
+  useEffect(() => {
+    if (!isContactInfoOpen) {
+      setIsContactEditOpen(false);
+    }
+  }, [isContactInfoOpen]);
+  useEffect(() => {
+    if (!isGroupInfoOpen) {
+      setIsGroupPermissionsOpen(false);
+      setIsGroupAdminsModalOpen(false);
+    }
+  }, [isGroupInfoOpen]);
+  useEffect(() => {
+    if (!activeThread || activeThread.tab !== "groups") return;
+    setGroupNameDraft(activeThread.title ?? "");
+    setIsGroupNameEditing(false);
+    if (groupNameInputRef.current) {
+      groupNameInputRef.current.style.height = "auto";
+    }
+    const current = groupDescriptions[activeThread.id] ?? "";
+    setGroupDescriptionDraft(current);
+    setIsGroupDescriptionEditing(false);
+  }, [activeThread, groupDescriptions]);
   const isNewContactPhoneValid = useMemo(() => {
     const digits = newContactPhone.replace(/\D/g, "");
     return digits.length >= 10;
   }, [newContactPhone]);
+  const normalizedNewContactEmail = useMemo(() => {
+    const trimmed = newContactEmail.trim();
+    if (!trimmed || !isValidEmail(trimmed)) return "";
+    return normalizeEmail(trimmed);
+  }, [newContactEmail]);
+  const isNewContactEmailValid = useMemo(() => {
+    return Boolean(normalizedNewContactEmail);
+  }, [normalizedNewContactEmail]);
+  const isNewContactRegistered = useMemo(() => {
+    if (!normalizedNewContactEmail) return false;
+    if (directoryLookupCache[normalizedNewContactEmail] !== undefined) {
+      return directoryLookupCache[normalizedNewContactEmail];
+    }
+    return directoryEntries.some(
+      (entry) => normalizeEmail(entry.email) === normalizedNewContactEmail,
+    );
+  }, [directoryEntries, directoryLookupCache, normalizedNewContactEmail]);
+  const isNewContactReady = useMemo(
+    () => isNewContactEmailValid,
+    [isNewContactEmailValid],
+  );
+  const openContactThread = useCallback(
+    (threadId: string) => {
+      const contact = contacts.find((item) => item.id === threadId);
+      const contactEmail = contact?.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact?.preview ?? "") ?? "";
+      const existingThread = contactEmail
+        ? conversations.find(
+            (thread) => thread.contactEmail && normalizeEmail(thread.contactEmail) === contactEmail,
+          )
+        : null;
+      if (existingThread) {
+        setActiveFilter("all");
+        setActiveThreadId(existingThread.id);
+      } else {
+        setActiveFilter((prev) => (prev === "contacts" || prev === "all" ? prev : "all"));
+        setActiveThreadId(threadId);
+      }
+      setIsNewChatOpen(false);
+      setIsNewChatEmailOpen(false);
+      setIsNewGroupOpen(false);
+      setIsNewGroupCreateOpen(false);
+      setIsCommunityListOpen(false);
+      setIsNewContactOpen(false);
+      setIsProfileOpen(false);
+      setProfileTarget(null);
+    },
+    [contacts, conversations],
+  );
+  const authTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    authTokenRef.current = authSession?.access_token ?? null;
+  }, [authSession?.access_token]);
+
+  const authFetch = useCallback(
+    (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const headers = new Headers(init.headers ?? {});
+      const token = authTokenRef.current ?? authSession?.access_token;
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      return fetch(input, { ...init, headers });
+    },
+    [authSession?.access_token],
+  );
+  const checkEmailRegistered = useCallback(
+    async (email: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized || !isValidEmail(normalized)) return false;
+      if (!authSession?.access_token) return false;
+      if (directoryLookupCache[normalized] !== undefined) {
+        return directoryLookupCache[normalized];
+      }
+      try {
+        const res = await authFetch(`/api/knexchat/directory?email=${encodeURIComponent(normalized)}`);
+        if (!res.ok) throw new Error("lookup_failed");
+        const payload = (await res.json().catch(() => ({}))) as { exists?: boolean };
+        const exists = Boolean(payload?.exists);
+        setDirectoryLookupCache((prev) => ({ ...prev, [normalized]: exists }));
+        if (exists) {
+          setDirectoryEntries((prev) => {
+            if (prev.some((entry) => normalizeEmail(entry.email) === normalized)) return prev;
+            return [{ email: normalized, createdAt: new Date().toISOString() }, ...prev];
+          });
+        }
+        return exists;
+      } catch {
+        return false;
+      }
+    },
+    [authFetch, authSession?.access_token, directoryLookupCache],
+  );
+  useEffect(() => {
+    if (!normalizedNewContactEmail) return;
+    void checkEmailRegistered(normalizedNewContactEmail);
+  }, [checkEmailRegistered, normalizedNewContactEmail]);
+  const isRegisteredEmail = useCallback(
+    (email: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized) return false;
+      if (directoryLookupCache[normalized] !== undefined) {
+        return directoryLookupCache[normalized];
+      }
+      return directoryEntries.some((entry) => normalizeEmail(entry.email) === normalized);
+    },
+    [directoryEntries, directoryLookupCache],
+  );
+  const getThreadRecipientEmail = useCallback((thread: Thread | null) => {
+    if (!thread || (thread.tab !== "contacts" && thread.tab !== "conversations")) return null;
+    if (thread.contactEmail) return normalizeEmail(thread.contactEmail);
+    const previewEmail = extractEmail(thread.preview);
+    return previewEmail ? normalizeEmail(previewEmail) : null;
+  }, []);
+  const ensureRecipientRegistered = useCallback(
+    async (thread: Thread | null) => {
+      if (!thread || (thread.tab !== "contacts" && thread.tab !== "conversations")) return true;
+      const recipientEmail = getThreadRecipientEmail(thread);
+      if (!recipientEmail) return true;
+      if (isRegisteredEmail(recipientEmail)) return true;
+      const exists = await checkEmailRegistered(recipientEmail);
+      if (exists) return true;
+      setMessageSendNotice(
+        "Este e-mail ainda não está cadastrado no KnexChat. Convide o contato para poder enviar mensagens.",
+      );
+      return false;
+    },
+    [checkEmailRegistered, getThreadRecipientEmail, isRegisteredEmail],
+  );
+  useEffect(() => {
+    setMessageSendNotice(null);
+  }, [activeThreadId]);
+  const enqueueInboxMessage = useCallback((message: InboxMessage) => {
+    if (serverMessagingEnabled) return;
+    if (typeof window === "undefined") return;
+    try {
+      const existing = normalizeInboxMessages(localStorage.getItem(INBOX_KEY));
+      localStorage.setItem(INBOX_KEY, JSON.stringify([...existing, message]));
+    } catch {
+      // Ignore inbox persistence errors.
+    }
+  }, [serverMessagingEnabled]);
+  const consumeInboxMessages = useCallback(() => {
+    if (serverMessagingEnabled) return;
+    if (!identity?.email || typeof window === "undefined") return;
+    const selfEmail = normalizeEmail(identity.email);
+    try {
+      const inbox = normalizeInboxMessages(localStorage.getItem(INBOX_KEY));
+      if (!inbox.length) return;
+      const mine = inbox.filter((message) => message.to === selfEmail);
+      if (!mine.length) return;
+      const remaining = inbox.filter((message) => message.to !== selfEmail);
+      localStorage.setItem(INBOX_KEY, JSON.stringify(remaining));
+      const latestBySender = new Map<string, InboxMessage>();
+      mine.forEach((message) => {
+        const prev = latestBySender.get(message.from);
+        if (!prev || message.sentAt >= prev.sentAt) {
+          latestBySender.set(message.from, message);
+        }
+      });
+      const previewForMessage = (message: InboxMessage) => {
+        if (message.imageUrl) return "Imagem recebida";
+        if (message.audioUrl) return "Mensagem de áudio";
+        return message.body || "Mensagem recebida";
+      };
+      const knownContactEmails = new Set(contacts.map((contact) => getContactPrimaryKey(contact)));
+      setContacts((prev) => {
+        let changed = false;
+        const next = [...prev];
+        const indexByEmail = new Map<string, number>();
+        next.forEach((contact, index) => {
+          indexByEmail.set(getContactPrimaryKey(contact), index);
+        });
+        latestBySender.forEach((message, emailKey) => {
+          const index = indexByEmail.get(emailKey);
+          const contactName = message.fromName?.trim()
+            ? normalizeName(message.fromName)
+            : formatNameFromEmail(emailKey);
+          if (index === undefined) return;
+          const current = next[index];
+          let updated = current;
+          let hasUpdate = false;
+          if (!current.contactEmail) {
+            updated = { ...updated, contactEmail: emailKey };
+            hasUpdate = true;
+          }
+          if (!current.title || current.title === "Novo contato") {
+            updated = { ...updated, title: contactName };
+            hasUpdate = true;
+          }
+          updated = {
+            ...updated,
+            preview: previewForMessage(message) || updated.preview,
+            lastActivity: message.time,
+            lastActivityAt: message.sentAt,
+          };
+          hasUpdate = true;
+          if (hasUpdate) {
+            changed = true;
+            next[index] = updated;
+          }
+        });
+        return changed ? next : prev;
+      });
+      setConversations((prev) => {
+        let changed = false;
+        let next = [...prev];
+        const indexById = new Map<string, number>();
+        next.forEach((thread, index) => indexById.set(thread.id, index));
+        latestBySender.forEach((message, emailKey) => {
+          const threadId = contactIdFromEmail(emailKey);
+          if (knownContactEmails.has(emailKey)) {
+            if (indexById.has(threadId)) {
+              next = next.filter((thread) => thread.id !== threadId);
+              changed = true;
+            }
+            return;
+          }
+          const contactName = message.fromName?.trim()
+            ? normalizeName(message.fromName)
+            : formatNameFromEmail(emailKey);
+          const preview = previewForMessage(message);
+          const existingIndex = indexById.get(threadId);
+          if (existingIndex !== undefined) {
+            const existing = next[existingIndex];
+            next[existingIndex] = {
+              ...existing,
+              title: contactName || existing.title,
+              preview,
+              lastActivity: message.time,
+              lastActivityAt: message.sentAt,
+              tab: "conversations",
+              contactEmail: emailKey,
+            };
+            changed = true;
+            return;
+          }
+          next = [
+            {
+              id: threadId,
+              title: contactName,
+              preview,
+              lastActivity: message.time,
+              lastActivityAt: message.sentAt,
+              tab: "conversations",
+              contactEmail: emailKey,
+            },
+            ...next,
+          ];
+          changed = true;
+        });
+        return changed ? next : prev;
+      });
+      setMessagesByThread((prev) => {
+        const next = { ...prev };
+        mine.forEach((message) => {
+          const threadId = contactIdFromEmail(message.from);
+          const incomingMessage: Message = {
+            id: message.id,
+            author: "them",
+            body: message.body || (message.imageUrl ? "Imagem recebida" : message.audioUrl ? "Mensagem de áudio" : "Mensagem recebida"),
+            time: message.time,
+            senderName: message.fromName,
+            imageUrl: message.imageUrl,
+            imageName: message.imageName,
+            audioUrl: message.audioUrl,
+            audioDuration: message.audioDuration,
+          };
+          next[threadId] = [...(next[threadId] ?? []), incomingMessage];
+        });
+        return next;
+      });
+    } catch {
+      // Ignore inbox errors.
+    }
+  }, [contacts, identity?.email, serverMessagingEnabled, setContacts, setConversations, setMessagesByThread]);
+
+  const previewFromApiMessage = useCallback((message?: ApiMessage | null) => {
+    if (!message) return "Sem mensagens";
+    if (message.kind === "image") return "Imagem enviada";
+    if (message.kind === "audio") return "Mensagem de áudio";
+    if (message.kind === "file") return message.media_name ?? "Arquivo enviado";
+    return message.body?.trim() || "Mensagem enviada";
+  }, []);
+
+  const mapApiThreadToThread = useCallback(
+    (thread: ApiThread): Thread => {
+      const identityEmail = identity?.email ? normalizeEmail(identity.email) : "";
+      const participants = thread.participants ?? [];
+      const tab: TabKey = thread.kind === "group" || thread.kind === "forum" ? "groups" : "conversations";
+      const lastTimestamp = thread.last_message_at ?? thread.updated_at ?? thread.created_at;
+      const lastActivityAt = toTimestampMs(lastTimestamp) ?? undefined;
+      const lastActivity = formatTimestampLabel(lastTimestamp) || "Agora";
+      const preview = previewFromApiMessage(thread.lastMessage ?? null);
+      let title = thread.title?.trim() ?? "";
+      let contactEmail: string | undefined;
+      let avatarUrl: string | undefined;
+
+      if (thread.kind === "direct") {
+        const otherParticipant =
+          participants.find((participant) => normalizeEmail(participant.email) !== identityEmail) ?? participants[0];
+        const otherEmail = otherParticipant?.email ? normalizeEmail(otherParticipant.email) : "";
+        contactEmail = otherEmail || undefined;
+        const contactInfo = otherEmail ? contactNameByEmail.get(otherEmail) : undefined;
+        const displayName = contactInfo?.name ?? otherParticipant?.name ?? "";
+        title = displayName || (otherEmail ? formatNameFromEmail(otherEmail) : "Conversa direta");
+        avatarUrl = contactInfo?.avatarUrl ?? undefined;
+      }
+
+      if (tab === "groups") {
+        title = title || "Grupo";
+      }
+
+      return {
+        id: thread.id,
+        title,
+        preview,
+        lastActivity: lastActivity || "Agora",
+        lastActivityAt: lastActivityAt ?? undefined,
+        tab,
+        avatarUrl,
+        onlineCount: tab === "groups" ? participants.length : undefined,
+        contactEmail,
+        participantRoles: participants,
+      };
+    },
+    [contactNameByEmail, identity?.email, previewFromApiMessage],
+  );
+
+  const mapApiMessageToMessage = useCallback(
+    (message: ApiMessage): Message => {
+      const senderEmail = normalizeEmail(message.sender_email);
+      const author: "me" | "them" =
+        identity?.email && normalizeEmail(identity.email) === senderEmail ? "me" : "them";
+      const timeLabel = formatTimestampLabel(message.created_at) || "Agora";
+      if (message.kind === "image") {
+        return {
+          id: message.id,
+          author,
+          body: message.media_name ?? "Imagem enviada",
+          time: timeLabel,
+          imageUrl: message.media_url ?? undefined,
+          imageName: message.media_name ?? undefined,
+        };
+      }
+      if (message.kind === "audio") {
+        return {
+          id: message.id,
+          author,
+          body: "Mensagem de áudio",
+          time: timeLabel,
+          audioUrl: message.media_url ?? undefined,
+          audioDuration: message.media_name ?? undefined,
+        };
+      }
+      if (message.kind === "file") {
+        return {
+          id: message.id,
+          author,
+          body: message.media_name ?? "Arquivo enviado",
+          time: timeLabel,
+        };
+      }
+      return {
+        id: message.id,
+        author,
+        body: message.body ?? "",
+        time: timeLabel,
+      };
+    },
+    [identity?.email],
+  );
+
+  const updateThreadActivity = useCallback((threadId: string, preview: string, activityAt: number) => {
+    const lastActivity = formatTimestampLabel(activityAt) || "Agora";
+    const applyUpdate = (threads: Thread[]) =>
+      threads.map((thread) =>
+        thread.id === threadId
+          ? { ...thread, preview, lastActivity, lastActivityAt: activityAt }
+          : thread,
+      );
+    setConversations((prev) => applyUpdate(prev));
+    setGroups((prev) => applyUpdate(prev));
+    setContacts((prev) => applyUpdate(prev));
+  }, []);
+
+  const readFileAsDataUrl = useCallback((file: Blob) => {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === "string" ? reader.result : "";
+        if (!result) {
+          reject(new Error("empty_result"));
+          return;
+        }
+        resolve(result);
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("file_read_failed"));
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const refreshRealtime = useCallback(() => {
+    setRealtimeKey((prev) => prev + 1);
+  }, []);
+
+  const fetchThreadsFromServer = useCallback(async () => {
+    if (!serverMessagingEnabled || !identity?.email) return;
+    setIsServerSyncing(true);
+    setServerSyncError(null);
+    try {
+      const res = await authFetch(
+        `/api/knexchat/threads?email=${encodeURIComponent(identity.email)}&includeParticipants=1&includeLastMessage=1`,
+      );
+      if (!res.ok) throw new Error("threads_failed");
+      const payload = (await res.json().catch(() => ({}))) as { threads?: ApiThread[] };
+      const rawThreads = Array.isArray(payload?.threads) ? payload.threads : [];
+      const mapped = rawThreads.map(mapApiThreadToThread);
+      const nextConversations = mapped.filter((thread) => thread.tab === "conversations");
+      const nextGroups = mapped.filter((thread) => thread.tab === "groups");
+      setConversations(nextConversations);
+      setGroups(nextGroups);
+      setGroupAdminIdsByGroup((prev) => {
+        const next = { ...prev };
+        const selfEmail = identity?.email ? normalizeEmail(identity.email) : "";
+        mapped.forEach((thread) => {
+          if (thread.tab !== "groups" || !thread.participantRoles?.length) return;
+          const adminIds = thread.participantRoles
+            .filter((participant) => participant.role === "admin")
+            .map((participant) => {
+              const normalized = normalizeEmail(participant.email);
+              return selfEmail && normalized === selfEmail ? "self" : participant.email;
+            });
+          if (adminIds.length) {
+            next[thread.id] = adminIds;
+          }
+        });
+        return next;
+      });
+      refreshRealtime();
+    } catch {
+      setServerSyncError("Não foi possível sincronizar suas conversas.");
+    } finally {
+      setIsServerSyncing(false);
+    }
+  }, [authFetch, identity?.email, mapApiThreadToThread, refreshRealtime, serverMessagingEnabled]);
+
+  const fetchMessagesForThread = useCallback(
+    async (threadId: string) => {
+      if (!serverMessagingEnabled || !identity?.email || !isUuid(threadId)) return;
+      try {
+        const res = await authFetch(`/api/knexchat/messages?threadId=${encodeURIComponent(threadId)}&limit=200`);
+        if (!res.ok) throw new Error("messages_failed");
+        const payload = (await res.json().catch(() => ({}))) as { messages?: ApiMessage[] };
+        const rawMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+        const mappedMessages = rawMessages.map(mapApiMessageToMessage);
+        setMessagesByThread((prev) => ({ ...prev, [threadId]: mappedMessages }));
+        const lastMessage = rawMessages[rawMessages.length - 1];
+        if (lastMessage) {
+          const preview = previewFromApiMessage(lastMessage);
+          const activityAt = toTimestampMs(lastMessage.created_at) ?? Date.now();
+          updateThreadActivity(threadId, preview, activityAt);
+        }
+      } catch {
+        // Ignore fetch errors for now.
+      }
+    },
+    [authFetch, identity?.email, mapApiMessageToMessage, previewFromApiMessage, serverMessagingEnabled, updateThreadActivity],
+  );
+
+  const ensureServerThreadForSend = useCallback(
+    async (thread: Thread) => {
+      if (!serverMessagingEnabled) return thread.id;
+      if (isUuid(thread.id)) return thread.id;
+      if (!identity?.email) return null;
+      if (thread.tab !== "contacts" && thread.tab !== "conversations") return null;
+      const recipientEmail = getThreadRecipientEmail(thread);
+      if (!recipientEmail) return null;
+      try {
+        const res = await authFetch("/api/knexchat/threads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "direct",
+            createdBy: identity.email,
+            participants: [recipientEmail],
+          }),
+        });
+        if (!res.ok) {
+          if (res.status === 422) {
+            const payload = (await res.json().catch(() => ({}))) as { missing?: string[] };
+            const missing = Array.isArray(payload?.missing) ? payload.missing : [];
+            if (missing.length) {
+              setMessageSendNotice(
+                "Este e-mail ainda não está cadastrado no KnexChat. Convide o contato para poder enviar mensagens.",
+              );
+            }
+            return null;
+          }
+          throw new Error("thread_create_failed");
+        }
+        const payload = (await res.json().catch(() => ({}))) as { thread?: ApiThread };
+        if (!payload.thread) return null;
+        const mapped = mapApiThreadToThread(payload.thread);
+        setConversations((prev) => (prev.some((item) => item.id === mapped.id) ? prev : [mapped, ...prev]));
+        setMessagesByThread((prev) => ({ ...prev, [mapped.id]: prev[mapped.id] ?? [] }));
+        setUnreadByThread((prev) => ({ ...prev, [mapped.id]: prev[mapped.id] ?? 0 }));
+        setActiveFilter("all");
+        setActiveThreadId(mapped.id);
+        refreshRealtime();
+        return mapped.id;
+      } catch {
+        setMessageSendNotice("Não foi possível iniciar essa conversa agora.");
+        return null;
+      }
+    },
+    [authFetch, getThreadRecipientEmail, identity?.email, mapApiThreadToThread, refreshRealtime, serverMessagingEnabled],
+  );
+  const handleSendInvite = useCallback(async () => {
+    if (!normalizedNewContactEmail) return;
+    const baseUrl =
+      typeof window !== "undefined"
+        ? `${window.location.origin}${activationHref}`
+        : activationHref;
+    const inviteText = `Convite para o KnexChat: cadastre-se em ${baseUrl} com o e-mail ${normalizedNewContactEmail}.`;
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("Clipboard indisponível");
+      }
+      await navigator.clipboard.writeText(inviteText);
+      setNewContactInviteNotice("Convite enviado.");
+    } catch {
+      setNewContactInviteNotice("Não foi possível enviar o convite.");
+    }
+  }, [activationHref, normalizedNewContactEmail]);
+  const handleCreateContact = useCallback(() => {
+    if (!normalizedNewContactEmail) {
+      setNewContactError("Informe um e-mail válido.");
+      return;
+    }
+    setNewContactError(null);
+    setNewContactInviteNotice(null);
+    const first = normalizeName(newContactFirstName);
+    const last = normalizeName(newContactLastName);
+    const displayName = [first, last].filter(Boolean).join(" ") || newContactEmail.trim() || "Novo contato";
+    const preview = normalizedNewContactEmail || newContactPhone.trim() || "Contato adicionado";
+    const timeLabel = "Agora";
+    const activityAt = Date.now();
+    const fallbackId = `ctt-${Date.now()}`;
+    const newId = normalizedNewContactEmail ? contactIdFromEmail(normalizedNewContactEmail) : fallbackId;
+    const displayNameLower = displayName.toLowerCase();
+    const existing = contacts.find((contact) => {
+      const sameName = contact.title.toLowerCase() === displayNameLower;
+      if (!normalizedNewContactEmail) return sameName;
+      const contactEmail = contact.contactEmail ? normalizeEmail(contact.contactEmail) : "";
+      const previewEmail = extractEmail(contact.preview);
+      const sameEmail = contactEmail === normalizedNewContactEmail || previewEmail === normalizedNewContactEmail;
+      const idMatches = contact.id === contactIdFromEmail(normalizedNewContactEmail);
+      return sameEmail || idMatches || sameName;
+    });
+    const contactEmail = normalizedNewContactEmail || undefined;
+    const targetId = existing ? existing.id : newId;
+
+    if (existing) {
+      setContacts((prev) =>
+        prev.map((contact) =>
+          contact.id === existing.id
+            ? {
+                ...contact,
+                title: displayName,
+                preview,
+                lastActivity: timeLabel,
+                lastActivityAt: activityAt,
+                contactEmail: contactEmail ?? contact.contactEmail,
+              }
+            : contact,
+        ),
+      );
+    } else {
+      setContacts((prev) => [
+        {
+          id: newId,
+          title: displayName,
+          preview,
+          lastActivity: timeLabel,
+          lastActivityAt: activityAt,
+          tab: "contacts",
+          contactEmail,
+        },
+        ...prev,
+      ]);
+    }
+    setConversations((prev) => prev.filter((thread) => thread.id !== targetId));
+    setMessagesByThread((prev) => ({ ...prev, [targetId]: prev[targetId] ?? [] }));
+    setUnreadByThread((prev) => ({ ...prev, [targetId]: prev[targetId] ?? 0 }));
+
+    setNewContactFirstName("");
+    setNewContactLastName("");
+    setNewContactEmail("");
+    setNewContactPhone("");
+    setNewContactSync(false);
+    setIsNewContactOpen(false);
+  }, [
+    contacts,
+    newContactEmail,
+    newContactFirstName,
+    newContactLastName,
+    newContactPhone,
+    normalizedNewContactEmail,
+  ]);
   const activeThreadAvatarUrl = useMemo(() => {
     if (!activeThread) return null;
     return threadAvatarOverrides[activeThread.id] ?? activeThread.avatarUrl ?? null;
@@ -1552,22 +2327,44 @@ export default function KnexChatPage() {
         title: currentUser?.name ?? "Participante",
         avatarUrl: currentUser?.avatarUrl ?? null,
         avatarText: currentUser?.avatarText ?? "KN",
-        recado: "Onde há igualdade, a amizade não perde.",
+        recado: settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado,
         phone: "Não informado",
       };
     }
     if (activeThread) {
+      const groupDescription =
+        activeThread.tab === "groups" ? (groupDescriptions[activeThread.id] ?? "") : "";
       return {
         title: activeThread.title,
         avatarUrl: activeThreadAvatarUrl ?? null,
         avatarText: getAvatarText(activeThread.title),
-        recado: activeThread.preview ?? "Sem recado",
+        recado:
+          activeThread.tab === "groups"
+            ? groupDescription || "Sem descrição"
+            : activeThread.preview ?? "Sem recado",
         phone: activeThread.tab === "groups" ? "Grupo sem telefone" : "+55 68 9614-3009",
       };
     }
     return null;
-  }, [activeThread, activeThreadAvatarUrl, currentUser, profileTarget]);
-  const profileAvatarCta = profileData?.avatarUrl ? "Mudar foto de perfil" : "Adicionar foto de perfil";
+  }, [
+    activeThread,
+    activeThreadAvatarUrl,
+    currentUser,
+    groupDescriptions,
+    profileTarget,
+    settingsState.profileRecado,
+  ]);
+  const canEditProfile = profileTarget === "self";
+  const profileAvatarCta = canEditProfile
+    ? profileData?.avatarUrl
+      ? "Mudar foto de perfil"
+      : "Adicionar foto de perfil"
+    : null;
+  useEffect(() => {
+    if (!isProfileOpen || profileTarget !== "self") return;
+    setProfileNameDraft(identity?.name ?? "");
+    setProfileRecadoDraft(settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado);
+  }, [identity?.name, isProfileOpen, profileTarget, settingsState.profileRecado]);
 
   const handleOpenProfile = (target: "thread" | "self") => {
     setIsProfileOpen(true);
@@ -1595,52 +2392,130 @@ export default function KnexChatPage() {
     setProfileTarget(null);
     setIsProfileAvatarPreviewOpen(false);
   };
+  const commitProfileName = useCallback(() => {
+    if (profileTarget !== "self" || !identity) return;
+    const normalizedName = normalizeName(profileNameDraft);
+    if ((identity.name ?? "") === normalizedName) return;
+    const updated = { ...identity, name: normalizedName };
+    setIdentity(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      // Ignore profile persistence errors.
+    }
+  }, [identity, profileNameDraft, profileTarget]);
+  const commitProfileRecado = useCallback(() => {
+    if (profileTarget !== "self") return;
+    setSettingsState((prev) => {
+      if (prev.profileRecado === profileRecadoDraft) return prev;
+      return { ...prev, profileRecado: profileRecadoDraft };
+    });
+  }, [profileRecadoDraft, profileTarget]);
+  const handleCloseProfileAndCommit = useCallback(() => {
+    commitProfileName();
+    commitProfileRecado();
+    setIsProfileOpen(false);
+    setProfileTarget(null);
+    setIsProfileAvatarPreviewOpen(false);
+  }, [commitProfileName, commitProfileRecado]);
 
   const handleProfileAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (profileTarget !== "self") {
+      event.target.value = "";
+      return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       const result = typeof reader.result === "string" ? reader.result : null;
       if (!result) return;
-      if (profileTarget === "self") {
-        setSelfAvatarUrl(result);
-      } else if (activeThread) {
-        setThreadAvatarOverrides((prev) => ({ ...prev, [activeThread.id]: result }));
-        const updateThread = (threads: Thread[]) =>
-          threads.map((thread) => (thread.id === activeThread.id ? { ...thread, avatarUrl: result } : thread));
-        setConversations(updateThread);
-        setGroups(updateThread);
-        setContacts(updateThread);
-      }
+      setSelfAvatarUrl(result);
     };
     reader.readAsDataURL(file);
     event.target.value = "";
   };
 
-  const handleCreateGroup = () => {
+  const handleCreateGroup = async () => {
+    if (!identity?.email) return;
     const trimmedName = newGroupName.trim();
-    const groupId = `grp-${Date.now()}`;
-    const memberCount = selectedGroupMemberIds.length;
-    const title = trimmedName || "Novo grupo";
-    const newGroup: Thread = {
-      id: groupId,
-      title,
-      preview: memberCount ? `${memberCount} participante${memberCount === 1 ? "" : "s"} selecionado${memberCount === 1 ? "" : "s"}` : "Grupo criado",
-      lastActivity: "Agora",
-      tab: "groups",
-      avatarUrl: newGroupImageUrl ?? undefined,
-      onlineCount: memberCount,
-    };
-    setGroups((prev) => [newGroup, ...prev]);
-    setMessagesByThread((prev) => ({
-      ...prev,
-      [groupId]: [
-        { id: "m1", author: "them", body: "Grupo criado.", time: "Agora" },
-      ],
-    }));
-    setActiveFilter("groups");
-    setActiveThreadId(groupId);
+    const memberEmails = selectedGroupMemberIds
+      .map((id) => contacts.find((contact) => contact.id === id))
+      .map((contact) => {
+        if (!contact) return "";
+        if (contact.contactEmail) return normalizeEmail(contact.contactEmail);
+        const previewEmail = extractEmail(contact.preview);
+        return previewEmail ? normalizeEmail(previewEmail) : "";
+      })
+      .filter(Boolean);
+    if (serverMessagingEnabled) {
+      try {
+        const res = await authFetch("/api/knexchat/threads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "group",
+            title: trimmedName || "Novo grupo",
+            createdBy: identity.email,
+            participants: memberEmails,
+            admins: [identity.email],
+          }),
+        });
+        if (!res.ok) {
+          if (res.status === 422) {
+            const payload = (await res.json().catch(() => ({}))) as { missing?: string[] };
+            const missing = Array.isArray(payload?.missing) ? payload.missing : [];
+            alert(
+              missing.length
+                ? `Alguns participantes não estão cadastrados: ${missing.join(", ")}`
+                : "Alguns participantes não estão cadastrados no KnexChat.",
+            );
+            return;
+          }
+          throw new Error("group_create_failed");
+        }
+        const payload = (await res.json().catch(() => ({}))) as { thread?: ApiThread };
+        if (!payload.thread) throw new Error("missing_thread");
+        const mapped = mapApiThreadToThread(payload.thread);
+        setGroups((prev) => (prev.some((item) => item.id === mapped.id) ? prev : [mapped, ...prev]));
+        if (newGroupImageUrl) {
+          setThreadAvatarOverrides((prev) => ({ ...prev, [mapped.id]: newGroupImageUrl }));
+        }
+        setMessagesByThread((prev) => ({ ...prev, [mapped.id]: prev[mapped.id] ?? [] }));
+        setActiveFilter("groups");
+        setActiveThreadId(mapped.id);
+        refreshRealtime();
+      } catch {
+        alert("Não foi possível criar o grupo agora.");
+        return;
+      }
+    } else {
+      const groupId = `grp-${Date.now()}`;
+      const memberCount = selectedGroupMemberIds.length;
+      const title = trimmedName || "Novo grupo";
+      const newGroup: Thread = {
+        id: groupId,
+        title,
+        preview: memberCount
+          ? `${memberCount} participante${memberCount === 1 ? "" : "s"} selecionado${memberCount === 1 ? "" : "s"}`
+          : "Grupo criado",
+        lastActivity: "Agora",
+        lastActivityAt: Date.now(),
+        tab: "groups",
+        avatarUrl: newGroupImageUrl ?? undefined,
+        onlineCount: memberCount,
+      };
+      setGroups((prev) => [newGroup, ...prev]);
+      if (newGroupImageUrl) {
+        setThreadAvatarOverrides((prev) => ({ ...prev, [groupId]: newGroupImageUrl }));
+      }
+      setMessagesByThread((prev) => ({
+        ...prev,
+        [groupId]: [{ id: "m1", author: "them", body: "Grupo criado.", time: "Agora" }],
+      }));
+      setActiveFilter("groups");
+      setActiveThreadId(groupId);
+    }
     setIsNewChatOpen(false);
     setIsNewGroupOpen(false);
     setIsNewGroupCreateOpen(false);
@@ -1672,6 +2547,30 @@ export default function KnexChatPage() {
     }, 3200);
     return () => clearInterval(interval);
   }, [activeThreadId, headerInfoItems.length]);
+  useEffect(() => {
+    setIsThreadMenuOpen(false);
+  }, [activeThreadId]);
+  useEffect(() => {
+    if (!isThreadMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (threadMenuRef.current?.contains(target)) return;
+      if (threadMenuAnchorRef.current?.contains(target)) return;
+      setIsThreadMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsThreadMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [isThreadMenuOpen]);
 
   useEffect(() => {
     return () => {
@@ -1721,6 +2620,70 @@ export default function KnexChatPage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setAuthSession(data.session ?? null);
+      setIsAuthReady(true);
+    });
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session ?? null);
+      setIsAuthReady(true);
+    });
+    return () => {
+      active = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (!authSession?.user?.email) {
+      setIdentity(null);
+      return;
+    }
+    const normalizedEmail = normalizeEmail(authSession.user.email);
+    const metadata = authSession.user.user_metadata as { name?: string; full_name?: string } | null;
+    const normalizedName = normalizeName(metadata?.name ?? metadata?.full_name ?? "");
+    const nextIdentity: Identity = {
+      userId: authSession.user.id,
+      email: normalizedEmail,
+      emailVerified: Boolean(authSession.user.email_confirmed_at),
+      deviceId: `dev_${Math.random().toString(16).slice(2)}`,
+      createdAt: authSession.user.created_at ?? new Date().toISOString(),
+      name: normalizedName || undefined,
+    };
+    setIdentity(nextIdentity);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextIdentity));
+    } catch {
+      // Ignore storage errors.
+    }
+    const directoryEntry: DirectoryEntry = {
+      email: normalizedEmail,
+      name: normalizedName || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    setDirectoryEntries((prev) => {
+      if (prev.some((entry) => normalizeEmail(entry.email) === normalizedEmail)) return prev;
+      return [directoryEntry, ...prev];
+    });
+    setDirectoryLookupCache((prev) => ({ ...prev, [normalizedEmail]: true }));
+    void (async () => {
+      try {
+        const res = await authFetch("/api/knexchat/directory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: normalizedEmail, name: normalizedName || undefined }),
+        });
+        if (res.status === 409) return;
+      } catch {
+        // Ignore directory registration errors.
+      }
+    })();
+  }, [authFetch, authSession, isAuthReady]);
+
+  useEffect(() => {
     if (!chatStateKey) {
       resetChatState();
       setIsChatStateHydrated(true);
@@ -1750,6 +2713,9 @@ export default function KnexChatPage() {
         selfAvatarUrl: string | null;
         threadAvatarOverrides: Record<string, string>;
         mediaLibrary: MediaItem[];
+        groupDescriptions: Record<string, string>;
+        groupPermissions: Record<string, GroupPermissions>;
+        groupAdmins: Record<string, string[]>;
         activeFilter: FilterKey;
         activeThreadId: string;
       }>>(raw);
@@ -1785,6 +2751,15 @@ export default function KnexChatPage() {
       if (Array.isArray(parsed.mediaLibrary)) {
         setMediaLibrary(parsed.mediaLibrary);
       }
+      if (parsed.groupDescriptions && typeof parsed.groupDescriptions === "object") {
+        setGroupDescriptions(parsed.groupDescriptions as Record<string, string>);
+      }
+      if (parsed.groupPermissions && typeof parsed.groupPermissions === "object") {
+        setGroupPermissionsById(parsed.groupPermissions as Record<string, GroupPermissions>);
+      }
+      if (parsed.groupAdmins && typeof parsed.groupAdmins === "object") {
+        setGroupAdminIdsByGroup(parsed.groupAdmins as Record<string, string[]>);
+      }
       if (parsed.activeFilter) {
         setActiveFilter(parsed.activeFilter);
       }
@@ -1799,10 +2774,134 @@ export default function KnexChatPage() {
   }, [chatStateKey, resetChatState]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      setDirectoryEntries([]);
+      return;
+    }
+    try {
+      const cached = normalizeDirectoryEntries(localStorage.getItem(DIRECTORY_KEY));
+      setDirectoryEntries(cached);
+      setDirectoryLookupCache(() => {
+        const next: Record<string, boolean> = {};
+        cached.forEach((entry) => {
+          const normalized = normalizeEmail(entry.email);
+          if (normalized) next[normalized] = true;
+        });
+        return next;
+      });
+    } catch {
+      setDirectoryEntries([]);
+      setDirectoryLookupCache({});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (serverMessagingEnabled) return;
+    if (!identity?.email || typeof window === "undefined" || !isChatStateHydrated) return;
+    consumeInboxMessages();
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === INBOX_KEY) {
+        consumeInboxMessages();
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [consumeInboxMessages, identity?.email, isChatStateHydrated, serverMessagingEnabled]);
+
+  useEffect(() => {
+    if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
+    void fetchThreadsFromServer();
+  }, [fetchThreadsFromServer, identity?.email, isChatStateHydrated, serverMessagingEnabled]);
+
+  useEffect(() => {
+    if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
+    if (!authSession?.access_token) return;
+    const source = new EventSource(
+      `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`,
+    );
+    setIsRealtimeConnected(false);
+
+    const handleReady = () => {
+      setIsRealtimeConnected(true);
+    };
+
+    const handleMessage = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { message?: ApiMessage };
+        const message = payload?.message;
+        if (!message || !message.thread_id) return;
+        const mapped = mapApiMessageToMessage(message);
+        setMessagesByThread((prev) => {
+          const existing = prev[message.thread_id] ?? [];
+          if (existing.some((item) => item.id === mapped.id)) return prev;
+          return { ...prev, [message.thread_id]: [...existing, mapped] };
+        });
+        const activityAt = toTimestampMs(message.created_at) ?? Date.now();
+        updateThreadActivity(message.thread_id, previewFromApiMessage(message), activityAt);
+        const hasThread = allThreadsRef.current.some((thread) => thread.id === message.thread_id);
+        if (!hasThread) {
+          void fetchThreadsFromServer();
+        }
+      } catch {
+        // ignore payload errors
+      }
+    };
+
+    const handleError = () => {
+      setIsRealtimeConnected(false);
+    };
+
+    source.addEventListener("ready", handleReady as EventListener);
+    source.addEventListener("message", handleMessage as EventListener);
+    source.addEventListener("error", handleError as EventListener);
+
+    return () => {
+      source.removeEventListener("ready", handleReady as EventListener);
+      source.removeEventListener("message", handleMessage as EventListener);
+      source.removeEventListener("error", handleError as EventListener);
+      source.close();
+    };
+  }, [
+    fetchThreadsFromServer,
+    authSession?.access_token,
+    identity?.email,
+    isChatStateHydrated,
+    mapApiMessageToMessage,
+    previewFromApiMessage,
+    realtimeKey,
+    serverMessagingEnabled,
+    updateThreadActivity,
+  ]);
+
+  useEffect(() => {
+    if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
+    if (!activeThreadId || !isUuid(activeThreadId)) return;
+    let cancelled = false;
+    const loadMessages = async () => {
+      if (cancelled) return;
+      await fetchMessagesForThread(activeThreadId);
+    };
+    void loadMessages();
+    if (isRealtimeConnected) return;
+    const interval = window.setInterval(loadMessages, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    activeThreadId,
+    fetchMessagesForThread,
+    identity?.email,
+    isChatStateHydrated,
+    isRealtimeConnected,
+    serverMessagingEnabled,
+  ]);
+
+  useEffect(() => {
     if (!isChatStateHydrated || !chatStateKey) return;
     const timer = window.setTimeout(() => {
       try {
-        localStorage.setItem(
+          localStorage.setItem(
           chatStateKey,
           JSON.stringify({
             conversations,
@@ -1811,6 +2910,9 @@ export default function KnexChatPage() {
             messagesByThread,
             unreadByThread,
             settingsState,
+            groupDescriptions,
+            groupPermissions: groupPermissionsById,
+            groupAdmins: groupAdminIdsByGroup,
             selfAvatarUrl,
             threadAvatarOverrides,
             mediaLibrary,
@@ -1836,6 +2938,9 @@ export default function KnexChatPage() {
     unreadByThread,
     selfAvatarUrl,
     settingsState,
+    groupDescriptions,
+    groupPermissionsById,
+    groupAdminIdsByGroup,
     threadAvatarOverrides,
   ]);
 
@@ -1903,6 +3008,7 @@ export default function KnexChatPage() {
       title: `Thread ${threadParam}`,
       preview: "Conversa iniciada via link.",
       lastActivity: "Agora",
+      lastActivityAt: Date.now(),
       tab: "conversations",
     };
     setConversations((prev) => (prev.some((item) => item.id === threadParam) ? prev : [newThread, ...prev]));
@@ -1916,9 +3022,11 @@ export default function KnexChatPage() {
       return;
     }
     if (!activeThreads.some((thread) => thread.id === activeThreadId)) {
+      const existing = allThreads.find((thread) => thread.id === activeThreadId);
+      if (existing && existing.tab === "contacts") return;
       setActiveThreadId(activeThreads[0].id);
     }
-  }, [activeThreads, activeThreadId]);
+  }, [activeThreads, activeThreadId, allThreads]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -1942,33 +3050,27 @@ export default function KnexChatPage() {
       setActivationError("Informe um e-mail válido.");
       return;
     }
-    const generated = Math.floor(100000 + Math.random() * 900000).toString();
-    if (SHOW_OTP_PREVIEW) {
-      setOtpGenerated(generated);
-      setOtpInput("");
-      setActivationError(null);
-      setActivationNotice(null);
-      setActivationStep("otp");
-      return;
-    }
     setIsSendingOtp(true);
     setActivationError(null);
     setActivationNotice(null);
     try {
-      const res = await fetch("/api/knexchat/otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalized, code: generated }),
+      const { error } = await supabase.auth.signInWithOtp({
+        email: normalized,
+        options: {
+          data: { name: normalizedName },
+        },
       });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const message = typeof payload?.message === "string" ? payload.message : "Falha ao enviar código.";
-        throw new Error(message);
+      if (error) {
+        throw new Error(error.message);
       }
-      setOtpGenerated(generated);
+      if (SHOW_OTP_PREVIEW) {
+        setOtpGenerated("000000");
+      } else {
+        setOtpGenerated(null);
+      }
       setOtpInput("");
       setActivationError(null);
-      setActivationNotice("Código enviado para seu e-mail.");
+      setActivationNotice("Código de 6 dígitos enviado para seu e-mail.");
       setActivationStep("otp");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Falha ao enviar código.";
@@ -1979,36 +3081,48 @@ export default function KnexChatPage() {
     }
   };
 
-  const handleConfirmOtp = () => {
-    if (!otpGenerated || otpInput.trim() !== otpGenerated) {
-      setActivationError("Código inválido");
+  const handleConfirmOtp = async () => {
+    const normalized = normalizeEmail(registeringEmail);
+    const token = otpInput.trim();
+    if (!normalized || !token) {
+      setActivationError("Código inválido.");
       return;
     }
-    const normalizedName = normalizeName(registeringName);
-    const normalized = normalizeEmail(registeringEmail);
-    const nextIdentity: Identity = {
-      userId: "u1",
-      email: normalized,
-      emailVerified: true,
-      deviceId: `dev_${Math.random().toString(16).slice(2)}`,
-      createdAt: new Date().toISOString(),
-      name: normalizedName || undefined,
-    };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextIdentity));
-    } catch {
-      // Ignore storage errors; identity still lives in memory.
+    if (!OTP_CODE_REGEX.test(token)) {
+      setActivationError("Informe o código de 6 dígitos.");
+      return;
     }
-    setIdentity(nextIdentity);
-    setActivationStep("email");
-    setOtpGenerated(null);
-    setOtpInput("");
+    setIsSendingOtp(true);
     setActivationError(null);
-    setActivationNotice(null);
-    router.replace(chatHref);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: normalized,
+        token,
+        type: "email",
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+      setActivationStep("email");
+      setOtpGenerated(null);
+      setOtpInput("");
+      setActivationError(null);
+      setActivationNotice(null);
+      router.replace(chatHref);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Falha ao validar o código.";
+      setActivationError(message);
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore auth signout errors.
+    }
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -2036,6 +3150,7 @@ export default function KnexChatPage() {
       title: `Grupo ${pendingJoinToken}`,
       preview: "Convite aceito.",
       lastActivity: "Agora",
+      lastActivityAt: Date.now(),
       tab: "groups",
     };
     setGroups((prev) => (prev.some((item) => item.id === newThreadId) ? prev : [newThread, ...prev]));
@@ -2052,14 +3167,50 @@ export default function KnexChatPage() {
     setPendingJoinToken(null);
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!activeThread || !currentUser) return;
     const trimmed = messageDraft.trim();
     if (!trimmed) return;
+    if (!(await ensureRecipientRegistered(activeThread))) return;
+    if (messageSendNotice) setMessageSendNotice(null);
+    const threadId = await ensureServerThreadForSend(activeThread);
+    if (!threadId) return;
+
+    if (serverMessagingEnabled && identity?.email) {
+      try {
+        const res = await authFetch("/api/knexchat/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            threadId,
+            senderEmail: identity.email,
+            kind: "text",
+            body: trimmed,
+          }),
+        });
+        if (!res.ok) throw new Error("send_failed");
+        const payload = (await res.json().catch(() => ({}))) as { message?: ApiMessage };
+        if (!payload.message) throw new Error("missing_message");
+        const mapped = mapApiMessageToMessage(payload.message);
+        setMessagesByThread((prev) => ({
+          ...prev,
+          [threadId]: [...(prev[threadId] ?? []), mapped],
+        }));
+        const activityAt = toTimestampMs(payload.message.created_at) ?? Date.now();
+        updateThreadActivity(threadId, previewFromApiMessage(payload.message), activityAt);
+        setMessageDraft("");
+        return;
+      } catch {
+        setMessageSendNotice("Não foi possível enviar a mensagem agora.");
+        return;
+      }
+    }
+
     const timeLabel = new Date().toLocaleTimeString("pt-BR", {
       hour: "2-digit",
       minute: "2-digit",
     });
+    const activityAt = Date.now();
     const newMessage: Message = {
       id: `m_${Date.now()}`,
       author: "me",
@@ -2068,34 +3219,60 @@ export default function KnexChatPage() {
     };
     setMessagesByThread((prev) => ({
       ...prev,
-      [activeThread.id]: [...(prev[activeThread.id] ?? []), newMessage],
+      [threadId]: [...(prev[threadId] ?? []), newMessage],
     }));
-    const updateThread = (threads: Thread[]) =>
-      threads.map((thread) =>
-        thread.id === activeThread.id
-          ? { ...thread, preview: trimmed, lastActivity: timeLabel }
-          : thread,
-      );
-    if (activeThread.tab === "conversations") {
-      setConversations(updateThread);
-    } else if (activeThread.tab === "groups") {
-      setGroups(updateThread);
-    } else {
-      setContacts(updateThread);
-    }
+    updateThreadActivity(threadId, trimmed, activityAt);
     setMessageDraft("");
   };
 
-  const handleSendImage = (file: File) => {
+  const handleSendImage = async (file: File) => {
     if (!activeThread || !currentUser) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const imageUrl = typeof reader.result === "string" ? reader.result : "";
-      if (!imageUrl) return;
+    if (!(await ensureRecipientRegistered(activeThread))) return;
+    if (messageSendNotice) setMessageSendNotice(null);
+    const threadId = await ensureServerThreadForSend(activeThread);
+    if (!threadId) return;
+    let imageUrl = "";
+    try {
+      imageUrl = await readFileAsDataUrl(file);
+    } catch {
+      return;
+    }
+    if (!imageUrl) return;
+
+    if (serverMessagingEnabled && identity?.email) {
+      try {
+        const res = await authFetch("/api/knexchat/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            threadId,
+            senderEmail: identity.email,
+            kind: "image",
+            body: file.name ?? "Imagem enviada",
+            mediaUrl: imageUrl,
+            mediaName: file.name ?? "Imagem enviada",
+          }),
+        });
+        if (!res.ok) throw new Error("send_failed");
+        const payload = (await res.json().catch(() => ({}))) as { message?: ApiMessage };
+        if (!payload.message) throw new Error("missing_message");
+        const mapped = mapApiMessageToMessage(payload.message);
+        setMessagesByThread((prev) => ({
+          ...prev,
+          [threadId]: [...(prev[threadId] ?? []), mapped],
+        }));
+        const activityAt = toTimestampMs(payload.message.created_at) ?? Date.now();
+        updateThreadActivity(threadId, previewFromApiMessage(payload.message), activityAt);
+      } catch {
+        setMessageSendNotice("Não foi possível enviar a imagem agora.");
+        return;
+      }
+    } else {
       const timeLabel = new Date().toLocaleTimeString("pt-BR", {
         hour: "2-digit",
         minute: "2-digit",
       });
+      const activityAt = Date.now();
       const newMessage: Message = {
         id: `m_${Date.now()}`,
         author: "me",
@@ -2106,40 +3283,27 @@ export default function KnexChatPage() {
       };
       setMessagesByThread((prev) => ({
         ...prev,
-        [activeThread.id]: [...(prev[activeThread.id] ?? []), newMessage],
+        [threadId]: [...(prev[threadId] ?? []), newMessage],
       }));
-      const updateThread = (threads: Thread[]) =>
-        threads.map((thread) =>
-          thread.id === activeThread.id
-            ? { ...thread, preview: "Imagem enviada", lastActivity: timeLabel }
-            : thread,
-        );
-      if (activeThread.tab === "conversations") {
-        setConversations(updateThread);
-      } else if (activeThread.tab === "groups") {
-        setGroups(updateThread);
-      } else {
-        setContacts(updateThread);
-      }
-      const mediaItem: MediaItem = {
-        id: `media_${Date.now()}`,
-        threadId: activeThread.id,
-        label: file.name ?? "Imagem",
-        caption: `Enviado por ${currentUser.name ?? "Você"}`,
-        src: imageUrl,
-        sizeKb: file.size ? Math.max(1, Math.round(file.size / 1024)) : undefined,
-        isFavorite: false,
-        mediaType: "image",
-      };
-      setMediaLibrary((prev) => [mediaItem, ...prev]);
-    };
-    reader.readAsDataURL(file);
-  };
+      updateThreadActivity(threadId, "Imagem enviada", activityAt);
+    }
 
-  const handleMessageImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const mediaItem: MediaItem = {
+      id: `media_${Date.now()}`,
+      threadId,
+      label: file.name ?? "Imagem",
+      caption: `Enviado por ${currentUser.name ?? "Você"}`,
+      src: imageUrl,
+      sizeKb: file.size ? Math.max(1, Math.round(file.size / 1024)) : undefined,
+      isFavorite: false,
+      mediaType: "image",
+    };
+    setMediaLibrary((prev) => [mediaItem, ...prev]);
+  };
+  const handleMessageImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    handleSendImage(file);
+    await handleSendImage(file);
     event.target.value = "";
   };
 
@@ -2260,7 +3424,11 @@ export default function KnexChatPage() {
         if (!shareAnalyserRef.current || !shareWaveDataRef.current) return;
         if (timestamp - shareWaveLastUpdateRef.current >= 80) {
           shareWaveLastUpdateRef.current = timestamp;
-          shareAnalyserRef.current.getByteTimeDomainData(shareWaveDataRef.current);
+          const analyser = shareAnalyserRef.current;
+          const waveData = shareWaveDataRef.current;
+          (analyser as unknown as { getByteTimeDomainData: (data: Uint8Array) => void }).getByteTimeDomainData(
+            waveData,
+          );
           let sum = 0;
           for (let i = 0; i < shareWaveDataRef.current.length; i += 1) {
             const value = (shareWaveDataRef.current[i] - 128) / 128;
@@ -2518,38 +3686,67 @@ export default function KnexChatPage() {
     }, 1000);
   };
 
-  const finalizeRecording = (action: "send" | "discard", blob: Blob | null) => {
+  const finalizeRecording = async (action: "send" | "discard", blob: Blob | null) => {
     const durationLabel = formatDuration(recordingDurationRef.current);
-    if (action === "send" && blob && activeThread && currentUser) {
-      const timeLabel = new Date().toLocaleTimeString("pt-BR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const audioUrl = URL.createObjectURL(blob);
-      const newMessage: Message = {
-        id: `m_${Date.now()}`,
-        author: "me",
-        body: "Mensagem de áudio",
-        time: timeLabel,
-        audioUrl,
-        audioDuration: durationLabel,
-      };
-      setMessagesByThread((prev) => ({
-        ...prev,
-        [activeThread.id]: [...(prev[activeThread.id] ?? []), newMessage],
-      }));
-      const updateThread = (threads: Thread[]) =>
-        threads.map((thread) =>
-          thread.id === activeThread.id
-            ? { ...thread, preview: "Mensagem de áudio", lastActivity: timeLabel }
-            : thread,
-        );
-      if (activeThread.tab === "conversations") {
-        setConversations(updateThread);
-      } else if (activeThread.tab === "groups") {
-        setGroups(updateThread);
-      } else {
-        setContacts(updateThread);
+    if (
+      action === "send" &&
+      blob &&
+      activeThread &&
+      currentUser &&
+      (await ensureRecipientRegistered(activeThread))
+    ) {
+      if (messageSendNotice) setMessageSendNotice(null);
+      const threadId = await ensureServerThreadForSend(activeThread);
+      if (threadId) {
+        if (serverMessagingEnabled && identity?.email) {
+          try {
+            const audioDataUrl = await readFileAsDataUrl(blob);
+            const res = await authFetch("/api/knexchat/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                threadId,
+                senderEmail: identity.email,
+                kind: "audio",
+                body: "Mensagem de áudio",
+                mediaUrl: audioDataUrl,
+                mediaName: durationLabel,
+              }),
+            });
+            if (!res.ok) throw new Error("send_failed");
+            const payload = (await res.json().catch(() => ({}))) as { message?: ApiMessage };
+            if (!payload.message) throw new Error("missing_message");
+            const mapped = mapApiMessageToMessage(payload.message);
+            setMessagesByThread((prev) => ({
+              ...prev,
+              [threadId]: [...(prev[threadId] ?? []), mapped],
+            }));
+            const activityAt = toTimestampMs(payload.message.created_at) ?? Date.now();
+            updateThreadActivity(threadId, previewFromApiMessage(payload.message), activityAt);
+          } catch {
+            setMessageSendNotice("Não foi possível enviar o áudio agora.");
+          }
+        } else {
+          const timeLabel = new Date().toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const activityAt = Date.now();
+          const audioUrl = URL.createObjectURL(blob);
+          const newMessage: Message = {
+            id: `m_${Date.now()}`,
+            author: "me",
+            body: "Mensagem de áudio",
+            time: timeLabel,
+            audioUrl,
+            audioDuration: durationLabel,
+          };
+          setMessagesByThread((prev) => ({
+            ...prev,
+            [threadId]: [...(prev[threadId] ?? []), newMessage],
+          }));
+          updateThreadActivity(threadId, "Mensagem de áudio", activityAt);
+        }
       }
     }
     setRecordingState("idle");
@@ -2584,7 +3781,7 @@ export default function KnexChatPage() {
           mediaStreamRef.current.getTracks().forEach((track) => track.stop());
           mediaStreamRef.current = null;
         }
-        finalizeRecording(recordingActionRef.current, blob);
+        void finalizeRecording(recordingActionRef.current, blob);
       };
       recorder.start();
       setRecordingState("recording");
@@ -2605,7 +3802,7 @@ export default function KnexChatPage() {
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
     } else {
-      finalizeRecording(action, null);
+      void finalizeRecording(action, null);
     }
   };
 
@@ -2696,6 +3893,390 @@ export default function KnexChatPage() {
     return option?.color;
   }, [wallpaperPreviewKey]);
   const wallpaperPreviewColor = wallpaperColor ?? (isDarkTheme ? "#141414" : "#ffffff");
+  const chatListWidthStyle = useMemo(
+    () => ({ "--chat-list-width": `${chatListWidth}px` } as CSSProperties),
+    [chatListWidth],
+  );
+  const handleStartChatListResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    chatListResizeRef.current = { startX: event.clientX, startWidth: chatListWidth };
+    setIsChatListResizing(true);
+  }, [chatListWidth]);
+  const threadMenuSections = useMemo<ThreadMenuItem[][]>(() => {
+    if (!activeThread) return [];
+    if (activeThread.tab === "groups") {
+      return [
+        [
+          { label: "Dados do grupo", icon: Users, action: "group-info" },
+          { label: "Selecionar mensagens", icon: CheckSquare },
+          { label: "Reativar notificações", icon: Bell },
+          { label: "Trancar conversa", icon: Lock },
+          { label: "Fechar conversa", icon: XCircle },
+        ],
+        [
+          { label: "Limpar conversa", icon: Trash, tone: "danger" },
+          { label: "Sair do grupo", icon: LogOut, tone: "danger" },
+        ],
+      ];
+    }
+    return [
+      [
+        { label: "Dados do contato", icon: User, action: "contact-info" },
+        { label: "Selecionar mensagens", icon: CheckSquare },
+        { label: "Silenciar notificações", icon: BellOff },
+        { label: "Mensagens temporárias", icon: Timer },
+        { label: "Trancar conversa", icon: Lock },
+        { label: "Fechar conversa", icon: XCircle },
+      ],
+      [
+        { label: "Denunciar", icon: Flag },
+        { label: "Bloquear", icon: Shield },
+        { label: "Limpar conversa", icon: Trash, tone: "danger" },
+        { label: "Apagar conversa", icon: Trash2, tone: "danger" },
+      ],
+    ];
+  }, [activeThread]);
+  const commonGroups = useMemo(
+    () =>
+      groups.slice(0, 3).map((group) => ({
+        id: group.id,
+        title: group.title,
+        subtitle: group.preview ?? "Grupo no KnexChat",
+        avatarUrl: group.avatarUrl ?? null,
+      })),
+    [groups],
+  );
+  const mediaCount = useMemo(() => {
+    if (!activeThread) return 0;
+    return mediaLibrary.filter((item) => item.threadId === activeThread.id).length;
+  }, [activeThread, mediaLibrary]);
+  const groupMediaItems = useMemo(() => {
+    if (!activeThread) return [];
+    return mediaLibrary.filter((item) => item.threadId === activeThread.id).slice(0, 4);
+  }, [activeThread, mediaLibrary]);
+  const groupMembers = useMemo(() => {
+    const members: { id: string; title: string; subtitle?: string; avatarUrl?: string | null; isAdmin?: boolean }[] = [];
+    if (activeThread && activeThread.tab === "groups" && activeThread.participantRoles?.length) {
+      const selfEmail = identity?.email ? normalizeEmail(identity.email) : "";
+      const participants = activeThread.participantRoles;
+      const selfParticipant = selfEmail
+        ? participants.find((participant) => normalizeEmail(participant.email) === selfEmail)
+        : undefined;
+      const others = participants.filter(
+        (participant) => normalizeEmail(participant.email) !== selfEmail,
+      );
+      const ordered = selfParticipant ? [selfParticipant, ...others] : others;
+      const sliceCount = isGroupMembersExpanded ? ordered.length : Math.min(8, ordered.length);
+      ordered.slice(0, sliceCount).forEach((participant) => {
+        const normalized = normalizeEmail(participant.email);
+        const isSelf = selfEmail && normalized === selfEmail;
+        const contactInfo = contactNameByEmail.get(normalized);
+        members.push({
+          id: isSelf ? "self" : participant.email,
+          title: isSelf
+            ? "Você"
+            : contactInfo?.name ?? participant.name ?? formatNameFromEmail(participant.email),
+          subtitle: isSelf
+            ? settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado
+            : participant.email,
+          avatarUrl: contactInfo?.avatarUrl ?? null,
+          isAdmin: participant.role === "admin",
+        });
+      });
+      return members;
+    }
+    const adminIds =
+      activeThread && activeThread.tab === "groups"
+        ? new Set(groupAdminIdsByGroup[activeThread.id] ?? [])
+        : null;
+    const hasCustomAdmins = Boolean(adminIds && adminIds.size > 0);
+    if (currentUser) {
+      const isAdmin = hasCustomAdmins ? adminIds?.has("self") : true;
+      members.push({
+        id: "self",
+        title: "Você",
+        subtitle: settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado,
+        avatarUrl: currentUser.avatarUrl ?? null,
+        isAdmin,
+      });
+    }
+    const sliceCount = isGroupMembersExpanded ? contacts.length : Math.min(8, contacts.length);
+    contacts.slice(0, sliceCount).forEach((contact, index) => {
+      const isAdmin = hasCustomAdmins ? adminIds?.has(contact.id) : index < 2;
+      members.push({
+        id: contact.id,
+        title: contact.title,
+        subtitle: contact.preview,
+        avatarUrl: contact.avatarUrl ?? null,
+        isAdmin,
+      });
+    });
+    return members;
+  }, [
+    activeThread,
+    contacts,
+    contactNameByEmail,
+    currentUser,
+    groupAdminIdsByGroup,
+    identity?.email,
+    isGroupMembersExpanded,
+    settingsState.profileRecado,
+  ]);
+  const groupAdminNames = useMemo(() => {
+    const admins = groupMembers.filter((member) => member.isAdmin).map((member) => member.title);
+    return admins.length ? admins.join(", ") : "Nenhum admin";
+  }, [groupMembers]);
+  useEffect(() => {
+    if (!isGroupAdminsModalOpen) return;
+    if (!activeThread || activeThread.tab !== "groups") return;
+    setGroupAdminSearch("");
+    const existing = groupAdminIdsByGroup[activeThread.id];
+    if (existing && existing.length) {
+      setSelectedGroupAdminIds(existing);
+      return;
+    }
+    const seed = groupMembers.filter((member) => member.isAdmin).map((member) => member.id);
+    setSelectedGroupAdminIds(seed);
+  }, [activeThread, groupAdminIdsByGroup, groupMembers, isGroupAdminsModalOpen]);
+  const groupAdminCandidates = useMemo(() => {
+    const candidates: { id: string; title: string; subtitle?: string; avatarUrl?: string | null }[] = [];
+    if (activeThread && activeThread.tab === "groups" && activeThread.participantRoles?.length) {
+      const selfEmail = identity?.email ? normalizeEmail(identity.email) : "";
+      activeThread.participantRoles.forEach((participant) => {
+        const normalized = normalizeEmail(participant.email);
+        const isSelf = selfEmail && normalized === selfEmail;
+        const contactInfo = contactNameByEmail.get(normalized);
+        candidates.push({
+          id: isSelf ? "self" : participant.email,
+          title: isSelf
+            ? `${currentUser?.name ?? "Você"} (você)`
+            : contactInfo?.name ?? participant.name ?? formatNameFromEmail(participant.email),
+          subtitle: isSelf
+            ? settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado
+            : participant.email,
+          avatarUrl: contactInfo?.avatarUrl ?? null,
+        });
+      });
+      return candidates;
+    }
+    if (currentUser) {
+      candidates.push({
+        id: "self",
+        title: `${currentUser.name ?? "Você"} (você)`,
+        subtitle: settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado,
+        avatarUrl: currentUser.avatarUrl ?? null,
+      });
+    }
+    contacts.forEach((contact) => {
+      candidates.push({
+        id: contact.id,
+        title: contact.title,
+        subtitle: contact.preview,
+        avatarUrl: contact.avatarUrl ?? null,
+      });
+    });
+    return candidates;
+  }, [activeThread, contactNameByEmail, contacts, currentUser, identity?.email, settingsState.profileRecado]);
+  const filteredGroupAdminCandidates = useMemo(() => {
+    const term = groupAdminSearch.trim().toLowerCase();
+    if (!term) return groupAdminCandidates;
+    return groupAdminCandidates.filter((candidate) => {
+      const haystack = `${candidate.title} ${candidate.subtitle ?? ""}`.toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [groupAdminCandidates, groupAdminSearch]);
+  const selectedGroupAdmins = useMemo(
+    () =>
+      selectedGroupAdminIds
+        .map((id) => groupAdminCandidates.find((candidate) => candidate.id === id))
+        .filter(Boolean) as { id: string; title: string; subtitle?: string; avatarUrl?: string | null }[],
+    [groupAdminCandidates, selectedGroupAdminIds],
+  );
+  const toggleGroupAdminSelection = useCallback((id: string) => {
+    setSelectedGroupAdminIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  }, []);
+  const groupMemberCount = useMemo(() => {
+    if (activeThread && activeThread.tab === "groups" && activeThread.participantRoles?.length) {
+      return activeThread.participantRoles.length;
+    }
+    return Math.max(1, contacts.length + (currentUser ? 1 : 0));
+  }, [activeThread, contacts.length, currentUser]);
+  const groupMembersHiddenCount = useMemo(
+    () => Math.max(groupMemberCount - groupMembers.length, 0),
+    [groupMemberCount, groupMembers.length],
+  );
+  const activeGroupPermissions = useMemo(() => {
+    if (!activeThread || activeThread.tab !== "groups") return DEFAULT_GROUP_PERMISSIONS;
+    return groupPermissionsById[activeThread.id] ?? DEFAULT_GROUP_PERMISSIONS;
+  }, [activeThread, groupPermissionsById]);
+  const canEditGroupSettings = useMemo(() => {
+    if (!activeThread || activeThread.tab !== "groups") return false;
+    const isAdmin = groupMembers.some((member) => member.id === "self" && member.isAdmin);
+    return isAdmin || activeGroupPermissions.editGroupSettings;
+  }, [activeGroupPermissions.editGroupSettings, activeThread, groupMembers]);
+  const handleGroupAvatarChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (!activeThread || activeThread.tab !== "groups" || !canEditGroupSettings) {
+        event.target.value = "";
+        return;
+      }
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === "string" ? reader.result : null;
+        if (!result) return;
+        setThreadAvatarOverrides((prev) => ({ ...prev, [activeThread.id]: result }));
+      };
+      reader.readAsDataURL(file);
+    },
+    [activeThread, canEditGroupSettings, setThreadAvatarOverrides],
+  );
+  const openGroupNameEditor = useCallback(() => {
+    if (!activeThread || activeThread.tab !== "groups" || !canEditGroupSettings) return;
+    setGroupNameDraft(activeThread.title ?? "");
+    setIsGroupNameEditing(true);
+  }, [activeThread, canEditGroupSettings]);
+  const cancelGroupNameEditor = useCallback(() => {
+    if (!activeThread || activeThread.tab !== "groups") return;
+    setGroupNameDraft(activeThread.title ?? "");
+    setIsGroupNameEditing(false);
+  }, [activeThread]);
+  const saveGroupName = useCallback(() => {
+    if (!activeThread || activeThread.tab !== "groups") return;
+    const next = groupNameDraft.trim();
+    if (!next) {
+      setGroupNameDraft(activeThread.title ?? "");
+      setIsGroupNameEditing(false);
+      return;
+    }
+    setGroups((prev) =>
+      prev.map((group) => (group.id === activeThread.id ? { ...group, title: next } : group)),
+    );
+    setIsGroupNameEditing(false);
+  }, [activeThread, groupNameDraft, setGroups]);
+  const toggleGroupPermission = useCallback(
+    (key: keyof GroupPermissions) => {
+      if (!activeThread || activeThread.tab !== "groups") return;
+      setGroupPermissionsById((prev) => {
+        const current = prev[activeThread.id] ?? DEFAULT_GROUP_PERMISSIONS;
+        return { ...prev, [activeThread.id]: { ...current, [key]: !current[key] } };
+      });
+    },
+    [activeThread],
+  );
+  const canEditGroupDescription = useMemo(() => {
+    if (!activeThread || activeThread.tab !== "groups") return false;
+    return groupMembers.some((member) => member.id === "self" && member.isAdmin);
+  }, [activeThread, groupMembers]);
+  const openGroupDescriptionEditor = useCallback(() => {
+    if (!activeThread || activeThread.tab !== "groups" || !canEditGroupDescription) return;
+    setGroupDescriptionDraft(groupDescriptions[activeThread.id] ?? "");
+    setIsGroupDescriptionEditing(true);
+  }, [activeThread, canEditGroupDescription, groupDescriptions]);
+  const cancelGroupDescriptionEditor = useCallback(() => {
+    if (!activeThread || activeThread.tab !== "groups") return;
+    setGroupDescriptionDraft(groupDescriptions[activeThread.id] ?? "");
+    setIsGroupDescriptionEditing(false);
+  }, [activeThread, groupDescriptions]);
+  const saveGroupDescription = useCallback(() => {
+    if (!activeThread || activeThread.tab !== "groups" || !canEditGroupDescription) return;
+    const next = groupDescriptionDraft.trim();
+    setGroupDescriptions((prev) => ({ ...prev, [activeThread.id]: next }));
+    setIsGroupDescriptionEditing(false);
+  }, [activeThread, canEditGroupDescription, groupDescriptionDraft]);
+  const handleOpenContactEdit = useCallback(() => {
+    if (!activeThread || activeThread.tab === "groups") return;
+    const normalizedTitle = normalizeName(activeThread.title ?? "");
+    const [first, ...rest] = normalizedTitle.split(" ");
+    const resolvedEmail = getThreadRecipientEmail(activeThread) ?? "";
+    setEditContactFirstName(first ?? "");
+    setEditContactLastName(rest.join(" "));
+    setEditContactEmail(resolvedEmail);
+    setEditContactPhone("");
+    setEditContactSync(false);
+    setIsContactEditOpen(true);
+  }, [activeThread, getThreadRecipientEmail]);
+  const handleSaveContactEdit = useCallback(() => {
+    if (!activeThread || activeThread.tab === "groups") return;
+    const firstName = normalizeName(editContactFirstName);
+    const lastName = normalizeName(editContactLastName);
+    const displayName =
+      [firstName, lastName].filter(Boolean).join(" ") || activeThread.title || "Contato";
+    const normalizedEmail =
+      editContactEmail && isValidEmail(editContactEmail) ? normalizeEmail(editContactEmail) : "";
+    const contactEmail = normalizedEmail || activeThread.contactEmail;
+    const preview = contactEmail || editContactPhone.trim() || activeThread.preview || "Contato";
+    const updateThread = (thread: Thread) => {
+      if (thread.id !== activeThread.id) {
+        const threadEmail = thread.contactEmail ? normalizeEmail(thread.contactEmail) : "";
+        if (!contactEmail || threadEmail !== normalizeEmail(contactEmail)) {
+          return thread;
+        }
+      }
+      return {
+        ...thread,
+        title: displayName,
+        preview,
+        contactEmail,
+      };
+    };
+    setContacts((prev) => prev.map(updateThread));
+    setConversations((prev) => prev.map(updateThread));
+    if (activeThread.tab === "contacts") {
+      setActiveThreadId(activeThread.id);
+    }
+    setIsContactEditOpen(false);
+  }, [
+    activeThread,
+    editContactEmail,
+    editContactFirstName,
+    editContactLastName,
+    editContactPhone,
+    setContacts,
+    setConversations,
+  ]);
+  const performDeleteContact = useCallback(
+    (contactId: string) => {
+      setContacts((prev) => prev.filter((contact) => contact.id !== contactId));
+      setUnreadByThread((prev) => {
+        if (!prev[contactId]) return prev;
+        const next = { ...prev };
+        delete next[contactId];
+        return next;
+      });
+      setIsContactEditOpen(false);
+      setIsContactInfoOpen(false);
+      if (activeThreadId === contactId) {
+        setActiveThreadId("");
+      }
+    },
+    [activeThreadId],
+  );
+  const requestDeleteContact = useCallback(() => {
+    if (!activeThread || activeThread.tab === "groups") return;
+    setDeleteContactTargetId(activeThread.id);
+    setDeleteContactTargetName(activeThread.title ?? "este contato");
+    setIsDeleteContactConfirmOpen(true);
+  }, [activeThread]);
+  const confirmDeleteContact = useCallback(() => {
+    if (!deleteContactTargetId) {
+      setIsDeleteContactConfirmOpen(false);
+      return;
+    }
+    performDeleteContact(deleteContactTargetId);
+    setIsDeleteContactConfirmOpen(false);
+    setDeleteContactTargetId(null);
+    setDeleteContactTargetName("");
+  }, [deleteContactTargetId, performDeleteContact]);
+  const cancelDeleteContact = useCallback(() => {
+    setIsDeleteContactConfirmOpen(false);
+    setDeleteContactTargetId(null);
+    setDeleteContactTargetName("");
+  }, []);
   const settingsPanelBase = isDarkTheme ? "bg-[#141414] text-slate-100" : "bg-white text-slate-900";
   const settingsBorder = isDarkTheme ? "border-[#2a2a2a]" : "border-slate-200";
   const settingsMuted = isDarkTheme ? "text-slate-400" : "text-slate-500";
@@ -2716,7 +4297,7 @@ export default function KnexChatPage() {
     </>
   ) : null;
 
-  if (!isReady) {
+  if (!isReady || !isAuthReady) {
     return (
       <main
         style={THEME_STYLE}
@@ -2864,7 +4445,7 @@ export default function KnexChatPage() {
             >
               <MessageCircle className="h-5 w-5" />
             </button>
-            <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-orange-500 text-[10px] font-semibold text-white">
+            <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-orange-600 px-1.5 text-[10px] font-semibold text-white">
               67
             </span>
             <span
@@ -3389,7 +4970,9 @@ export default function KnexChatPage() {
                         <p className={`text-xs ${isDarkTheme ? "text-slate-400" : "text-slate-600"}`}>
                           {currentUser?.email}
                         </p>
-                        <p className={`text-[10px] ${settingsMuted}`}>"Onde há igualdade, a amizade não perde."</p>
+                        <p className={`text-[10px] ${settingsMuted}`}>
+                          {settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado}
+                        </p>
                       </div>
                     </button>
                   </div>
@@ -3529,15 +5112,16 @@ export default function KnexChatPage() {
           <>
         {isProfileOpen ? (
           <aside
-            className={`flex w-full flex-col border-b border-t ${settingsBorder} ${
+            style={chatListWidthStyle}
+            className={`relative flex w-full flex-col border-b border-t ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } lg:w-96 lg:border-b-0 lg:border-l lg:border-r lg:rounded-tl-md lg:overflow-hidden`}
+            } lg:w-[var(--chat-list-width)] lg:border-b-0 lg:border-l lg:border-r lg:rounded-tl-md lg:overflow-visible`}
           >
-            <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+            <div className="flex items-center justify-between px-4 py-3">
               <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Perfil</span>
               <button
                 type="button"
-                onClick={handleCloseProfile}
+                onClick={handleCloseProfileAndCommit}
                 className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
                   isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
                 }`}
@@ -3548,36 +5132,56 @@ export default function KnexChatPage() {
             </div>
             <div className="flex flex-col items-center gap-3 px-4 py-6">
               <div className="flex items-center gap-3">
-                <label
-                  className="group relative cursor-pointer"
-                  aria-label={profileAvatarCta ?? "Adicionar foto de perfil"}
-                  title={profileAvatarCta}
-                >
-                  {profileData?.avatarUrl ? (
-                    <img
-                      src={profileData.avatarUrl}
-                      alt={`Avatar de ${profileData.title}`}
-                      className={`h-32 w-32 ${avatarFrameLg} object-cover`}
-                    />
-                  ) : (
-                    <div
-                      className={`grid h-32 w-32 place-items-center ${avatarFrameLg} text-lg font-semibold ${
-                        isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                {canEditProfile ? (
+                  <label
+                    className="group relative cursor-pointer"
+                    aria-label={profileAvatarCta ?? "Adicionar foto de perfil"}
+                    title={profileAvatarCta ?? undefined}
+                  >
+                    {profileData?.avatarUrl ? (
+                      <img
+                        src={profileData.avatarUrl}
+                        alt={`Avatar de ${profileData.title}`}
+                        className={`h-32 w-32 ${avatarFrameLg} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-32 w-32 place-items-center ${avatarFrameLg} text-lg font-semibold ${
+                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {profileData?.avatarText ?? "KN"}
+                      </div>
+                    )}
+                    <span
+                      className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${avatarFrameLg} bg-black/55 px-3 text-center text-[11px] font-semibold text-white opacity-0 transition group-hover:opacity-100 ${
+                        isDarkTheme ? "bg-black/60" : "bg-slate-900/65"
                       }`}
                     >
-                      {profileData?.avatarText ?? "KN"}
-                    </div>
-                  )}
-                  <span
-                    className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${avatarFrameLg} bg-black/55 px-3 text-center text-[11px] font-semibold text-white opacity-0 transition group-hover:opacity-100 ${
-                      isDarkTheme ? "bg-black/60" : "bg-slate-900/65"
-                    }`}
-                  >
-                    <ImageIcon className="h-5 w-5" />
-                    <span>{profileAvatarCta}</span>
-                  </span>
-                  <input type="file" accept="image/*" className="sr-only" onChange={handleProfileAvatarChange} />
-                </label>
+                      <ImageIcon className="h-5 w-5" />
+                      <span>{profileAvatarCta}</span>
+                    </span>
+                    <input type="file" accept="image/*" className="sr-only" onChange={handleProfileAvatarChange} />
+                  </label>
+                ) : (
+                  <div className="relative">
+                    {profileData?.avatarUrl ? (
+                      <img
+                        src={profileData.avatarUrl}
+                        alt={`Avatar de ${profileData.title}`}
+                        className={`h-32 w-32 ${avatarFrameLg} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-32 w-32 place-items-center ${avatarFrameLg} text-lg font-semibold ${
+                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {profileData?.avatarText ?? "KN"}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setIsProfileAvatarPreviewOpen(true)}
@@ -3599,15 +5203,49 @@ export default function KnexChatPage() {
             <div className="space-y-5 px-4 pb-6 text-sm">
               <div className="space-y-1">
                 <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Nome</p>
-                <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                  {profileData?.title ?? "Perfil"}
-                </p>
+                {canEditProfile ? (
+                  <input
+                    type="text"
+                    value={profileNameDraft}
+                    onChange={(event) => setProfileNameDraft(event.target.value)}
+                    onBlur={commitProfileName}
+                    placeholder="Seu nome"
+                    className={`w-full rounded-xl border px-3 py-2 text-sm ${settingsField}`}
+                  />
+                ) : (
+                  <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                    {profileData?.title ?? "Perfil"}
+                  </p>
+                )}
               </div>
+              {canEditProfile ? (
+                <div className="space-y-1">
+                  <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>E-mail</p>
+                  <input
+                    type="email"
+                    value={currentUser?.email ?? ""}
+                    readOnly
+                    aria-readonly="true"
+                    className={`w-full cursor-not-allowed rounded-xl border px-3 py-2 text-sm opacity-70 ${settingsField}`}
+                  />
+                </div>
+              ) : null}
               <div className="space-y-1">
                 <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Recado</p>
-                <p className={`${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
-                  {profileData?.recado ?? "Sem recado"}
-                </p>
+                {canEditProfile ? (
+                  <textarea
+                    value={profileRecadoDraft}
+                    onChange={(event) => setProfileRecadoDraft(event.target.value)}
+                    onBlur={commitProfileRecado}
+                    rows={3}
+                    placeholder="Escreva um recado"
+                    className={`w-full resize-none rounded-xl border px-3 py-2 text-sm ${settingsField}`}
+                  />
+                ) : (
+                  <p className={`${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
+                    {profileData?.recado ?? "Sem recado"}
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Telefone</p>
@@ -3619,9 +5257,10 @@ export default function KnexChatPage() {
           </aside>
         ) : (
           <aside
-            className={`flex w-full flex-col border-b border-t ${settingsBorder} ${
+            style={chatListWidthStyle}
+            className={`relative flex w-full flex-col border-b border-t ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } lg:w-96 lg:border-b-0 lg:border-l lg:border-r lg:rounded-tl-md lg:overflow-hidden`}
+            } lg:w-[var(--chat-list-width)] lg:border-b-0 lg:border-l lg:border-r lg:rounded-tl-md lg:overflow-visible`}
           >
             {isGroupsPanelOpen ? (
               <div className={`flex flex-col gap-4 border-b px-4 py-4 ${settingsBorder}`}>
@@ -3950,7 +5589,7 @@ export default function KnexChatPage() {
                       >
                         <Plus className="h-4 w-4" />
                       </button>
-                    ) : isNewGroupOpen || isNewChatEmailOpen || isNewContactOpen ? (
+                    ) : isNewGroupOpen || isNewChatEmailOpen ? (
                       <span className="h-8 w-8" aria-hidden="true" />
                     ) : (
                       <button
@@ -4380,7 +6019,7 @@ export default function KnexChatPage() {
                       </div>
                     </div>
                   ) : isNewContactOpen ? (
-                    <div className="flex-1 px-4 py-4">
+                    <div className="flex flex-1 flex-col px-4 py-4">
                       <div className="space-y-4">
                         <div className="flex items-center gap-3 border-b pb-2">
                           <User className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
@@ -4415,7 +6054,11 @@ export default function KnexChatPage() {
                           <input
                             type="email"
                             value={newContactEmail}
-                            onChange={(event) => setNewContactEmail(event.target.value)}
+                            onChange={(event) => {
+                              setNewContactEmail(event.target.value);
+                              if (newContactError) setNewContactError(null);
+                              if (newContactInviteNotice) setNewContactInviteNotice(null);
+                            }}
                             placeholder="E-mail"
                             className={`w-full bg-transparent text-sm focus:outline-none ${
                               isDarkTheme
@@ -4424,6 +6067,38 @@ export default function KnexChatPage() {
                             }`}
                           />
                         </div>
+                        {isNewContactEmailValid && !isNewContactRegistered ? (
+                          <div
+                            className={`rounded-2xl border px-3 py-3 text-xs ${
+                              isDarkTheme
+                                ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            <p className="text-xs font-semibold">Este e-mail ainda não está usando o KnexChat.</p>
+                            <p className={`mt-1 text-[11px] ${isDarkTheme ? "text-amber-200/80" : "text-amber-700/80"}`}>
+                              Envie um convite para liberar o envio de mensagens.
+                            </p>
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleSendInvite}
+                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                                  isDarkTheme
+                                    ? "border-amber-300/60 text-amber-100 hover:bg-amber-500/20"
+                                    : "border-amber-300 text-amber-700 hover:bg-amber-100"
+                                }`}
+                              >
+                                Enviar convite
+                              </button>
+                              {newContactInviteNotice ? (
+                                <span className={`text-[11px] ${isDarkTheme ? "text-amber-200/80" : "text-amber-700/80"}`}>
+                                  {newContactInviteNotice}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
                         <div>
                           <div className="flex items-center gap-3 border-b pb-2">
                             <Phone className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
@@ -4454,6 +6129,9 @@ export default function KnexChatPage() {
                           <p className={`mt-2 text-xs ${settingsMuted}`}>
                             O e-mail é a chave principal. Associe um número de telefone para facilitar o contato.
                           </p>
+                          {newContactError ? (
+                            <p className="mt-2 text-xs text-rose-500">{newContactError}</p>
+                          ) : null}
                         </div>
                         <div className="flex items-center justify-between rounded-2xl border px-4 py-3">
                           <div className="flex items-start gap-3">
@@ -4486,6 +6164,26 @@ export default function KnexChatPage() {
                             />
                           </button>
                         </div>
+                      </div>
+                      <div className="mt-auto flex justify-center pb-2 pt-6">
+                        <button
+                          type="button"
+                          onClick={handleCreateContact}
+                          className={`flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg transition ${
+                            isNewContactReady
+                              ? isDarkTheme
+                                ? "bg-blue-500 hover:bg-blue-400"
+                                : "bg-blue-600 hover:bg-blue-700"
+                              : isDarkTheme
+                                ? "bg-[#2a2a2a] text-slate-400"
+                                : "bg-slate-200 text-slate-400"
+                          }`}
+                          aria-label="Salvar contato"
+                          title="Salvar contato"
+                          disabled={!isNewContactReady}
+                        >
+                          <Check className="h-5 w-5" strokeWidth={2.5} />
+                        </button>
                       </div>
                     </div>
                   ) : (
@@ -4535,6 +6233,8 @@ export default function KnexChatPage() {
                           type="button"
                           onClick={() => {
                             setIsNewContactOpen(true);
+                            setNewContactError(null);
+                            setNewContactInviteNotice(null);
                             setIsNewChatEmailOpen(false);
                             setIsNewGroupOpen(false);
                           }}
@@ -4580,6 +6280,7 @@ export default function KnexChatPage() {
                             <button
                               key={contact.id}
                               type="button"
+                              onClick={() => openContactThread(contact.id)}
                               className="flex w-full items-center gap-3 text-left"
                             >
                               {contact.avatarUrl ? (
@@ -4613,7 +6314,7 @@ export default function KnexChatPage() {
                   )}
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1">
                   {filteredActiveThreads.map((thread) => {
                     const isActive = thread.id === activeThread?.id;
                     const threadAvatarUrl = threadAvatarOverrides[thread.id] ?? thread.avatarUrl;
@@ -4622,17 +6323,23 @@ export default function KnexChatPage() {
                       <button
                         key={thread.id}
                         type="button"
-                        onClick={() => setActiveThreadId(thread.id)}
-                        className={`flex w-full items-center justify-between rounded-2xl border px-3 py-1 text-left transition ${
+                        onClick={() => {
+                          if (thread.tab === "contacts") {
+                            openContactThread(thread.id);
+                          } else {
+                            setActiveThreadId(thread.id);
+                          }
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-1 text-left transition ${
                           isDarkTheme ? "" : "font-['Arial']"
                         } ${
                           isActive
                             ? isDarkTheme
-                              ? "border-emerald-500/40 bg-emerald-500/10"
-                              : "border-blue-200 bg-blue-50"
+                              ? "ring-2 ring-emerald-500/40 ring-inset bg-emerald-500/10"
+                              : "ring-2 ring-blue-300 ring-inset bg-blue-100"
                             : isDarkTheme
-                              ? "border-transparent bg-slate-900/40 hover:border-slate-700/70"
-                              : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50"
+                              ? "hover:bg-emerald-500/10"
+                              : "hover:bg-blue-100"
                         }`}
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -4663,13 +6370,17 @@ export default function KnexChatPage() {
                           </div>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                          <span className={`text-[11px] ${isDarkTheme ? "text-slate-300" : "text-slate-900"}`}>
+                          <span
+                            className={`text-[11px] font-semibold ${
+                              isDarkTheme ? "text-blue-300" : "text-blue-600"
+                            }`}
+                          >
                             {thread.lastActivity}
                           </span>
                           {unreadCount ? (
                             <span
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                isDarkTheme ? "bg-orange-500 text-white" : "bg-orange-500 text-white"
+                              className={`inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
+                                isDarkTheme ? "bg-orange-600 text-white" : "bg-orange-600 text-white"
                               }`}
                             >
                               {unreadCount}
@@ -4681,6 +6392,21 @@ export default function KnexChatPage() {
                   })}
                 </div>
               )}
+            </div>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Redimensionar painel de conversas"
+              onMouseDown={handleStartChatListResize}
+              className="group absolute left-full top-0 z-30 hidden h-full w-3 cursor-col-resize lg:block"
+            >
+              <span
+                className={`pointer-events-none absolute left-0 top-0 h-full rounded-full transition-all ${
+                  isChatListResizing
+                    ? "w-1 bg-blue-500/60"
+                    : "w-px bg-slate-300/70 group-hover:w-1 group-hover:bg-slate-400/80"
+                }`}
+              />
             </div>
           </aside>
         )}
@@ -4708,7 +6434,7 @@ export default function KnexChatPage() {
           ) : (
             <>
               <div
-                className={`flex flex-wrap items-center justify-between gap-3 border-b border-t ${settingsBorder} ${
+                className={`relative flex flex-wrap items-center justify-between gap-3 border-b border-t ${settingsBorder} ${
                   isDarkTheme ? "bg-[var(--knex-850)]/40 text-white" : "bg-slate-50"
                 } px-4 py-0`}
               >
@@ -4735,11 +6461,11 @@ export default function KnexChatPage() {
                       </div>
                     )
                   ) : null}
-                  <div>
+                  <div className="min-w-0">
                     <p
                       className={`${spaceGrotesk.className} text-lg font-semibold ${
                         isDarkTheme ? "text-slate-100" : "text-slate-900"
-                      }`}
+                      } truncate max-w-[200px] sm:max-w-[260px] lg:max-w-[320px]`}
                     >
                       {activeThread?.title ?? "Selecione uma conversa"}
                     </p>
@@ -4780,6 +6506,11 @@ export default function KnexChatPage() {
                   <button
                     type="button"
                     aria-label="Mais opções"
+                    ref={threadMenuAnchorRef}
+                    onClick={() => {
+                      if (!activeThread) return;
+                      setIsThreadMenuOpen((prev) => !prev);
+                    }}
                     className={`rounded-full p-2 transition ${
                       isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
                     }`}
@@ -4787,6 +6518,55 @@ export default function KnexChatPage() {
                     <MoreVertical className="h-5 w-5" />
                   </button>
                 </div>
+                {isThreadMenuOpen && threadMenuSections.length ? (
+                  <div
+                    ref={threadMenuRef}
+                    className={`absolute right-4 top-full z-40 mt-2 w-64 rounded-2xl border px-2 py-2 text-sm shadow-xl ${
+                      isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b]" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    {threadMenuSections.map((section, sectionIndex) => (
+                      <div key={`thread-menu-section-${sectionIndex}`}>
+                        {section.map((item) => {
+                          const Icon = item.icon;
+                          const isDanger = item.tone === "danger";
+                          const action = item.action as string | undefined;
+                          return (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => {
+                                if (action === "contact-info") {
+                                  setIsContactInfoOpen(true);
+                                  setIsGroupInfoOpen(false);
+                                } else if (action === "group-info") {
+                                  setIsGroupInfoOpen(true);
+                                  setIsContactInfoOpen(false);
+                                }
+                                setIsThreadMenuOpen(false);
+                              }}
+                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
+                                isDanger
+                                  ? isDarkTheme
+                                    ? "hover:bg-rose-500/20"
+                                    : "hover:bg-rose-100"
+                                  : isDarkTheme
+                                    ? "hover:bg-white/5"
+                                    : "hover:bg-slate-100"
+                              } ${isDarkTheme ? "text-slate-200" : "text-slate-700"}`}
+                            >
+                              <Icon className="h-4 w-4" />
+                              <span className="text-sm">{item.label}</span>
+                            </button>
+                          );
+                        })}
+                        {sectionIndex < threadMenuSections.length - 1 ? (
+                          <div className={`${isDarkTheme ? "bg-white/10" : "bg-slate-200"} my-2 h-px`} />
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div
@@ -4903,6 +6683,17 @@ export default function KnexChatPage() {
                       }
                     }}
                   >
+                    {messageSendNotice ? (
+                      <div
+                        className={`w-full rounded-2xl border px-3 py-2 text-xs ${
+                          isDarkTheme
+                            ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                            : "border-amber-200 bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {messageSendNotice}
+                      </div>
+                    ) : null}
                     <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
                       <button
                         type="button"
@@ -4929,7 +6720,10 @@ export default function KnexChatPage() {
                       <input
                         type="text"
                         value={messageDraft}
-                        onChange={(event) => setMessageDraft(event.target.value)}
+                        onChange={(event) => {
+                          setMessageDraft(event.target.value);
+                          if (messageSendNotice) setMessageSendNotice(null);
+                        }}
                         placeholder="Digite uma mensagem"
                         className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
                       />
@@ -4999,10 +6793,1194 @@ export default function KnexChatPage() {
             </>
           )}
         </section>
+        {isContactInfoOpen && activeThread && activeThread.tab !== "groups" ? (
+          <aside
+            className={`relative hidden min-h-0 w-[26rem] flex-col border-l border-t ${settingsBorder} ${
+              isDarkTheme ? "bg-[#141414]" : "bg-white"
+            } lg:flex`}
+          >
+            <div className="flex items-center justify-between px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setIsContactInfoOpen(false)}
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                aria-label="Fechar dados do contato"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                Dados do contato
+              </p>
+              <button
+                type="button"
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                aria-label="Editar contato"
+                onClick={handleOpenContactEdit}
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5">
+              <div className="flex flex-col items-center gap-2">
+                {activeThreadAvatarUrl ? (
+                  <img
+                    src={activeThreadAvatarUrl}
+                    alt={`Avatar de ${activeThread.title}`}
+                    className={`h-24 w-24 ${avatarFrameLg} object-cover`}
+                  />
+                ) : (
+                  <div
+                    className={`grid h-24 w-24 place-items-center ${avatarFrameLg} text-lg font-semibold ${
+                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {getAvatarText(activeThread.title)}
+                  </div>
+                )}
+                <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                  {activeThread.title}
+                </p>
+                <p className={`text-xs ${settingsMuted}`}>{profileData?.phone ?? "+55 68 9999-5995"}</p>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                {[
+                  { label: "Pesquisar", icon: Search },
+                  { label: "Vídeo", icon: Video },
+                  { label: "Voz", icon: Phone },
+                ].map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <button
+                      key={action.label}
+                      type="button"
+                      className={`flex flex-col items-center justify-center gap-1 rounded-xl border py-2 text-xs font-semibold transition ${
+                        isDarkTheme
+                          ? "border-[#2a2a2a] text-slate-100 hover:bg-white/5"
+                          : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 text-emerald-500" />
+                      {action.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 space-y-1">
+                <p className={`text-xs font-semibold ${settingsMuted}`}>Recado</p>
+                <p className={`text-sm ${isDarkTheme ? "text-slate-200" : "text-slate-700"}`}>
+                  {profileData?.recado ?? "Disponível"}
+                </p>
+              </div>
+              <div className={`mt-5 border-t pt-4 ${settingsBorder}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className={`h-4 w-4 ${settingsMuted}`} />
+                    <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Mídia, links e docs
+                    </span>
+                  </div>
+                  <span className={`text-xs ${settingsMuted}`}>{mediaCount || 23}</span>
+                </div>
+                <div className="mt-3 flex items-center gap-3">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div
+                      key={`media-thumb-${index}`}
+                      className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                        isDarkTheme ? "bg-slate-700 text-slate-200" : "bg-slate-200 text-slate-600"
+                      }`}
+                    >
+                      <Download className="h-4 w-4" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className={`mt-5 space-y-3 border-t pt-4 ${settingsBorder}`}>
+                {[
+                  { label: "Mensagens favoritas", icon: Star },
+                  { label: "Configurações de notificação", icon: Bell },
+                  { label: "Mensagens temporárias", icon: Timer, subLabel: "Desativadas" },
+                  { label: "Privacidade avançada da conversa", icon: Shield, subLabel: "Desativada" },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.label} className="flex items-start gap-3">
+                      <Icon className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                      <div>
+                        <p className={`text-sm ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>{item.label}</p>
+                        {item.subLabel ? <p className={`text-xs ${settingsMuted}`}>{item.subLabel}</p> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="flex items-start gap-3">
+                  <Lock className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                  <div>
+                    <p className={`text-sm ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Criptografia</p>
+                    <p className={`text-xs ${settingsMuted}`}>
+                      As mensagens são protegidas com a criptografia de ponta a ponta. Clique para verificar.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className={`mt-5 border-t pt-4 ${settingsBorder}`}>
+                <p className={`text-xs font-semibold ${settingsMuted}`}>3 grupos em comum</p>
+                <div className="mt-3 space-y-3">
+                  {commonGroups.map((group) => (
+                    <div
+                      key={group.id}
+                      className={`flex items-center gap-3 rounded-2xl px-2 py-2 ${
+                        isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      {group.avatarUrl ? (
+                        <img
+                          src={group.avatarUrl}
+                          alt={`Avatar de ${group.title}`}
+                          className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                        />
+                      ) : (
+                        <div
+                          className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {getAvatarText(group.title)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          {group.title}
+                        </p>
+                        <p className={`truncate text-xs ${settingsMuted}`}>{group.subtitle}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className={`mt-5 space-y-3 border-t pt-4 ${settingsBorder}`}>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 text-left text-sm text-rose-500"
+                >
+                  <Shield className="h-4 w-4" />
+                  Bloquear {activeThread.title}
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 text-left text-sm text-rose-500"
+                >
+                  <Flag className="h-4 w-4" />
+                  Denunciar {activeThread.title}
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 text-left text-sm text-rose-500"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Apagar conversa
+                </button>
+              </div>
+            </div>
+            {isContactEditOpen ? (
+              <div
+                className={`absolute inset-0 z-20 flex flex-col ${
+                  isDarkTheme ? "bg-[#141414]" : "bg-white"
+                }`}
+              >
+                <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+                  <button
+                    type="button"
+                    onClick={() => setIsContactEditOpen(false)}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                    aria-label="Voltar"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                    Editar contato
+                  </p>
+                  <button
+                    type="button"
+                    onClick={requestDeleteContact}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-rose-400 hover:bg-white/10" : "text-rose-500 hover:bg-slate-100"
+                    }`}
+                    aria-label="Excluir contato"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5">
+                  <div className="space-y-4">
+                    <div>
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Nome</p>
+                      <div className="mt-2 flex items-center gap-3 border-b pb-2">
+                        <User className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                        <input
+                          type="text"
+                          value={editContactFirstName}
+                          onChange={(event) => setEditContactFirstName(event.target.value)}
+                          placeholder="Nome"
+                          className={`w-full bg-transparent text-sm focus:outline-none ${
+                            isDarkTheme
+                              ? "placeholder:text-slate-400 text-slate-100"
+                              : "placeholder:text-slate-400 text-slate-700"
+                          }`}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>Sobrenome</p>
+                      <div className="mt-2 flex items-center gap-3 border-b pb-2">
+                        <User className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                        <input
+                          type="text"
+                          value={editContactLastName}
+                          onChange={(event) => setEditContactLastName(event.target.value)}
+                          placeholder="Sobrenome"
+                          className={`w-full bg-transparent text-sm focus:outline-none ${
+                            isDarkTheme
+                              ? "placeholder:text-slate-400 text-slate-100"
+                              : "placeholder:text-slate-400 text-slate-700"
+                          }`}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <p className={`text-xs font-semibold ${settingsMuted}`}>E-mail</p>
+                      <div className="mt-2 flex items-center gap-3 border-b pb-2">
+                        <Mail className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                        <input
+                          type="email"
+                          value={editContactEmail}
+                          readOnly
+                          aria-readonly="true"
+                          className={`w-full bg-transparent text-sm focus:outline-none opacity-70 ${
+                            isDarkTheme
+                              ? "placeholder:text-slate-400 text-slate-100"
+                              : "placeholder:text-slate-400 text-slate-700"
+                          }`}
+                        />
+                      </div>
+                      <p className={`mt-1 text-xs ${settingsMuted}`}>O e-mail é a chave principal e não pode ser alterado.</p>
+                    </div>
+                    <div className="grid grid-cols-[100px_minmax(0,1fr)] gap-3">
+                      <div>
+                        <p className={`text-xs font-semibold ${settingsMuted}`}>País</p>
+                        <button
+                          type="button"
+                          className={`mt-2 flex w-full items-center justify-between rounded-full border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-[#2a2a2a] text-slate-100"
+                              : "border-slate-200 text-slate-700"
+                          }`}
+                        >
+                          BR +55
+                          <ChevronDown className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div>
+                        <p className={`text-xs font-semibold ${settingsMuted}`}>Número de telefone</p>
+                        <div className="mt-2 flex items-center gap-3 border-b pb-2">
+                          <Phone className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="text"
+                            value={editContactPhone}
+                            onChange={(event) => setEditContactPhone(event.target.value)}
+                            placeholder="Número de telefone"
+                            className={`w-full bg-transparent text-sm focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                          <Check className="h-4 w-4 text-blue-600" aria-label="Número válido" />
+                        </div>
+                        <p className={`mt-1 text-xs ${settingsMuted}`}>Esse número de telefone já está no KnexChat.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl border px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        <Smartphone className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Sincronizar contato com celular
+                          </p>
+                          <p className={`text-xs ${settingsMuted}`}>
+                            O contato será adicionado à lista de contatos do seu celular.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditContactSync((prev) => !prev)}
+                        className={`relative h-6 w-11 rounded-full border transition ${
+                          editContactSync
+                            ? "border-blue-600 bg-blue-600"
+                            : isDarkTheme
+                              ? "border-[#3a3a3a] bg-[#1f1f1f]"
+                              : "border-slate-300 bg-white"
+                        }`}
+                        aria-pressed={editContactSync}
+                      >
+                        <span
+                          className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
+                            editContactSync ? "translate-x-[13px]" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-auto flex justify-center pb-4 pt-8">
+                    <button
+                      type="button"
+                      onClick={handleSaveContactEdit}
+                      className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition hover:bg-blue-700"
+                      aria-label="Salvar contato"
+                    >
+                      <Check className="h-5 w-5" strokeWidth={2.5} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </aside>
+        ) : null}
+        {isGroupInfoOpen && activeThread && activeThread.tab === "groups" ? (
+          <aside
+            className={`relative hidden min-h-0 w-[26rem] flex-col border-l border-t ${settingsBorder} ${
+              isDarkTheme ? "bg-[#141414]" : "bg-white"
+            } lg:flex`}
+          >
+            <div className="flex items-center justify-between px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setIsGroupInfoOpen(false)}
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                aria-label="Fechar dados do grupo"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                Dados do grupo
+              </p>
+              <span className="h-8 w-8" aria-hidden="true" />
+            </div>
+            {isGroupPermissionsOpen ? (
+              <div
+                className={`absolute inset-0 z-20 flex flex-col ${
+                  isDarkTheme ? "bg-[#141414]" : "bg-white"
+                }`}
+              >
+                <div className="flex items-center gap-2 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsGroupPermissionsOpen(false)}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                    aria-label="Voltar para dados do grupo"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                    Permissões do grupo
+                  </p>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-6">
+                  <p className={`text-xs font-semibold ${settingsMuted}`}>Os membros do grupo podem:</p>
+                  <div className="mt-4 space-y-5">
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+                      <div className="flex items-start gap-3">
+                        <Pencil className={`mt-0.5 h-9 w-9 ${settingsMuted}`} />
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Editar configurações do grupo
+                          </p>
+                          <p className={`text-xs ${settingsMuted}`}>
+                            Essa opção inclui o nome, a imagem, a descrição, a duração das mensagens temporárias e a
+                            opção de fixar e desafixar mensagens.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupPermission("editGroupSettings")}
+                        className={`relative mt-1 h-5 w-8 rounded-full border transition ${
+                          activeGroupPermissions.editGroupSettings
+                            ? "border-blue-700 bg-blue-600"
+                            : isDarkTheme
+                              ? "border-slate-400 bg-[#1b1b1b]"
+                              : "border-slate-400 bg-white"
+                        }`}
+                        aria-pressed={activeGroupPermissions.editGroupSettings}
+                      >
+                        <span
+                          className={`absolute left-1 top-1/2 h-[12px] w-[12px] -translate-y-1/2 rounded-full ${
+                            activeGroupPermissions.editGroupSettings ? "bg-white" : "bg-slate-500"
+                          } shadow ring-1 transition ${
+                            activeGroupPermissions.editGroupSettings
+                              ? "translate-x-[10px] ring-blue-200"
+                              : isDarkTheme
+                                ? "translate-x-0 ring-slate-300"
+                                : "translate-x-0 ring-slate-300"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+                      <div className="flex items-start gap-3">
+                        <MessageSquare className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Enviar novas mensagens
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupPermission("sendMessages")}
+                        className={`relative mt-1 h-5 w-8 rounded-full border transition ${
+                          activeGroupPermissions.sendMessages
+                            ? "border-blue-700 bg-blue-600"
+                            : isDarkTheme
+                              ? "border-slate-400 bg-[#1b1b1b]"
+                              : "border-slate-400 bg-white"
+                        }`}
+                        aria-pressed={activeGroupPermissions.sendMessages}
+                      >
+                        <span
+                          className={`absolute left-1 top-1/2 h-[12px] w-[12px] -translate-y-1/2 rounded-full ${
+                            activeGroupPermissions.sendMessages ? "bg-white" : "bg-slate-500"
+                          } shadow ring-1 transition ${
+                            activeGroupPermissions.sendMessages
+                              ? "translate-x-[10px] ring-blue-200"
+                              : isDarkTheme
+                                ? "translate-x-0 ring-slate-300"
+                                : "translate-x-0 ring-slate-300"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+                      <div className="flex items-start gap-3">
+                        <UserPlus className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Adicionar membros
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupPermission("addMembers")}
+                        className={`relative mt-1 h-5 w-8 rounded-full border transition ${
+                          activeGroupPermissions.addMembers
+                            ? "border-blue-700 bg-blue-600"
+                            : isDarkTheme
+                              ? "border-slate-400 bg-[#1b1b1b]"
+                              : "border-slate-400 bg-white"
+                        }`}
+                        aria-pressed={activeGroupPermissions.addMembers}
+                      >
+                        <span
+                          className={`absolute left-1 top-1/2 h-[12px] w-[12px] -translate-y-1/2 rounded-full ${
+                            activeGroupPermissions.addMembers ? "bg-white" : "bg-slate-500"
+                          } shadow ring-1 transition ${
+                            activeGroupPermissions.addMembers
+                              ? "translate-x-[10px] ring-blue-200"
+                              : isDarkTheme
+                                ? "translate-x-0 ring-slate-300"
+                                : "translate-x-0 ring-slate-300"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+                      <div className="flex items-start gap-3">
+                        <Link2 className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Convidar via link
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupPermission("inviteViaLink")}
+                        className={`relative mt-1 h-5 w-8 rounded-full border transition ${
+                          activeGroupPermissions.inviteViaLink
+                            ? "border-blue-700 bg-blue-600"
+                            : isDarkTheme
+                              ? "border-slate-400 bg-[#1b1b1b]"
+                              : "border-slate-400 bg-white"
+                        }`}
+                        aria-pressed={activeGroupPermissions.inviteViaLink}
+                      >
+                        <span
+                          className={`absolute left-1 top-1/2 h-[12px] w-[12px] -translate-y-1/2 rounded-full ${
+                            activeGroupPermissions.inviteViaLink ? "bg-white" : "bg-slate-500"
+                          } shadow ring-1 transition ${
+                            activeGroupPermissions.inviteViaLink
+                              ? "translate-x-[10px] ring-blue-200"
+                              : isDarkTheme
+                                ? "translate-x-0 ring-slate-300"
+                                : "translate-x-0 ring-slate-300"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className={`mt-6 text-xs font-semibold ${settingsMuted}`}>Os admins do grupo podem:</p>
+                  <div className="mt-4 space-y-5">
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+                      <div className="flex items-start gap-3">
+                        <CheckSquare className={`mt-0.5 h-6 w-6 ${settingsMuted}`} />
+                        <div>
+                          <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                            Aprovar novos membros
+                          </p>
+                          <p className={`text-xs ${settingsMuted}`}>
+                            Enquanto essa opção estiver ativada, os admins deverão aprovar a entrada de membros no
+                            grupo.{" "}
+                            <span className="text-blue-600">Saiba mais</span>
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupPermission("approveNewMembers")}
+                        className={`relative mt-1 h-5 w-8 rounded-full border transition ${
+                          activeGroupPermissions.approveNewMembers
+                            ? "border-blue-700 bg-blue-600"
+                            : isDarkTheme
+                              ? "border-slate-400 bg-[#1b1b1b]"
+                              : "border-slate-400 bg-white"
+                        }`}
+                        aria-pressed={activeGroupPermissions.approveNewMembers}
+                      >
+                        <span
+                          className={`absolute left-1 top-1/2 h-[12px] w-[12px] -translate-y-1/2 rounded-full ${
+                            activeGroupPermissions.approveNewMembers ? "bg-white" : "bg-slate-500"
+                          } shadow ring-1 transition ${
+                            activeGroupPermissions.approveNewMembers
+                              ? "translate-x-[10px] ring-blue-200"
+                              : isDarkTheme
+                                ? "translate-x-0 ring-slate-300"
+                                : "translate-x-0 ring-slate-300"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className={`mt-6 text-xs font-semibold ${settingsMuted}`}>Admins do grupo</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsGroupAdminsModalOpen(true)}
+                    className={`mt-3 flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${
+                      isDarkTheme ? "bg-white/5 hover:bg-white/10" : "bg-slate-50 hover:bg-slate-100"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <Users className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                      <div>
+                        <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          Editar admins do grupo
+                        </p>
+                        <p className={`text-xs ${settingsMuted}`}>{groupAdminNames}</p>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5">
+              <div className="flex flex-col items-center gap-2 text-center">
+                {canEditGroupSettings ? (
+                  <label className="group relative cursor-pointer">
+                    {activeThreadAvatarUrl ? (
+                      <img
+                        src={activeThreadAvatarUrl}
+                        alt={`Avatar de ${activeThread.title}`}
+                        className={`h-24 w-24 ${avatarFrameLg} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-24 w-24 place-items-center ${avatarFrameLg} text-lg font-semibold ${
+                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {getAvatarText(activeThread.title)}
+                      </div>
+                    )}
+                    <span
+                      className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${avatarFrameLg} bg-black/55 px-3 text-center text-[11px] font-semibold text-white opacity-0 transition group-hover:opacity-100 ${
+                        isDarkTheme ? "bg-black/60" : "bg-slate-900/65"
+                      }`}
+                    >
+                      <ImageIcon className="h-5 w-5" />
+                      <span>Mudar imagem do grupo</span>
+                    </span>
+                    <input
+                      ref={groupAvatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={handleGroupAvatarChange}
+                    />
+                  </label>
+                ) : activeThreadAvatarUrl ? (
+                  <img
+                    src={activeThreadAvatarUrl}
+                    alt={`Avatar de ${activeThread.title}`}
+                    className={`h-24 w-24 ${avatarFrameLg} object-cover`}
+                  />
+                ) : (
+                  <div
+                    className={`grid h-24 w-24 place-items-center ${avatarFrameLg} text-lg font-semibold ${
+                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {getAvatarText(activeThread.title)}
+                  </div>
+                )}
+                <div className="mt-1 relative w-full">
+                  {isGroupNameEditing ? (
+                    <textarea
+                      ref={groupNameInputRef}
+                      value={groupNameDraft}
+                      onChange={(event) => {
+                        setGroupNameDraft(event.target.value);
+                        event.currentTarget.style.height = "auto";
+                        event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
+                      }}
+                      onBlur={saveGroupName}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          saveGroupName();
+                        }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelGroupNameEditor();
+                        }
+                      }}
+                      rows={1}
+                      className={`mx-auto block w-[70%] resize-none overflow-hidden rounded-xl border px-3 py-1.5 text-center text-sm font-semibold ${settingsField}`}
+                      aria-label="Editar nome do grupo"
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <p className={`mx-auto w-[70%] break-words text-center text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                        {activeThread.title}
+                      </p>
+                      {canEditGroupSettings ? (
+                        <button
+                          type="button"
+                          onClick={openGroupNameEditor}
+                          className={`absolute right-0 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full transition ${
+                            isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                          }`}
+                          aria-label="Editar nome do grupo"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+                <p className={`text-xs ${settingsMuted}`}>
+                  Grupo · {groupMemberCount} membro{groupMemberCount === 1 ? "" : "s"}
+                </p>
+              </div>
+              <div className="mt-4 flex items-center justify-center gap-2">
+                {[
+                  { label: "Adicionar", icon: UserPlus },
+                  { label: "Pesquisar", icon: Search },
+                ].map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <button
+                      key={action.label}
+                      type="button"
+                      className={`flex w-36 flex-col items-center justify-center gap-1 rounded-2xl border py-2 text-xs font-semibold transition ${
+                        isDarkTheme
+                          ? "border-[#2a2a2a] text-slate-100 hover:bg-white/5"
+                          : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 text-blue-600" />
+                      {action.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  {canEditGroupDescription ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={openGroupDescriptionEditor}
+                        className="text-sm font-semibold text-blue-600"
+                      >
+                        Adicionar descrição ao grupo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openGroupDescriptionEditor}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                        aria-label="Editar descrição do grupo"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <p className={`text-sm font-semibold ${settingsMuted}`}>Descrição do grupo</p>
+                  )}
+                </div>
+                {isGroupDescriptionEditing ? (
+                  <div className={`rounded-2xl border p-3 ${settingsBorder}`}>
+                    <textarea
+                      value={groupDescriptionDraft}
+                      onChange={(event) => setGroupDescriptionDraft(event.target.value)}
+                      rows={3}
+                      placeholder="Adicione uma descrição"
+                      className={`w-full resize-none bg-transparent text-sm focus:outline-none ${
+                        isDarkTheme
+                          ? "placeholder:text-slate-400 text-slate-100"
+                          : "placeholder:text-slate-400 text-slate-700"
+                      }`}
+                    />
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={cancelGroupDescriptionEditor}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                          isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveGroupDescription}
+                        className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-700"
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                  </div>
+                ) : groupDescriptions[activeThread.id] ? (
+                  <p className={`text-sm ${isDarkTheme ? "text-slate-200" : "text-slate-700"}`}>
+                    {groupDescriptions[activeThread.id]}
+                  </p>
+                ) : !canEditGroupDescription ? (
+                  <p className={`text-sm ${settingsMuted}`}>Sem descrição.</p>
+                ) : null}
+                <p className={`text-xs ${settingsMuted}`}>
+                  Grupo criado por GMadson no dia 02/02/2025 às 14:50
+                </p>
+              </div>
+              <div className={`mt-5 border-t pt-4 ${settingsBorder}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className={`h-4 w-4 ${settingsMuted}`} />
+                    <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Mídia, links e docs
+                    </span>
+                  </div>
+                  <span className={`text-xs ${settingsMuted}`}>{mediaCount || 191}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-4 gap-2">
+                  {groupMediaItems.length ? (
+                    groupMediaItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`h-16 w-full overflow-hidden rounded-2xl ${
+                          isDarkTheme ? "bg-slate-700" : "bg-slate-200"
+                        }`}
+                      >
+                        <img src={item.src} alt={item.label} className="h-full w-full object-cover" />
+                      </div>
+                    ))
+                  ) : (
+                    Array.from({ length: 4 }).map((_, index) => (
+                      <div
+                        key={`group-media-thumb-${index}`}
+                        className={`flex h-16 w-full items-center justify-center rounded-2xl ${
+                          isDarkTheme ? "bg-slate-700 text-slate-200" : "bg-slate-200 text-slate-600"
+                        }`}
+                      >
+                        <ImageIcon className="h-4 w-4" />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className={`mt-5 space-y-3 border-t pt-4 ${settingsBorder}`}>
+                {[
+                  { label: "Mensagens favoritas", icon: Star },
+                  { label: "Configurações de notificação", icon: BellOff, subLabel: "Sempre silenciadas" },
+                  { label: "Criptografia", icon: Lock, subLabel: "As mensagens são protegidas com a criptografia de ponta a ponta." },
+                  { label: "Mensagens temporárias", icon: Timer, subLabel: "Desativadas" },
+                  { label: "Privacidade avançada da conversa", icon: Shield, subLabel: "Desativada" },
+                  { label: "Permissões do grupo", icon: Settings },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  if (item.label === "Permissões do grupo") {
+                    return (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => setIsGroupPermissionsOpen(true)}
+                        className={`flex w-full items-start gap-3 rounded-xl px-2 py-2 text-left transition ${settingsHover}`}
+                      >
+                        <Icon className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                        <div>
+                          <p className={`text-sm ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>{item.label}</p>
+                          {item.subLabel ? <p className={`text-xs ${settingsMuted}`}>{item.subLabel}</p> : null}
+                        </div>
+                      </button>
+                    );
+                  }
+                  return (
+                    <div key={item.label} className="flex items-start gap-3">
+                      <Icon className={`mt-0.5 h-4 w-4 ${settingsMuted}`} />
+                      <div>
+                        <p className={`text-sm ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>{item.label}</p>
+                        {item.subLabel ? <p className={`text-xs ${settingsMuted}`}>{item.subLabel}</p> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className={`mt-5 border-t pt-4 ${settingsBorder}`}>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left transition ${
+                    isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-500/15 text-blue-600">
+                    <Users2 className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className={`text-sm font-semibold ${isDarkTheme ? "text-blue-200" : "text-blue-600"}`}>
+                      Adicionar grupo a uma comunidade
+                    </p>
+                    <p className={`text-xs ${settingsMuted}`}>
+                      Reúna pessoas em grupos de assuntos específicos
+                    </p>
+                  </div>
+                  <ChevronRight className={`h-4 w-4 ${settingsMuted}`} />
+                </button>
+              </div>
+              <div className={`mt-5 border-t pt-4 ${settingsBorder}`}>
+                <div className="flex items-center justify-between">
+                  <p className={`text-xs font-semibold ${settingsMuted}`}>{groupMemberCount} membros</p>
+                  <Search className={`h-4 w-4 ${settingsMuted}`} />
+                </div>
+                <div className="mt-3 space-y-3">
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                      isDarkTheme ? "text-slate-100 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span
+                      className={`grid h-10 w-10 place-items-center rounded-full ${
+                        isDarkTheme ? "bg-blue-500/55 text-blue-100" : "bg-blue-600/40 text-blue-800"
+                      }`}
+                    >
+                      <UserPlus className="h-5 w-5" />
+                    </span>
+                    Adicionar membro
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                      isDarkTheme ? "text-slate-100 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span
+                      className={`grid h-10 w-10 place-items-center rounded-full ${
+                        isDarkTheme ? "bg-blue-500/55 text-blue-100" : "bg-blue-600/40 text-blue-800"
+                      }`}
+                    >
+                      <Link2 className="h-5 w-5" />
+                    </span>
+                    Convidar via link
+                  </button>
+                </div>
+                <div className="mt-4 space-y-4">
+                  {groupMembers.map((member) => (
+                    <div
+                      key={`group-member-${member.id}`}
+                      className={`flex items-center gap-3 rounded-2xl px-2 py-2 ${
+                        isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      {member.avatarUrl ? (
+                        <img
+                          src={member.avatarUrl}
+                          alt={`Avatar de ${member.title}`}
+                          className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                        />
+                      ) : (
+                        <div
+                          className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {getAvatarText(member.title)}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          {member.title}
+                        </p>
+                        {member.subtitle ? <p className={`truncate text-xs ${settingsMuted}`}>{member.subtitle}</p> : null}
+                      </div>
+                      {member.isAdmin ? (
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                          Admin do grupo
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                  {(isGroupMembersExpanded || groupMembersHiddenCount > 0) ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsGroupMembersExpanded((prev) => !prev)}
+                      className="text-left text-sm font-semibold text-blue-600"
+                    >
+                      {isGroupMembersExpanded ? "Ver menos" : `Ver tudo (mais ${groupMembersHiddenCount})`}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className={`mt-5 space-y-3 border-t pt-4 ${settingsBorder}`}>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-rose-500 transition ${
+                    isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                  }`}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sair do grupo
+                </button>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-rose-500 transition ${
+                    isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                  }`}
+                >
+                  <Flag className="h-4 w-4" />
+                  Denunciar grupo
+                </button>
+              </div>
+            </div>
+          </aside>
+        ) : null}
           </>
         )}
         </div>
       </div>
+      {isDeleteContactConfirmOpen ? (
+        <div
+          className="absolute inset-0 z-[70] flex items-center justify-center bg-black/40 px-4"
+          onClick={cancelDeleteContact}
+          role="presentation"
+        >
+          <div
+            className={`w-full max-w-md rounded-2xl border px-6 py-5 shadow-2xl ${
+              isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100" : "border-slate-200 bg-white text-slate-900"
+            }`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-sm font-semibold">Excluir contato</p>
+            <p className={`mt-2 text-sm ${settingsMuted}`}>
+              Excluir {deleteContactTargetName || "este contato"}?
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={confirmDeleteContact}
+                className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                OK
+              </button>
+              <button
+                type="button"
+                onClick={cancelDeleteContact}
+                className={`rounded-full px-6 py-2 text-sm font-semibold transition ${
+                  isDarkTheme ? "bg-white/10 text-slate-100 hover:bg-white/20" : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                }`}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isGroupAdminsModalOpen && activeThread && activeThread.tab === "groups" ? (
+        <div
+          className="absolute inset-0 z-[70] flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setIsGroupAdminsModalOpen(false)}
+          role="presentation"
+        >
+          <div
+            className={`relative flex h-[min(82vh,760px)] w-[min(94vw,420px)] flex-col overflow-hidden rounded-3xl shadow-2xl ${
+              isDarkTheme ? "bg-[#1b1b1b] text-slate-100" : "bg-white text-slate-900"
+            }`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 border-b px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setIsGroupAdminsModalOpen(false)}
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                aria-label="Fechar edição de admins"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <p className="text-sm font-semibold">Editar admins do grupo</p>
+            </div>
+            <div className="px-5 pt-4">
+              <div className={`flex items-center gap-2 rounded-full px-3 py-2 ${isDarkTheme ? "bg-white/10" : "bg-slate-100"}`}>
+                <Search className={`h-4 w-4 ${settingsMuted}`} />
+                <input
+                  type="text"
+                  value={groupAdminSearch}
+                  onChange={(event) => setGroupAdminSearch(event.target.value)}
+                  placeholder="Pesquisar nome ou número"
+                  className={`w-full bg-transparent text-sm focus:outline-none ${
+                    isDarkTheme ? "placeholder:text-slate-400" : "placeholder:text-slate-500"
+                  }`}
+                />
+              </div>
+              {selectedGroupAdmins.length ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selectedGroupAdmins.map((admin) => (
+                    <span
+                      key={`selected-admin-${admin.id}`}
+                      className={`flex items-center gap-2 rounded-full px-2 py-1 text-xs ${
+                        isDarkTheme ? "bg-blue-500/20 text-blue-100" : "bg-blue-100 text-blue-700"
+                      }`}
+                    >
+                      {admin.avatarUrl ? (
+                        <img
+                          src={admin.avatarUrl}
+                          alt={admin.title}
+                          className={`h-6 w-6 ${avatarFrameSm} object-cover`}
+                        />
+                      ) : (
+                        <span
+                          className={`grid h-6 w-6 place-items-center ${avatarFrameSm} text-[10px] font-semibold ${
+                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-200 text-slate-600"
+                          }`}
+                        >
+                          {getAvatarText(admin.title)}
+                        </span>
+                      )}
+                      <span className="max-w-[120px] truncate">{admin.title}</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupAdminSelection(admin.id)}
+                        className={`flex h-4 w-4 items-center justify-center rounded-full transition ${
+                          isDarkTheme ? "text-slate-300 hover:bg-white/10" : "text-slate-500 hover:bg-slate-200"
+                        }`}
+                        aria-label={`Remover ${admin.title}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-4 flex-1 overflow-y-auto px-5 pb-24">
+              <p className={`text-xs font-semibold ${settingsMuted}`}>Contatos</p>
+              <div className="mt-3 space-y-3">
+                {filteredGroupAdminCandidates.map((candidate) => {
+                  const isSelected = selectedGroupAdminIds.includes(candidate.id);
+                  return (
+                    <button
+                      key={`admin-candidate-${candidate.id}`}
+                      type="button"
+                      onClick={() => toggleGroupAdminSelection(candidate.id)}
+                      className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition ${
+                        isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-50"
+                      }`}
+                    >
+                        <span
+                          className={`flex h-5 w-5 items-center justify-center rounded-md border ${
+                          isSelected
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : isDarkTheme
+                              ? "border-slate-500"
+                              : "border-slate-300"
+                        }`}
+                      >
+                        {isSelected ? <Check className="h-3 w-3" /> : null}
+                      </span>
+                      {candidate.avatarUrl ? (
+                        <img
+                          src={candidate.avatarUrl}
+                          alt={candidate.title}
+                          className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                        />
+                      ) : (
+                        <div
+                          className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {getAvatarText(candidate.title)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                          {candidate.title}
+                        </p>
+                        {candidate.subtitle ? <p className={`truncate text-xs ${settingsMuted}`}>{candidate.subtitle}</p> : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!activeThread || activeThread.tab !== "groups") return;
+                setGroupAdminIdsByGroup((prev) => ({ ...prev, [activeThread.id]: selectedGroupAdminIds }));
+                setIsGroupAdminsModalOpen(false);
+              }}
+              className="absolute bottom-5 right-5 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition hover:bg-blue-700"
+              aria-label="Salvar admins do grupo"
+            >
+              <Check className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      ) : null}
       {isProfileOpen && isProfileAvatarPreviewOpen ? (
         <div
           className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
