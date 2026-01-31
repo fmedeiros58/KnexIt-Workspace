@@ -350,7 +350,7 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
     <div className="flex h-full flex-col">
       <div className={`flex items-center justify-between border-b border-slate-200 ${headerPadding} ${textBase} text-slate-500`}>
         <span className="font-semibold">
-          <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
             KnexChat
           </span>
         </span>
@@ -4687,7 +4687,7 @@ export default function KnexChatPage() {
         <div className="flex items-center gap-3">
           <div>
             <p className={`${spaceGrotesk.className} text-lg font-semibold`}>
-              <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
                 KnexChat
               </span>
             </p>
@@ -8586,7 +8586,7 @@ export default function KnexChatPage() {
                   </div>
                   <div className={`border-b px-4 py-3 ${settingsBorder}`}>
                     <div
-                      className={`flex items-center gap-2 rounded-full border border-[1.5px] px-3 py-2 text-xs ${
+                      className={`flex items-center gap-2 rounded-full border-[1.5px] px-3 py-2 text-xs ${
                         isDarkTheme
                           ? "border-blue-400/60 text-slate-200"
                           : "border-blue-400 text-slate-600"
@@ -9177,7 +9177,7 @@ function ActivationScreen({
       <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-6 lg:p-8">
         <div className="text-center">
           <h1 className={`${headingClassName} text-3xl font-semibold sm:text-4xl md:text-5xl`}>
-            <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
               KnexChat
             </span>
           </h1>
