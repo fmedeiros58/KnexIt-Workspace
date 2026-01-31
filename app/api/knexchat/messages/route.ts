@@ -1,16 +1,17 @@
 import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
 
 export const runtime = "nodejs";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-let supabaseAdmin: ReturnType<typeof createClient<any>> | null = null;
+let supabaseAdmin: SupabaseClient<Database> | null = null;
 const getSupabaseAdmin = () => {
   if (!supabaseUrl || !serviceRoleKey) return null;
   if (!supabaseAdmin) {
-    supabaseAdmin = createClient<any>(supabaseUrl, serviceRoleKey, {
+    supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
   }

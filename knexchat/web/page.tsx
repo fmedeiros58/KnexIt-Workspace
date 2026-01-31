@@ -62,7 +62,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import EmojiPicker, { Theme } from "emoji-picker-react";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties } from "react";
 import { supabase } from "@/lib/supabaseClient";
@@ -223,6 +222,124 @@ function KnexChatMotionStyles() {
 
 type ScreenVariant = "phone" | "laptop";
 
+type ActivationLayout = {
+  scale: number;
+  stageWidth: number;
+  stageHeight: number;
+  phoneLeft: number;
+  laptopLeft: number;
+  topStartX: number;
+  topEndX: number;
+  bottomStartX: number;
+  bottomEndX: number;
+};
+
+const STAGE_WIDTH = 2200;
+const STAGE_HEIGHT = 700;
+const PHONE_WIDTH = 320;
+const LAPTOP_WIDTH = 520;
+const CARD_MAX_WIDTH = 512;
+const FLOW_TOP_START_OFFSET = 110;
+const FLOW_TOP_END_OFFSET = 274;
+const FLOW_BOTTOM_END_OFFSET = 43;
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function computeActivationLayout(viewportWidth: number, viewportHeight: number): ActivationLayout {
+  const safeWidth = Math.max(viewportWidth, 1);
+  const safeHeight = Math.max(viewportHeight, 1);
+  const scale = Math.min(1, safeWidth / STAGE_WIDTH, safeHeight / STAGE_HEIGHT);
+  const horizontalPadding = safeWidth >= 640 ? 48 : 32;
+  const cardWidth = Math.min(CARD_MAX_WIDTH, Math.max(0, safeWidth - horizontalPadding));
+  const cardWidthStage = cardWidth / scale;
+  const desiredGap = clampValue(safeWidth * 0.08, 96, 200);
+  const gapStage = desiredGap / scale;
+  const cardLeft = (STAGE_WIDTH - cardWidthStage) / 2;
+  const maxGapStage = Math.max(0, cardLeft - LAPTOP_WIDTH);
+  const safeGapStage = Math.min(gapStage, maxGapStage);
+
+  const phoneLeft = clampValue(cardLeft - safeGapStage - PHONE_WIDTH, 0, STAGE_WIDTH - PHONE_WIDTH);
+  const laptopLeft = clampValue(cardLeft + cardWidthStage + safeGapStage, 0, STAGE_WIDTH - LAPTOP_WIDTH);
+
+  const topStartX = phoneLeft + FLOW_TOP_START_OFFSET;
+  const topEndX = laptopLeft + FLOW_TOP_END_OFFSET;
+  const bottomStartX = topEndX;
+  const bottomEndX = phoneLeft + FLOW_BOTTOM_END_OFFSET;
+
+  return {
+    scale,
+    stageWidth: STAGE_WIDTH,
+    stageHeight: STAGE_HEIGHT,
+    phoneLeft,
+    laptopLeft,
+    topStartX,
+    topEndX,
+    bottomStartX,
+    bottomEndX,
+  };
+}
+
+type SimpleEmojiPickerProps = {
+  width?: number;
+  height?: number;
+  onEmojiClick: (emoji: string) => void;
+  isDark?: boolean;
+};
+
+const SIMPLE_EMOJI_SET = [
+  "😀",
+  "😅",
+  "😍",
+  "🤝",
+  "🎉",
+  "🔥",
+  "✨",
+  "✅",
+  "📌",
+  "💬",
+  "🚀",
+  "📣",
+  "👋",
+  "🙏",
+  "💡",
+  "🧠",
+  "⚡",
+  "❤️",
+  "👍",
+  "👏",
+  "🙌",
+  "🎯",
+  "📎",
+  "🔒",
+];
+
+function SimpleEmojiPicker({ width, height, onEmojiClick, isDark }: SimpleEmojiPickerProps) {
+  return (
+    <div
+      className={`h-full w-full overflow-y-auto p-3 ${isDark ? "bg-[#1b1b1b]" : "bg-white"}`}
+      style={{ width, height }}
+    >
+      <div className="grid grid-cols-8 gap-2 text-lg">
+        {SIMPLE_EMOJI_SET.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+              isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+            }`}
+            onClick={() => onEmojiClick(emoji)}
+            aria-label={`Selecionar ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
   const headerPadding = variant === "phone" ? "px-4 py-3" : "px-5 py-3";
   const bodyPadding = variant === "phone" ? "px-4 py-4" : "px-5 py-5";
@@ -233,7 +350,7 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
     <div className="flex h-full flex-col">
       <div className={`flex items-center justify-between border-b border-slate-200 ${headerPadding} ${textBase} text-slate-500`}>
         <span className="font-semibold">
-          <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
             KnexChat
           </span>
         </span>
@@ -303,13 +420,185 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
   );
 }
 
-function KnexChatGlowBackdrop() {
+function KnexChatFlowOverlay({ layout }: { layout: ActivationLayout }) {
+  const topSpan = layout.topEndX - layout.topStartX;
+  const topCtrlOffset = topSpan / 4;
+  const topPath = `M${layout.topStartX} 120 C ${layout.topStartX + topCtrlOffset} 30 ${
+    layout.topEndX - topCtrlOffset
+  } 30 ${layout.topEndX} 120`;
+  const bottomPath = `M${layout.bottomStartX} 300 L ${layout.bottomStartX} 520 L ${layout.bottomEndX} 520 L ${layout.bottomEndX} 360`;
+
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 z-0 hidden lg:block"
+      viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <path id="knex-flow-top" d={topPath} />
+        <path id="knex-flow-bottom" d={bottomPath} />
+        <clipPath id="knex-avatar-clip" clipPathUnits="objectBoundingBox">
+          <circle cx="0.5" cy="0.5" r="0.5" />
+        </clipPath>
+        <filter id="knex-avatar-shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="rgba(15,23,42,0.25)" />
+        </filter>
+      </defs>
+
+      <path
+        d={topPath}
+        fill="none"
+        stroke="rgba(59,130,246,0.35)"
+        strokeWidth="1.6"
+        strokeDasharray="4 12"
+        strokeLinecap="round"
+      >
+        <animate attributeName="stroke-dashoffset" from="0" to="-120" dur="8s" repeatCount="indefinite" />
+      </path>
+      <path
+        d={bottomPath}
+        fill="none"
+        stroke="rgba(59,130,246,0.3)"
+        strokeWidth="1.6"
+        strokeDasharray="4 12"
+        strokeLinecap="round"
+      >
+        <animate attributeName="stroke-dashoffset" from="0" to="120" dur="9s" repeatCount="indefinite" />
+      </path>
+
+      {[0, 3.5, 7].map((start) => (
+        <g key={`arrow-top-${start}`}>
+          <path d="M0 0 L10 4 L0 8 L3 4 Z" fill="rgba(59,130,246,0.55)" />
+          <animateMotion dur="10s" repeatCount="indefinite" begin={`${start}s`} rotate="auto">
+            <mpath href="#knex-flow-top" />
+          </animateMotion>
+        </g>
+      ))}
+      {[1.5, 5, 8.5].map((start) => (
+        <g key={`arrow-bottom-${start}`}>
+          <path d="M0 0 L10 4 L0 8 L3 4 Z" fill="rgba(59,130,246,0.45)" />
+          <animateMotion dur="11s" repeatCount="indefinite" begin={`${start}s`} rotate="auto">
+            <mpath href="#knex-flow-bottom" />
+          </animateMotion>
+        </g>
+      ))}
+
+      {[
+        { img: "https://i.pravatar.cc/120?img=12", begin: "0s", path: "#knex-flow-top" },
+        { img: "https://i.pravatar.cc/120?img=32", begin: "4s", path: "#knex-flow-top" },
+        { img: "https://i.pravatar.cc/120?img=8", begin: "8s", path: "#knex-flow-top" },
+      ].map((item) => (
+        <g key={item.img} filter="url(#knex-avatar-shadow)">
+          <image
+            href={item.img}
+            width="40"
+            height="40"
+            clipPath="url(#knex-avatar-clip)"
+            preserveAspectRatio="xMidYMid slice"
+          />
+          <circle cx="20" cy="20" r="20" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1" />
+          <animateMotion dur="14s" repeatCount="indefinite" begin={item.begin} rotate="0">
+            <mpath href={item.path} />
+          </animateMotion>
+        </g>
+      ))}
+      {[
+        { img: "https://i.pravatar.cc/120?img=45", begin: "1s", path: "#knex-flow-bottom" },
+        { img: "https://i.pravatar.cc/120?img=5", begin: "5s", path: "#knex-flow-bottom" },
+        { img: "https://i.pravatar.cc/120?img=18", begin: "9s", path: "#knex-flow-bottom" },
+      ].map((item) => (
+        <g key={item.img} filter="url(#knex-avatar-shadow)">
+          <image
+            href={item.img}
+            width="40"
+            height="40"
+            clipPath="url(#knex-avatar-clip)"
+            preserveAspectRatio="xMidYMid slice"
+          />
+          <circle cx="20" cy="20" r="20" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1" />
+          <animateMotion dur="15s" repeatCount="indefinite" begin={item.begin} rotate="0">
+            <mpath href={item.path} />
+          </animateMotion>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function KnexChatGlowBackdrop({ layout }: { layout: ActivationLayout }) {
+  const stageStyle = {
+    transform: `translateZ(0) scale(${layout.scale})`,
+    transformOrigin: "center",
+  } as CSSProperties;
   return (
     <>
       <div className="pointer-events-none absolute -top-[140px] -left-[140px] z-0 h-[720px] w-[720px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.26)_0%,transparent_70%)] blur-[90px] opacity-60" />
       <div className="pointer-events-none absolute -bottom-[180px] -right-[180px] z-0 h-[820px] w-[820px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.24)_0%,transparent_70%)] blur-[90px] opacity-60" />
       <div className="pointer-events-none absolute -top-[120px] -right-[200px] z-0 h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
       <div className="pointer-events-none absolute -bottom-[160px] -left-[200px] z-0 h-[640px] w-[640px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+        <div className="relative" style={{ width: layout.stageWidth, height: layout.stageHeight, ...stageStyle }}>
+          <KnexChatFlowOverlay layout={layout} />
+          <div className="absolute top-10 hidden lg:block" style={{ left: layout.phoneLeft }}>
+            <div className="relative h-[600px] w-[320px] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
+              <div className="absolute inset-0 rounded-[54px] bg-slate-900 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.9)]" />
+              <div className="absolute inset-[6px] overflow-hidden rounded-[46px] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <KnexChatScreen variant="phone" />
+              </div>
+              <div className="absolute top-5 left-1/2 h-2 w-20 -translate-x-1/2 rounded-full bg-slate-800/70" />
+            </div>
+          </div>
+
+          <div className="absolute top-14 hidden lg:block" style={{ left: layout.laptopLeft }}>
+            <div className="relative h-[456px] w-[520px] drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
+              <div className="flex h-full w-full flex-col">
+                <div className="relative flex-1 rounded-t-[20px] border border-slate-200/80 bg-slate-900 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
+                  <div className="absolute inset-2 overflow-hidden rounded-[16px] bg-white">
+                    <KnexChatScreen variant="laptop" />
+                  </div>
+                </div>
+                <div className="relative h-40 w-full rounded-[0_0_28px_28px] bg-slate-200 shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
+                  <div className="absolute inset-x-6 top-3 text-[9px] text-slate-500/80">
+                    <div className="grid grid-cols-12 gap-1">
+                      {"QWERTYUIOP[]".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-1 grid grid-cols-11 gap-1 px-1">
+                      {"ASDFGHJKL;".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                      <div className="rounded-sm bg-white/70 px-1 py-0.5 text-center">Enter</div>
+                    </div>
+                    <div className="mt-1 grid grid-cols-12 gap-1">
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
+                      {"ZXCVBNM,.".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
+                    </div>
+                    <div className="mt-1 grid grid-cols-12 gap-1">
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
+                      <div className="col-span-4 rounded-sm bg-white/70 px-1 py-0.5 text-center">space</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
+                    </div>
+                  </div>
+                  <div className="absolute bottom-2 left-1/2 h-5 w-32 -translate-x-1/2 rounded-md bg-slate-300" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
@@ -796,6 +1085,9 @@ export default function KnexChatPage() {
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [activationLayout, setActivationLayout] = useState<ActivationLayout>(() =>
+    computeActivationLayout(1440, 900),
+  );
   const [directoryEntries, setDirectoryEntries] = useState<DirectoryEntry[]>([]);
   const [directoryLookupCache, setDirectoryLookupCache] = useState<Record<string, boolean>>({});
   const serverMessagingEnabled = true;
@@ -2600,6 +2892,16 @@ export default function KnexChatPage() {
   }, [activeThread, messagesByThread]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updateLayout = () => {
+      setActivationLayout(computeActivationLayout(window.innerWidth, window.innerHeight));
+    };
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    return () => window.removeEventListener("resize", updateLayout);
+  }, []);
+
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw || !raw.trim()) {
@@ -2616,7 +2918,7 @@ export default function KnexChatPage() {
       localStorage.removeItem(STORAGE_KEY);
     } finally {
       setIsReady(true);
-    }
+    };
   }, []);
 
   useEffect(() => {
@@ -4293,7 +4595,7 @@ export default function KnexChatPage() {
   const activationBackdrop = !isChatRoute ? (
     <>
       <KnexChatMotionStyles />
-      <KnexChatGlowBackdrop />
+      <KnexChatGlowBackdrop layout={activationLayout} />
     </>
   ) : null;
 
@@ -4385,7 +4687,7 @@ export default function KnexChatPage() {
         <div className="flex items-center gap-3">
           <div>
             <p className={`${spaceGrotesk.className} text-lg font-semibold`}>
-              <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
                 KnexChat
               </span>
             </p>
@@ -5742,11 +6044,11 @@ export default function KnexChatPage() {
                                 minHeight: 240,
                               }}
                             >
-                              <EmojiPicker
+                              <SimpleEmojiPicker
                                 width={groupEmojiSize.width}
                                 height={groupEmojiSize.height}
-                                onEmojiClick={(emojiData) => setNewGroupName((prev) => `${prev}${emojiData.emoji}`)}
-                                theme={isDarkTheme ? Theme.DARK : Theme.LIGHT}
+                                onEmojiClick={(emoji) => setNewGroupName((prev) => `${prev}${emoji}`)}
+                                isDark={isDarkTheme}
                               />
                               <button
                                 type="button"
@@ -8284,7 +8586,7 @@ export default function KnexChatPage() {
                   </div>
                   <div className={`border-b px-4 py-3 ${settingsBorder}`}>
                     <div
-                      className={`flex items-center gap-2 rounded-full border border-[1.5px] px-3 py-2 text-xs ${
+                      className={`flex items-center gap-2 rounded-full border-[1.5px] px-3 py-2 text-xs ${
                         isDarkTheme
                           ? "border-blue-400/60 text-slate-200"
                           : "border-blue-400 text-slate-600"
@@ -8870,157 +9172,122 @@ function ActivationScreen({
   onConfirmOtp,
   onEditEmail,
 }: ActivationScreenProps) {
-  // Trilhas/linhas removidas a pedido.
-
   return (
-    <div className="relative w-full min-h-[100svh] overflow-x-hidden overflow-y-auto md:overflow-hidden">
-      <div className="relative mx-auto flex min-h-[100svh] w-full max-w-[1400px] flex-col justify-center px-4 py-[clamp(16px,4vh,48px)] box-border md:px-8 lg:px-10">
-        <div className="relative z-10 grid w-full items-center gap-8 lg:gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)_minmax(0,1fr)]">
-          <div className="relative z-20 order-2 flex w-full justify-center lg:order-1 lg:justify-start" aria-hidden="true">
-            <div
-              className="pointer-events-none relative w-[clamp(240px,26vw,320px)] aspect-[9/19] overflow-hidden rounded-[clamp(18px,3.6vw,30px)] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]"
-            >
-              <img
-                src="https://ead.ufac.br/video/envio/uploads/imagem%20do%20celular_page-0001.png"
-                alt="Celular KnexChat"
-                className="absolute inset-0 h-full w-full object-cover scale-[1.12]"
-              />
-            </div>
-          </div>
-
-          <div className="order-1 flex justify-center lg:order-2">
-            <div className="relative z-30 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-8 shadow-2xl shadow-black/20 backdrop-blur">
-              <div className="text-center">
-                <h1 className={`${headingClassName} text-4xl font-semibold md:text-5xl`}>
-                  <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
-                    KnexChat
-                  </span>
-                </h1>
-              </div>
-              <div className="mt-6 space-y-2 text-left">
-                <p className={`${headingClassName} text-lg font-semibold text-slate-900`}>Ativar KnexChat</p>
-                <p className="text-sm text-slate-700">
-                  Use seu e-mail para criar seu Knex ID (equivalente ao número do WhatsApp).
-                </p>
-              </div>
-
-              {activationStep === "email" ? (
-                <form
-                  className="mt-6 space-y-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    onSendCode();
-                  }}
-                >
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">NOME</label>
-                    <input
-                      type="text"
-                      value={registeringName}
-                      onChange={(event) => onNameChange(event.target.value)}
-                      placeholder="Seu nome"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                      disabled={isSendingOtp}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
-                    <input
-                      type="email"
-                      value={registeringEmail}
-                      onChange={(event) => onEmailChange(event.target.value)}
-                      placeholder="voce@exemplo.com"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                      disabled={isSendingOtp}
-                      required
-                    />
-                  </div>
-                  {showOtpPreview ? (
-                    <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
-                  ) : null}
-                  {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-                  <button
-                    type="submit"
-                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isSendingOtp}
-                  >
-                    {isSendingOtp ? "Enviando..." : "Enviar código"}
-                  </button>
-                </form>
-              ) : (
-                <form
-                  className="mt-6 space-y-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    onConfirmOtp();
-                  }}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-                    <span>E-mail: {registeringEmail}</span>
-                    <button
-                      type="button"
-                      onClick={onEditEmail}
-                      className="text-blue-600 transition hover:text-blue-500"
-                    >
-                      Editar e-mail
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Código de 6 dígitos</label>
-                    <input
-                      type="text"
-                      value={otpInput}
-                      onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                      placeholder="000000"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                      disabled={isSendingOtp}
-                    />
-                  </div>
-                  {activationNotice ? <p className="text-sm text-slate-700">{activationNotice}</p> : null}
-                  {showOtpPreview && otpGenerated ? (
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-slate-700">
-                      Código (debug): <span className="font-semibold text-slate-900">{otpGenerated}</span>
-                    </div>
-                  ) : null}
-                  {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-                  <button
-                    type="submit"
-                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isSendingOtp}
-                  >
-                    Confirmar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onSendCode}
-                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-2 text-xs font-semibold text-slate-700 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isSendingOtp}
-                  >
-                    {isSendingOtp ? "Enviando..." : "Enviar novo código"}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-
-          <div
-            className="relative z-20 order-3 flex w-full justify-center lg:order-3 lg:justify-end"
-            aria-hidden="true"
-          >
-            <div
-              className="pointer-events-none relative w-[clamp(320px,44vw,560px)] max-w-full drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]"
-            >
-              <img
-                src="https://ead.ufac.br/video/envio/uploads/iamgem%20do%20laptop.png"
-                alt="Laptop KnexChat"
-                className="h-auto w-full object-contain"
-              />
-            </div>
-          </div>
+    <div className="relative flex min-h-[100svh] w-full items-center justify-center px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
+      <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-6 lg:p-8">
+        <div className="text-center">
+          <h1 className={`${headingClassName} text-3xl font-semibold sm:text-4xl md:text-5xl`}>
+            <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
+              KnexChat
+            </span>
+          </h1>
         </div>
+        <div className="mt-5 space-y-2 text-left sm:mt-6">
+          <p className={`${headingClassName} text-base font-semibold text-slate-900 sm:text-lg`}>Ativar KnexChat</p>
+          <p className="text-sm text-slate-700 sm:text-base">
+            Use seu e-mail para criar seu Knex ID (equivalente ao numero do WhatsApp).
+          </p>
+        </div>
+
+        {activationStep === "email" ? (
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSendCode();
+            }}
+          >
+            <div className="space-y-2">
+              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">NOME</label>
+              <input
+                type="text"
+                value={registeringName}
+                onChange={(event) => onNameChange(event.target.value)}
+                placeholder="Seu nome"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                disabled={isSendingOtp}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
+              <input
+                type="email"
+                value={registeringEmail}
+                onChange={(event) => onEmailChange(event.target.value)}
+                placeholder="voce@exemplo.com"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                disabled={isSendingOtp}
+                required
+              />
+            </div>
+            {showOtpPreview ? (
+              <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
+            ) : null}
+            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
+            <button
+              type="submit"
+              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSendingOtp}
+            >
+              {isSendingOtp ? "Enviando..." : "Enviar codigo"}
+            </button>
+          </form>
+        ) : (
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onConfirmOtp();
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+              <span>E-mail: {registeringEmail}</span>
+              <button
+                type="button"
+                onClick={onEditEmail}
+                className="text-blue-600 transition hover:text-blue-500"
+              >
+                Editar e-mail
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Codigo de 6 digitos</label>
+              <input
+                type="text"
+                value={otpInput}
+                onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                disabled={isSendingOtp}
+              />
+            </div>
+            {activationNotice ? <p className="text-sm text-slate-700">{activationNotice}</p> : null}
+            {showOtpPreview && otpGenerated ? (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-slate-700">
+                Codigo (debug): <span className="font-semibold text-slate-900">{otpGenerated}</span>
+              </div>
+            ) : null}
+            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
+            <button
+              type="submit"
+              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSendingOtp}
+            >
+              Confirmar
+            </button>
+            <button
+              type="button"
+              onClick={onSendCode}
+              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-2 text-xs font-semibold text-slate-700 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSendingOtp}
+            >
+              {isSendingOtp ? "Enviando..." : "Enviar novo codigo"}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
