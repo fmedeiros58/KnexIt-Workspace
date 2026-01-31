@@ -62,7 +62,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import EmojiPicker, { Theme } from "emoji-picker-react";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties } from "react";
 import { supabase } from "@/lib/supabaseClient";
@@ -280,6 +279,65 @@ function computeActivationLayout(viewportWidth: number, viewportHeight: number):
     bottomStartX,
     bottomEndX,
   };
+}
+
+type SimpleEmojiPickerProps = {
+  width?: number;
+  height?: number;
+  onEmojiClick: (emoji: string) => void;
+  isDark?: boolean;
+};
+
+const SIMPLE_EMOJI_SET = [
+  "😀",
+  "😅",
+  "😍",
+  "🤝",
+  "🎉",
+  "🔥",
+  "✨",
+  "✅",
+  "📌",
+  "💬",
+  "🚀",
+  "📣",
+  "👋",
+  "🙏",
+  "💡",
+  "🧠",
+  "⚡",
+  "❤️",
+  "👍",
+  "👏",
+  "🙌",
+  "🎯",
+  "📎",
+  "🔒",
+];
+
+function SimpleEmojiPicker({ width, height, onEmojiClick, isDark }: SimpleEmojiPickerProps) {
+  return (
+    <div
+      className={`h-full w-full overflow-y-auto p-3 ${isDark ? "bg-[#1b1b1b]" : "bg-white"}`}
+      style={{ width, height }}
+    >
+      <div className="grid grid-cols-8 gap-2 text-lg">
+        {SIMPLE_EMOJI_SET.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+              isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+            }`}
+            onClick={() => onEmojiClick(emoji)}
+            aria-label={`Selecionar ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
@@ -5986,11 +6044,11 @@ export default function KnexChatPage() {
                                 minHeight: 240,
                               }}
                             >
-                              <EmojiPicker
+                              <SimpleEmojiPicker
                                 width={groupEmojiSize.width}
                                 height={groupEmojiSize.height}
-                                onEmojiClick={(emojiData) => setNewGroupName((prev) => `${prev}${emojiData.emoji}`)}
-                                theme={isDarkTheme ? Theme.DARK : Theme.LIGHT}
+                                onEmojiClick={(emoji) => setNewGroupName((prev) => `${prev}${emoji}`)}
+                                isDark={isDarkTheme}
                               />
                               <button
                                 type="button"
