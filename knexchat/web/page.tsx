@@ -82,6 +82,65 @@ function KnexChatMotionStyles() {
 
 type ScreenVariant = "phone" | "laptop";
 
+type ActivationLayout = {
+  scale: number;
+  stageWidth: number;
+  stageHeight: number;
+  phoneLeft: number;
+  laptopLeft: number;
+  topStartX: number;
+  topEndX: number;
+  bottomStartX: number;
+  bottomEndX: number;
+};
+
+const STAGE_WIDTH = 2200;
+const STAGE_HEIGHT = 700;
+const PHONE_WIDTH = 320;
+const LAPTOP_WIDTH = 520;
+const CARD_MAX_WIDTH = 512;
+const FLOW_TOP_START_OFFSET = 110;
+const FLOW_TOP_END_OFFSET = 274;
+const FLOW_BOTTOM_END_OFFSET = 43;
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function computeActivationLayout(viewportWidth: number, viewportHeight: number): ActivationLayout {
+  const safeWidth = Math.max(viewportWidth, 1);
+  const safeHeight = Math.max(viewportHeight, 1);
+  const scale = Math.min(1, safeWidth / STAGE_WIDTH, safeHeight / STAGE_HEIGHT);
+  const horizontalPadding = safeWidth >= 640 ? 48 : 32;
+  const cardWidth = Math.min(CARD_MAX_WIDTH, Math.max(0, safeWidth - horizontalPadding));
+  const cardWidthStage = cardWidth / scale;
+  const desiredGap = clampValue(safeWidth * 0.08, 96, 200);
+  const gapStage = desiredGap / scale;
+  const cardLeft = (STAGE_WIDTH - cardWidthStage) / 2;
+  const maxGapStage = Math.max(0, cardLeft - LAPTOP_WIDTH);
+  const safeGapStage = Math.min(gapStage, maxGapStage);
+
+  const phoneLeft = clampValue(cardLeft - safeGapStage - PHONE_WIDTH, 0, STAGE_WIDTH - PHONE_WIDTH);
+  const laptopLeft = clampValue(cardLeft + cardWidthStage + safeGapStage, 0, STAGE_WIDTH - LAPTOP_WIDTH);
+
+  const topStartX = phoneLeft + FLOW_TOP_START_OFFSET;
+  const topEndX = laptopLeft + FLOW_TOP_END_OFFSET;
+  const bottomStartX = topEndX;
+  const bottomEndX = phoneLeft + FLOW_BOTTOM_END_OFFSET;
+
+  return {
+    scale,
+    stageWidth: STAGE_WIDTH,
+    stageHeight: STAGE_HEIGHT,
+    phoneLeft,
+    laptopLeft,
+    topStartX,
+    topEndX,
+    bottomStartX,
+    bottomEndX,
+  };
+}
+
 function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
   const headerPadding = variant === "phone" ? "px-4 py-3" : "px-5 py-3";
   const bodyPadding = variant === "phone" ? "px-4 py-4" : "px-5 py-5";
@@ -162,17 +221,24 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
   );
 }
 
-function KnexChatFlowOverlay() {
+function KnexChatFlowOverlay({ layout }: { layout: ActivationLayout }) {
+  const topSpan = layout.topEndX - layout.topStartX;
+  const topCtrlOffset = topSpan / 4;
+  const topPath = `M${layout.topStartX} 120 C ${layout.topStartX + topCtrlOffset} 30 ${
+    layout.topEndX - topCtrlOffset
+  } 30 ${layout.topEndX} 120`;
+  const bottomPath = `M${layout.bottomStartX} 300 L ${layout.bottomStartX} 520 L ${layout.bottomEndX} 520 L ${layout.bottomEndX} 360`;
+
   return (
     <svg
       className="pointer-events-none absolute inset-0 z-0 hidden lg:block"
-      viewBox="0 0 1200 700"
+      viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`}
       preserveAspectRatio="none"
       aria-hidden="true"
     >
       <defs>
-        <path id="knex-flow-top" d="M240 120 C 420 30 780 30 960 120" />
-        <path id="knex-flow-bottom" d="M1000 300 L 1000 520 L 180 520 L 180 360" />
+        <path id="knex-flow-top" d={topPath} />
+        <path id="knex-flow-bottom" d={bottomPath} />
         <clipPath id="knex-avatar-clip" clipPathUnits="objectBoundingBox">
           <circle cx="0.5" cy="0.5" r="0.5" />
         </clipPath>
@@ -182,7 +248,7 @@ function KnexChatFlowOverlay() {
       </defs>
 
       <path
-        d="M240 120 C 420 30 780 30 960 120"
+        d={topPath}
         fill="none"
         stroke="rgba(59,130,246,0.35)"
         strokeWidth="1.6"
@@ -192,7 +258,7 @@ function KnexChatFlowOverlay() {
         <animate attributeName="stroke-dashoffset" from="0" to="-120" dur="8s" repeatCount="indefinite" />
       </path>
       <path
-        d="M1000 300 L 1000 520 L 180 520 L 180 360"
+        d={bottomPath}
         fill="none"
         stroke="rgba(59,130,246,0.3)"
         strokeWidth="1.6"
@@ -261,67 +327,76 @@ function KnexChatFlowOverlay() {
   );
 }
 
-function KnexChatGlowBackdrop() {
+function KnexChatGlowBackdrop({ layout }: { layout: ActivationLayout }) {
+  const stageStyle = {
+    transform: `translateZ(0) scale(${layout.scale})`,
+    transformOrigin: "center",
+  } as CSSProperties;
+
   return (
     <>
       <div className="pointer-events-none absolute -top-[140px] -left-[140px] z-0 h-[720px] w-[720px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.26)_0%,transparent_70%)] blur-[90px] opacity-60" />
       <div className="pointer-events-none absolute -bottom-[180px] -right-[180px] z-0 h-[820px] w-[820px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.24)_0%,transparent_70%)] blur-[90px] opacity-60" />
       <div className="pointer-events-none absolute -top-[120px] -right-[200px] z-0 h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
       <div className="pointer-events-none absolute -bottom-[160px] -left-[200px] z-0 h-[640px] w-[640px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
-      <KnexChatFlowOverlay />
-      <div className="pointer-events-none absolute left-6 top-10 z-0 hidden lg:block">
-        <div className="relative h-[600px] w-[320px] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
-          <div className="absolute inset-0 rounded-[54px] bg-slate-900 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.9)]" />
-          <div className="absolute inset-[6px] overflow-hidden rounded-[46px] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <KnexChatScreen variant="phone" />
-          </div>
-          <div className="absolute top-5 left-1/2 h-2 w-20 -translate-x-1/2 rounded-full bg-slate-800/70" />
-        </div>
-      </div>
-
-      <div className="pointer-events-none absolute right-6 top-14 z-0 hidden lg:block">
-        <div className="relative h-[456px] w-[520px] drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
-          <div className="flex h-full w-full flex-col">
-            <div className="relative flex-1 rounded-t-[20px] border border-slate-200/80 bg-slate-900 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
-              <div className="absolute inset-2 overflow-hidden rounded-[16px] bg-white">
-                <KnexChatScreen variant="laptop" />
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+        <div className="relative" style={{ width: layout.stageWidth, height: layout.stageHeight, ...stageStyle }}>
+          <KnexChatFlowOverlay layout={layout} />
+          <div className="absolute top-10 hidden lg:block" style={{ left: layout.phoneLeft }}>
+            <div className="relative h-[600px] w-[320px] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
+              <div className="absolute inset-0 rounded-[54px] bg-slate-900 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.9)]" />
+              <div className="absolute inset-[6px] overflow-hidden rounded-[46px] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <KnexChatScreen variant="phone" />
               </div>
+              <div className="absolute top-5 left-1/2 h-2 w-20 -translate-x-1/2 rounded-full bg-slate-800/70" />
             </div>
-            <div className="relative h-40 w-full rounded-[0_0_28px_28px] bg-slate-200 shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
-              <div className="absolute inset-x-6 top-3 text-[9px] text-slate-500/80">
-                <div className="grid grid-cols-12 gap-1">
-                  {"QWERTYUIOP[]".split("").map((key) => (
-                    <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
-                      {key}
-                    </div>
-                  ))}
+          </div>
+
+          <div className="absolute top-14 hidden lg:block" style={{ left: layout.laptopLeft }}>
+            <div className="relative h-[456px] w-[520px] drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
+              <div className="flex h-full w-full flex-col">
+                <div className="relative flex-1 rounded-t-[20px] border border-slate-200/80 bg-slate-900 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
+                  <div className="absolute inset-2 overflow-hidden rounded-[16px] bg-white">
+                    <KnexChatScreen variant="laptop" />
+                  </div>
                 </div>
-                <div className="mt-1 grid grid-cols-11 gap-1 px-1">
-                  {"ASDFGHJKL;".split("").map((key) => (
-                    <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
-                      {key}
+                <div className="relative h-40 w-full rounded-[0_0_28px_28px] bg-slate-200 shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
+                  <div className="absolute inset-x-6 top-3 text-[9px] text-slate-500/80">
+                    <div className="grid grid-cols-12 gap-1">
+                      {"QWERTYUIOP[]".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                  <div className="rounded-sm bg-white/70 px-1 py-0.5 text-center">Enter</div>
-                </div>
-                <div className="mt-1 grid grid-cols-12 gap-1">
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
-                  {"ZXCVBNM,.".split("").map((key) => (
-                    <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
-                      {key}
+                    <div className="mt-1 grid grid-cols-11 gap-1 px-1">
+                      {"ASDFGHJKL;".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                      <div className="rounded-sm bg-white/70 px-1 py-0.5 text-center">Enter</div>
                     </div>
-                  ))}
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
-                </div>
-                <div className="mt-1 grid grid-cols-12 gap-1">
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
-                  <div className="col-span-4 rounded-sm bg-white/70 px-1 py-0.5 text-center">space</div>
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
-                  <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
+                    <div className="mt-1 grid grid-cols-12 gap-1">
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
+                      {"ZXCVBNM,.".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
+                    </div>
+                    <div className="mt-1 grid grid-cols-12 gap-1">
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
+                      <div className="col-span-4 rounded-sm bg-white/70 px-1 py-0.5 text-center">space</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
+                    </div>
+                  </div>
+                  <div className="absolute bottom-2 left-1/2 h-5 w-32 -translate-x-1/2 rounded-md bg-slate-300" />
                 </div>
               </div>
-              <div className="absolute bottom-2 left-1/2 h-5 w-32 -translate-x-1/2 rounded-md bg-slate-300" />
             </div>
           </div>
         </div>
@@ -581,7 +656,11 @@ export default function KnexChatPage() {
   }, [searchParams]);
 
   const [identity, setIdentity] = useState<Identity | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [appState, setAppState] = useState(() => ({
+    isReady: false,
+    activationLayout: computeActivationLayout(1440, 900),
+  }));
+  const { isReady, activationLayout } = appState;
   const [registeringEmail, setRegisteringEmail] = useState("");
   const [activationStep, setActivationStep] = useState<"email" | "otp">("email");
   const [otpGenerated, setOtpGenerated] = useState<string | null>(null);
@@ -639,23 +718,40 @@ export default function KnexChatPage() {
   }, [activeThread, messagesByThread]);
 
   useEffect(() => {
+    const updateLayout = () => {
+      if (typeof window === "undefined") return;
+      setAppState((prev) => ({
+        ...prev,
+        activationLayout: computeActivationLayout(window.innerWidth, window.innerHeight),
+      }));
+    };
+
+    if (typeof window !== "undefined") {
+      updateLayout();
+      window.addEventListener("resize", updateLayout);
+    }
+
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        setIsReady(true);
-        return;
-      }
-      const parsed = safeParseIdentity(raw);
-      if (parsed) {
-        setIdentity(parsed);
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = safeParseIdentity(raw);
+        if (parsed) {
+          setIdentity(parsed);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
       }
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     } finally {
-      setIsReady(true);
+      setAppState((prev) => ({ ...prev, isReady: true }));
     }
+
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("resize", updateLayout);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -900,7 +996,7 @@ export default function KnexChatPage() {
   const activationBackdrop = !isChatRoute ? (
     <>
       <KnexChatMotionStyles />
-      <KnexChatGlowBackdrop />
+      <KnexChatGlowBackdrop layout={activationLayout} />
     </>
   ) : null;
 
@@ -1318,18 +1414,18 @@ function ActivationScreen({
   onEditEmail,
 }: ActivationScreenProps) {
   return (
-    <div className="relative flex min-h-screen w-full items-center justify-center px-6 py-12">
-      <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-8 shadow-2xl shadow-black/20 backdrop-blur">
+    <div className="relative flex min-h-[100svh] w-full items-center justify-center px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
+      <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-6 lg:p-8">
         <div className="text-center">
-          <h1 className={`${headingClassName} text-4xl font-semibold md:text-5xl`}>
+          <h1 className={`${headingClassName} text-3xl font-semibold sm:text-4xl md:text-5xl`}>
             <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
               KnexChat
             </span>
           </h1>
         </div>
-        <div className="mt-6 space-y-2 text-left">
-          <p className={`${headingClassName} text-lg font-semibold text-slate-900`}>Ativar KnexChat</p>
-          <p className="text-sm text-slate-700">
+        <div className="mt-5 space-y-2 text-left sm:mt-6">
+          <p className={`${headingClassName} text-base font-semibold text-slate-900 sm:text-lg`}>Ativar KnexChat</p>
+          <p className="text-sm text-slate-700 sm:text-base">
             Use seu e-mail para criar seu Knex ID (equivalente ao numero do WhatsApp).
           </p>
         </div>
