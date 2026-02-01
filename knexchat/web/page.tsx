@@ -3320,6 +3320,8 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!activeThreads.length) {
+      const existing = allThreads.find((thread) => thread.id === activeThreadId);
+      if (existing) return;
       setActiveThreadId("");
       return;
     }

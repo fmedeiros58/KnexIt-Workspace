@@ -94,17 +94,18 @@ export async function POST(req: NextRequest) {
     if (!admin) {
       return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
     }
-    const { error } = await admin.from("knexchat_directory").insert({
-      email,
-      name: nameRaw && nameRaw.trim() ? nameRaw.trim() : null,
-    });
+    const normalizedName = nameRaw && nameRaw.trim() ? nameRaw.trim() : undefined;
+    const { error } = await admin
+      .from("knexchat_directory")
+      .upsert(
+        {
+          email,
+          ...(normalizedName ? { name: normalizedName } : {}),
+        },
+        { onConflict: "email" },
+      );
 
-    if (error) {
-      if ("code" in error && error.code === "23505") {
-        return Response.json({ message: "Already exists" }, { status: 409 });
-      }
-      throw error;
-    }
+    if (error) throw error;
 
     return Response.json({ ok: true }, { status: 201 });
   } catch (err) {
