@@ -636,6 +636,26 @@ type InboxMessage = {
 type TabKey = "conversations" | "groups" | "contacts";
 type FilterKey = "all" | "unread" | "groups" | "contacts";
 type MediaTabKey = "media" | "docs" | "links";
+type DirectoryTabKey = "people" | "contacts" | "requests";
+type DirectoryFilterKey = "all" | "identity" | "context" | "relationship";
+
+type ContactRequestStatus = "pending" | "accepted" | "rejected" | "blocked";
+type ContactRequestDirection = "incoming" | "outgoing";
+type ContactRequest = {
+  id: string;
+  email: string;
+  name?: string;
+  status: ContactRequestStatus;
+  direction: ContactRequestDirection;
+  createdAt: string;
+};
+
+type DirectoryPerson = {
+  email: string;
+  name: string;
+  knexId: string;
+  isSelf?: boolean;
+};
 
 type Thread = {
   id: string;
@@ -726,6 +746,19 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "unread", label: "Não lidas" },
   { key: "groups", label: "Grupos" },
   { key: "contacts", label: "Contatos" },
+];
+
+const DIRECTORY_TABS: { key: DirectoryTabKey; label: string }[] = [
+  { key: "people", label: "Pessoas" },
+  { key: "contacts", label: "Meus contatos" },
+  { key: "requests", label: "Solicitações" },
+];
+
+const DIRECTORY_FILTERS: { key: DirectoryFilterKey; label: string; hint: string }[] = [
+  { key: "all", label: "Todos", hint: "Exibição completa" },
+  { key: "identity", label: "Identidade", hint: "Nome, Knex ID, e-mail parcial" },
+  { key: "context", label: "Contexto", hint: "Instituição, curso, comunidades" },
+  { key: "relationship", label: "Relacionamento", hint: "Contatos e solicitações" },
 ];
 
 const WALLPAPER_OPTIONS: WallpaperOption[] = [
@@ -883,6 +916,30 @@ function formatNameFromEmail(email: string) {
   const spaced = local.replace(/[._-]+/g, " ").trim();
   if (!spaced) return email;
   return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function maskEmail(email: string) {
+  const [localPart, domainPart] = email.split("@");
+  if (!localPart || !domainPart) return email;
+  const localMasked =
+    localPart.length <= 2
+      ? `${localPart.slice(0, 1)}*`
+      : `${localPart.slice(0, 1)}${"*".repeat(Math.min(localPart.length - 2, 3))}${localPart.slice(-1)}`;
+  const domainSegments = domainPart.split(".");
+  const tld = domainSegments.length > 1 ? `.${domainSegments.slice(1).join(".")}` : "";
+  const domainBase = domainSegments[0] ?? domainPart;
+  const domainMasked =
+    domainBase.length <= 2
+      ? `${domainBase.slice(0, 1)}*`
+      : `${domainBase.slice(0, 1)}${"*".repeat(Math.min(domainBase.length - 2, 3))}${domainBase.slice(-1)}`;
+  return `${localMasked}@${domainMasked}${tld}`;
+}
+
+function getKnexIdFromEmail(email: string) {
+  const local = email.split("@")[0] ?? email;
+  const cleaned = local.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const suffix = cleaned ? cleaned.slice(0, 12) : "usuario";
+  return `knex-${suffix}`;
 }
 
 function contactIdFromEmail(email: string) {
@@ -1174,6 +1231,12 @@ export default function KnexChatPage() {
   const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
   const [isCommunityListOpen, setIsCommunityListOpen] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [isDirectoryOpen, setIsDirectoryOpen] = useState(false);
+  const [directoryTab, setDirectoryTab] = useState<DirectoryTabKey>("people");
+  const [directorySearch, setDirectorySearch] = useState("");
+  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilterKey>("all");
+  const [isDirectoryFiltersOpen, setIsDirectoryFiltersOpen] = useState(false);
+  const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
   const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
   const [isGroupMembersExpanded, setIsGroupMembersExpanded] = useState(false);
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
@@ -1388,6 +1451,87 @@ export default function KnexChatPage() {
       return haystack.includes(query);
     });
   }, [activeThreads, conversationSearch]);
+  const contactEmailSet = useMemo(() => {
+    const next = new Set<string>();
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (email) next.add(email);
+    });
+    return next;
+  }, [contacts]);
+  const contactByEmail = useMemo(() => {
+    const next = new Map<string, Thread>();
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (email) next.set(email, contact);
+    });
+    return next;
+  }, [contacts]);
+  const directoryPeople = useMemo<DirectoryPerson[]>(() => {
+    const byEmail = new Map<string, DirectoryPerson>();
+    const addPerson = (email: string, name?: string, isSelf?: boolean) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized) return;
+      const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
+      const existing = byEmail.get(normalized);
+      if (existing) {
+        if (!existing.name && displayName) existing.name = displayName;
+        if (isSelf) existing.isSelf = true;
+        return;
+      }
+      byEmail.set(normalized, {
+        email: normalized,
+        name: displayName,
+        knexId: getKnexIdFromEmail(normalized),
+        isSelf,
+      });
+    };
+    directoryEntries.forEach((entry) => addPerson(entry.email, entry.name));
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (!email) return;
+      addPerson(email, contact.title);
+    });
+    if (identity?.email) {
+      addPerson(identity.email, identity.name ?? undefined, true);
+    }
+    const list = Array.from(byEmail.values());
+    list.sort((a, b) => {
+      if (a.isSelf && !b.isSelf) return -1;
+      if (!a.isSelf && b.isSelf) return 1;
+      return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+    });
+    return list;
+  }, [contacts, directoryEntries, identity?.email, identity?.name]);
+  const filteredDirectoryPeople = useMemo(() => {
+    const query = directorySearch.trim().toLowerCase();
+    if (!query) return directoryPeople;
+    return directoryPeople.filter((person) => {
+      const haystack = `${person.name} ${person.knexId} ${person.email}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [directoryPeople, directorySearch]);
+  const contactRequestByEmail = useMemo(() => {
+    const next = new Map<string, ContactRequest>();
+    contactRequests.forEach((request) => {
+      next.set(normalizeEmail(request.email), request);
+    });
+    return next;
+  }, [contactRequests]);
+  const incomingRequests = useMemo(
+    () => contactRequests.filter((request) => request.direction === "incoming"),
+    [contactRequests],
+  );
+  const outgoingRequests = useMemo(
+    () => contactRequests.filter((request) => request.direction === "outgoing"),
+    [contactRequests],
+  );
   const baseContacts = useMemo(
     () =>
       contacts.map((contact) => ({
@@ -2014,11 +2158,89 @@ export default function KnexChatPage() {
       setIsNewGroupCreateOpen(false);
       setIsCommunityListOpen(false);
       setIsNewContactOpen(false);
+      setIsDirectoryOpen(false);
       setIsProfileOpen(false);
       setProfileTarget(null);
     },
     [contacts, conversations],
   );
+  const addContactFromDirectory = useCallback(
+    (email: string, name?: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized || !isValidEmail(normalized)) return;
+      const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
+      const contactId = contactIdFromEmail(normalized);
+      setContacts((prev) => {
+        if (prev.some((contact) => getContactPrimaryKey(contact) === normalized)) return prev;
+        return [
+          {
+            id: contactId,
+            title: displayName,
+            preview: normalized,
+            lastActivity: "Agora",
+            lastActivityAt: Date.now(),
+            tab: "contacts",
+            contactEmail: normalized,
+          },
+          ...prev,
+        ];
+      });
+      setMessagesByThread((prev) => ({ ...prev, [contactId]: prev[contactId] ?? [] }));
+      setUnreadByThread((prev) => ({ ...prev, [contactId]: prev[contactId] ?? 0 }));
+    },
+    [setContacts, setMessagesByThread, setUnreadByThread],
+  );
+  const handleSendContactRequest = useCallback(
+    (email: string, name?: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized || !isValidEmail(normalized)) return;
+      if (contactEmailSet.has(normalized)) return;
+      setContactRequests((prev) => {
+        if (
+          prev.some(
+            (request) =>
+              normalizeEmail(request.email) === normalized &&
+              request.status === "pending" &&
+              request.direction === "outgoing",
+          )
+        ) {
+          return prev;
+        }
+        return [
+          {
+            id: `req-${normalized}-${Date.now()}`,
+            email: normalized,
+            name,
+            status: "pending",
+            direction: "outgoing",
+            createdAt: new Date().toISOString(),
+          },
+          ...prev,
+        ];
+      });
+    },
+    [contactEmailSet],
+  );
+  const handleAcceptContactRequest = useCallback(
+    (email: string, name?: string) => {
+      addContactFromDirectory(email, name);
+      setContactRequests((prev) =>
+        prev.map((request) =>
+          normalizeEmail(request.email) === normalizeEmail(email)
+            ? { ...request, status: "accepted" }
+            : request,
+        ),
+      );
+    },
+    [addContactFromDirectory],
+  );
+  const handleRejectContactRequest = useCallback((email: string, status: ContactRequestStatus) => {
+    setContactRequests((prev) =>
+      prev.map((request) =>
+        normalizeEmail(request.email) === normalizeEmail(email) ? { ...request, status } : request,
+      ),
+    );
+  }, []);
   const authTokenRef = useRef<string | null>(null);
   useEffect(() => {
     authTokenRef.current = authSession?.access_token ?? null;
@@ -4730,6 +4952,7 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "conversations")}
               onClick={() => {
                 setActiveNavKey("conversations");
+                setIsDirectoryOpen(false);
                 setIsSettingsOpen(false);
                 setIsProfileOpen(false);
                 setProfileTarget(null);
@@ -4766,7 +4989,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "calls")}
               aria-label="Ligações"
               title="Ligações"
-              onClick={() => setActiveNavKey("calls")}
+              onClick={() => {
+                setActiveNavKey("calls");
+                setIsDirectoryOpen(false);
+              }}
             >
               <Phone className="h-5 w-5" />
             </button>
@@ -4784,7 +5010,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "status")}
               aria-label="Status"
               title="Status"
-              onClick={() => setActiveNavKey("status")}
+              onClick={() => {
+                setActiveNavKey("status");
+                setIsDirectoryOpen(false);
+              }}
             >
               <CircleDot className="h-5 w-5" />
             </button>
@@ -4802,7 +5031,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "channels")}
               aria-label="Canais"
               title="Canais"
-              onClick={() => setActiveNavKey("channels")}
+              onClick={() => {
+                setActiveNavKey("channels");
+                setIsDirectoryOpen(false);
+              }}
             >
               <Radio className="h-5 w-5" />
             </button>
@@ -4822,6 +5054,7 @@ export default function KnexChatPage() {
               title="Comunidades"
               onClick={() => {
                 setActiveNavKey("communities");
+                setIsDirectoryOpen(false);
                 setIsNewChatOpen(true);
                 setIsCommunityListOpen(true);
                 setIsNewChatEmailOpen(false);
@@ -4851,7 +5084,23 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "contacts")}
               aria-label="Novo contato ou conversa"
               title="Novo contato ou conversa"
-              onClick={() => setActiveNavKey("contacts")}
+              onClick={() => {
+                setActiveNavKey("contacts");
+                setIsDirectoryOpen(true);
+                setDirectoryTab("people");
+                setIsNewChatOpen(false);
+                setIsNewChatEmailOpen(false);
+                setIsNewGroupOpen(false);
+                setIsNewGroupCreateOpen(false);
+                setIsCommunityListOpen(false);
+                setIsGroupsPanelOpen(false);
+                setIsGroupCreateOpen(false);
+                setIsGroupsExpanded(false);
+                setIsNewContactOpen(false);
+                setIsSettingsOpen(false);
+                setIsProfileOpen(false);
+                setProfileTarget(null);
+              }}
             >
               <UserPlus
                 className={`h-5 w-5 ${
@@ -4874,6 +5123,7 @@ export default function KnexChatPage() {
                 className={navButtonClass(activeNavKey === "images")}
                 onClick={() => {
                   setActiveNavKey("images");
+                  setIsDirectoryOpen(false);
                   setIsMediaModalOpen(true);
                   setActiveMediaTab("media");
                   setIsMediaSelectMode(false);
@@ -4908,6 +5158,7 @@ export default function KnexChatPage() {
                 className={navButtonClass(activeNavKey === "settings")}
                 onClick={() => {
                   setActiveNavKey("settings");
+                  setIsDirectoryOpen(false);
                   setIsSettingsOpen(true);
                   setIsProfileOpen(false);
                   setProfileTarget(null);
@@ -5654,6 +5905,7 @@ export default function KnexChatPage() {
                       aria-label="Nova conversa"
                       title="Nova conversa"
                       onClick={() => {
+                        setIsDirectoryOpen(false);
                         setIsNewChatOpen(true);
                         setIsNewChatEmailOpen(false);
                         setIsNewGroupOpen(false);
@@ -5729,7 +5981,7 @@ export default function KnexChatPage() {
                 )}
               </div>
             )}
-            <div className={`flex-1 overflow-y-auto ${isNewChatOpen ? "px-0 py-0" : "px-3 py-4"}`}>
+            <div className={`flex-1 overflow-y-auto ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-3 py-4"}`}>
               {isGroupsPanelOpen ? (
                 isGroupCreateOpen ? (
                   <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-10 text-center">
@@ -5832,6 +6084,390 @@ export default function KnexChatPage() {
                     ) : null}
                   </div>
                 )
+              ) : isDirectoryOpen ? (
+                <div className={`flex h-full flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                  <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDirectoryOpen(false);
+                        setDirectorySearch("");
+                        setIsDirectoryFiltersOpen(false);
+                        setActiveNavKey("conversations");
+                      }}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Diretório de pessoas
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsDirectoryFiltersOpen((prev) => !prev)}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-blue-200 hover:bg-blue-500/10" : "text-blue-600 hover:bg-blue-50"
+                      }`}
+                      aria-label="Filtros"
+                      title="Filtros"
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className={`border-b px-4 py-3 ${settingsBorder}`}>
+                    <div
+                      className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
+                        isDarkTheme
+                          ? "border-blue-400/60 text-slate-200"
+                          : "border-blue-400 text-slate-600"
+                      }`}
+                    >
+                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <input
+                        type="text"
+                        value={directorySearch}
+                        onChange={(event) => setDirectorySearch(event.target.value)}
+                        placeholder="Buscar por nome, Knex ID ou contexto"
+                        className={`w-full bg-transparent text-xs focus:outline-none ${
+                          isDarkTheme
+                            ? "placeholder:text-slate-400 text-slate-100"
+                            : "placeholder:text-slate-400 text-slate-700"
+                        }`}
+                      />
+                    </div>
+                    {isDirectoryFiltersOpen ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {DIRECTORY_FILTERS.map((filter) => {
+                          const isActive = filter.key === directoryFilter;
+                          return (
+                            <button
+                              key={filter.key}
+                              type="button"
+                              onClick={() => setDirectoryFilter(filter.key)}
+                              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                                isDarkTheme
+                                  ? isActive
+                                    ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
+                                    : "border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                                  : isActive
+                                    ? "border-blue-200 bg-blue-100 text-blue-800"
+                                    : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                              }`}
+                              title={filter.hint}
+                            >
+                              {filter.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {DIRECTORY_TABS.map((tab) => {
+                        const isActive = tab.key === directoryTab;
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setDirectoryTab(tab.key)}
+                            className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                              isDarkTheme
+                                ? isActive
+                                  ? "bg-blue-500/30 text-blue-100"
+                                  : "border border-[var(--knex-700)] text-slate-300 hover:border-blue-400/50 hover:text-blue-100"
+                                : isActive
+                                  ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                  : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-4 py-4">
+                    {directoryTab === "people" ? (
+                      <div className="space-y-3">
+                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>Diretório visível</p>
+                        {filteredDirectoryPeople.length ? (
+                          filteredDirectoryPeople.map((person) => {
+                            const request = contactRequestByEmail.get(person.email);
+                            const contactThread = contactByEmail.get(person.email);
+                            const isContact = contactEmailSet.has(person.email);
+                            const isOutgoingPending =
+                              request?.status === "pending" && request.direction === "outgoing";
+                            const isIncomingPending =
+                              request?.status === "pending" && request.direction === "incoming";
+                            return (
+                              <div
+                                key={person.email}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <div
+                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {getAvatarText(person.name)}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p
+                                      className={`truncate text-sm font-semibold ${
+                                        isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                      }`}
+                                    >
+                                      {person.name}
+                                      {person.isSelf ? " (você)" : ""}
+                                    </p>
+                                    <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                      {person.knexId} • {maskEmail(person.email)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {person.isSelf ? (
+                                    <span
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                        isDarkTheme ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-600"
+                                      }`}
+                                    >
+                                      Você
+                                    </span>
+                                  ) : isContact && contactThread ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openContactThread(contactThread.id)}
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                      }`}
+                                    >
+                                      Abrir conversa
+                                    </button>
+                                  ) : isOutgoingPending ? (
+                                    <span
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                        isDarkTheme ? "bg-blue-500/20 text-blue-100" : "bg-blue-50 text-blue-700"
+                                      }`}
+                                    >
+                                      Solicitação enviada
+                                    </span>
+                                  ) : isIncomingPending ? (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAcceptContactRequest(person.email, person.name)}
+                                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                          isDarkTheme
+                                            ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                        }`}
+                                      >
+                                        Aceitar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRejectContactRequest(person.email, "rejected")}
+                                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                          isDarkTheme
+                                            ? "bg-white/10 text-slate-200 hover:bg-white/20"
+                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                        }`}
+                                      >
+                                        Recusar
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendContactRequest(person.email, person.name)}
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "border border-blue-400/60 text-blue-200 hover:bg-blue-500/10"
+                                          : "border border-blue-300 text-blue-600 hover:bg-blue-50"
+                                      }`}
+                                    >
+                                      Solicitar contato
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma pessoa encontrada.</p>
+                        )}
+                      </div>
+                    ) : directoryTab === "contacts" ? (
+                      <div className="space-y-3">
+                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>Meus contatos</p>
+                        {contacts.length ? (
+                          contacts.map((contact) => (
+                            <button
+                              key={contact.id}
+                              type="button"
+                              onClick={() => openContactThread(contact.id)}
+                              className={`flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition ${
+                                isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                              }`}
+                            >
+                              <div className="flex min-w-0 items-center gap-3">
+                                {contact.avatarUrl ? (
+                                  <img
+                                    src={contact.avatarUrl}
+                                    alt={`Avatar de ${contact.title}`}
+                                    className={`h-11 w-11 ${avatarFrameMd} object-cover`}
+                                  />
+                                ) : (
+                                  <div
+                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {getAvatarText(contact.title)}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {contact.title}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {contact.contactEmail ? maskEmail(contact.contactEmail) : contact.preview}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className={`text-[11px] ${settingsMuted}`}>Conectado</span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhum contato aceito ainda.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="space-y-3">
+                          <p className={`text-[11px] font-semibold ${settingsMuted}`}>Solicitações recebidas</p>
+                          {incomingRequests.length ? (
+                            incomingRequests.map((request) => (
+                              <div
+                                key={request.id}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {request.name ?? formatNameFromEmail(request.email)}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                  </p>
+                                </div>
+                                {request.status === "pending" ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAcceptContactRequest(request.email, request.name)}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                      }`}
+                                    >
+                                      Aceitar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRejectContactRequest(request.email, "rejected")}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-white/10 text-slate-200 hover:bg-white/20"
+                                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                      }`}
+                                    >
+                                      Recusar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRejectContactRequest(request.email, "blocked")}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                                          : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                      }`}
+                                    >
+                                      Bloquear
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className={`text-[11px] ${settingsMuted}`}>{request.status}</span>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma solicitação recebida.</p>
+                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <p className={`text-[11px] font-semibold ${settingsMuted}`}>Solicitações enviadas</p>
+                          {outgoingRequests.length ? (
+                            outgoingRequests.map((request) => (
+                              <div
+                                key={request.id}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {request.name ?? formatNameFromEmail(request.email)}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                    request.status === "pending"
+                                      ? isDarkTheme
+                                        ? "bg-blue-500/20 text-blue-100"
+                                        : "bg-blue-50 text-blue-700"
+                                      : isDarkTheme
+                                        ? "bg-white/10 text-slate-200"
+                                        : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {request.status === "pending" ? "Aguardando" : request.status}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma solicitação enviada.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : isNewChatOpen ? (
                 <div className={`flex h-full flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
                   <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
