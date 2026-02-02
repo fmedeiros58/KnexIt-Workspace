@@ -636,6 +636,26 @@ type InboxMessage = {
 type TabKey = "conversations" | "groups" | "contacts";
 type FilterKey = "all" | "unread" | "groups" | "contacts";
 type MediaTabKey = "media" | "docs" | "links";
+type DirectoryTabKey = "people" | "contacts" | "requests";
+type DirectoryFilterKey = "all" | "identity" | "context" | "relationship";
+
+type ContactRequestStatus = "pending" | "accepted" | "rejected" | "blocked";
+type ContactRequestDirection = "incoming" | "outgoing";
+type ContactRequest = {
+  id: string;
+  email: string;
+  name?: string;
+  status: ContactRequestStatus;
+  direction: ContactRequestDirection;
+  createdAt: string;
+};
+
+type DirectoryPerson = {
+  email: string;
+  name: string;
+  knexId: string;
+  isSelf?: boolean;
+};
 
 type Thread = {
   id: string;
@@ -726,6 +746,19 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "unread", label: "Não lidas" },
   { key: "groups", label: "Grupos" },
   { key: "contacts", label: "Contatos" },
+];
+
+const DIRECTORY_TABS: { key: DirectoryTabKey; label: string }[] = [
+  { key: "people", label: "Pessoas" },
+  { key: "contacts", label: "Meus contatos" },
+  { key: "requests", label: "Solicitações" },
+];
+
+const DIRECTORY_FILTERS: { key: DirectoryFilterKey; label: string; hint: string }[] = [
+  { key: "all", label: "Todos", hint: "Exibição completa" },
+  { key: "identity", label: "Identidade", hint: "Nome, Knex ID, e-mail parcial" },
+  { key: "context", label: "Contexto", hint: "Instituição, curso, comunidades" },
+  { key: "relationship", label: "Relacionamento", hint: "Contatos e solicitações" },
 ];
 
 const WALLPAPER_OPTIONS: WallpaperOption[] = [
@@ -883,6 +916,30 @@ function formatNameFromEmail(email: string) {
   const spaced = local.replace(/[._-]+/g, " ").trim();
   if (!spaced) return email;
   return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function maskEmail(email: string) {
+  const [localPart, domainPart] = email.split("@");
+  if (!localPart || !domainPart) return email;
+  const localMasked =
+    localPart.length <= 2
+      ? `${localPart.slice(0, 1)}*`
+      : `${localPart.slice(0, 1)}${"*".repeat(Math.min(localPart.length - 2, 3))}${localPart.slice(-1)}`;
+  const domainSegments = domainPart.split(".");
+  const tld = domainSegments.length > 1 ? `.${domainSegments.slice(1).join(".")}` : "";
+  const domainBase = domainSegments[0] ?? domainPart;
+  const domainMasked =
+    domainBase.length <= 2
+      ? `${domainBase.slice(0, 1)}*`
+      : `${domainBase.slice(0, 1)}${"*".repeat(Math.min(domainBase.length - 2, 3))}${domainBase.slice(-1)}`;
+  return `${localMasked}@${domainMasked}${tld}`;
+}
+
+function getKnexIdFromEmail(email: string) {
+  const local = email.split("@")[0] ?? email;
+  const cleaned = local.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const suffix = cleaned ? cleaned.slice(0, 12) : "usuario";
+  return `knex-${suffix}`;
 }
 
 function contactIdFromEmail(email: string) {
@@ -1174,6 +1231,12 @@ export default function KnexChatPage() {
   const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
   const [isCommunityListOpen, setIsCommunityListOpen] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [isDirectoryOpen, setIsDirectoryOpen] = useState(false);
+  const [directoryTab, setDirectoryTab] = useState<DirectoryTabKey>("people");
+  const [directorySearch, setDirectorySearch] = useState("");
+  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilterKey>("all");
+  const [isDirectoryFiltersOpen, setIsDirectoryFiltersOpen] = useState(false);
+  const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
   const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
   const [isGroupMembersExpanded, setIsGroupMembersExpanded] = useState(false);
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
@@ -1388,6 +1451,87 @@ export default function KnexChatPage() {
       return haystack.includes(query);
     });
   }, [activeThreads, conversationSearch]);
+  const contactEmailSet = useMemo(() => {
+    const next = new Set<string>();
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (email) next.add(email);
+    });
+    return next;
+  }, [contacts]);
+  const contactByEmail = useMemo(() => {
+    const next = new Map<string, Thread>();
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (email) next.set(email, contact);
+    });
+    return next;
+  }, [contacts]);
+  const directoryPeople = useMemo<DirectoryPerson[]>(() => {
+    const byEmail = new Map<string, DirectoryPerson>();
+    const addPerson = (email: string, name?: string, isSelf?: boolean) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized) return;
+      const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
+      const existing = byEmail.get(normalized);
+      if (existing) {
+        if (!existing.name && displayName) existing.name = displayName;
+        if (isSelf) existing.isSelf = true;
+        return;
+      }
+      byEmail.set(normalized, {
+        email: normalized,
+        name: displayName,
+        knexId: getKnexIdFromEmail(normalized),
+        isSelf,
+      });
+    };
+    directoryEntries.forEach((entry) => addPerson(entry.email, entry.name));
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (!email) return;
+      addPerson(email, contact.title);
+    });
+    if (identity?.email) {
+      addPerson(identity.email, identity.name ?? undefined, true);
+    }
+    const list = Array.from(byEmail.values());
+    list.sort((a, b) => {
+      if (a.isSelf && !b.isSelf) return -1;
+      if (!a.isSelf && b.isSelf) return 1;
+      return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+    });
+    return list;
+  }, [contacts, directoryEntries, identity?.email, identity?.name]);
+  const filteredDirectoryPeople = useMemo(() => {
+    const query = directorySearch.trim().toLowerCase();
+    if (!query) return directoryPeople;
+    return directoryPeople.filter((person) => {
+      const haystack = `${person.name} ${person.knexId} ${person.email}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [directoryPeople, directorySearch]);
+  const contactRequestByEmail = useMemo(() => {
+    const next = new Map<string, ContactRequest>();
+    contactRequests.forEach((request) => {
+      next.set(normalizeEmail(request.email), request);
+    });
+    return next;
+  }, [contactRequests]);
+  const incomingRequests = useMemo(
+    () => contactRequests.filter((request) => request.direction === "incoming"),
+    [contactRequests],
+  );
+  const outgoingRequests = useMemo(
+    () => contactRequests.filter((request) => request.direction === "outgoing"),
+    [contactRequests],
+  );
   const baseContacts = useMemo(
     () =>
       contacts.map((contact) => ({
@@ -2014,11 +2158,89 @@ export default function KnexChatPage() {
       setIsNewGroupCreateOpen(false);
       setIsCommunityListOpen(false);
       setIsNewContactOpen(false);
+      setIsDirectoryOpen(false);
       setIsProfileOpen(false);
       setProfileTarget(null);
     },
     [contacts, conversations],
   );
+  const addContactFromDirectory = useCallback(
+    (email: string, name?: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized || !isValidEmail(normalized)) return;
+      const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
+      const contactId = contactIdFromEmail(normalized);
+      setContacts((prev) => {
+        if (prev.some((contact) => getContactPrimaryKey(contact) === normalized)) return prev;
+        return [
+          {
+            id: contactId,
+            title: displayName,
+            preview: normalized,
+            lastActivity: "Agora",
+            lastActivityAt: Date.now(),
+            tab: "contacts",
+            contactEmail: normalized,
+          },
+          ...prev,
+        ];
+      });
+      setMessagesByThread((prev) => ({ ...prev, [contactId]: prev[contactId] ?? [] }));
+      setUnreadByThread((prev) => ({ ...prev, [contactId]: prev[contactId] ?? 0 }));
+    },
+    [setContacts, setMessagesByThread, setUnreadByThread],
+  );
+  const handleSendContactRequest = useCallback(
+    (email: string, name?: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized || !isValidEmail(normalized)) return;
+      if (contactEmailSet.has(normalized)) return;
+      setContactRequests((prev) => {
+        if (
+          prev.some(
+            (request) =>
+              normalizeEmail(request.email) === normalized &&
+              request.status === "pending" &&
+              request.direction === "outgoing",
+          )
+        ) {
+          return prev;
+        }
+        return [
+          {
+            id: `req-${normalized}-${Date.now()}`,
+            email: normalized,
+            name,
+            status: "pending",
+            direction: "outgoing",
+            createdAt: new Date().toISOString(),
+          },
+          ...prev,
+        ];
+      });
+    },
+    [contactEmailSet],
+  );
+  const handleAcceptContactRequest = useCallback(
+    (email: string, name?: string) => {
+      addContactFromDirectory(email, name);
+      setContactRequests((prev) =>
+        prev.map((request) =>
+          normalizeEmail(request.email) === normalizeEmail(email)
+            ? { ...request, status: "accepted" }
+            : request,
+        ),
+      );
+    },
+    [addContactFromDirectory],
+  );
+  const handleRejectContactRequest = useCallback((email: string, status: ContactRequestStatus) => {
+    setContactRequests((prev) =>
+      prev.map((request) =>
+        normalizeEmail(request.email) === normalizeEmail(email) ? { ...request, status } : request,
+      ),
+    );
+  }, []);
   const authTokenRef = useRef<string | null>(null);
   useEffect(() => {
     authTokenRef.current = authSession?.access_token ?? null;
@@ -2035,6 +2257,16 @@ export default function KnexChatPage() {
     },
     [authSession?.access_token],
   );
+  const requestRealtimeTicket = useCallback(async () => {
+    try {
+      const res = await authFetch("/api/knexchat/realtime-ticket", { method: "POST" });
+      if (!res.ok) return "";
+      const payload = (await res.json().catch(() => ({}))) as { ticket?: string };
+      return typeof payload.ticket === "string" ? payload.ticket : "";
+    } catch {
+      return "";
+    }
+  }, [authFetch]);
   const checkEmailRegistered = useCallback(
     async (email: string) => {
       const normalized = normalizeEmail(email);
@@ -2380,9 +2612,7 @@ export default function KnexChatPage() {
     setIsServerSyncing(true);
     setServerSyncError(null);
     try {
-      const res = await authFetch(
-        `/api/knexchat/threads?email=${encodeURIComponent(identity.email)}&includeParticipants=1&includeLastMessage=1`,
-      );
+      const res = await authFetch(`/api/knexchat/threads?includeParticipants=1&includeLastMessage=1`);
       if (!res.ok) throw new Error("threads_failed");
       const payload = (await res.json().catch(() => ({}))) as { threads?: ApiThread[] };
       const rawThreads = Array.isArray(payload?.threads) ? payload.threads : [];
@@ -3118,10 +3348,9 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
     if (!authSession?.access_token) return;
-    const source = new EventSource(
-      `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`,
-    );
-    setIsRealtimeConnected(false);
+    let source: EventSource | null = null;
+    let cancelled = false;
+    let reconnectTimer: number | null = null;
 
     const handleReady = () => {
       setIsRealtimeConnected(true);
@@ -3151,13 +3380,37 @@ export default function KnexChatPage() {
 
     const handleError = () => {
       setIsRealtimeConnected(false);
+      if (reconnectTimer !== null) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        if (!cancelled) {
+          refreshRealtime();
+        }
+      }, 2000);
     };
 
-    source.addEventListener("ready", handleReady as EventListener);
-    source.addEventListener("message", handleMessage as EventListener);
-    source.addEventListener("error", handleError as EventListener);
+    const connect = async () => {
+      setIsRealtimeConnected(false);
+      const ticket = await requestRealtimeTicket();
+      const url = ticket
+        ? `/api/knexchat/realtime?ticket=${encodeURIComponent(ticket)}&t=${realtimeKey}`
+        : `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`;
+      if (cancelled) return;
+      source = new EventSource(url);
+      source.addEventListener("ready", handleReady as EventListener);
+      source.addEventListener("message", handleMessage as EventListener);
+      source.addEventListener("error", handleError as EventListener);
+    };
+
+    void connect();
 
     return () => {
+      cancelled = true;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (!source) return;
       source.removeEventListener("ready", handleReady as EventListener);
       source.removeEventListener("message", handleMessage as EventListener);
       source.removeEventListener("error", handleError as EventListener);
@@ -3171,6 +3424,8 @@ export default function KnexChatPage() {
     mapApiMessageToMessage,
     previewFromApiMessage,
     realtimeKey,
+    requestRealtimeTicket,
+    refreshRealtime,
     serverMessagingEnabled,
     updateThreadActivity,
   ]);
@@ -4730,6 +4985,7 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "conversations")}
               onClick={() => {
                 setActiveNavKey("conversations");
+                setIsDirectoryOpen(false);
                 setIsSettingsOpen(false);
                 setIsProfileOpen(false);
                 setProfileTarget(null);
@@ -4766,7 +5022,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "calls")}
               aria-label="Ligações"
               title="Ligações"
-              onClick={() => setActiveNavKey("calls")}
+              onClick={() => {
+                setActiveNavKey("calls");
+                setIsDirectoryOpen(false);
+              }}
             >
               <Phone className="h-5 w-5" />
             </button>
@@ -4784,7 +5043,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "status")}
               aria-label="Status"
               title="Status"
-              onClick={() => setActiveNavKey("status")}
+              onClick={() => {
+                setActiveNavKey("status");
+                setIsDirectoryOpen(false);
+              }}
             >
               <CircleDot className="h-5 w-5" />
             </button>
@@ -4802,7 +5064,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "channels")}
               aria-label="Canais"
               title="Canais"
-              onClick={() => setActiveNavKey("channels")}
+              onClick={() => {
+                setActiveNavKey("channels");
+                setIsDirectoryOpen(false);
+              }}
             >
               <Radio className="h-5 w-5" />
             </button>
@@ -4822,6 +5087,7 @@ export default function KnexChatPage() {
               title="Comunidades"
               onClick={() => {
                 setActiveNavKey("communities");
+                setIsDirectoryOpen(false);
                 setIsNewChatOpen(true);
                 setIsCommunityListOpen(true);
                 setIsNewChatEmailOpen(false);
@@ -4851,7 +5117,23 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "contacts")}
               aria-label="Novo contato ou conversa"
               title="Novo contato ou conversa"
-              onClick={() => setActiveNavKey("contacts")}
+              onClick={() => {
+                setActiveNavKey("contacts");
+                setIsDirectoryOpen(true);
+                setDirectoryTab("people");
+                setIsNewChatOpen(false);
+                setIsNewChatEmailOpen(false);
+                setIsNewGroupOpen(false);
+                setIsNewGroupCreateOpen(false);
+                setIsCommunityListOpen(false);
+                setIsGroupsPanelOpen(false);
+                setIsGroupCreateOpen(false);
+                setIsGroupsExpanded(false);
+                setIsNewContactOpen(false);
+                setIsSettingsOpen(false);
+                setIsProfileOpen(false);
+                setProfileTarget(null);
+              }}
             >
               <UserPlus
                 className={`h-5 w-5 ${
@@ -4874,6 +5156,7 @@ export default function KnexChatPage() {
                 className={navButtonClass(activeNavKey === "images")}
                 onClick={() => {
                   setActiveNavKey("images");
+                  setIsDirectoryOpen(false);
                   setIsMediaModalOpen(true);
                   setActiveMediaTab("media");
                   setIsMediaSelectMode(false);
@@ -4908,6 +5191,7 @@ export default function KnexChatPage() {
                 className={navButtonClass(activeNavKey === "settings")}
                 onClick={() => {
                   setActiveNavKey("settings");
+                  setIsDirectoryOpen(false);
                   setIsSettingsOpen(true);
                   setIsProfileOpen(false);
                   setProfileTarget(null);
@@ -5620,116 +5904,123 @@ export default function KnexChatPage() {
                 )}
               </div>
             ) : (
-              <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
-                <div className="flex items-center gap-3">
-                  {currentUser?.avatarUrl ? (
-                    <img
-                      src={currentUser.avatarUrl}
-                      alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                      className={`h-12 w-12 ${avatarFrameMd} object-cover`}
-                    />
-                  ) : (
+              isDirectoryOpen || isNewChatOpen ? null : (
+                <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
+                  <div className="flex items-center gap-3">
+                    {currentUser?.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                        className={`h-12 w-12 ${avatarFrameMd} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
+                      >
+                        {currentUser?.avatarText ?? "KN"}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Conversas
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition ${
+                          isDarkTheme
+                            ? "text-blue-300 hover:bg-white/10"
+                            : "text-blue-600 hover:bg-blue-50"
+                        }`}
+                        aria-label="Nova conversa"
+                        title="Nova conversa"
+                        onClick={() => {
+                          setIsDirectoryOpen(false);
+                          setIsNewChatOpen(true);
+                          setIsNewChatEmailOpen(false);
+                          setIsNewGroupOpen(false);
+                          setIsCommunityListOpen(false);
+                          setIsGroupsPanelOpen(false);
+                          setIsGroupCreateOpen(false);
+                          setIsGroupsExpanded(false);
+                          setIsNewContactOpen(false);
+                        }}
+                      >
+                        <MessageCirclePlus className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme
+                            ? "text-slate-200 hover:bg-white/10"
+                            : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                        aria-label="Mais opções"
+                        title="Mais opções"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {isNewChatOpen ? null : (
                     <div
-                      className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
+                      className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                        isDarkTheme
+                          ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
+                          : "border-blue-400 bg-slate-100 text-slate-600"
+                      }`}
                     >
-                      {currentUser?.avatarText ?? "KN"}
+                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <input
+                        type="text"
+                        placeholder="Pesquisar conversas"
+                        value={conversationSearch}
+                        onChange={(event) => setConversationSearch(event.target.value)}
+                        className={`w-full bg-transparent text-xs placeholder:font-medium focus:outline-none ${
+                          isDarkTheme
+                            ? "placeholder:text-slate-400 text-slate-100"
+                            : "placeholder:text-slate-400 text-slate-700"
+                        }`}
+                      />
                     </div>
                   )}
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
-                  </div>
+                  {isNewChatOpen ? null : (
+                    <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+                      {FILTERS.map((filter) => {
+                        const isActive = filter.key === activeFilter;
+                        return (
+                          <button
+                            key={filter.key}
+                            type="button"
+                            onClick={() => setActiveFilter(filter.key)}
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                              isDarkTheme
+                                ? isActive
+                                  ? "bg-emerald-500/30 text-emerald-100"
+                                  : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                                : isActive
+                                  ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                  : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                            }`}
+                          >
+                            {filter.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                    Conversas
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition ${
-                        isDarkTheme
-                          ? "text-blue-300 hover:bg-white/10"
-                          : "text-blue-600 hover:bg-blue-50"
-                      }`}
-                      aria-label="Nova conversa"
-                      title="Nova conversa"
-                      onClick={() => {
-                        setIsNewChatOpen(true);
-                        setIsNewChatEmailOpen(false);
-                        setIsNewGroupOpen(false);
-                        setIsCommunityListOpen(false);
-                        setIsGroupsPanelOpen(false);
-                        setIsGroupCreateOpen(false);
-                        setIsGroupsExpanded(false);
-                        setIsNewContactOpen(false);
-                      }}
-                    >
-                      <MessageCirclePlus className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
-                        isDarkTheme
-                          ? "text-slate-200 hover:bg-white/10"
-                          : "text-slate-700 hover:bg-slate-100"
-                      }`}
-                      aria-label="Mais opções"
-                      title="Mais opções"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-                {isNewChatOpen ? null : (
-                  <div
-                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
-                      isDarkTheme
-                        ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
-                        : "border-blue-400 bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
-                    <input
-                      type="text"
-                      placeholder="Pesquisar conversas"
-                      value={conversationSearch}
-                      onChange={(event) => setConversationSearch(event.target.value)}
-                      className={`w-full bg-transparent text-xs placeholder:font-medium focus:outline-none ${
-                        isDarkTheme
-                          ? "placeholder:text-slate-400 text-slate-100"
-                          : "placeholder:text-slate-400 text-slate-700"
-                      }`}
-                    />
-                  </div>
-                )}
-                {isNewChatOpen ? null : (
-                  <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-                    {FILTERS.map((filter) => {
-                      const isActive = filter.key === activeFilter;
-                      return (
-                        <button
-                          key={filter.key}
-                          type="button"
-                          onClick={() => setActiveFilter(filter.key)}
-                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
-                            isDarkTheme
-                              ? isActive
-                                ? "bg-emerald-500/30 text-emerald-100"
-                                : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
-                              : isActive
-                                ? "border border-blue-200 bg-blue-100 text-blue-800"
-                                : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
-                          }`}
-                        >
-                          {filter.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              )
             )}
-            <div className={`flex-1 overflow-y-auto ${isNewChatOpen ? "px-0 py-0" : "px-3 py-4"}`}>
+            <div
+              className={`flex min-h-0 flex-1 ${
+                isNewChatOpen ? "overflow-visible" : isDirectoryOpen ? "overflow-hidden" : "overflow-y-auto"
+              } ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-3 py-4"}`}
+            >
               {isGroupsPanelOpen ? (
                 isGroupCreateOpen ? (
                   <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-10 text-center">
@@ -5832,8 +6123,396 @@ export default function KnexChatPage() {
                     ) : null}
                   </div>
                 )
+              ) : isDirectoryOpen ? (
+                <div className={`flex min-h-0 flex-1 flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                  <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDirectoryOpen(false);
+                        setDirectorySearch("");
+                        setIsDirectoryFiltersOpen(false);
+                        setActiveNavKey("conversations");
+                      }}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Diretório de pessoas
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsDirectoryFiltersOpen((prev) => !prev)}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-blue-200 hover:bg-blue-500/10" : "text-blue-600 hover:bg-blue-50"
+                      }`}
+                      aria-label="Filtros"
+                      title="Filtros"
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className={`border-b px-4 py-3 ${settingsBorder}`}>
+                    <div
+                      className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
+                        isDarkTheme
+                          ? "border-blue-400/60 text-slate-200"
+                          : "border-blue-400 text-slate-600"
+                      }`}
+                    >
+                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <input
+                        type="text"
+                        value={directorySearch}
+                        onChange={(event) => setDirectorySearch(event.target.value)}
+                        placeholder="Buscar por nome, Knex ID ou contexto"
+                        className={`w-full bg-transparent text-xs focus:outline-none ${
+                          isDarkTheme
+                            ? "placeholder:text-slate-400 text-slate-100"
+                            : "placeholder:text-slate-400 text-slate-700"
+                        }`}
+                      />
+                    </div>
+                    {isDirectoryFiltersOpen ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {DIRECTORY_FILTERS.map((filter) => {
+                          const isActive = filter.key === directoryFilter;
+                          return (
+                            <button
+                              key={filter.key}
+                              type="button"
+                              onClick={() => setDirectoryFilter(filter.key)}
+                              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                                isDarkTheme
+                                  ? isActive
+                                    ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
+                                    : "border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                                  : isActive
+                                    ? "border-blue-200 bg-blue-100 text-blue-800"
+                                    : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                              }`}
+                              title={filter.hint}
+                            >
+                              {filter.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {DIRECTORY_TABS.map((tab) => {
+                        const isActive = tab.key === directoryTab;
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setDirectoryTab(tab.key)}
+                            className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                              isDarkTheme
+                                ? isActive
+                                  ? "bg-blue-500/30 text-blue-100"
+                                  : "border border-[var(--knex-700)] text-slate-300 hover:border-blue-400/50 hover:text-blue-100"
+                                : isActive
+                                  ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                  : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
+                    {directoryTab === "people" ? (
+                      <div className="space-y-3">
+                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>Diretório visível</p>
+                        {filteredDirectoryPeople.length ? (
+                          filteredDirectoryPeople.map((person) => {
+                            const request = contactRequestByEmail.get(person.email);
+                            const contactThread = contactByEmail.get(person.email);
+                            const isContact = contactEmailSet.has(person.email);
+                            const isOutgoingPending =
+                              request?.status === "pending" && request.direction === "outgoing";
+                            const isIncomingPending =
+                              request?.status === "pending" && request.direction === "incoming";
+                            return (
+                              <div
+                                key={person.email}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <div
+                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {getAvatarText(person.name)}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p
+                                      className={`truncate text-sm font-semibold ${
+                                        isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                      }`}
+                                    >
+                                      {person.name}
+                                      {person.isSelf ? " (você)" : ""}
+                                    </p>
+                                    <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                      {person.knexId} • {maskEmail(person.email)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {person.isSelf ? (
+                                    <span
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                        isDarkTheme ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-600"
+                                      }`}
+                                    >
+                                      Você
+                                    </span>
+                                  ) : isContact && contactThread ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openContactThread(contactThread.id)}
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                      }`}
+                                    >
+                                      Abrir conversa
+                                    </button>
+                                  ) : isOutgoingPending ? (
+                                    <span
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                        isDarkTheme ? "bg-blue-500/20 text-blue-100" : "bg-blue-50 text-blue-700"
+                                      }`}
+                                    >
+                                      Solicitação enviada
+                                    </span>
+                                  ) : isIncomingPending ? (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAcceptContactRequest(person.email, person.name)}
+                                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                          isDarkTheme
+                                            ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                        }`}
+                                      >
+                                        Aceitar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRejectContactRequest(person.email, "rejected")}
+                                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                          isDarkTheme
+                                            ? "bg-white/10 text-slate-200 hover:bg-white/20"
+                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                        }`}
+                                      >
+                                        Recusar
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendContactRequest(person.email, person.name)}
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "border border-blue-400/60 text-blue-200 hover:bg-blue-500/10"
+                                          : "border border-blue-300 text-blue-600 hover:bg-blue-50"
+                                      }`}
+                                    >
+                                      Solicitar contato
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma pessoa encontrada.</p>
+                        )}
+                      </div>
+                    ) : directoryTab === "contacts" ? (
+                      <div className="space-y-3">
+                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>Meus contatos</p>
+                        {contacts.length ? (
+                          contacts.map((contact) => (
+                            <button
+                              key={contact.id}
+                              type="button"
+                              onClick={() => openContactThread(contact.id)}
+                              className={`flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition ${
+                                isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                              }`}
+                            >
+                              <div className="flex min-w-0 items-center gap-3">
+                                {contact.avatarUrl ? (
+                                  <img
+                                    src={contact.avatarUrl}
+                                    alt={`Avatar de ${contact.title}`}
+                                    className={`h-11 w-11 ${avatarFrameMd} object-cover`}
+                                  />
+                                ) : (
+                                  <div
+                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {getAvatarText(contact.title)}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {contact.title}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {contact.contactEmail ? maskEmail(contact.contactEmail) : contact.preview}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className={`text-[11px] ${settingsMuted}`}>Conectado</span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhum contato aceito ainda.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="space-y-3">
+                          <p className={`text-[11px] font-semibold ${settingsMuted}`}>Solicitações recebidas</p>
+                          {incomingRequests.length ? (
+                            incomingRequests.map((request) => (
+                              <div
+                                key={request.id}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {request.name ?? formatNameFromEmail(request.email)}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                  </p>
+                                </div>
+                                {request.status === "pending" ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAcceptContactRequest(request.email, request.name)}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                      }`}
+                                    >
+                                      Aceitar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRejectContactRequest(request.email, "rejected")}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-white/10 text-slate-200 hover:bg-white/20"
+                                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                      }`}
+                                    >
+                                      Recusar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRejectContactRequest(request.email, "blocked")}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                                          : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                      }`}
+                                    >
+                                      Bloquear
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className={`text-[11px] ${settingsMuted}`}>{request.status}</span>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma solicitação recebida.</p>
+                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <p className={`text-[11px] font-semibold ${settingsMuted}`}>Solicitações enviadas</p>
+                          {outgoingRequests.length ? (
+                            outgoingRequests.map((request) => (
+                              <div
+                                key={request.id}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {request.name ?? formatNameFromEmail(request.email)}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                    request.status === "pending"
+                                      ? isDarkTheme
+                                        ? "bg-blue-500/20 text-blue-100"
+                                        : "bg-blue-50 text-blue-700"
+                                      : isDarkTheme
+                                        ? "bg-white/10 text-slate-200"
+                                        : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {request.status === "pending" ? "Aguardando" : request.status}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma solicitação enviada.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : isNewChatOpen ? (
-                <div className={`flex h-full flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                <div
+                  className={`absolute inset-0 z-20 flex h-full flex-col ${
+                    isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"
+                  } lg:rounded-tl-md`}
+                >
                   <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
                   <button
                     type="button"
@@ -6877,221 +7556,226 @@ export default function KnexChatPage() {
                 className={`relative flex-1 min-h-0 transition-colors ${messagePanelBg}`}
                 style={messagePanelBodyStyle}
               >
-                <div className="absolute inset-0 overflow-y-auto px-6 py-6">
-                  {pendingJoinToken ? (
-                    <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold">Convite detectado</p>
-                          <p className="text-xs text-emerald-100/80">
-                            Token: {pendingJoinToken} - Clique para entrar no grupo.
-                          </p>
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-2">
+                    {pendingJoinToken ? (
+                      <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">Convite detectado</p>
+                            <p className="text-xs text-emerald-100/80">
+                              Token: {pendingJoinToken} - Clique para entrar no grupo.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleAcceptJoin}
+                            className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
+                          >
+                            Entrar
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleAcceptJoin}
-                          className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
-                        >
-                          Entrar
-                        </button>
                       </div>
-                    </div>
-                  ) : null}
-                  <div className="space-y-4">
-                    {activeMessages.map((message) => {
-                      const isMe = message.author === "me";
-                      const isGroupChat = activeThread?.tab === "groups";
-                      const showSender = !isMe && isGroupChat;
-                      const senderLabel = message.senderName ?? "Participante";
-                      const senderColorClass = getSenderColorClass(senderLabel);
-                      const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
-                      const isMediaMessage = Boolean(message.imageUrl);
-                      const bubble = (
-                        <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
-                          {showSender ? (
-                            <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
-                          ) : null}
-                          {message.imageUrl ? (
-                            <div className="knex-bubble__media">
-                              <img
-                                src={message.imageUrl}
-                                alt={message.imageName ?? "Imagem enviada"}
-                                className="knex-bubble__image"
-                              />
-                              {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
-                            </div>
-                          ) : (
-                            <p className="knex-bubble__text">{message.body}</p>
-                          )}
-                          <p className="knex-bubble__time">{message.time}</p>
-                        </div>
-                      );
-                  const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
-                    <img
-                      src={activeThreadAvatarUrl}
-                      alt={`Avatar de ${activeThread.title}`}
-                      className={`h-9 w-9 ${avatarFrameXs} object-cover`}
-                    />
-                  ) : (
-                    <div
-                      className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
-                    >
-                      {getAvatarText(activeThread?.title ?? "KN")}
-                    </div>
-                  );
-                      const showIncomingAvatar = !isMe && isGroupChat;
-                      const showOutgoingAvatar = isMe && isGroupChat;
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex ${isMe ? "items-end justify-end" : "items-start justify-start"} ${
-                          isGroupChat ? "gap-3" : "gap-0"
-                        }`}
-                      >
-                        {!isMe ? (
-                          <>
-                            {showIncomingAvatar ? incomingAvatar : null}
-                            {bubble}
-                          </>
-                        ) : (
-                          bubble
-                        )}
-                    {showOutgoingAvatar ? (
-                      currentUser?.avatarUrl ? (
-                        <img
-                          src={currentUser.avatarUrl}
-                          alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                          className={`h-9 w-9 ${avatarFrameXs} object-cover`}
-                        />
-                      ) : (
-                        <div
-                          className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-emerald-500/20 text-xs font-semibold text-emerald-200`}
-                        >
-                          {currentUser?.avatarText ?? "KN"}
-                        </div>
-                      )
                     ) : null}
+                    <div className="space-y-4">
+                      {activeMessages.map((message) => {
+                        const isMe = message.author === "me";
+                        const isGroupChat = activeThread?.tab === "groups";
+                        const showSender = !isMe && isGroupChat;
+                        const senderLabel = message.senderName ?? "Participante";
+                        const senderColorClass = getSenderColorClass(senderLabel);
+                        const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
+                        const isMediaMessage = Boolean(message.imageUrl);
+                        const bubble = (
+                          <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
+                            {showSender ? (
+                              <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
+                            ) : null}
+                            {message.imageUrl ? (
+                              <div className="knex-bubble__media">
+                                <img
+                                  src={message.imageUrl}
+                                  alt={message.imageName ?? "Imagem enviada"}
+                                  className="knex-bubble__image"
+                                />
+                                {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
+                              </div>
+                            ) : (
+                              <p className="knex-bubble__text">{message.body}</p>
+                            )}
+                            <p className="knex-bubble__time">{message.time}</p>
+                          </div>
+                        );
+                    const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
+                      <img
+                        src={activeThreadAvatarUrl}
+                        alt={`Avatar de ${activeThread.title}`}
+                        className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
+                      >
+                        {getAvatarText(activeThread?.title ?? "KN")}
                       </div>
                     );
-                  })}
-                  </div>
-                </div>
-
-                <div className="absolute inset-x-4 bottom-0.5">
-                  <form
-                    className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (recordingState === "idle") {
-                        handleSendMessage();
-                      }
-                    }}
-                  >
-                    {messageSendNotice ? (
-                      <div
-                        className={`w-full rounded-2xl border px-3 py-2 text-xs ${
-                          isDarkTheme
-                            ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
-                            : "border-amber-200 bg-amber-50 text-amber-700"
-                        }`}
-                      >
-                        {messageSendNotice}
-                      </div>
-                    ) : null}
-                    <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
-                      <button
-                        type="button"
-                        aria-label="Adicionar"
-                        onClick={() => messageImageInputRef.current?.click()}
-                        className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
-                      >
-                        +
-                      </button>
-                      <input
-                        ref={messageImageInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={handleMessageImageChange}
-                      />
-                      <button
-                        type="button"
-                        aria-label="Emojis"
-                        className="text-slate-600 transition hover:text-slate-900"
-                      >
-                        <Smile className="h-5 w-5" />
-                      </button>
-                      <input
-                        type="text"
-                        value={messageDraft}
-                        onChange={(event) => {
-                          setMessageDraft(event.target.value);
-                          if (messageSendNotice) setMessageSendNotice(null);
-                        }}
-                        placeholder="Digite uma mensagem"
-                        className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
-                      />
-                      {recordingState !== "idle" ? (
-                        <div className="ml-auto flex items-center gap-2">
-                          <button
-                            type="button"
-                            aria-label="Cancelar gravação"
-                            onClick={() => stopRecording("discard")}
-                            className="text-slate-500 transition hover:text-slate-900"
+                        const showIncomingAvatar = !isMe && isGroupChat;
+                        const showOutgoingAvatar = isMe && isGroupChat;
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${isMe ? "items-end justify-end" : "items-start justify-start"} ${
+                            isGroupChat ? "gap-3" : "gap-0"
+                          }`}
+                        >
+                          {!isMe ? (
+                            <>
+                              {showIncomingAvatar ? incomingAvatar : null}
+                              {bubble}
+                            </>
+                          ) : (
+                            bubble
+                          )}
+                      {showOutgoingAvatar ? (
+                        currentUser?.avatarUrl ? (
+                          <img
+                            src={currentUser.avatarUrl}
+                            alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                            className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                          />
+                        ) : (
+                          <div
+                            className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-emerald-500/20 text-xs font-semibold text-emerald-200`}
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <span className="h-2 w-2 rounded-full bg-rose-500" />
-                            {formatDuration(recordingSeconds)}
-                          </span>
-                          <span className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`} aria-hidden="true">
-                            {Array.from({ length: 14 }).map((_, index) => (
-                              <span
-                                key={index}
-                                className="knex-record-bar"
-                                style={{ "--i": 13 - index } as CSSProperties}
-                              />
-                            ))}
-                          </span>
-                          <button
-                            type="button"
-                            aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
-                            onClick={toggleRecordingPause}
-                            className="text-slate-500 transition hover:text-slate-900"
-                          >
-                            {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                          </button>
-                          <Timer className="h-4 w-4 text-slate-400" />
-                          <button
-                            type="button"
-                            aria-label="Enviar áudio"
-                            onClick={() => stopRecording("send")}
-                            className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
-                          >
-                            <SendHorizontal className="h-4 w-4" />
-                          </button>
+                            {currentUser?.avatarText ?? "KN"}
+                          </div>
+                        )
+                      ) : null}
                         </div>
-                      ) : (
+                      );
+                    })}
+                    </div>
+                  </div>
+
+                  <div className="px-4 pb-2 pt-1">
+                    <form
+                      className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (recordingState === "idle") {
+                          handleSendMessage();
+                        }
+                      }}
+                    >
+                      {messageSendNotice ? (
+                        <div
+                          className={`w-full rounded-2xl border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                              : "border-amber-200 bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {messageSendNotice}
+                        </div>
+                      ) : null}
+                      <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
                         <button
                           type="button"
-                          aria-label="Gravar áudio"
-                          onClick={startRecording}
-                          className="ml-auto text-blue-600 transition hover:text-blue-700"
+                          aria-label="Adicionar"
+                          onClick={() => messageImageInputRef.current?.click()}
+                          className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
                         >
-                          <Mic className="h-5 w-5" />
+                          +
                         </button>
-                      )}
-                    </div>
-                    {recordingState === "idle" && messageDraft.trim() ? (
-                      <button
-                        type="submit"
-                        className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
-                      >
-                        Enviar
-                      </button>
-                    ) : null}
-                  </form>
+                        <input
+                          ref={messageImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={handleMessageImageChange}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Emojis"
+                          className="text-slate-600 transition hover:text-slate-900"
+                        >
+                          <Smile className="h-5 w-5" />
+                        </button>
+                        <input
+                          type="text"
+                          value={messageDraft}
+                          onChange={(event) => {
+                            setMessageDraft(event.target.value);
+                            if (messageSendNotice) setMessageSendNotice(null);
+                          }}
+                          placeholder="Digite uma mensagem"
+                          className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+                        />
+                        {recordingState !== "idle" ? (
+                          <div className="ml-auto flex items-center gap-2">
+                            <button
+                              type="button"
+                              aria-label="Cancelar gravação"
+                              onClick={() => stopRecording("discard")}
+                              className="text-slate-500 transition hover:text-slate-900"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                            <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                              <span className="h-2 w-2 rounded-full bg-rose-500" />
+                              {formatDuration(recordingSeconds)}
+                            </span>
+                            <span
+                              className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`}
+                              aria-hidden="true"
+                            >
+                              {Array.from({ length: 14 }).map((_, index) => (
+                                <span
+                                  key={index}
+                                  className="knex-record-bar"
+                                  style={{ "--i": 13 - index } as CSSProperties}
+                                />
+                              ))}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
+                              onClick={toggleRecordingPause}
+                              className="text-slate-500 transition hover:text-slate-900"
+                            >
+                              {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                            </button>
+                            <Timer className="h-4 w-4 text-slate-400" />
+                            <button
+                              type="button"
+                              aria-label="Enviar áudio"
+                              onClick={() => stopRecording("send")}
+                              className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
+                            >
+                              <SendHorizontal className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label="Gravar áudio"
+                            onClick={startRecording}
+                            className="ml-auto text-blue-600 transition hover:text-blue-700"
+                          >
+                            <Mic className="h-5 w-5" />
+                          </button>
+                        )}
+                      </div>
+                      {recordingState === "idle" && messageDraft.trim() ? (
+                        <button
+                          type="submit"
+                          className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                        >
+                          Enviar
+                        </button>
+                      ) : null}
+                    </form>
+                  </div>
                 </div>
               </div>
             </>

@@ -1,49 +1,18 @@
 import { NextRequest } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
+import { getSupabaseAdmin, resolveAuthEmail } from "@/app/api/knexchat/_auth";
 
 export const runtime = "nodejs";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-let supabaseAdmin: SupabaseClient<Database> | null = null;
-const getSupabaseAdmin = () => {
-  if (!supabaseUrl || !serviceRoleKey) return null;
-  if (!supabaseAdmin) {
-    supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-  }
-  return supabaseAdmin;
-};
 
 const allowedKinds = new Set(["text", "image", "audio", "file"]);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const extractToken = (req: NextRequest) => {
-  const header = req.headers.get("authorization") || "";
-  if (!header.toLowerCase().startsWith("bearer ")) return "";
-  return header.slice(7).trim();
-};
-
-async function requireAuthEmail(req: NextRequest) {
-  const admin = getSupabaseAdmin();
-  if (!admin) return null;
-  const token = extractToken(req);
-  if (!token) return null;
-  const { data, error } = await admin.auth.getUser(token);
-  if (error) return null;
-  const email = data?.user?.email ? normalizeEmail(data.user.email) : "";
-  return email || null;
-}
 
 export async function GET(req: NextRequest) {
   if (!getSupabaseAdmin()) {
     return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
   }
-  const authEmail = await requireAuthEmail(req);
+  const authEmail = await resolveAuthEmail(req);
   if (!authEmail) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
@@ -93,7 +62,7 @@ export async function POST(req: NextRequest) {
   if (!getSupabaseAdmin()) {
     return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
   }
-  const authEmail = await requireAuthEmail(req);
+  const authEmail = await resolveAuthEmail(req);
   if (!authEmail) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }

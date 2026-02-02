@@ -20,6 +20,7 @@
     "@supabase/supabase-js": "^2.45.0",
     "@types/cors": "^2.8.19",
     "@types/dotenv": "^6.1.1",
+    "@upstash/redis": "^1.36.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "emoji-picker-react": "^4.17.3",
