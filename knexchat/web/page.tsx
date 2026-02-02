@@ -62,7 +62,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import EmojiPicker, { Theme } from "emoji-picker-react";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties } from "react";
 import { supabase } from "@/lib/supabaseClient";
@@ -223,6 +222,124 @@ function KnexChatMotionStyles() {
 
 type ScreenVariant = "phone" | "laptop";
 
+type ActivationLayout = {
+  scale: number;
+  stageWidth: number;
+  stageHeight: number;
+  phoneLeft: number;
+  laptopLeft: number;
+  topStartX: number;
+  topEndX: number;
+  bottomStartX: number;
+  bottomEndX: number;
+};
+
+const STAGE_WIDTH = 2200;
+const STAGE_HEIGHT = 700;
+const PHONE_WIDTH = 320;
+const LAPTOP_WIDTH = 520;
+const CARD_MAX_WIDTH = 512;
+const FLOW_TOP_START_OFFSET = 110;
+const FLOW_TOP_END_OFFSET = 274;
+const FLOW_BOTTOM_END_OFFSET = 43;
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function computeActivationLayout(viewportWidth: number, viewportHeight: number): ActivationLayout {
+  const safeWidth = Math.max(viewportWidth, 1);
+  const safeHeight = Math.max(viewportHeight, 1);
+  const scale = Math.min(1, safeWidth / STAGE_WIDTH, safeHeight / STAGE_HEIGHT);
+  const horizontalPadding = safeWidth >= 640 ? 48 : 32;
+  const cardWidth = Math.min(CARD_MAX_WIDTH, Math.max(0, safeWidth - horizontalPadding));
+  const cardWidthStage = cardWidth / scale;
+  const desiredGap = clampValue(safeWidth * 0.08, 96, 200);
+  const gapStage = desiredGap / scale;
+  const cardLeft = (STAGE_WIDTH - cardWidthStage) / 2;
+  const maxGapStage = Math.max(0, cardLeft - LAPTOP_WIDTH);
+  const safeGapStage = Math.min(gapStage, maxGapStage);
+
+  const phoneLeft = clampValue(cardLeft - safeGapStage - PHONE_WIDTH, 0, STAGE_WIDTH - PHONE_WIDTH);
+  const laptopLeft = clampValue(cardLeft + cardWidthStage + safeGapStage, 0, STAGE_WIDTH - LAPTOP_WIDTH);
+
+  const topStartX = phoneLeft + FLOW_TOP_START_OFFSET;
+  const topEndX = laptopLeft + FLOW_TOP_END_OFFSET;
+  const bottomStartX = topEndX;
+  const bottomEndX = phoneLeft + FLOW_BOTTOM_END_OFFSET;
+
+  return {
+    scale,
+    stageWidth: STAGE_WIDTH,
+    stageHeight: STAGE_HEIGHT,
+    phoneLeft,
+    laptopLeft,
+    topStartX,
+    topEndX,
+    bottomStartX,
+    bottomEndX,
+  };
+}
+
+type SimpleEmojiPickerProps = {
+  width?: number;
+  height?: number;
+  onEmojiClick: (emoji: string) => void;
+  isDark?: boolean;
+};
+
+const SIMPLE_EMOJI_SET = [
+  "😀",
+  "😅",
+  "😍",
+  "🤝",
+  "🎉",
+  "🔥",
+  "✨",
+  "✅",
+  "📌",
+  "💬",
+  "🚀",
+  "📣",
+  "👋",
+  "🙏",
+  "💡",
+  "🧠",
+  "⚡",
+  "❤️",
+  "👍",
+  "👏",
+  "🙌",
+  "🎯",
+  "📎",
+  "🔒",
+];
+
+function SimpleEmojiPicker({ width, height, onEmojiClick, isDark }: SimpleEmojiPickerProps) {
+  return (
+    <div
+      className={`h-full w-full overflow-y-auto p-3 ${isDark ? "bg-[#1b1b1b]" : "bg-white"}`}
+      style={{ width, height }}
+    >
+      <div className="grid grid-cols-8 gap-2 text-lg">
+        {SIMPLE_EMOJI_SET.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+              isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+            }`}
+            onClick={() => onEmojiClick(emoji)}
+            aria-label={`Selecionar ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
   const headerPadding = variant === "phone" ? "px-4 py-3" : "px-5 py-3";
   const bodyPadding = variant === "phone" ? "px-4 py-4" : "px-5 py-5";
@@ -233,7 +350,7 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
     <div className="flex h-full flex-col">
       <div className={`flex items-center justify-between border-b border-slate-200 ${headerPadding} ${textBase} text-slate-500`}>
         <span className="font-semibold">
-          <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
             KnexChat
           </span>
         </span>
@@ -303,13 +420,185 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
   );
 }
 
-function KnexChatGlowBackdrop() {
+function KnexChatFlowOverlay({ layout }: { layout: ActivationLayout }) {
+  const topSpan = layout.topEndX - layout.topStartX;
+  const topCtrlOffset = topSpan / 4;
+  const topPath = `M${layout.topStartX} 120 C ${layout.topStartX + topCtrlOffset} 30 ${
+    layout.topEndX - topCtrlOffset
+  } 30 ${layout.topEndX} 120`;
+  const bottomPath = `M${layout.bottomStartX} 300 L ${layout.bottomStartX} 520 L ${layout.bottomEndX} 520 L ${layout.bottomEndX} 360`;
+
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 z-0 hidden lg:block"
+      viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <path id="knex-flow-top" d={topPath} />
+        <path id="knex-flow-bottom" d={bottomPath} />
+        <clipPath id="knex-avatar-clip" clipPathUnits="objectBoundingBox">
+          <circle cx="0.5" cy="0.5" r="0.5" />
+        </clipPath>
+        <filter id="knex-avatar-shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="rgba(15,23,42,0.25)" />
+        </filter>
+      </defs>
+
+      <path
+        d={topPath}
+        fill="none"
+        stroke="rgba(59,130,246,0.35)"
+        strokeWidth="1.6"
+        strokeDasharray="4 12"
+        strokeLinecap="round"
+      >
+        <animate attributeName="stroke-dashoffset" from="0" to="-120" dur="8s" repeatCount="indefinite" />
+      </path>
+      <path
+        d={bottomPath}
+        fill="none"
+        stroke="rgba(59,130,246,0.3)"
+        strokeWidth="1.6"
+        strokeDasharray="4 12"
+        strokeLinecap="round"
+      >
+        <animate attributeName="stroke-dashoffset" from="0" to="120" dur="9s" repeatCount="indefinite" />
+      </path>
+
+      {[0, 3.5, 7].map((start) => (
+        <g key={`arrow-top-${start}`}>
+          <path d="M0 0 L10 4 L0 8 L3 4 Z" fill="rgba(59,130,246,0.55)" />
+          <animateMotion dur="10s" repeatCount="indefinite" begin={`${start}s`} rotate="auto">
+            <mpath href="#knex-flow-top" />
+          </animateMotion>
+        </g>
+      ))}
+      {[1.5, 5, 8.5].map((start) => (
+        <g key={`arrow-bottom-${start}`}>
+          <path d="M0 0 L10 4 L0 8 L3 4 Z" fill="rgba(59,130,246,0.45)" />
+          <animateMotion dur="11s" repeatCount="indefinite" begin={`${start}s`} rotate="auto">
+            <mpath href="#knex-flow-bottom" />
+          </animateMotion>
+        </g>
+      ))}
+
+      {[
+        { img: "https://i.pravatar.cc/120?img=12", begin: "0s", path: "#knex-flow-top" },
+        { img: "https://i.pravatar.cc/120?img=32", begin: "4s", path: "#knex-flow-top" },
+        { img: "https://i.pravatar.cc/120?img=8", begin: "8s", path: "#knex-flow-top" },
+      ].map((item) => (
+        <g key={item.img} filter="url(#knex-avatar-shadow)">
+          <image
+            href={item.img}
+            width="40"
+            height="40"
+            clipPath="url(#knex-avatar-clip)"
+            preserveAspectRatio="xMidYMid slice"
+          />
+          <circle cx="20" cy="20" r="20" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1" />
+          <animateMotion dur="14s" repeatCount="indefinite" begin={item.begin} rotate="0">
+            <mpath href={item.path} />
+          </animateMotion>
+        </g>
+      ))}
+      {[
+        { img: "https://i.pravatar.cc/120?img=45", begin: "1s", path: "#knex-flow-bottom" },
+        { img: "https://i.pravatar.cc/120?img=5", begin: "5s", path: "#knex-flow-bottom" },
+        { img: "https://i.pravatar.cc/120?img=18", begin: "9s", path: "#knex-flow-bottom" },
+      ].map((item) => (
+        <g key={item.img} filter="url(#knex-avatar-shadow)">
+          <image
+            href={item.img}
+            width="40"
+            height="40"
+            clipPath="url(#knex-avatar-clip)"
+            preserveAspectRatio="xMidYMid slice"
+          />
+          <circle cx="20" cy="20" r="20" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1" />
+          <animateMotion dur="15s" repeatCount="indefinite" begin={item.begin} rotate="0">
+            <mpath href={item.path} />
+          </animateMotion>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function KnexChatGlowBackdrop({ layout }: { layout: ActivationLayout }) {
+  const stageStyle = {
+    transform: `translateZ(0) scale(${layout.scale})`,
+    transformOrigin: "center",
+  } as CSSProperties;
   return (
     <>
       <div className="pointer-events-none absolute -top-[140px] -left-[140px] z-0 h-[720px] w-[720px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.26)_0%,transparent_70%)] blur-[90px] opacity-60" />
       <div className="pointer-events-none absolute -bottom-[180px] -right-[180px] z-0 h-[820px] w-[820px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.24)_0%,transparent_70%)] blur-[90px] opacity-60" />
       <div className="pointer-events-none absolute -top-[120px] -right-[200px] z-0 h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
       <div className="pointer-events-none absolute -bottom-[160px] -left-[200px] z-0 h-[640px] w-[640px] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_70%)] blur-[90px] opacity-50" />
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+        <div className="relative" style={{ width: layout.stageWidth, height: layout.stageHeight, ...stageStyle }}>
+          <KnexChatFlowOverlay layout={layout} />
+          <div className="absolute top-10 hidden lg:block" style={{ left: layout.phoneLeft }}>
+            <div className="relative h-[600px] w-[320px] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
+              <div className="absolute inset-0 rounded-[54px] bg-slate-900 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.9)]" />
+              <div className="absolute inset-[6px] overflow-hidden rounded-[46px] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <KnexChatScreen variant="phone" />
+              </div>
+              <div className="absolute top-5 left-1/2 h-2 w-20 -translate-x-1/2 rounded-full bg-slate-800/70" />
+            </div>
+          </div>
+
+          <div className="absolute top-14 hidden lg:block" style={{ left: layout.laptopLeft }}>
+            <div className="relative h-[456px] w-[520px] drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
+              <div className="flex h-full w-full flex-col">
+                <div className="relative flex-1 rounded-t-[20px] border border-slate-200/80 bg-slate-900 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
+                  <div className="absolute inset-2 overflow-hidden rounded-[16px] bg-white">
+                    <KnexChatScreen variant="laptop" />
+                  </div>
+                </div>
+                <div className="relative h-40 w-full rounded-[0_0_28px_28px] bg-slate-200 shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
+                  <div className="absolute inset-x-6 top-3 text-[9px] text-slate-500/80">
+                    <div className="grid grid-cols-12 gap-1">
+                      {"QWERTYUIOP[]".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-1 grid grid-cols-11 gap-1 px-1">
+                      {"ASDFGHJKL;".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                      <div className="rounded-sm bg-white/70 px-1 py-0.5 text-center">Enter</div>
+                    </div>
+                    <div className="mt-1 grid grid-cols-12 gap-1">
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
+                      {"ZXCVBNM,.".split("").map((key) => (
+                        <div key={key} className="rounded-sm bg-white/70 px-1 py-0.5 text-center">
+                          {key}
+                        </div>
+                      ))}
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Shift</div>
+                    </div>
+                    <div className="mt-1 grid grid-cols-12 gap-1">
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
+                      <div className="col-span-4 rounded-sm bg-white/70 px-1 py-0.5 text-center">space</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Alt</div>
+                      <div className="col-span-2 rounded-sm bg-white/70 px-1 py-0.5 text-center">Ctrl</div>
+                    </div>
+                  </div>
+                  <div className="absolute bottom-2 left-1/2 h-5 w-32 -translate-x-1/2 rounded-md bg-slate-300" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
@@ -347,6 +636,26 @@ type InboxMessage = {
 type TabKey = "conversations" | "groups" | "contacts";
 type FilterKey = "all" | "unread" | "groups" | "contacts";
 type MediaTabKey = "media" | "docs" | "links";
+type DirectoryTabKey = "people" | "contacts" | "requests";
+type DirectoryFilterKey = "all" | "identity" | "context" | "relationship";
+
+type ContactRequestStatus = "pending" | "accepted" | "rejected" | "blocked";
+type ContactRequestDirection = "incoming" | "outgoing";
+type ContactRequest = {
+  id: string;
+  email: string;
+  name?: string;
+  status: ContactRequestStatus;
+  direction: ContactRequestDirection;
+  createdAt: string;
+};
+
+type DirectoryPerson = {
+  email: string;
+  name: string;
+  knexId: string;
+  isSelf?: boolean;
+};
 
 type Thread = {
   id: string;
@@ -437,6 +746,19 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "unread", label: "Não lidas" },
   { key: "groups", label: "Grupos" },
   { key: "contacts", label: "Contatos" },
+];
+
+const DIRECTORY_TABS: { key: DirectoryTabKey; label: string }[] = [
+  { key: "people", label: "Pessoas" },
+  { key: "contacts", label: "Meus contatos" },
+  { key: "requests", label: "Solicitações" },
+];
+
+const DIRECTORY_FILTERS: { key: DirectoryFilterKey; label: string; hint: string }[] = [
+  { key: "all", label: "Todos", hint: "Exibição completa" },
+  { key: "identity", label: "Identidade", hint: "Nome, Knex ID, e-mail parcial" },
+  { key: "context", label: "Contexto", hint: "Instituição, curso, comunidades" },
+  { key: "relationship", label: "Relacionamento", hint: "Contatos e solicitações" },
 ];
 
 const WALLPAPER_OPTIONS: WallpaperOption[] = [
@@ -594,6 +916,30 @@ function formatNameFromEmail(email: string) {
   const spaced = local.replace(/[._-]+/g, " ").trim();
   if (!spaced) return email;
   return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function maskEmail(email: string) {
+  const [localPart, domainPart] = email.split("@");
+  if (!localPart || !domainPart) return email;
+  const localMasked =
+    localPart.length <= 2
+      ? `${localPart.slice(0, 1)}*`
+      : `${localPart.slice(0, 1)}${"*".repeat(Math.min(localPart.length - 2, 3))}${localPart.slice(-1)}`;
+  const domainSegments = domainPart.split(".");
+  const tld = domainSegments.length > 1 ? `.${domainSegments.slice(1).join(".")}` : "";
+  const domainBase = domainSegments[0] ?? domainPart;
+  const domainMasked =
+    domainBase.length <= 2
+      ? `${domainBase.slice(0, 1)}*`
+      : `${domainBase.slice(0, 1)}${"*".repeat(Math.min(domainBase.length - 2, 3))}${domainBase.slice(-1)}`;
+  return `${localMasked}@${domainMasked}${tld}`;
+}
+
+function getKnexIdFromEmail(email: string) {
+  const local = email.split("@")[0] ?? email;
+  const cleaned = local.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const suffix = cleaned ? cleaned.slice(0, 12) : "usuario";
+  return `knex-${suffix}`;
 }
 
 function contactIdFromEmail(email: string) {
@@ -796,6 +1142,9 @@ export default function KnexChatPage() {
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [activationLayout, setActivationLayout] = useState<ActivationLayout>(() =>
+    computeActivationLayout(1440, 900),
+  );
   const [directoryEntries, setDirectoryEntries] = useState<DirectoryEntry[]>([]);
   const [directoryLookupCache, setDirectoryLookupCache] = useState<Record<string, boolean>>({});
   const serverMessagingEnabled = true;
@@ -882,6 +1231,12 @@ export default function KnexChatPage() {
   const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
   const [isCommunityListOpen, setIsCommunityListOpen] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [isDirectoryOpen, setIsDirectoryOpen] = useState(false);
+  const [directoryTab, setDirectoryTab] = useState<DirectoryTabKey>("people");
+  const [directorySearch, setDirectorySearch] = useState("");
+  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilterKey>("all");
+  const [isDirectoryFiltersOpen, setIsDirectoryFiltersOpen] = useState(false);
+  const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
   const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
   const [isGroupMembersExpanded, setIsGroupMembersExpanded] = useState(false);
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
@@ -1096,6 +1451,87 @@ export default function KnexChatPage() {
       return haystack.includes(query);
     });
   }, [activeThreads, conversationSearch]);
+  const contactEmailSet = useMemo(() => {
+    const next = new Set<string>();
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (email) next.add(email);
+    });
+    return next;
+  }, [contacts]);
+  const contactByEmail = useMemo(() => {
+    const next = new Map<string, Thread>();
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (email) next.set(email, contact);
+    });
+    return next;
+  }, [contacts]);
+  const directoryPeople = useMemo<DirectoryPerson[]>(() => {
+    const byEmail = new Map<string, DirectoryPerson>();
+    const addPerson = (email: string, name?: string, isSelf?: boolean) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized) return;
+      const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
+      const existing = byEmail.get(normalized);
+      if (existing) {
+        if (!existing.name && displayName) existing.name = displayName;
+        if (isSelf) existing.isSelf = true;
+        return;
+      }
+      byEmail.set(normalized, {
+        email: normalized,
+        name: displayName,
+        knexId: getKnexIdFromEmail(normalized),
+        isSelf,
+      });
+    };
+    directoryEntries.forEach((entry) => addPerson(entry.email, entry.name));
+    contacts.forEach((contact) => {
+      const email = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (!email) return;
+      addPerson(email, contact.title);
+    });
+    if (identity?.email) {
+      addPerson(identity.email, identity.name ?? undefined, true);
+    }
+    const list = Array.from(byEmail.values());
+    list.sort((a, b) => {
+      if (a.isSelf && !b.isSelf) return -1;
+      if (!a.isSelf && b.isSelf) return 1;
+      return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+    });
+    return list;
+  }, [contacts, directoryEntries, identity?.email, identity?.name]);
+  const filteredDirectoryPeople = useMemo(() => {
+    const query = directorySearch.trim().toLowerCase();
+    if (!query) return directoryPeople;
+    return directoryPeople.filter((person) => {
+      const haystack = `${person.name} ${person.knexId} ${person.email}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [directoryPeople, directorySearch]);
+  const contactRequestByEmail = useMemo(() => {
+    const next = new Map<string, ContactRequest>();
+    contactRequests.forEach((request) => {
+      next.set(normalizeEmail(request.email), request);
+    });
+    return next;
+  }, [contactRequests]);
+  const incomingRequests = useMemo(
+    () => contactRequests.filter((request) => request.direction === "incoming"),
+    [contactRequests],
+  );
+  const outgoingRequests = useMemo(
+    () => contactRequests.filter((request) => request.direction === "outgoing"),
+    [contactRequests],
+  );
   const baseContacts = useMemo(
     () =>
       contacts.map((contact) => ({
@@ -1722,11 +2158,89 @@ export default function KnexChatPage() {
       setIsNewGroupCreateOpen(false);
       setIsCommunityListOpen(false);
       setIsNewContactOpen(false);
+      setIsDirectoryOpen(false);
       setIsProfileOpen(false);
       setProfileTarget(null);
     },
     [contacts, conversations],
   );
+  const addContactFromDirectory = useCallback(
+    (email: string, name?: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized || !isValidEmail(normalized)) return;
+      const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
+      const contactId = contactIdFromEmail(normalized);
+      setContacts((prev) => {
+        if (prev.some((contact) => getContactPrimaryKey(contact) === normalized)) return prev;
+        return [
+          {
+            id: contactId,
+            title: displayName,
+            preview: normalized,
+            lastActivity: "Agora",
+            lastActivityAt: Date.now(),
+            tab: "contacts",
+            contactEmail: normalized,
+          },
+          ...prev,
+        ];
+      });
+      setMessagesByThread((prev) => ({ ...prev, [contactId]: prev[contactId] ?? [] }));
+      setUnreadByThread((prev) => ({ ...prev, [contactId]: prev[contactId] ?? 0 }));
+    },
+    [setContacts, setMessagesByThread, setUnreadByThread],
+  );
+  const handleSendContactRequest = useCallback(
+    (email: string, name?: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized || !isValidEmail(normalized)) return;
+      if (contactEmailSet.has(normalized)) return;
+      setContactRequests((prev) => {
+        if (
+          prev.some(
+            (request) =>
+              normalizeEmail(request.email) === normalized &&
+              request.status === "pending" &&
+              request.direction === "outgoing",
+          )
+        ) {
+          return prev;
+        }
+        return [
+          {
+            id: `req-${normalized}-${Date.now()}`,
+            email: normalized,
+            name,
+            status: "pending",
+            direction: "outgoing",
+            createdAt: new Date().toISOString(),
+          },
+          ...prev,
+        ];
+      });
+    },
+    [contactEmailSet],
+  );
+  const handleAcceptContactRequest = useCallback(
+    (email: string, name?: string) => {
+      addContactFromDirectory(email, name);
+      setContactRequests((prev) =>
+        prev.map((request) =>
+          normalizeEmail(request.email) === normalizeEmail(email)
+            ? { ...request, status: "accepted" }
+            : request,
+        ),
+      );
+    },
+    [addContactFromDirectory],
+  );
+  const handleRejectContactRequest = useCallback((email: string, status: ContactRequestStatus) => {
+    setContactRequests((prev) =>
+      prev.map((request) =>
+        normalizeEmail(request.email) === normalizeEmail(email) ? { ...request, status } : request,
+      ),
+    );
+  }, []);
   const authTokenRef = useRef<string | null>(null);
   useEffect(() => {
     authTokenRef.current = authSession?.access_token ?? null;
@@ -1743,6 +2257,16 @@ export default function KnexChatPage() {
     },
     [authSession?.access_token],
   );
+  const requestRealtimeTicket = useCallback(async () => {
+    try {
+      const res = await authFetch("/api/knexchat/realtime-ticket", { method: "POST" });
+      if (!res.ok) return "";
+      const payload = (await res.json().catch(() => ({}))) as { ticket?: string };
+      return typeof payload.ticket === "string" ? payload.ticket : "";
+    } catch {
+      return "";
+    }
+  }, [authFetch]);
   const checkEmailRegistered = useCallback(
     async (email: string) => {
       const normalized = normalizeEmail(email);
@@ -2088,9 +2612,7 @@ export default function KnexChatPage() {
     setIsServerSyncing(true);
     setServerSyncError(null);
     try {
-      const res = await authFetch(
-        `/api/knexchat/threads?email=${encodeURIComponent(identity.email)}&includeParticipants=1&includeLastMessage=1`,
-      );
+      const res = await authFetch(`/api/knexchat/threads?includeParticipants=1&includeLastMessage=1`);
       if (!res.ok) throw new Error("threads_failed");
       const payload = (await res.json().catch(() => ({}))) as { threads?: ApiThread[] };
       const rawThreads = Array.isArray(payload?.threads) ? payload.threads : [];
@@ -2600,6 +3122,16 @@ export default function KnexChatPage() {
   }, [activeThread, messagesByThread]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updateLayout = () => {
+      setActivationLayout(computeActivationLayout(window.innerWidth, window.innerHeight));
+    };
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    return () => window.removeEventListener("resize", updateLayout);
+  }, []);
+
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw || !raw.trim()) {
@@ -2616,7 +3148,7 @@ export default function KnexChatPage() {
       localStorage.removeItem(STORAGE_KEY);
     } finally {
       setIsReady(true);
-    }
+    };
   }, []);
 
   useEffect(() => {
@@ -2816,10 +3348,9 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
     if (!authSession?.access_token) return;
-    const source = new EventSource(
-      `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`,
-    );
-    setIsRealtimeConnected(false);
+    let source: EventSource | null = null;
+    let cancelled = false;
+    let reconnectTimer: number | null = null;
 
     const handleReady = () => {
       setIsRealtimeConnected(true);
@@ -2849,13 +3380,37 @@ export default function KnexChatPage() {
 
     const handleError = () => {
       setIsRealtimeConnected(false);
+      if (reconnectTimer !== null) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        if (!cancelled) {
+          refreshRealtime();
+        }
+      }, 2000);
     };
 
-    source.addEventListener("ready", handleReady as EventListener);
-    source.addEventListener("message", handleMessage as EventListener);
-    source.addEventListener("error", handleError as EventListener);
+    const connect = async () => {
+      setIsRealtimeConnected(false);
+      const ticket = await requestRealtimeTicket();
+      const url = ticket
+        ? `/api/knexchat/realtime?ticket=${encodeURIComponent(ticket)}&t=${realtimeKey}`
+        : `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`;
+      if (cancelled) return;
+      source = new EventSource(url);
+      source.addEventListener("ready", handleReady as EventListener);
+      source.addEventListener("message", handleMessage as EventListener);
+      source.addEventListener("error", handleError as EventListener);
+    };
+
+    void connect();
 
     return () => {
+      cancelled = true;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (!source) return;
       source.removeEventListener("ready", handleReady as EventListener);
       source.removeEventListener("message", handleMessage as EventListener);
       source.removeEventListener("error", handleError as EventListener);
@@ -2869,6 +3424,8 @@ export default function KnexChatPage() {
     mapApiMessageToMessage,
     previewFromApiMessage,
     realtimeKey,
+    requestRealtimeTicket,
+    refreshRealtime,
     serverMessagingEnabled,
     updateThreadActivity,
   ]);
@@ -3018,6 +3575,8 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!activeThreads.length) {
+      const existing = allThreads.find((thread) => thread.id === activeThreadId);
+      if (existing) return;
       setActiveThreadId("");
       return;
     }
@@ -4293,7 +4852,7 @@ export default function KnexChatPage() {
   const activationBackdrop = !isChatRoute ? (
     <>
       <KnexChatMotionStyles />
-      <KnexChatGlowBackdrop />
+      <KnexChatGlowBackdrop layout={activationLayout} />
     </>
   ) : null;
 
@@ -4385,7 +4944,7 @@ export default function KnexChatPage() {
         <div className="flex items-center gap-3">
           <div>
             <p className={`${spaceGrotesk.className} text-lg font-semibold`}>
-              <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
                 KnexChat
               </span>
             </p>
@@ -4426,6 +4985,7 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "conversations")}
               onClick={() => {
                 setActiveNavKey("conversations");
+                setIsDirectoryOpen(false);
                 setIsSettingsOpen(false);
                 setIsProfileOpen(false);
                 setProfileTarget(null);
@@ -4462,7 +5022,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "calls")}
               aria-label="Ligações"
               title="Ligações"
-              onClick={() => setActiveNavKey("calls")}
+              onClick={() => {
+                setActiveNavKey("calls");
+                setIsDirectoryOpen(false);
+              }}
             >
               <Phone className="h-5 w-5" />
             </button>
@@ -4480,7 +5043,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "status")}
               aria-label="Status"
               title="Status"
-              onClick={() => setActiveNavKey("status")}
+              onClick={() => {
+                setActiveNavKey("status");
+                setIsDirectoryOpen(false);
+              }}
             >
               <CircleDot className="h-5 w-5" />
             </button>
@@ -4498,7 +5064,10 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "channels")}
               aria-label="Canais"
               title="Canais"
-              onClick={() => setActiveNavKey("channels")}
+              onClick={() => {
+                setActiveNavKey("channels");
+                setIsDirectoryOpen(false);
+              }}
             >
               <Radio className="h-5 w-5" />
             </button>
@@ -4518,6 +5087,7 @@ export default function KnexChatPage() {
               title="Comunidades"
               onClick={() => {
                 setActiveNavKey("communities");
+                setIsDirectoryOpen(false);
                 setIsNewChatOpen(true);
                 setIsCommunityListOpen(true);
                 setIsNewChatEmailOpen(false);
@@ -4547,7 +5117,23 @@ export default function KnexChatPage() {
               className={navButtonClass(activeNavKey === "contacts")}
               aria-label="Novo contato ou conversa"
               title="Novo contato ou conversa"
-              onClick={() => setActiveNavKey("contacts")}
+              onClick={() => {
+                setActiveNavKey("contacts");
+                setIsDirectoryOpen(true);
+                setDirectoryTab("people");
+                setIsNewChatOpen(false);
+                setIsNewChatEmailOpen(false);
+                setIsNewGroupOpen(false);
+                setIsNewGroupCreateOpen(false);
+                setIsCommunityListOpen(false);
+                setIsGroupsPanelOpen(false);
+                setIsGroupCreateOpen(false);
+                setIsGroupsExpanded(false);
+                setIsNewContactOpen(false);
+                setIsSettingsOpen(false);
+                setIsProfileOpen(false);
+                setProfileTarget(null);
+              }}
             >
               <UserPlus
                 className={`h-5 w-5 ${
@@ -4570,6 +5156,7 @@ export default function KnexChatPage() {
                 className={navButtonClass(activeNavKey === "images")}
                 onClick={() => {
                   setActiveNavKey("images");
+                  setIsDirectoryOpen(false);
                   setIsMediaModalOpen(true);
                   setActiveMediaTab("media");
                   setIsMediaSelectMode(false);
@@ -4604,6 +5191,7 @@ export default function KnexChatPage() {
                 className={navButtonClass(activeNavKey === "settings")}
                 onClick={() => {
                   setActiveNavKey("settings");
+                  setIsDirectoryOpen(false);
                   setIsSettingsOpen(true);
                   setIsProfileOpen(false);
                   setProfileTarget(null);
@@ -5316,116 +5904,123 @@ export default function KnexChatPage() {
                 )}
               </div>
             ) : (
-              <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
-                <div className="flex items-center gap-3">
-                  {currentUser?.avatarUrl ? (
-                    <img
-                      src={currentUser.avatarUrl}
-                      alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                      className={`h-12 w-12 ${avatarFrameMd} object-cover`}
-                    />
-                  ) : (
+              isDirectoryOpen || isNewChatOpen ? null : (
+                <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
+                  <div className="flex items-center gap-3">
+                    {currentUser?.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                        className={`h-12 w-12 ${avatarFrameMd} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
+                      >
+                        {currentUser?.avatarText ?? "KN"}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Conversas
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition ${
+                          isDarkTheme
+                            ? "text-blue-300 hover:bg-white/10"
+                            : "text-blue-600 hover:bg-blue-50"
+                        }`}
+                        aria-label="Nova conversa"
+                        title="Nova conversa"
+                        onClick={() => {
+                          setIsDirectoryOpen(false);
+                          setIsNewChatOpen(true);
+                          setIsNewChatEmailOpen(false);
+                          setIsNewGroupOpen(false);
+                          setIsCommunityListOpen(false);
+                          setIsGroupsPanelOpen(false);
+                          setIsGroupCreateOpen(false);
+                          setIsGroupsExpanded(false);
+                          setIsNewContactOpen(false);
+                        }}
+                      >
+                        <MessageCirclePlus className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme
+                            ? "text-slate-200 hover:bg-white/10"
+                            : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                        aria-label="Mais opções"
+                        title="Mais opções"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {isNewChatOpen ? null : (
                     <div
-                      className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
+                      className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                        isDarkTheme
+                          ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
+                          : "border-blue-400 bg-slate-100 text-slate-600"
+                      }`}
                     >
-                      {currentUser?.avatarText ?? "KN"}
+                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <input
+                        type="text"
+                        placeholder="Pesquisar conversas"
+                        value={conversationSearch}
+                        onChange={(event) => setConversationSearch(event.target.value)}
+                        className={`w-full bg-transparent text-xs placeholder:font-medium focus:outline-none ${
+                          isDarkTheme
+                            ? "placeholder:text-slate-400 text-slate-100"
+                            : "placeholder:text-slate-400 text-slate-700"
+                        }`}
+                      />
                     </div>
                   )}
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
-                  </div>
+                  {isNewChatOpen ? null : (
+                    <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+                      {FILTERS.map((filter) => {
+                        const isActive = filter.key === activeFilter;
+                        return (
+                          <button
+                            key={filter.key}
+                            type="button"
+                            onClick={() => setActiveFilter(filter.key)}
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                              isDarkTheme
+                                ? isActive
+                                  ? "bg-emerald-500/30 text-emerald-100"
+                                  : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                                : isActive
+                                  ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                  : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                            }`}
+                          >
+                            {filter.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                    Conversas
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition ${
-                        isDarkTheme
-                          ? "text-blue-300 hover:bg-white/10"
-                          : "text-blue-600 hover:bg-blue-50"
-                      }`}
-                      aria-label="Nova conversa"
-                      title="Nova conversa"
-                      onClick={() => {
-                        setIsNewChatOpen(true);
-                        setIsNewChatEmailOpen(false);
-                        setIsNewGroupOpen(false);
-                        setIsCommunityListOpen(false);
-                        setIsGroupsPanelOpen(false);
-                        setIsGroupCreateOpen(false);
-                        setIsGroupsExpanded(false);
-                        setIsNewContactOpen(false);
-                      }}
-                    >
-                      <MessageCirclePlus className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
-                        isDarkTheme
-                          ? "text-slate-200 hover:bg-white/10"
-                          : "text-slate-700 hover:bg-slate-100"
-                      }`}
-                      aria-label="Mais opções"
-                      title="Mais opções"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-                {isNewChatOpen ? null : (
-                  <div
-                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
-                      isDarkTheme
-                        ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
-                        : "border-blue-400 bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
-                    <input
-                      type="text"
-                      placeholder="Pesquisar conversas"
-                      value={conversationSearch}
-                      onChange={(event) => setConversationSearch(event.target.value)}
-                      className={`w-full bg-transparent text-xs placeholder:font-medium focus:outline-none ${
-                        isDarkTheme
-                          ? "placeholder:text-slate-400 text-slate-100"
-                          : "placeholder:text-slate-400 text-slate-700"
-                      }`}
-                    />
-                  </div>
-                )}
-                {isNewChatOpen ? null : (
-                  <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-                    {FILTERS.map((filter) => {
-                      const isActive = filter.key === activeFilter;
-                      return (
-                        <button
-                          key={filter.key}
-                          type="button"
-                          onClick={() => setActiveFilter(filter.key)}
-                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
-                            isDarkTheme
-                              ? isActive
-                                ? "bg-emerald-500/30 text-emerald-100"
-                                : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
-                              : isActive
-                                ? "border border-blue-200 bg-blue-100 text-blue-800"
-                                : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
-                          }`}
-                        >
-                          {filter.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              )
             )}
-            <div className={`flex-1 overflow-y-auto ${isNewChatOpen ? "px-0 py-0" : "px-3 py-4"}`}>
+            <div
+              className={`flex min-h-0 flex-1 ${
+                isNewChatOpen ? "overflow-visible" : isDirectoryOpen ? "overflow-hidden" : "overflow-y-auto"
+              } ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-3 py-4"}`}
+            >
               {isGroupsPanelOpen ? (
                 isGroupCreateOpen ? (
                   <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-10 text-center">
@@ -5528,8 +6123,396 @@ export default function KnexChatPage() {
                     ) : null}
                   </div>
                 )
+              ) : isDirectoryOpen ? (
+                <div className={`flex min-h-0 flex-1 flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                  <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDirectoryOpen(false);
+                        setDirectorySearch("");
+                        setIsDirectoryFiltersOpen(false);
+                        setActiveNavKey("conversations");
+                      }}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Diretório de pessoas
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsDirectoryFiltersOpen((prev) => !prev)}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-blue-200 hover:bg-blue-500/10" : "text-blue-600 hover:bg-blue-50"
+                      }`}
+                      aria-label="Filtros"
+                      title="Filtros"
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className={`border-b px-4 py-3 ${settingsBorder}`}>
+                    <div
+                      className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
+                        isDarkTheme
+                          ? "border-blue-400/60 text-slate-200"
+                          : "border-blue-400 text-slate-600"
+                      }`}
+                    >
+                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <input
+                        type="text"
+                        value={directorySearch}
+                        onChange={(event) => setDirectorySearch(event.target.value)}
+                        placeholder="Buscar por nome, Knex ID ou contexto"
+                        className={`w-full bg-transparent text-xs focus:outline-none ${
+                          isDarkTheme
+                            ? "placeholder:text-slate-400 text-slate-100"
+                            : "placeholder:text-slate-400 text-slate-700"
+                        }`}
+                      />
+                    </div>
+                    {isDirectoryFiltersOpen ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {DIRECTORY_FILTERS.map((filter) => {
+                          const isActive = filter.key === directoryFilter;
+                          return (
+                            <button
+                              key={filter.key}
+                              type="button"
+                              onClick={() => setDirectoryFilter(filter.key)}
+                              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                                isDarkTheme
+                                  ? isActive
+                                    ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
+                                    : "border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                                  : isActive
+                                    ? "border-blue-200 bg-blue-100 text-blue-800"
+                                    : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                              }`}
+                              title={filter.hint}
+                            >
+                              {filter.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {DIRECTORY_TABS.map((tab) => {
+                        const isActive = tab.key === directoryTab;
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setDirectoryTab(tab.key)}
+                            className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                              isDarkTheme
+                                ? isActive
+                                  ? "bg-blue-500/30 text-blue-100"
+                                  : "border border-[var(--knex-700)] text-slate-300 hover:border-blue-400/50 hover:text-blue-100"
+                                : isActive
+                                  ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                  : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
+                    {directoryTab === "people" ? (
+                      <div className="space-y-3">
+                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>Diretório visível</p>
+                        {filteredDirectoryPeople.length ? (
+                          filteredDirectoryPeople.map((person) => {
+                            const request = contactRequestByEmail.get(person.email);
+                            const contactThread = contactByEmail.get(person.email);
+                            const isContact = contactEmailSet.has(person.email);
+                            const isOutgoingPending =
+                              request?.status === "pending" && request.direction === "outgoing";
+                            const isIncomingPending =
+                              request?.status === "pending" && request.direction === "incoming";
+                            return (
+                              <div
+                                key={person.email}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <div
+                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {getAvatarText(person.name)}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p
+                                      className={`truncate text-sm font-semibold ${
+                                        isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                      }`}
+                                    >
+                                      {person.name}
+                                      {person.isSelf ? " (você)" : ""}
+                                    </p>
+                                    <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                      {person.knexId} • {maskEmail(person.email)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {person.isSelf ? (
+                                    <span
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                        isDarkTheme ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-600"
+                                      }`}
+                                    >
+                                      Você
+                                    </span>
+                                  ) : isContact && contactThread ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openContactThread(contactThread.id)}
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                      }`}
+                                    >
+                                      Abrir conversa
+                                    </button>
+                                  ) : isOutgoingPending ? (
+                                    <span
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                        isDarkTheme ? "bg-blue-500/20 text-blue-100" : "bg-blue-50 text-blue-700"
+                                      }`}
+                                    >
+                                      Solicitação enviada
+                                    </span>
+                                  ) : isIncomingPending ? (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAcceptContactRequest(person.email, person.name)}
+                                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                          isDarkTheme
+                                            ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                        }`}
+                                      >
+                                        Aceitar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRejectContactRequest(person.email, "rejected")}
+                                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                          isDarkTheme
+                                            ? "bg-white/10 text-slate-200 hover:bg-white/20"
+                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                        }`}
+                                      >
+                                        Recusar
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendContactRequest(person.email, person.name)}
+                                      className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "border border-blue-400/60 text-blue-200 hover:bg-blue-500/10"
+                                          : "border border-blue-300 text-blue-600 hover:bg-blue-50"
+                                      }`}
+                                    >
+                                      Solicitar contato
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma pessoa encontrada.</p>
+                        )}
+                      </div>
+                    ) : directoryTab === "contacts" ? (
+                      <div className="space-y-3">
+                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>Meus contatos</p>
+                        {contacts.length ? (
+                          contacts.map((contact) => (
+                            <button
+                              key={contact.id}
+                              type="button"
+                              onClick={() => openContactThread(contact.id)}
+                              className={`flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition ${
+                                isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                              }`}
+                            >
+                              <div className="flex min-w-0 items-center gap-3">
+                                {contact.avatarUrl ? (
+                                  <img
+                                    src={contact.avatarUrl}
+                                    alt={`Avatar de ${contact.title}`}
+                                    className={`h-11 w-11 ${avatarFrameMd} object-cover`}
+                                  />
+                                ) : (
+                                  <div
+                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {getAvatarText(contact.title)}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {contact.title}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {contact.contactEmail ? maskEmail(contact.contactEmail) : contact.preview}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className={`text-[11px] ${settingsMuted}`}>Conectado</span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhum contato aceito ainda.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="space-y-3">
+                          <p className={`text-[11px] font-semibold ${settingsMuted}`}>Solicitações recebidas</p>
+                          {incomingRequests.length ? (
+                            incomingRequests.map((request) => (
+                              <div
+                                key={request.id}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {request.name ?? formatNameFromEmail(request.email)}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                  </p>
+                                </div>
+                                {request.status === "pending" ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAcceptContactRequest(request.email, request.name)}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                      }`}
+                                    >
+                                      Aceitar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRejectContactRequest(request.email, "rejected")}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-white/10 text-slate-200 hover:bg-white/20"
+                                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                      }`}
+                                    >
+                                      Recusar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRejectContactRequest(request.email, "blocked")}
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                                        isDarkTheme
+                                          ? "bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                                          : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                      }`}
+                                    >
+                                      Bloquear
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className={`text-[11px] ${settingsMuted}`}>{request.status}</span>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma solicitação recebida.</p>
+                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <p className={`text-[11px] font-semibold ${settingsMuted}`}>Solicitações enviadas</p>
+                          {outgoingRequests.length ? (
+                            outgoingRequests.map((request) => (
+                              <div
+                                key={request.id}
+                                className={`flex items-center justify-between gap-3 rounded-2xl px-2 py-2 transition ${
+                                  isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${
+                                      isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                    }`}
+                                  >
+                                    {request.name ?? formatNameFromEmail(request.email)}
+                                  </p>
+                                  <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                    {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                    request.status === "pending"
+                                      ? isDarkTheme
+                                        ? "bg-blue-500/20 text-blue-100"
+                                        : "bg-blue-50 text-blue-700"
+                                      : isDarkTheme
+                                        ? "bg-white/10 text-slate-200"
+                                        : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {request.status === "pending" ? "Aguardando" : request.status}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className={`mt-3 text-xs ${settingsMuted}`}>Nenhuma solicitação enviada.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : isNewChatOpen ? (
-                <div className={`flex h-full flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                <div
+                  className={`absolute inset-0 z-20 flex h-full flex-col ${
+                    isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"
+                  } lg:rounded-tl-md`}
+                >
                   <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
                   <button
                     type="button"
@@ -5742,11 +6725,11 @@ export default function KnexChatPage() {
                                 minHeight: 240,
                               }}
                             >
-                              <EmojiPicker
+                              <SimpleEmojiPicker
                                 width={groupEmojiSize.width}
                                 height={groupEmojiSize.height}
-                                onEmojiClick={(emojiData) => setNewGroupName((prev) => `${prev}${emojiData.emoji}`)}
-                                theme={isDarkTheme ? Theme.DARK : Theme.LIGHT}
+                                onEmojiClick={(emoji) => setNewGroupName((prev) => `${prev}${emoji}`)}
+                                isDark={isDarkTheme}
                               />
                               <button
                                 type="button"
@@ -6573,221 +7556,226 @@ export default function KnexChatPage() {
                 className={`relative flex-1 min-h-0 transition-colors ${messagePanelBg}`}
                 style={messagePanelBodyStyle}
               >
-                <div className="absolute inset-0 overflow-y-auto px-6 py-6">
-                  {pendingJoinToken ? (
-                    <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold">Convite detectado</p>
-                          <p className="text-xs text-emerald-100/80">
-                            Token: {pendingJoinToken} - Clique para entrar no grupo.
-                          </p>
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-2">
+                    {pendingJoinToken ? (
+                      <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">Convite detectado</p>
+                            <p className="text-xs text-emerald-100/80">
+                              Token: {pendingJoinToken} - Clique para entrar no grupo.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleAcceptJoin}
+                            className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
+                          >
+                            Entrar
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleAcceptJoin}
-                          className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
-                        >
-                          Entrar
-                        </button>
                       </div>
-                    </div>
-                  ) : null}
-                  <div className="space-y-4">
-                    {activeMessages.map((message) => {
-                      const isMe = message.author === "me";
-                      const isGroupChat = activeThread?.tab === "groups";
-                      const showSender = !isMe && isGroupChat;
-                      const senderLabel = message.senderName ?? "Participante";
-                      const senderColorClass = getSenderColorClass(senderLabel);
-                      const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
-                      const isMediaMessage = Boolean(message.imageUrl);
-                      const bubble = (
-                        <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
-                          {showSender ? (
-                            <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
-                          ) : null}
-                          {message.imageUrl ? (
-                            <div className="knex-bubble__media">
-                              <img
-                                src={message.imageUrl}
-                                alt={message.imageName ?? "Imagem enviada"}
-                                className="knex-bubble__image"
-                              />
-                              {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
-                            </div>
-                          ) : (
-                            <p className="knex-bubble__text">{message.body}</p>
-                          )}
-                          <p className="knex-bubble__time">{message.time}</p>
-                        </div>
-                      );
-                  const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
-                    <img
-                      src={activeThreadAvatarUrl}
-                      alt={`Avatar de ${activeThread.title}`}
-                      className={`h-9 w-9 ${avatarFrameXs} object-cover`}
-                    />
-                  ) : (
-                    <div
-                      className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
-                    >
-                      {getAvatarText(activeThread?.title ?? "KN")}
-                    </div>
-                  );
-                      const showIncomingAvatar = !isMe && isGroupChat;
-                      const showOutgoingAvatar = isMe && isGroupChat;
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex ${isMe ? "items-end justify-end" : "items-start justify-start"} ${
-                          isGroupChat ? "gap-3" : "gap-0"
-                        }`}
-                      >
-                        {!isMe ? (
-                          <>
-                            {showIncomingAvatar ? incomingAvatar : null}
-                            {bubble}
-                          </>
-                        ) : (
-                          bubble
-                        )}
-                    {showOutgoingAvatar ? (
-                      currentUser?.avatarUrl ? (
-                        <img
-                          src={currentUser.avatarUrl}
-                          alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                          className={`h-9 w-9 ${avatarFrameXs} object-cover`}
-                        />
-                      ) : (
-                        <div
-                          className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-emerald-500/20 text-xs font-semibold text-emerald-200`}
-                        >
-                          {currentUser?.avatarText ?? "KN"}
-                        </div>
-                      )
                     ) : null}
+                    <div className="space-y-4">
+                      {activeMessages.map((message) => {
+                        const isMe = message.author === "me";
+                        const isGroupChat = activeThread?.tab === "groups";
+                        const showSender = !isMe && isGroupChat;
+                        const senderLabel = message.senderName ?? "Participante";
+                        const senderColorClass = getSenderColorClass(senderLabel);
+                        const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
+                        const isMediaMessage = Boolean(message.imageUrl);
+                        const bubble = (
+                          <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
+                            {showSender ? (
+                              <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
+                            ) : null}
+                            {message.imageUrl ? (
+                              <div className="knex-bubble__media">
+                                <img
+                                  src={message.imageUrl}
+                                  alt={message.imageName ?? "Imagem enviada"}
+                                  className="knex-bubble__image"
+                                />
+                                {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
+                              </div>
+                            ) : (
+                              <p className="knex-bubble__text">{message.body}</p>
+                            )}
+                            <p className="knex-bubble__time">{message.time}</p>
+                          </div>
+                        );
+                    const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
+                      <img
+                        src={activeThreadAvatarUrl}
+                        alt={`Avatar de ${activeThread.title}`}
+                        className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
+                      >
+                        {getAvatarText(activeThread?.title ?? "KN")}
                       </div>
                     );
-                  })}
-                  </div>
-                </div>
-
-                <div className="absolute inset-x-4 bottom-0.5">
-                  <form
-                    className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (recordingState === "idle") {
-                        handleSendMessage();
-                      }
-                    }}
-                  >
-                    {messageSendNotice ? (
-                      <div
-                        className={`w-full rounded-2xl border px-3 py-2 text-xs ${
-                          isDarkTheme
-                            ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
-                            : "border-amber-200 bg-amber-50 text-amber-700"
-                        }`}
-                      >
-                        {messageSendNotice}
-                      </div>
-                    ) : null}
-                    <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
-                      <button
-                        type="button"
-                        aria-label="Adicionar"
-                        onClick={() => messageImageInputRef.current?.click()}
-                        className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
-                      >
-                        +
-                      </button>
-                      <input
-                        ref={messageImageInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={handleMessageImageChange}
-                      />
-                      <button
-                        type="button"
-                        aria-label="Emojis"
-                        className="text-slate-600 transition hover:text-slate-900"
-                      >
-                        <Smile className="h-5 w-5" />
-                      </button>
-                      <input
-                        type="text"
-                        value={messageDraft}
-                        onChange={(event) => {
-                          setMessageDraft(event.target.value);
-                          if (messageSendNotice) setMessageSendNotice(null);
-                        }}
-                        placeholder="Digite uma mensagem"
-                        className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
-                      />
-                      {recordingState !== "idle" ? (
-                        <div className="ml-auto flex items-center gap-2">
-                          <button
-                            type="button"
-                            aria-label="Cancelar gravação"
-                            onClick={() => stopRecording("discard")}
-                            className="text-slate-500 transition hover:text-slate-900"
+                        const showIncomingAvatar = !isMe && isGroupChat;
+                        const showOutgoingAvatar = isMe && isGroupChat;
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${isMe ? "items-end justify-end" : "items-start justify-start"} ${
+                            isGroupChat ? "gap-3" : "gap-0"
+                          }`}
+                        >
+                          {!isMe ? (
+                            <>
+                              {showIncomingAvatar ? incomingAvatar : null}
+                              {bubble}
+                            </>
+                          ) : (
+                            bubble
+                          )}
+                      {showOutgoingAvatar ? (
+                        currentUser?.avatarUrl ? (
+                          <img
+                            src={currentUser.avatarUrl}
+                            alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                            className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                          />
+                        ) : (
+                          <div
+                            className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-emerald-500/20 text-xs font-semibold text-emerald-200`}
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <span className="h-2 w-2 rounded-full bg-rose-500" />
-                            {formatDuration(recordingSeconds)}
-                          </span>
-                          <span className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`} aria-hidden="true">
-                            {Array.from({ length: 14 }).map((_, index) => (
-                              <span
-                                key={index}
-                                className="knex-record-bar"
-                                style={{ "--i": 13 - index } as CSSProperties}
-                              />
-                            ))}
-                          </span>
-                          <button
-                            type="button"
-                            aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
-                            onClick={toggleRecordingPause}
-                            className="text-slate-500 transition hover:text-slate-900"
-                          >
-                            {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                          </button>
-                          <Timer className="h-4 w-4 text-slate-400" />
-                          <button
-                            type="button"
-                            aria-label="Enviar áudio"
-                            onClick={() => stopRecording("send")}
-                            className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
-                          >
-                            <SendHorizontal className="h-4 w-4" />
-                          </button>
+                            {currentUser?.avatarText ?? "KN"}
+                          </div>
+                        )
+                      ) : null}
                         </div>
-                      ) : (
+                      );
+                    })}
+                    </div>
+                  </div>
+
+                  <div className="px-4 pb-2 pt-1">
+                    <form
+                      className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (recordingState === "idle") {
+                          handleSendMessage();
+                        }
+                      }}
+                    >
+                      {messageSendNotice ? (
+                        <div
+                          className={`w-full rounded-2xl border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                              : "border-amber-200 bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {messageSendNotice}
+                        </div>
+                      ) : null}
+                      <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
                         <button
                           type="button"
-                          aria-label="Gravar áudio"
-                          onClick={startRecording}
-                          className="ml-auto text-blue-600 transition hover:text-blue-700"
+                          aria-label="Adicionar"
+                          onClick={() => messageImageInputRef.current?.click()}
+                          className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
                         >
-                          <Mic className="h-5 w-5" />
+                          +
                         </button>
-                      )}
-                    </div>
-                    {recordingState === "idle" && messageDraft.trim() ? (
-                      <button
-                        type="submit"
-                        className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
-                      >
-                        Enviar
-                      </button>
-                    ) : null}
-                  </form>
+                        <input
+                          ref={messageImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={handleMessageImageChange}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Emojis"
+                          className="text-slate-600 transition hover:text-slate-900"
+                        >
+                          <Smile className="h-5 w-5" />
+                        </button>
+                        <input
+                          type="text"
+                          value={messageDraft}
+                          onChange={(event) => {
+                            setMessageDraft(event.target.value);
+                            if (messageSendNotice) setMessageSendNotice(null);
+                          }}
+                          placeholder="Digite uma mensagem"
+                          className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+                        />
+                        {recordingState !== "idle" ? (
+                          <div className="ml-auto flex items-center gap-2">
+                            <button
+                              type="button"
+                              aria-label="Cancelar gravação"
+                              onClick={() => stopRecording("discard")}
+                              className="text-slate-500 transition hover:text-slate-900"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                            <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                              <span className="h-2 w-2 rounded-full bg-rose-500" />
+                              {formatDuration(recordingSeconds)}
+                            </span>
+                            <span
+                              className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`}
+                              aria-hidden="true"
+                            >
+                              {Array.from({ length: 14 }).map((_, index) => (
+                                <span
+                                  key={index}
+                                  className="knex-record-bar"
+                                  style={{ "--i": 13 - index } as CSSProperties}
+                                />
+                              ))}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
+                              onClick={toggleRecordingPause}
+                              className="text-slate-500 transition hover:text-slate-900"
+                            >
+                              {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                            </button>
+                            <Timer className="h-4 w-4 text-slate-400" />
+                            <button
+                              type="button"
+                              aria-label="Enviar áudio"
+                              onClick={() => stopRecording("send")}
+                              className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
+                            >
+                              <SendHorizontal className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label="Gravar áudio"
+                            onClick={startRecording}
+                            className="ml-auto text-blue-600 transition hover:text-blue-700"
+                          >
+                            <Mic className="h-5 w-5" />
+                          </button>
+                        )}
+                      </div>
+                      {recordingState === "idle" && messageDraft.trim() ? (
+                        <button
+                          type="submit"
+                          className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                        >
+                          Enviar
+                        </button>
+                      ) : null}
+                    </form>
+                  </div>
                 </div>
               </div>
             </>
@@ -8284,7 +9272,7 @@ export default function KnexChatPage() {
                   </div>
                   <div className={`border-b px-4 py-3 ${settingsBorder}`}>
                     <div
-                      className={`flex items-center gap-2 rounded-full border border-[1.5px] px-3 py-2 text-xs ${
+                      className={`flex items-center gap-2 rounded-full border-[1.5px] px-3 py-2 text-xs ${
                         isDarkTheme
                           ? "border-blue-400/60 text-slate-200"
                           : "border-blue-400 text-slate-600"
@@ -8870,157 +9858,122 @@ function ActivationScreen({
   onConfirmOtp,
   onEditEmail,
 }: ActivationScreenProps) {
-  // Trilhas/linhas removidas a pedido.
-
   return (
-    <div className="relative w-full min-h-[100svh] overflow-x-hidden overflow-y-auto md:overflow-hidden">
-      <div className="relative mx-auto flex min-h-[100svh] w-full max-w-[1400px] flex-col justify-center px-4 py-[clamp(16px,4vh,48px)] box-border md:px-8 lg:px-10">
-        <div className="relative z-10 grid w-full items-center gap-8 lg:gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)_minmax(0,1fr)]">
-          <div className="relative z-20 order-2 flex w-full justify-center lg:order-1 lg:justify-start" aria-hidden="true">
-            <div
-              className="pointer-events-none relative w-[clamp(240px,26vw,320px)] aspect-[9/19] overflow-hidden rounded-[clamp(18px,3.6vw,30px)] drop-shadow-[0_30px_80px_rgba(15,23,42,0.18)]"
-            >
-              <img
-                src="https://ead.ufac.br/video/envio/uploads/imagem%20do%20celular_page-0001.png"
-                alt="Celular KnexChat"
-                className="absolute inset-0 h-full w-full object-cover scale-[1.12]"
-              />
-            </div>
-          </div>
-
-          <div className="order-1 flex justify-center lg:order-2">
-            <div className="relative z-30 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-8 shadow-2xl shadow-black/20 backdrop-blur">
-              <div className="text-center">
-                <h1 className={`${headingClassName} text-4xl font-semibold md:text-5xl`}>
-                  <span className="bg-gradient-to-r from-blue-600 via-sky-500 via-indigo-500 to-cyan-400 bg-clip-text text-transparent">
-                    KnexChat
-                  </span>
-                </h1>
-              </div>
-              <div className="mt-6 space-y-2 text-left">
-                <p className={`${headingClassName} text-lg font-semibold text-slate-900`}>Ativar KnexChat</p>
-                <p className="text-sm text-slate-700">
-                  Use seu e-mail para criar seu Knex ID (equivalente ao número do WhatsApp).
-                </p>
-              </div>
-
-              {activationStep === "email" ? (
-                <form
-                  className="mt-6 space-y-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    onSendCode();
-                  }}
-                >
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">NOME</label>
-                    <input
-                      type="text"
-                      value={registeringName}
-                      onChange={(event) => onNameChange(event.target.value)}
-                      placeholder="Seu nome"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                      disabled={isSendingOtp}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
-                    <input
-                      type="email"
-                      value={registeringEmail}
-                      onChange={(event) => onEmailChange(event.target.value)}
-                      placeholder="voce@exemplo.com"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                      disabled={isSendingOtp}
-                      required
-                    />
-                  </div>
-                  {showOtpPreview ? (
-                    <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
-                  ) : null}
-                  {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-                  <button
-                    type="submit"
-                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isSendingOtp}
-                  >
-                    {isSendingOtp ? "Enviando..." : "Enviar código"}
-                  </button>
-                </form>
-              ) : (
-                <form
-                  className="mt-6 space-y-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    onConfirmOtp();
-                  }}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-                    <span>E-mail: {registeringEmail}</span>
-                    <button
-                      type="button"
-                      onClick={onEditEmail}
-                      className="text-blue-600 transition hover:text-blue-500"
-                    >
-                      Editar e-mail
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Código de 6 dígitos</label>
-                    <input
-                      type="text"
-                      value={otpInput}
-                      onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                      placeholder="000000"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                      disabled={isSendingOtp}
-                    />
-                  </div>
-                  {activationNotice ? <p className="text-sm text-slate-700">{activationNotice}</p> : null}
-                  {showOtpPreview && otpGenerated ? (
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-slate-700">
-                      Código (debug): <span className="font-semibold text-slate-900">{otpGenerated}</span>
-                    </div>
-                  ) : null}
-                  {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-                  <button
-                    type="submit"
-                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isSendingOtp}
-                  >
-                    Confirmar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onSendCode}
-                    className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-2 text-xs font-semibold text-slate-700 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isSendingOtp}
-                  >
-                    {isSendingOtp ? "Enviando..." : "Enviar novo código"}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-
-          <div
-            className="relative z-20 order-3 flex w-full justify-center lg:order-3 lg:justify-end"
-            aria-hidden="true"
-          >
-            <div
-              className="pointer-events-none relative w-[clamp(320px,44vw,560px)] max-w-full drop-shadow-[0_30px_90px_rgba(15,23,42,0.18)]"
-            >
-              <img
-                src="https://ead.ufac.br/video/envio/uploads/iamgem%20do%20laptop.png"
-                alt="Laptop KnexChat"
-                className="h-auto w-full object-contain"
-              />
-            </div>
-          </div>
+    <div className="relative flex min-h-[100svh] w-full items-center justify-center px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
+      <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-6 lg:p-8">
+        <div className="text-center">
+          <h1 className={`${headingClassName} text-3xl font-semibold sm:text-4xl md:text-5xl`}>
+            <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
+              KnexChat
+            </span>
+          </h1>
         </div>
+        <div className="mt-5 space-y-2 text-left sm:mt-6">
+          <p className={`${headingClassName} text-base font-semibold text-slate-900 sm:text-lg`}>Ativar KnexChat</p>
+          <p className="text-sm text-slate-700 sm:text-base">
+            Use seu e-mail para criar seu Knex ID (equivalente ao numero do WhatsApp).
+          </p>
+        </div>
+
+        {activationStep === "email" ? (
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSendCode();
+            }}
+          >
+            <div className="space-y-2">
+              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">NOME</label>
+              <input
+                type="text"
+                value={registeringName}
+                onChange={(event) => onNameChange(event.target.value)}
+                placeholder="Seu nome"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                disabled={isSendingOtp}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
+              <input
+                type="email"
+                value={registeringEmail}
+                onChange={(event) => onEmailChange(event.target.value)}
+                placeholder="voce@exemplo.com"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                disabled={isSendingOtp}
+                required
+              />
+            </div>
+            {showOtpPreview ? (
+              <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
+            ) : null}
+            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
+            <button
+              type="submit"
+              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSendingOtp}
+            >
+              {isSendingOtp ? "Enviando..." : "Enviar codigo"}
+            </button>
+          </form>
+        ) : (
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onConfirmOtp();
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+              <span>E-mail: {registeringEmail}</span>
+              <button
+                type="button"
+                onClick={onEditEmail}
+                className="text-blue-600 transition hover:text-blue-500"
+              >
+                Editar e-mail
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Codigo de 6 digitos</label>
+              <input
+                type="text"
+                value={otpInput}
+                onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                disabled={isSendingOtp}
+              />
+            </div>
+            {activationNotice ? <p className="text-sm text-slate-700">{activationNotice}</p> : null}
+            {showOtpPreview && otpGenerated ? (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-slate-700">
+                Codigo (debug): <span className="font-semibold text-slate-900">{otpGenerated}</span>
+              </div>
+            ) : null}
+            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
+            <button
+              type="submit"
+              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSendingOtp}
+            >
+              Confirmar
+            </button>
+            <button
+              type="button"
+              onClick={onSendCode}
+              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-2 text-xs font-semibold text-slate-700 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSendingOtp}
+            >
+              {isSendingOtp ? "Enviando..." : "Enviar novo codigo"}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

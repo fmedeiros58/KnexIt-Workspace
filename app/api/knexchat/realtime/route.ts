@@ -1,21 +1,7 @@
 import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { consumeRealtimeTicket, getSupabaseAdmin, resolveAuthEmail } from "@/app/api/knexchat/_auth";
 
 export const runtime = "nodejs";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-let supabaseAdmin: ReturnType<typeof createClient<any>> | null = null;
-const getSupabaseAdmin = () => {
-  if (!supabaseUrl || !serviceRoleKey) return null;
-  if (!supabaseAdmin) {
-    supabaseAdmin = createClient<any>(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-  }
-  return supabaseAdmin;
-};
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
@@ -26,17 +12,22 @@ export async function GET(req: NextRequest) {
     return new Response("Supabase service role not configured", { status: 500 });
   }
   const { searchParams } = new URL(req.url);
-  const token = searchParams.get("token") || "";
+  const ticket = searchParams.get("ticket") || "";
+  let email = "";
 
-  if (!token) {
-    return new Response("Missing token", { status: 401 });
+  if (ticket) {
+    const ticketEmail = await consumeRealtimeTicket(ticket);
+    email = ticketEmail ? normalizeEmail(ticketEmail) : "";
+  } else {
+    const token = searchParams.get("token") || "";
+    if (!token) {
+      return new Response("Missing token", { status: 401 });
+    }
+    const authEmail = await resolveAuthEmail(req, token);
+    email = authEmail ? normalizeEmail(authEmail) : "";
   }
 
-  const { data, error: authError } = await admin.auth.getUser(token);
-  const authEmail = data?.user?.email ?? "";
-  const email = normalizeEmail(authEmail);
-
-  if (authError || !isValidEmail(email)) {
+  if (!isValidEmail(email)) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -44,8 +35,18 @@ export async function GET(req: NextRequest) {
   const writer = stream.writable.getWriter();
   const encoder = new TextEncoder();
 
+  let isClosed = false;
   const send = (event: string, data: unknown) => {
-    writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+    if (isClosed) return;
+    try {
+      void writer
+        .write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+        .catch(() => {
+          isClosed = true;
+        });
+    } catch {
+      isClosed = true;
+    }
   };
 
   let channel: ReturnType<typeof admin.channel> | null = null;
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest) {
 
   const cleanup = async () => {
     try {
+      isClosed = true;
       if (keepAliveTimer) {
         clearInterval(keepAliveTimer);
         keepAliveTimer = null;
@@ -68,6 +70,7 @@ export async function GET(req: NextRequest) {
   };
 
   req.signal.addEventListener("abort", () => {
+    isClosed = true;
     void cleanup();
   });
 

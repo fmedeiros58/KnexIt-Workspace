@@ -1,69 +1,61 @@
 import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAdmin, resolveAuthEmail } from "@/app/api/knexchat/_auth";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-let supabaseAdmin: ReturnType<typeof createClient<any>> | null = null;
-const getSupabaseAdmin = () => {
-  if (!supabaseUrl || !serviceRoleKey) return null;
-  if (!supabaseAdmin) {
-    supabaseAdmin = createClient<any>(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-  }
-  return supabaseAdmin;
-};
-
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
-const extractToken = (req: NextRequest) => {
-  const header = req.headers.get("authorization") || "";
-  if (!header.toLowerCase().startsWith("bearer ")) return "";
-  return header.slice(7).trim();
-};
-
-async function requireAuthEmail(req: NextRequest) {
-  const admin = getSupabaseAdmin();
-  if (!admin) return null;
-  const token = extractToken(req);
-  if (!token) return null;
-  const { data, error } = await admin.auth.getUser(token);
-  if (error) return null;
-  const email = data?.user?.email ? normalizeEmail(data.user.email) : "";
-  return email || null;
-}
 
 export async function GET(req: NextRequest) {
   if (!getSupabaseAdmin()) {
     return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
   }
-  const authEmail = await requireAuthEmail(req);
+  const authEmail = await resolveAuthEmail(req);
   if (!authEmail) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
   const { searchParams } = new URL(req.url);
-  const emailParam = searchParams.get("email");
-  if (!emailParam) {
-    return Response.json({ message: "Missing email" }, { status: 400 });
-  }
-  const email = normalizeEmail(emailParam);
-  if (!email || !email.includes("@")) {
-    return Response.json({ message: "Invalid email" }, { status: 400 });
-  }
   try {
     const admin = getSupabaseAdmin();
     if (!admin) {
       return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
     }
-    const { data, error } = await admin
+    const emailParam = searchParams.get("email");
+    if (emailParam) {
+      const email = normalizeEmail(emailParam);
+      if (!email || !email.includes("@")) {
+        return Response.json({ message: "Invalid email" }, { status: 400 });
+      }
+      const { data, error } = await admin
+        .from("knexchat_directory")
+        .select("email")
+        .eq("email", email)
+        .limit(1);
+      if (error) throw error;
+      return Response.json({ exists: Boolean(data && data.length) }, { status: 200 });
+    }
+
+    const rawLimit = searchParams.get("limit");
+    const rawOffset = searchParams.get("offset");
+    const rawQuery = searchParams.get("q")?.trim() ?? "";
+    const limitParsed = rawLimit ? Number.parseInt(rawLimit, 10) : 100;
+    const offsetParsed = rawOffset ? Number.parseInt(rawOffset, 10) : 0;
+    const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 200) : 100;
+    const offset = Number.isFinite(offsetParsed) ? Math.max(offsetParsed, 0) : 0;
+
+    let query = admin
       .from("knexchat_directory")
-      .select("email")
-      .eq("email", email)
-      .limit(1);
+      .select("email, name, created_at")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (rawQuery) {
+      const safeQuery = rawQuery.replace(/[%_]/g, "\\$&");
+      query = query.or(`email.ilike.%${safeQuery}%,name.ilike.%${safeQuery}%`);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
-    return Response.json({ exists: Boolean(data && data.length) }, { status: 200 });
+    return Response.json({ entries: data ?? [], offset, limit }, { status: 200 });
   } catch (err) {
     return Response.json({ message: "Lookup failed" }, { status: 500 });
   }
@@ -73,7 +65,7 @@ export async function POST(req: NextRequest) {
   if (!getSupabaseAdmin()) {
     return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
   }
-  const authEmail = await requireAuthEmail(req);
+  const authEmail = await resolveAuthEmail(req);
   if (!authEmail) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
@@ -93,17 +85,18 @@ export async function POST(req: NextRequest) {
     if (!admin) {
       return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
     }
-    const { error } = await admin.from("knexchat_directory").insert({
-      email,
-      name: nameRaw && nameRaw.trim() ? nameRaw.trim() : null,
-    });
+    const normalizedName = nameRaw && nameRaw.trim() ? nameRaw.trim() : undefined;
+    const { error } = await admin
+      .from("knexchat_directory")
+      .upsert(
+        {
+          email,
+          ...(normalizedName ? { name: normalizedName } : {}),
+        },
+        { onConflict: "email" },
+      );
 
-    if (error) {
-      if ("code" in error && error.code === "23505") {
-        return Response.json({ message: "Already exists" }, { status: 409 });
-      }
-      throw error;
-    }
+    if (error) throw error;
 
     return Response.json({ ok: true }, { status: 201 });
   } catch (err) {
