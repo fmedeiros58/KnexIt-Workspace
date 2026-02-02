@@ -3271,6 +3271,29 @@ export default function KnexChatPage() {
   }, [authSession, isAuthReady, isKnexchatActivated]);
 
   useEffect(() => {
+    if (!isAuthReady || !authSession?.user?.email) return;
+    if (isKnexchatActivated === false) return;
+    if (isKnexchatActivated === null) return;
+
+    const normalizedEmail = normalizeEmail(authSession.user.email);
+    const metadata = authSession.user.user_metadata as { name?: string; full_name?: string } | null;
+    const normalizedName = normalizeName(metadata?.name ?? metadata?.full_name ?? "");
+
+    void (async () => {
+      try {
+        const res = await authFetch("/api/knexchat/directory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: normalizedEmail, name: normalizedName || undefined }),
+        });
+        if (res.status === 409) return;
+      } catch {
+        // Ignore directory registration errors.
+      }
+    })();
+  }, [authFetch, authSession, isAuthReady, isKnexchatActivated]);
+
+  useEffect(() => {
     if (!chatStateKey) {
       resetChatState();
       setIsChatStateHydrated(true);
