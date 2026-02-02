@@ -16,7 +16,7 @@ export function SupaDriveAppsRail({ items = DEFAULT_ITEMS, compact = false }: Su
   const py = compact ? "py-0" : "py-2";
 
   return (
-    <aside className={`flex w-full flex-col items-center justify-start gap-3 ${py} px-0`}>
+    <aside className={`flex w-10 flex-col items-center justify-start gap-3 ${py}`}>
       {items.map((item) => (
         <button
           key={item.id}

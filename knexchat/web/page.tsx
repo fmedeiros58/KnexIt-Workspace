@@ -2257,6 +2257,16 @@ export default function KnexChatPage() {
     },
     [authSession?.access_token],
   );
+  const requestRealtimeTicket = useCallback(async () => {
+    try {
+      const res = await authFetch("/api/knexchat/realtime-ticket", { method: "POST" });
+      if (!res.ok) return "";
+      const payload = (await res.json().catch(() => ({}))) as { ticket?: string };
+      return typeof payload.ticket === "string" ? payload.ticket : "";
+    } catch {
+      return "";
+    }
+  }, [authFetch]);
   const checkEmailRegistered = useCallback(
     async (email: string) => {
       const normalized = normalizeEmail(email);
@@ -2602,9 +2612,7 @@ export default function KnexChatPage() {
     setIsServerSyncing(true);
     setServerSyncError(null);
     try {
-      const res = await authFetch(
-        `/api/knexchat/threads?email=${encodeURIComponent(identity.email)}&includeParticipants=1&includeLastMessage=1`,
-      );
+      const res = await authFetch(`/api/knexchat/threads?includeParticipants=1&includeLastMessage=1`);
       if (!res.ok) throw new Error("threads_failed");
       const payload = (await res.json().catch(() => ({}))) as { threads?: ApiThread[] };
       const rawThreads = Array.isArray(payload?.threads) ? payload.threads : [];
@@ -3340,10 +3348,9 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
     if (!authSession?.access_token) return;
-    const source = new EventSource(
-      `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`,
-    );
-    setIsRealtimeConnected(false);
+    let source: EventSource | null = null;
+    let cancelled = false;
+    let reconnectTimer: number | null = null;
 
     const handleReady = () => {
       setIsRealtimeConnected(true);
@@ -3373,13 +3380,37 @@ export default function KnexChatPage() {
 
     const handleError = () => {
       setIsRealtimeConnected(false);
+      if (reconnectTimer !== null) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        if (!cancelled) {
+          refreshRealtime();
+        }
+      }, 2000);
     };
 
-    source.addEventListener("ready", handleReady as EventListener);
-    source.addEventListener("message", handleMessage as EventListener);
-    source.addEventListener("error", handleError as EventListener);
+    const connect = async () => {
+      setIsRealtimeConnected(false);
+      const ticket = await requestRealtimeTicket();
+      const url = ticket
+        ? `/api/knexchat/realtime?ticket=${encodeURIComponent(ticket)}&t=${realtimeKey}`
+        : `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`;
+      if (cancelled) return;
+      source = new EventSource(url);
+      source.addEventListener("ready", handleReady as EventListener);
+      source.addEventListener("message", handleMessage as EventListener);
+      source.addEventListener("error", handleError as EventListener);
+    };
+
+    void connect();
 
     return () => {
+      cancelled = true;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (!source) return;
       source.removeEventListener("ready", handleReady as EventListener);
       source.removeEventListener("message", handleMessage as EventListener);
       source.removeEventListener("error", handleError as EventListener);
@@ -3393,6 +3424,8 @@ export default function KnexChatPage() {
     mapApiMessageToMessage,
     previewFromApiMessage,
     realtimeKey,
+    requestRealtimeTicket,
+    refreshRealtime,
     serverMessagingEnabled,
     updateThreadActivity,
   ]);
@@ -5871,117 +5904,123 @@ export default function KnexChatPage() {
                 )}
               </div>
             ) : (
-              <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
-                <div className="flex items-center gap-3">
-                  {currentUser?.avatarUrl ? (
-                    <img
-                      src={currentUser.avatarUrl}
-                      alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                      className={`h-12 w-12 ${avatarFrameMd} object-cover`}
-                    />
-                  ) : (
+              isDirectoryOpen || isNewChatOpen ? null : (
+                <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
+                  <div className="flex items-center gap-3">
+                    {currentUser?.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                        className={`h-12 w-12 ${avatarFrameMd} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
+                      >
+                        {currentUser?.avatarText ?? "KN"}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      Conversas
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition ${
+                          isDarkTheme
+                            ? "text-blue-300 hover:bg-white/10"
+                            : "text-blue-600 hover:bg-blue-50"
+                        }`}
+                        aria-label="Nova conversa"
+                        title="Nova conversa"
+                        onClick={() => {
+                          setIsDirectoryOpen(false);
+                          setIsNewChatOpen(true);
+                          setIsNewChatEmailOpen(false);
+                          setIsNewGroupOpen(false);
+                          setIsCommunityListOpen(false);
+                          setIsGroupsPanelOpen(false);
+                          setIsGroupCreateOpen(false);
+                          setIsGroupsExpanded(false);
+                          setIsNewContactOpen(false);
+                        }}
+                      >
+                        <MessageCirclePlus className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme
+                            ? "text-slate-200 hover:bg-white/10"
+                            : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                        aria-label="Mais opções"
+                        title="Mais opções"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {isNewChatOpen ? null : (
                     <div
-                      className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
+                      className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                        isDarkTheme
+                          ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
+                          : "border-blue-400 bg-slate-100 text-slate-600"
+                      }`}
                     >
-                      {currentUser?.avatarText ?? "KN"}
+                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <input
+                        type="text"
+                        placeholder="Pesquisar conversas"
+                        value={conversationSearch}
+                        onChange={(event) => setConversationSearch(event.target.value)}
+                        className={`w-full bg-transparent text-xs placeholder:font-medium focus:outline-none ${
+                          isDarkTheme
+                            ? "placeholder:text-slate-400 text-slate-100"
+                            : "placeholder:text-slate-400 text-slate-700"
+                        }`}
+                      />
                     </div>
                   )}
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{currentUser?.name}</p>
-                  </div>
+                  {isNewChatOpen ? null : (
+                    <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+                      {FILTERS.map((filter) => {
+                        const isActive = filter.key === activeFilter;
+                        return (
+                          <button
+                            key={filter.key}
+                            type="button"
+                            onClick={() => setActiveFilter(filter.key)}
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                              isDarkTheme
+                                ? isActive
+                                  ? "bg-emerald-500/30 text-emerald-100"
+                                  : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                                : isActive
+                                  ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                  : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                            }`}
+                          >
+                            {filter.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                    Conversas
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition ${
-                        isDarkTheme
-                          ? "text-blue-300 hover:bg-white/10"
-                          : "text-blue-600 hover:bg-blue-50"
-                      }`}
-                      aria-label="Nova conversa"
-                      title="Nova conversa"
-                      onClick={() => {
-                        setIsDirectoryOpen(false);
-                        setIsNewChatOpen(true);
-                        setIsNewChatEmailOpen(false);
-                        setIsNewGroupOpen(false);
-                        setIsCommunityListOpen(false);
-                        setIsGroupsPanelOpen(false);
-                        setIsGroupCreateOpen(false);
-                        setIsGroupsExpanded(false);
-                        setIsNewContactOpen(false);
-                      }}
-                    >
-                      <MessageCirclePlus className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
-                        isDarkTheme
-                          ? "text-slate-200 hover:bg-white/10"
-                          : "text-slate-700 hover:bg-slate-100"
-                      }`}
-                      aria-label="Mais opções"
-                      title="Mais opções"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-                {isNewChatOpen ? null : (
-                  <div
-                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
-                      isDarkTheme
-                        ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
-                        : "border-blue-400 bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
-                    <input
-                      type="text"
-                      placeholder="Pesquisar conversas"
-                      value={conversationSearch}
-                      onChange={(event) => setConversationSearch(event.target.value)}
-                      className={`w-full bg-transparent text-xs placeholder:font-medium focus:outline-none ${
-                        isDarkTheme
-                          ? "placeholder:text-slate-400 text-slate-100"
-                          : "placeholder:text-slate-400 text-slate-700"
-                      }`}
-                    />
-                  </div>
-                )}
-                {isNewChatOpen ? null : (
-                  <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-                    {FILTERS.map((filter) => {
-                      const isActive = filter.key === activeFilter;
-                      return (
-                        <button
-                          key={filter.key}
-                          type="button"
-                          onClick={() => setActiveFilter(filter.key)}
-                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
-                            isDarkTheme
-                              ? isActive
-                                ? "bg-emerald-500/30 text-emerald-100"
-                                : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
-                              : isActive
-                                ? "border border-blue-200 bg-blue-100 text-blue-800"
-                                : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
-                          }`}
-                        >
-                          {filter.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              )
             )}
-            <div className={`flex-1 overflow-y-auto ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-3 py-4"}`}>
+            <div
+              className={`flex min-h-0 flex-1 ${
+                isNewChatOpen ? "overflow-visible" : isDirectoryOpen ? "overflow-hidden" : "overflow-y-auto"
+              } ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-3 py-4"}`}
+            >
               {isGroupsPanelOpen ? (
                 isGroupCreateOpen ? (
                   <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-10 text-center">
@@ -6085,7 +6124,7 @@ export default function KnexChatPage() {
                   </div>
                 )
               ) : isDirectoryOpen ? (
-                <div className={`flex h-full flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                <div className={`flex min-h-0 flex-1 flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
                   <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
                     <button
                       type="button"
@@ -6188,7 +6227,7 @@ export default function KnexChatPage() {
                       })}
                     </div>
                   </div>
-                  <div className="flex-1 overflow-y-auto px-4 py-4">
+                  <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
                     {directoryTab === "people" ? (
                       <div className="space-y-3">
                         <p className={`text-[11px] font-semibold ${settingsMuted}`}>Diretório visível</p>
@@ -6469,7 +6508,11 @@ export default function KnexChatPage() {
                   </div>
                 </div>
               ) : isNewChatOpen ? (
-                <div className={`flex h-full flex-col ${isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"}`}>
+                <div
+                  className={`absolute inset-0 z-20 flex h-full flex-col ${
+                    isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"
+                  } lg:rounded-tl-md`}
+                >
                   <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
                   <button
                     type="button"
@@ -7513,221 +7556,226 @@ export default function KnexChatPage() {
                 className={`relative flex-1 min-h-0 transition-colors ${messagePanelBg}`}
                 style={messagePanelBodyStyle}
               >
-                <div className="absolute inset-0 overflow-y-auto px-6 py-6">
-                  {pendingJoinToken ? (
-                    <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold">Convite detectado</p>
-                          <p className="text-xs text-emerald-100/80">
-                            Token: {pendingJoinToken} - Clique para entrar no grupo.
-                          </p>
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-2">
+                    {pendingJoinToken ? (
+                      <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">Convite detectado</p>
+                            <p className="text-xs text-emerald-100/80">
+                              Token: {pendingJoinToken} - Clique para entrar no grupo.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleAcceptJoin}
+                            className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
+                          >
+                            Entrar
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleAcceptJoin}
-                          className="rounded-full bg-emerald-500/30 px-4 py-1 text-xs font-semibold text-emerald-50 hover:bg-emerald-500/50"
-                        >
-                          Entrar
-                        </button>
                       </div>
-                    </div>
-                  ) : null}
-                  <div className="space-y-4">
-                    {activeMessages.map((message) => {
-                      const isMe = message.author === "me";
-                      const isGroupChat = activeThread?.tab === "groups";
-                      const showSender = !isMe && isGroupChat;
-                      const senderLabel = message.senderName ?? "Participante";
-                      const senderColorClass = getSenderColorClass(senderLabel);
-                      const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
-                      const isMediaMessage = Boolean(message.imageUrl);
-                      const bubble = (
-                        <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
-                          {showSender ? (
-                            <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
-                          ) : null}
-                          {message.imageUrl ? (
-                            <div className="knex-bubble__media">
-                              <img
-                                src={message.imageUrl}
-                                alt={message.imageName ?? "Imagem enviada"}
-                                className="knex-bubble__image"
-                              />
-                              {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
-                            </div>
-                          ) : (
-                            <p className="knex-bubble__text">{message.body}</p>
-                          )}
-                          <p className="knex-bubble__time">{message.time}</p>
-                        </div>
-                      );
-                  const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
-                    <img
-                      src={activeThreadAvatarUrl}
-                      alt={`Avatar de ${activeThread.title}`}
-                      className={`h-9 w-9 ${avatarFrameXs} object-cover`}
-                    />
-                  ) : (
-                    <div
-                      className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
-                    >
-                      {getAvatarText(activeThread?.title ?? "KN")}
-                    </div>
-                  );
-                      const showIncomingAvatar = !isMe && isGroupChat;
-                      const showOutgoingAvatar = isMe && isGroupChat;
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex ${isMe ? "items-end justify-end" : "items-start justify-start"} ${
-                          isGroupChat ? "gap-3" : "gap-0"
-                        }`}
-                      >
-                        {!isMe ? (
-                          <>
-                            {showIncomingAvatar ? incomingAvatar : null}
-                            {bubble}
-                          </>
-                        ) : (
-                          bubble
-                        )}
-                    {showOutgoingAvatar ? (
-                      currentUser?.avatarUrl ? (
-                        <img
-                          src={currentUser.avatarUrl}
-                          alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                          className={`h-9 w-9 ${avatarFrameXs} object-cover`}
-                        />
-                      ) : (
-                        <div
-                          className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-emerald-500/20 text-xs font-semibold text-emerald-200`}
-                        >
-                          {currentUser?.avatarText ?? "KN"}
-                        </div>
-                      )
                     ) : null}
+                    <div className="space-y-4">
+                      {activeMessages.map((message) => {
+                        const isMe = message.author === "me";
+                        const isGroupChat = activeThread?.tab === "groups";
+                        const showSender = !isMe && isGroupChat;
+                        const senderLabel = message.senderName ?? "Participante";
+                        const senderColorClass = getSenderColorClass(senderLabel);
+                        const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
+                        const isMediaMessage = Boolean(message.imageUrl);
+                        const bubble = (
+                          <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
+                            {showSender ? (
+                              <p className={`text-[11px] font-semibold ${senderColorClass}`}>{senderLabel}</p>
+                            ) : null}
+                            {message.imageUrl ? (
+                              <div className="knex-bubble__media">
+                                <img
+                                  src={message.imageUrl}
+                                  alt={message.imageName ?? "Imagem enviada"}
+                                  className="knex-bubble__image"
+                                />
+                                {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
+                              </div>
+                            ) : (
+                              <p className="knex-bubble__text">{message.body}</p>
+                            )}
+                            <p className="knex-bubble__time">{message.time}</p>
+                          </div>
+                        );
+                    const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
+                      <img
+                        src={activeThreadAvatarUrl}
+                        alt={`Avatar de ${activeThread.title}`}
+                        className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
+                      >
+                        {getAvatarText(activeThread?.title ?? "KN")}
                       </div>
                     );
-                  })}
-                  </div>
-                </div>
-
-                <div className="absolute inset-x-4 bottom-0.5">
-                  <form
-                    className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (recordingState === "idle") {
-                        handleSendMessage();
-                      }
-                    }}
-                  >
-                    {messageSendNotice ? (
-                      <div
-                        className={`w-full rounded-2xl border px-3 py-2 text-xs ${
-                          isDarkTheme
-                            ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
-                            : "border-amber-200 bg-amber-50 text-amber-700"
-                        }`}
-                      >
-                        {messageSendNotice}
-                      </div>
-                    ) : null}
-                    <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
-                      <button
-                        type="button"
-                        aria-label="Adicionar"
-                        onClick={() => messageImageInputRef.current?.click()}
-                        className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
-                      >
-                        +
-                      </button>
-                      <input
-                        ref={messageImageInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={handleMessageImageChange}
-                      />
-                      <button
-                        type="button"
-                        aria-label="Emojis"
-                        className="text-slate-600 transition hover:text-slate-900"
-                      >
-                        <Smile className="h-5 w-5" />
-                      </button>
-                      <input
-                        type="text"
-                        value={messageDraft}
-                        onChange={(event) => {
-                          setMessageDraft(event.target.value);
-                          if (messageSendNotice) setMessageSendNotice(null);
-                        }}
-                        placeholder="Digite uma mensagem"
-                        className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
-                      />
-                      {recordingState !== "idle" ? (
-                        <div className="ml-auto flex items-center gap-2">
-                          <button
-                            type="button"
-                            aria-label="Cancelar gravação"
-                            onClick={() => stopRecording("discard")}
-                            className="text-slate-500 transition hover:text-slate-900"
+                        const showIncomingAvatar = !isMe && isGroupChat;
+                        const showOutgoingAvatar = isMe && isGroupChat;
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${isMe ? "items-end justify-end" : "items-start justify-start"} ${
+                            isGroupChat ? "gap-3" : "gap-0"
+                          }`}
+                        >
+                          {!isMe ? (
+                            <>
+                              {showIncomingAvatar ? incomingAvatar : null}
+                              {bubble}
+                            </>
+                          ) : (
+                            bubble
+                          )}
+                      {showOutgoingAvatar ? (
+                        currentUser?.avatarUrl ? (
+                          <img
+                            src={currentUser.avatarUrl}
+                            alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                            className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                          />
+                        ) : (
+                          <div
+                            className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-emerald-500/20 text-xs font-semibold text-emerald-200`}
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <span className="h-2 w-2 rounded-full bg-rose-500" />
-                            {formatDuration(recordingSeconds)}
-                          </span>
-                          <span className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`} aria-hidden="true">
-                            {Array.from({ length: 14 }).map((_, index) => (
-                              <span
-                                key={index}
-                                className="knex-record-bar"
-                                style={{ "--i": 13 - index } as CSSProperties}
-                              />
-                            ))}
-                          </span>
-                          <button
-                            type="button"
-                            aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
-                            onClick={toggleRecordingPause}
-                            className="text-slate-500 transition hover:text-slate-900"
-                          >
-                            {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                          </button>
-                          <Timer className="h-4 w-4 text-slate-400" />
-                          <button
-                            type="button"
-                            aria-label="Enviar áudio"
-                            onClick={() => stopRecording("send")}
-                            className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
-                          >
-                            <SendHorizontal className="h-4 w-4" />
-                          </button>
+                            {currentUser?.avatarText ?? "KN"}
+                          </div>
+                        )
+                      ) : null}
                         </div>
-                      ) : (
+                      );
+                    })}
+                    </div>
+                  </div>
+
+                  <div className="px-4 pb-2 pt-1">
+                    <form
+                      className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (recordingState === "idle") {
+                          handleSendMessage();
+                        }
+                      }}
+                    >
+                      {messageSendNotice ? (
+                        <div
+                          className={`w-full rounded-2xl border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                              : "border-amber-200 bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {messageSendNotice}
+                        </div>
+                      ) : null}
+                      <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
                         <button
                           type="button"
-                          aria-label="Gravar áudio"
-                          onClick={startRecording}
-                          className="ml-auto text-blue-600 transition hover:text-blue-700"
+                          aria-label="Adicionar"
+                          onClick={() => messageImageInputRef.current?.click()}
+                          className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
                         >
-                          <Mic className="h-5 w-5" />
+                          +
                         </button>
-                      )}
-                    </div>
-                    {recordingState === "idle" && messageDraft.trim() ? (
-                      <button
-                        type="submit"
-                        className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
-                      >
-                        Enviar
-                      </button>
-                    ) : null}
-                  </form>
+                        <input
+                          ref={messageImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={handleMessageImageChange}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Emojis"
+                          className="text-slate-600 transition hover:text-slate-900"
+                        >
+                          <Smile className="h-5 w-5" />
+                        </button>
+                        <input
+                          type="text"
+                          value={messageDraft}
+                          onChange={(event) => {
+                            setMessageDraft(event.target.value);
+                            if (messageSendNotice) setMessageSendNotice(null);
+                          }}
+                          placeholder="Digite uma mensagem"
+                          className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+                        />
+                        {recordingState !== "idle" ? (
+                          <div className="ml-auto flex items-center gap-2">
+                            <button
+                              type="button"
+                              aria-label="Cancelar gravação"
+                              onClick={() => stopRecording("discard")}
+                              className="text-slate-500 transition hover:text-slate-900"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                            <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                              <span className="h-2 w-2 rounded-full bg-rose-500" />
+                              {formatDuration(recordingSeconds)}
+                            </span>
+                            <span
+                              className={`knex-record-wave ${recordingState === "paused" ? "is-paused" : ""}`}
+                              aria-hidden="true"
+                            >
+                              {Array.from({ length: 14 }).map((_, index) => (
+                                <span
+                                  key={index}
+                                  className="knex-record-bar"
+                                  style={{ "--i": 13 - index } as CSSProperties}
+                                />
+                              ))}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={recordingState === "paused" ? "Retomar gravação" : "Pausar gravação"}
+                              onClick={toggleRecordingPause}
+                              className="text-slate-500 transition hover:text-slate-900"
+                            >
+                              {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                            </button>
+                            <Timer className="h-4 w-4 text-slate-400" />
+                            <button
+                              type="button"
+                              aria-label="Enviar áudio"
+                              onClick={() => stopRecording("send")}
+                              className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
+                            >
+                              <SendHorizontal className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label="Gravar áudio"
+                            onClick={startRecording}
+                            className="ml-auto text-blue-600 transition hover:text-blue-700"
+                          >
+                            <Mic className="h-5 w-5" />
+                          </button>
+                        )}
+                      </div>
+                      {recordingState === "idle" && messageDraft.trim() ? (
+                        <button
+                          type="submit"
+                          className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                        >
+                          Enviar
+                        </button>
+                      ) : null}
+                    </form>
+                  </div>
                 </div>
               </div>
             </>
