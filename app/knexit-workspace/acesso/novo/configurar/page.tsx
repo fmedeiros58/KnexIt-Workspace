@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { Suspense, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -26,7 +26,7 @@ const methods = [
   },
 ];
 
-export default function KnexitWorkspaceSetupMethodPage() {
+function ConfigurarContent() {
   const searchParams = useSearchParams();
   const accountType = searchParams.get("type") ?? "business";
   const teamSize = searchParams.get("team");
@@ -137,6 +137,25 @@ export default function KnexitWorkspaceSetupMethodPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function KnexitWorkspaceSetupMethodPage() {
+  return (
+    <Suspense
+      fallback={
+        <main
+          className="min-h-screen bg-[var(--kx-bg)] text-[var(--kx-ink)] font-[family:Arial,Helvetica,sans-serif]"
+          style={theme}
+        >
+          <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
+            Carregando...
+          </div>
+        </main>
+      }
+    >
+      <ConfigurarContent />
+    </Suspense>
   );
 }
 

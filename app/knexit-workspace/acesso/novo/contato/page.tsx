@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -13,7 +13,7 @@ const theme = {
   "--kx-primary": "#1e5df5",
 } as CSSProperties;
 
-export default function KnexitWorkspaceContactPage() {
+function ContactContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const accountType = searchParams.get("type") ?? "business";
@@ -259,6 +259,25 @@ export default function KnexitWorkspaceContactPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function KnexitWorkspaceContactPage() {
+  return (
+    <Suspense
+      fallback={
+        <main
+          className="min-h-screen bg-[var(--kx-bg)] text-[var(--kx-ink)] font-[family:Arial,Helvetica,sans-serif]"
+          style={theme}
+        >
+          <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
+            Carregando...
+          </div>
+        </main>
+      }
+    >
+      <ContactContent />
+    </Suspense>
   );
 }
 
