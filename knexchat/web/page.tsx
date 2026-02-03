@@ -1141,6 +1141,7 @@ export default function KnexChatPage() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isKnexchatActivated, setIsKnexchatActivated] = useState<boolean | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [activationLayout, setActivationLayout] = useState<ActivationLayout>(() =>
     computeActivationLayout(1440, 900),
@@ -1160,6 +1161,16 @@ export default function KnexChatPage() {
   const [activationError, setActivationError] = useState<string | null>(null);
   const [activationNotice, setActivationNotice] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
+
+  const workspaceEmail = useMemo(
+    () => normalizeEmail(authSession?.user?.email ?? ""),
+    [authSession?.user?.email],
+  );
+  const workspaceName = useMemo(() => {
+    const metadata = authSession?.user?.user_metadata as { name?: string; full_name?: string } | null;
+    return normalizeName(metadata?.name ?? metadata?.full_name ?? "");
+  }, [authSession?.user?.user_metadata]);
+  const isWorkspaceEmailLocked = Boolean(workspaceEmail);
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [activeThreadId, setActiveThreadId] = useState<string>(INITIAL_CONVERSATIONS[0]?.id ?? "");
@@ -1235,6 +1246,7 @@ export default function KnexChatPage() {
   const [directoryTab, setDirectoryTab] = useState<DirectoryTabKey>("people");
   const [directorySearch, setDirectorySearch] = useState("");
   const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilterKey>("all");
+
   const [isDirectoryFiltersOpen, setIsDirectoryFiltersOpen] = useState(false);
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
   const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
@@ -1539,6 +1551,7 @@ export default function KnexChatPage() {
         title: contact.title,
         preview: contact.preview,
         avatarUrl: contact.avatarUrl ?? null,
+        contactEmail: contact.contactEmail ?? null,
       })),
     [contacts],
   );
@@ -1554,11 +1567,32 @@ export default function KnexChatPage() {
         title: `${currentUser.name} (você)`,
         preview: "Mensagens para mim",
         avatarUrl: currentUser.avatarUrl ?? null,
+        contactEmail: currentUser.email ?? null,
       },
       ...sortedBaseContacts,
     ];
   }, [currentUser, sortedBaseContacts]);
-  const groupContacts = useMemo(() => sortedBaseContacts, [sortedBaseContacts]);
+  const isDirectoryEmail = useCallback(
+    (email: string) => {
+      const normalized = normalizeEmail(email);
+      if (!normalized) return false;
+      if (directoryLookupCache[normalized] !== undefined) {
+        return directoryLookupCache[normalized];
+      }
+      return directoryEntries.some((entry) => normalizeEmail(entry.email) === normalized);
+    },
+    [directoryEntries, directoryLookupCache],
+  );
+  const groupContacts = useMemo(() => {
+    if (!serverMessagingEnabled) return sortedBaseContacts;
+    return sortedBaseContacts.filter((contact) => {
+      const contactEmail = contact.contactEmail
+        ? normalizeEmail(contact.contactEmail)
+        : extractEmail(contact.preview) ?? "";
+      if (!contactEmail) return false;
+      return isDirectoryEmail(contactEmail);
+    });
+  }, [isDirectoryEmail, serverMessagingEnabled, sortedBaseContacts]);
   const filteredNewChatContacts = useMemo(() => {
     const query = newChatSearch.trim().toLowerCase();
     if (!query) return newChatContacts;
@@ -3171,9 +3205,42 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (!isAuthReady) return;
     if (!authSession?.user?.email) {
+      setIsKnexchatActivated(false);
+      return;
+    }
+    let active = true;
+    const email = normalizeEmail(authSession.user.email);
+    (async () => {
+      const exists = await checkEmailRegistered(email);
+      if (active) {
+        setIsKnexchatActivated(exists);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [authSession?.user?.email, checkEmailRegistered, isAuthReady]);
+
+  useEffect(() => {
+    if (!workspaceEmail) return;
+    setRegisteringEmail((prev) => (normalizeEmail(prev) === workspaceEmail ? prev : workspaceEmail));
+    if (workspaceName) {
+      setRegisteringName((prev) => prev || workspaceName);
+    }
+  }, [workspaceEmail, workspaceName]);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (!authSession?.user?.email) {
       setIdentity(null);
       return;
     }
+    if (isKnexchatActivated === false) {
+      setIdentity(null);
+      return;
+    }
+    if (isKnexchatActivated === null) return;
+
     const normalizedEmail = normalizeEmail(authSession.user.email);
     const metadata = authSession.user.user_metadata as { name?: string; full_name?: string } | null;
     const normalizedName = normalizeName(metadata?.name ?? metadata?.full_name ?? "");
@@ -3201,6 +3268,17 @@ export default function KnexChatPage() {
       return [directoryEntry, ...prev];
     });
     setDirectoryLookupCache((prev) => ({ ...prev, [normalizedEmail]: true }));
+  }, [authSession, isAuthReady, isKnexchatActivated]);
+
+  useEffect(() => {
+    if (!isAuthReady || !authSession?.user?.email) return;
+    if (isKnexchatActivated === false) return;
+    if (isKnexchatActivated === null) return;
+
+    const normalizedEmail = normalizeEmail(authSession.user.email);
+    const metadata = authSession.user.user_metadata as { name?: string; full_name?: string } | null;
+    const normalizedName = normalizeName(metadata?.name ?? metadata?.full_name ?? "");
+
     void (async () => {
       try {
         const res = await authFetch("/api/knexchat/directory", {
@@ -3213,7 +3291,7 @@ export default function KnexChatPage() {
         // Ignore directory registration errors.
       }
     })();
-  }, [authFetch, authSession, isAuthReady]);
+  }, [authFetch, authSession, isAuthReady, isKnexchatActivated]);
 
   useEffect(() => {
     if (!chatStateKey) {
@@ -3609,6 +3687,10 @@ export default function KnexChatPage() {
       setActivationError("Informe um e-mail válido.");
       return;
     }
+    if (workspaceEmail && normalized !== workspaceEmail) {
+      setActivationError(`Use o e-mail da sua conta Knexit (${workspaceEmail}) para ativar o KnexChat.`);
+      return;
+    }
     setIsSendingOtp(true);
     setActivationError(null);
     setActivationNotice(null);
@@ -3647,6 +3729,10 @@ export default function KnexChatPage() {
       setActivationError("Código inválido.");
       return;
     }
+    if (workspaceEmail && normalized !== workspaceEmail) {
+      setActivationError(`Use o e-mail da sua conta Knexit (${workspaceEmail}) para ativar o KnexChat.`);
+      return;
+    }
     if (!OTP_CODE_REGEX.test(token)) {
       setActivationError("Informe o código de 6 dígitos.");
       return;
@@ -3654,7 +3740,7 @@ export default function KnexChatPage() {
     setIsSendingOtp(true);
     setActivationError(null);
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         email: normalized,
         token,
         type: "email",
@@ -3662,6 +3748,34 @@ export default function KnexChatPage() {
       if (error) {
         throw new Error(error.message);
       }
+      const accessToken =
+        data?.session?.access_token ||
+        (await supabase.auth.getSession().then((result) => result.data.session?.access_token));
+      if (accessToken) {
+        try {
+          const normalizedName = normalizeName(registeringName);
+          const res = await fetch("/api/knexchat/directory", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              email: normalized,
+              name: normalizedName || undefined,
+            }),
+          });
+          if (res.status === 409) {
+            // Already registered, continue.
+          } else if (!res.ok) {
+            throw new Error("directory_registration_failed");
+          }
+        } catch {
+          setActivationError("Falha ao registrar sua conta KnexChat. Tente novamente.");
+          return;
+        }
+      }
+      setIsKnexchatActivated(true);
       setActivationStep("email");
       setOtpGenerated(null);
       setOtpInput("");
@@ -4870,6 +4984,20 @@ export default function KnexChatPage() {
     );
   }
 
+  if (authSession?.user?.email && isKnexchatActivated === null) {
+    return (
+      <main
+        style={THEME_STYLE}
+        className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
+      >
+        {activationBackdrop}
+        <div className="relative z-10 flex min-h-screen items-center justify-center">
+          <div className="text-sm text-slate-400">Verificando sua conta KnexChat...</div>
+        </div>
+      </main>
+    );
+  }
+
   if (!identity) {
     if (isChatRoute) {
       return (
@@ -4900,6 +5028,7 @@ export default function KnexChatPage() {
             activationNotice={activationNotice}
             isSendingOtp={isSendingOtp}
             showOtpPreview={SHOW_OTP_PREVIEW}
+            lockEmail={isWorkspaceEmailLocked}
             onSendCode={handleSendCode}
             onOtpChange={setOtpInput}
             onConfirmOtp={handleConfirmOtp}
@@ -9834,6 +9963,7 @@ type ActivationScreenProps = {
   activationNotice: string | null;
   isSendingOtp: boolean;
   showOtpPreview: boolean;
+  lockEmail?: boolean;
   onSendCode: () => Promise<void> | void;
   onOtpChange: (value: string) => void;
   onConfirmOtp: () => void;
@@ -9853,6 +9983,7 @@ function ActivationScreen({
   activationNotice,
   isSendingOtp,
   showOtpPreview,
+  lockEmail = false,
   onSendCode,
   onOtpChange,
   onConfirmOtp,
@@ -9895,18 +10026,21 @@ function ActivationScreen({
                 required
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
-              <input
-                type="email"
-                value={registeringEmail}
-                onChange={(event) => onEmailChange(event.target.value)}
-                placeholder="voce@exemplo.com"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                disabled={isSendingOtp}
-                required
-              />
-            </div>
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
+                    <input
+                      type="email"
+                      value={registeringEmail}
+                      onChange={(event) => onEmailChange(event.target.value)}
+                      placeholder="voce@exemplo.com"
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
+                      disabled={isSendingOtp || lockEmail}
+                      required
+                    />
+                  </div>
+                  {lockEmail ? (
+                    <p className="text-xs text-slate-500">Usaremos o e-mail da sua conta Knexit.</p>
+                  ) : null}
             {showOtpPreview ? (
               <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
             ) : null}
@@ -9927,16 +10061,18 @@ function ActivationScreen({
               onConfirmOtp();
             }}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-              <span>E-mail: {registeringEmail}</span>
-              <button
-                type="button"
-                onClick={onEditEmail}
-                className="text-blue-600 transition hover:text-blue-500"
-              >
-                Editar e-mail
-              </button>
-            </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                    <span>E-mail: {registeringEmail}</span>
+                    {lockEmail ? null : (
+                      <button
+                        type="button"
+                        onClick={onEditEmail}
+                        className="text-blue-600 transition hover:text-blue-500"
+                      >
+                        Editar e-mail
+                      </button>
+                    )}
+                  </div>
             <div className="space-y-2">
               <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Codigo de 6 digitos</label>
               <input

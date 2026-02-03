@@ -12,7 +12,8 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3000",
     "lint": "next lint",
-    "serve:vllm": "vllm serve --host 0.0.0.0 --port 8080 --model=models/CModelosMistral-7B-Instruct-v0.2-AWQ --device cuda:0 --concurrency 4"
+    "serve:vllm": "vllm serve --host 0.0.0.0 --port 8080 --model=models/CModelosMistral-7B-Instruct-v0.2-AWQ --device cuda:0 --concurrency 4",
+    "email:test": "node scripts/email-test.mjs"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.15",

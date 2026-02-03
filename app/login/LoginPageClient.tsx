@@ -14,7 +14,11 @@ type LoginPageClientProps = {
 };
 
 const DEFAULT_PRODUCT = getProduct(DEFAULT_PRODUCT_SLUG)!;
-const ALLOWED_EMAILS = new Set(["fmedeiros58@gmail.com"]);
+const normalizeAllowedDomain = (value: string) => {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return "";
+  return trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+};
 
 function normalizeRedirect(product: ProductEntry, target: string | null, origin: string) {
   if (!target) return target;
@@ -49,7 +53,7 @@ export default function LoginPageClient({
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loadingLogin, setLoadingLogin] = useState(false);
-  const allowedDomain = process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "";
+  const allowedDomain = normalizeAllowedDomain(process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "");
 
   const [name, setName] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
@@ -60,13 +64,15 @@ export default function LoginPageClient({
 
   const [err, setErr] = useState<string | null>(null);
 
-  const isAllowedEmail = useCallback((email?: string | null) => {
-    if (!email) return false;
-    const lowered = email.toLowerCase();
-    if (ALLOWED_EMAILS.has(lowered)) return true;
-    if (allowedDomain) return lowered.includes(allowedDomain);
-    return true;
-  }, [allowedDomain]);
+  const isAllowedEmail = useCallback(
+    (email?: string | null) => {
+      if (!email) return false;
+      const lowered = email.toLowerCase();
+      if (!allowedDomain) return true;
+      return lowered.endsWith(`@${allowedDomain}`);
+    },
+    [allowedDomain],
+  );
 
   const { targetRedirect, productLabel, activeProductSlug, hasExplicitProduct } = useMemo(() => {
     const resolveTarget = (value: string | null | undefined, base: string): string | null => {
@@ -129,7 +135,7 @@ export default function LoginPageClient({
       if (event === "SIGNED_IN" && typeof window !== "undefined") {
         const email = session?.user?.email ?? null;
         if (email && !isAllowedEmail(email)) {
-          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          setErr("E-mail não autorizado para acessar o Knexit Workspace.");
           await supabase.auth.signOut();
           return;
         }
@@ -148,7 +154,7 @@ export default function LoginPageClient({
       const user = await getCurrentUser();
       if (user && typeof window !== "undefined") {
         if (!isAllowedEmail(user.email)) {
-          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          setErr("E-mail não autorizado para acessar o Knexit Workspace.");
           await supabase.auth.signOut();
           return;
         }
@@ -182,7 +188,7 @@ export default function LoginPageClient({
     setLoadingLogin(true);
     if (!isAllowedEmail(loginEmail)) {
       setLoadingLogin(false);
-      setErr("Apenas e-mails do domínio Knexit são permitidos.");
+      setErr("E-mail não autorizado para acessar o Knexit Workspace.");
       return;
     }
     if (typeof window !== "undefined" && postAuthRedirect) {
@@ -210,7 +216,7 @@ export default function LoginPageClient({
     setSignupLoading(true);
     if (!isAllowedEmail(signupEmail)) {
       setSignupLoading(false);
-      setErr("Apenas e-mails do domínio Knexit são permitidos.");
+      setErr("E-mail não autorizado para acessar o Knexit Workspace.");
       return;
     }
     if (typeof window !== "undefined" && postAuthRedirect) {
