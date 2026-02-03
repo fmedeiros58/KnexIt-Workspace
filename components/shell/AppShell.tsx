@@ -49,11 +49,11 @@ export default function AppShell({ children }: AppShellProps) {
   }, [pathname]);
 
   if (!shouldUseShell) {
-    return <div className="h-screen overflow-y-auto bg-white text-slate-900">{children}</div>;
+    return <div className="h-screen overflow-y-auto bg-[#E5F3F4] text-slate-900">{children}</div>;
   }
 
   return (
-    <div className="flex h-screen min-w-0 flex-col bg-slate-50 text-slate-900">
+    <div className="flex h-screen min-w-0 flex-col bg-[#E5F3F4] text-slate-900">
       <div className="relative z-30">
         <Header
           title={activeItem?.label ?? "Knexspace One"}

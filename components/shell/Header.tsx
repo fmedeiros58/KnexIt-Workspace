@@ -12,7 +12,7 @@ type HeaderProps = {
 export default function Header({ title, subtitle, onMenuClick, rightSlot, bottomSlot }: HeaderProps) {
   return (
     <header
-      className="sticky top-0 z-30 flex flex-col border-b border-slate-200/70 bg-white/90 text-slate-900 backdrop-blur"
+      className="sticky top-0 z-30 flex flex-col border-b border-slate-200/70 bg-[#3E8FA3] text-slate-900 backdrop-blur"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <div className="flex min-h-[3.85rem] items-center justify-between gap-3 px-6">

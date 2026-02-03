@@ -290,7 +290,7 @@ export default function PlansSection() {
   };
 
   return (
-    <section id="planos" className="bg-slate-50 py-14">
+    <section id="planos" className="bg-[#E5F3F4] py-14">
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-10">
         <div className="space-y-3 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Encontre o plano ideal para sua instituição</h2>

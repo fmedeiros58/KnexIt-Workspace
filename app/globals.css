@@ -14,7 +14,8 @@ body {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  background-color: #E5F3F4;
+  @apply text-slate-900;
   overflow: hidden;
 }
 
