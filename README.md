@@ -51,6 +51,37 @@ Para testar cada produto basta abrir o URL correspondente depois que o `npm run 
 - O guard redireciona para `/login`, então o fluxo permanece relativo (não usa domínios externos).
 - Para testar, abra `http://localhost:3000/login`, preencha seu e-mail e aguarde o link mágico enviado pelo Supabase usando o próprio domínio local.
 
+## Resend (teste de e-mail)
+
+- Configure no `.env.local`:
+  - `RESEND_API_KEY`
+  - `RESEND_FROM`
+- Endpoint de teste: `POST /api/email/test`
+
+### Exemplo (PowerShell)
+
+```powershell
+curl -Method POST http://localhost:3000/api/email/test `
+  -Headers @{ "Content-Type"="application/json" } `
+  -Body '{"to":"SEU_EMAIL@gmail.com","subject":"Teste Resend","text":"Teste ok","html":"<p>Teste <b>ok</b></p>"}'
+```
+
+### Exemplo (bash)
+
+```bash
+curl -X POST http://localhost:3000/api/email/test \
+  -H "Content-Type: application/json" \
+  -d '{"to":"SEU_EMAIL@gmail.com","subject":"Teste Resend","text":"Teste ok","html":"<p>Teste <b>ok</b></p>"}'
+```
+
+### Script rapido
+
+```bash
+TEST_EMAIL_TO=SEU_EMAIL@gmail.com npm run email:test
+```
+
+Nunca commite o `.env.local` e nunca cole a chave no codigo.
+
 ## Motor local com vLLM
 
 - Suba o servidor com `npm run serve:vllm` (usa `models/CModelosMistral-7B-Instruct-v0.2-AWQ`, `cuda:0` e porta 8080). Ajuste `concurrency` conforme a carga.
