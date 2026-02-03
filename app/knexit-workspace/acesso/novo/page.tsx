@@ -25,11 +25,18 @@ const TEAM_SIZES = [
 
 export default function KnexitWorkspaceAccountSetupPage() {
   const router = useRouter();
+  const [accountType, setAccountType] = useState<"" | "personal" | "business">("");
   const [teamSize, setTeamSize] = useState("");
 
   const handleAdvance = () => {
-    if (!teamSize) return;
-    router.push(`/knexit-workspace/acesso/novo/contato?team=${encodeURIComponent(teamSize)}`);
+    if (!accountType) return;
+    if (accountType === "business" && !teamSize) return;
+    const params = new URLSearchParams();
+    params.set("type", accountType);
+    if (accountType === "business" && teamSize) {
+      params.set("team", teamSize);
+    }
+    router.push(`/knexit-workspace/acesso/novo/contato?${params.toString()}`);
   };
 
   return (
@@ -87,7 +94,7 @@ export default function KnexitWorkspaceAccountSetupPage() {
           </div>
         </header>
 
-        <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-12 px-5 py-12 lg:grid-cols-[1fr,1fr] lg:items-start">
+        <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-12 px-5 py-12 lg:min-h-[calc(100vh-88px)] lg:grid-cols-[1fr,1fr] lg:items-center lg:py-0">
           <section className="space-y-6 fade-in">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Novo Workspace</p>
@@ -97,37 +104,85 @@ export default function KnexitWorkspaceAccountSetupPage() {
             </div>
 
             <form className="space-y-6">
-              <label className="block text-sm font-semibold text-slate-700">
-                Nome da empresa
-                <input
-                  type="text"
-                  placeholder="Nome da empresa"
-                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                />
-              </label>
-
               <fieldset className="space-y-3">
-                <legend className="text-sm font-semibold text-slate-700">
-                  Número de funcionários, incluindo você
-                </legend>
-                <div className="space-y-2">
-                  {TEAM_SIZES.map((option) => (
-                    <label
-                      key={option.value}
-                      className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 hover:border-slate-300"
-                    >
-                      <input
-                        type="radio"
-                        name="team-size"
-                        value={option.value}
-                        checked={teamSize === option.value}
-                        onChange={() => setTeamSize(option.value)}
-                      />
-                      {option.label}
-                    </label>
-                  ))}
+                <legend className="text-sm font-semibold text-slate-700">Tipo de conta</legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { value: "personal", title: "Conta pessoal", desc: "Uso individual, sem equipe." },
+                    { value: "business", title: "Conta empresarial", desc: "Para empresa ou time." },
+                  ].map((option) => {
+                    const active = accountType === option.value;
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex cursor-pointer flex-col gap-1 rounded-2xl border px-4 py-3 text-sm ${
+                          active
+                            ? "border-blue-500 bg-blue-50 text-slate-900"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="account-type"
+                          value={option.value}
+                          checked={active}
+                          onChange={() => setAccountType(option.value as "personal" | "business")}
+                          className="sr-only"
+                        />
+                        <span className="text-sm font-semibold">{option.title}</span>
+                        <span className="text-xs text-slate-500">{option.desc}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </fieldset>
+
+              {accountType === "business" && (
+                <label className="block text-sm font-semibold text-slate-700">
+                  Nome da empresa
+                  <input
+                    type="text"
+                    placeholder="Nome da empresa"
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                  />
+                </label>
+              )}
+
+              {accountType === "personal" && (
+                <label className="block text-sm font-semibold text-slate-700">
+                  Nome completo
+                  <input
+                    type="text"
+                    placeholder="Seu nome"
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                  />
+                </label>
+              )}
+
+              {accountType === "business" && (
+                <fieldset className="space-y-3">
+                  <legend className="text-sm font-semibold text-slate-700">
+                    Número de funcionários, incluindo você
+                  </legend>
+                  <div className="space-y-2">
+                    {TEAM_SIZES.map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 hover:border-slate-300"
+                      >
+                        <input
+                          type="radio"
+                          name="team-size"
+                          value={option.value}
+                          checked={teamSize === option.value}
+                          onChange={() => setTeamSize(option.value)}
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
 
               <label className="block text-sm font-semibold text-slate-700">
                 Região
@@ -143,7 +198,7 @@ export default function KnexitWorkspaceAccountSetupPage() {
               <button
                 type="button"
                 onClick={handleAdvance}
-                disabled={!teamSize}
+                disabled={!accountType || (accountType === "business" && !teamSize)}
                 className="inline-flex items-center justify-center rounded-full bg-[var(--kx-primary)] px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Avançar

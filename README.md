@@ -34,6 +34,21 @@ Cada pasta dentro de `app/` vira uma rota direta em `http://localhost:3000/<prod
 
 Para testar cada produto basta abrir o URL correspondente depois que o `npm run dev` estiver rodando na raiz. As subrotas (`/supadrive/viewer/[id]`, `/vioclass/agenda` etc.) também funcionam diretamente.
 
+
+## App Shell (layout responsivo)
+
+- O shell global mantem header fixo, sidebar/rail no desktop e drawer no mobile.
+- No mobile, use o menu (hamburguer) para abrir a navegacao.
+- No KnexChat, a lista (master) e a conversa (detail) alternam em telas pequenas.
+
+### Teste rapido
+
+1. `npm run dev`
+2. Abra `/knexchat/web`
+3. No DevTools, selecione um viewport mobile (< 768px).
+4. Clique em uma conversa para abrir o detail em tela cheia.
+5. Use o botao Voltar no topo para retornar a lista.
+
 ## Deploy (Vercel)
 
 - Faça login na Vercel e importe este repositório.
