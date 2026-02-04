@@ -4,6 +4,7 @@ import FaqSection from "./components/FaqSection";
 import FinalCtaSection from "./components/FinalCtaSection";
 import HeroSection from "./components/HeroSection";
 import HowItWorksSection from "./components/HowItWorksSection";
+import PremiumValueSection from "./components/PremiumValueSection";
 import PlansSection from "./components/PlansSection";
 import ProductsStrip from "./components/ProductsStrip";
 import SecuritySection from "./components/SecuritySection";
@@ -14,9 +15,10 @@ export default function KnexItWorkspacePage() {
   return (
     <main className="min-h-screen bg-white text-slate-900">
       <HeroSection />
+      <HowItWorksSection />
+      <PremiumValueSection />
       <PlansSection />
       <ProductsStrip />
-      <HowItWorksSection />
       <BenefitsSection />
       <SecuritySection />
       <UseCasesSection />

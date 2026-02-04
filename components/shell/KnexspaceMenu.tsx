@@ -142,13 +142,13 @@ export default function KnexspaceMenu({
         <div className="hidden md:flex w-full items-center justify-end gap-6 text-[13px] font-semibold lg:gap-7 lg:text-[15px] xl:hidden">
           <Link
             href="/knexit-workspace#contato"
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-slate-300 px-4 py-2 text-[12px] font-semibold text-blue-600 no-underline hover:bg-slate-50 hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border-[3px] border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[#2F7E95] hover:no-underline lg:text-[14px]"
           >
             Fale com a equipe de vendas
           </Link>
           <Link
             href="/knexit-workspace/acesso"
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-blue-600 px-4 py-2 text-[12px] font-semibold text-white no-underline hover:bg-blue-700 hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#2F7E95] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
           >
             Iniciar agora
           </Link>
@@ -212,13 +212,13 @@ export default function KnexspaceMenu({
           ) : null}
           <Link
             href="/knexit-workspace#contato"
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-slate-300 px-4 py-2 text-[12px] font-semibold text-blue-600 no-underline hover:bg-slate-50 hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border-[3px] border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[#2F7E95] hover:no-underline lg:text-[14px]"
           >
             Fale com a equipe de vendas
           </Link>
           <Link
             href="/knexit-workspace/acesso"
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-blue-600 px-4 py-2 text-[12px] font-semibold text-white no-underline hover:bg-blue-700 hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#2F7E95] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
           >
             Iniciar agora
           </Link>
