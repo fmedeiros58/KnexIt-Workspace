@@ -80,7 +80,7 @@ export default function KnexspaceMenu({
           type="button"
           onClick={() => setDesktopOpen((prev) => !prev)}
           className={`inline-flex items-center gap-1 whitespace-nowrap transition ${
-            desktopOpen ? "text-blue-600" : "text-slate-600 hover:text-blue-600"
+            desktopOpen ? "text-white" : "text-white/90 hover:text-white"
           }`}
         >
           Soluções
@@ -158,14 +158,14 @@ export default function KnexspaceMenu({
 
     if (layout === "nav") {
       return (
-        <div className="hidden md:flex w-full items-center gap-6 text-[13px] font-semibold text-slate-600 lg:gap-7 lg:text-[15px] xl:hidden">
+        <div className="hidden md:flex w-full items-center gap-6 text-[13px] font-semibold text-white lg:gap-7 lg:text-[15px] xl:hidden">
           {solutionsTrigger}
           <nav className="flex items-center gap-6 lg:gap-7">
             {mainLinks.map((item) => (
               <Link
                 key={item.label}
                 href={item.href}
-                className="whitespace-nowrap text-slate-600 no-underline hover:text-blue-600 hover:no-underline"
+                className="whitespace-nowrap text-white/90 no-underline hover:text-white hover:no-underline"
               >
                 {item.label}
               </Link>
@@ -175,7 +175,7 @@ export default function KnexspaceMenu({
             <Link
               key={adminLink.label}
               href={adminLink.href}
-              className="ml-auto whitespace-nowrap text-blue-600 no-underline hover:text-blue-600 hover:no-underline"
+              className="ml-auto whitespace-nowrap text-white no-underline hover:text-white hover:no-underline"
             >
               {adminLink.label}
             </Link>
@@ -185,7 +185,7 @@ export default function KnexspaceMenu({
     }
 
     return (
-      <div className="hidden xl:flex w-full items-center gap-6 text-[13px] font-semibold text-slate-600 lg:text-[15px]">
+      <div className="hidden xl:flex w-full items-center gap-6 text-[13px] font-semibold text-white lg:text-[15px]">
         <div className="flex items-center gap-6 pl-12">
           {solutionsTrigger}
           <nav className="flex items-center gap-6 lg:gap-7">
@@ -193,7 +193,7 @@ export default function KnexspaceMenu({
               <Link
                 key={item.label}
                 href={item.href}
-                className="whitespace-nowrap text-slate-600 no-underline hover:text-blue-600 hover:no-underline"
+                className="whitespace-nowrap text-white/90 no-underline hover:text-white hover:no-underline"
               >
                 {item.label}
               </Link>
@@ -205,7 +205,7 @@ export default function KnexspaceMenu({
             <Link
               key={adminLink.label}
               href={adminLink.href}
-              className="whitespace-nowrap text-blue-600 no-underline hover:text-blue-600 hover:no-underline"
+              className="whitespace-nowrap text-white no-underline hover:text-white hover:no-underline"
             >
               {adminLink.label}
             </Link>
