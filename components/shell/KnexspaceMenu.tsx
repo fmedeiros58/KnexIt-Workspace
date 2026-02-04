@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -7,6 +7,7 @@ import { ChevronDown, X } from "lucide-react";
 type KnexspaceMenuProps = {
   onNavigate?: () => void;
   variant?: "mobile" | "desktop";
+  layout?: "full" | "actions" | "nav";
 };
 
 const MENU_LINKS = [
@@ -48,7 +49,11 @@ const SOLUTION_SIDE = [
   { label: "Organizações sem fins lucrativos", href: "/lobby/solucoes/organizacoes-sem-fins-lucrativos" },
 ];
 
-export default function KnexspaceMenu({ onNavigate, variant = "mobile" }: KnexspaceMenuProps) {
+export default function KnexspaceMenu({
+  onNavigate,
+  variant = "mobile",
+  layout = "full",
+}: KnexspaceMenuProps) {
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -66,93 +71,154 @@ export default function KnexspaceMenu({ onNavigate, variant = "mobile" }: Knexsp
   }, [desktopOpen]);
 
   if (variant === "desktop") {
-    return (
-      <div className="hidden md:flex items-center gap-6">
-        <div className="relative" ref={panelRef}>
-          <button
-            type="button"
-            onClick={() => setDesktopOpen((prev) => !prev)}
-            className={`inline-flex items-center gap-1 text-sm font-semibold transition ${
-              desktopOpen ? "text-blue-600" : "text-slate-600 hover:text-blue-600"
-            }`}
-          >
-            Soluções
-            <ChevronDown className={`h-4 w-4 transition ${desktopOpen ? "rotate-180" : ""}`} />
-          </button>
-          {desktopOpen ? (
-            <div className="absolute left-0 top-full mt-4 w-[860px] rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-              <div className="flex items-start justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">Soluções</h3>
-                <button
-                  type="button"
-                  onClick={() => setDesktopOpen(false)}
-                  className="text-slate-500 hover:text-slate-700"
-                  aria-label="Fechar"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="mt-5 grid grid-cols-[2.4fr_1fr] gap-8 border-t border-slate-200 pt-5">
-                <div className="grid grid-cols-3 gap-6">
-                  {SOLUTION_GROUPS.map((group) => (
-                    <div key={group.title} className="space-y-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        {group.title}
-                      </p>
-                      <div className="space-y-2">
-                        {group.items.map((item) => (
-                          <Link
-                            key={item.label}
-                            href={item.href}
-                            className="block text-sm font-semibold text-slate-900 hover:text-blue-600 no-underline hover:no-underline"
-                          >
-                            {item.label}
-                          </Link>
-                        ))}
-                      </div>
+    const mainLinks = MENU_LINKS.filter((item) => !item.accent);
+    const adminLink = MENU_LINKS.find((item) => item.accent);
+
+    const solutionsTrigger = (
+      <div className="relative" ref={panelRef}>
+        <button
+          type="button"
+          onClick={() => setDesktopOpen((prev) => !prev)}
+          className={`inline-flex items-center gap-1 whitespace-nowrap transition ${
+            desktopOpen ? "text-blue-600" : "text-slate-600 hover:text-blue-600"
+          }`}
+        >
+          Soluções
+          <ChevronDown className={`h-4 w-4 transition ${desktopOpen ? "rotate-180" : ""}`} />
+        </button>
+        {desktopOpen ? (
+          <div className="absolute left-0 top-full mt-4 w-[860px] rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Soluções</h3>
+              <button
+                type="button"
+                onClick={() => setDesktopOpen(false)}
+                className="text-slate-500 hover:text-slate-700"
+                aria-label="Fechar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-5 grid grid-cols-[2.4fr_1fr] gap-8 border-t border-slate-200 pt-5">
+              <div className="grid grid-cols-3 gap-6">
+                {SOLUTION_GROUPS.map((group) => (
+                  <div key={group.title} className="space-y-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      {group.title}
+                    </p>
+                    <div className="space-y-2">
+                      {group.items.map((item) => (
+                        <Link
+                          key={item.label}
+                          href={item.href}
+                          className="block text-sm font-semibold text-slate-900 hover:text-blue-600 no-underline hover:no-underline"
+                        >
+                          {item.label}
+                        </Link>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                <div className="space-y-4 border-l border-slate-200 pl-6">
-                  {SOLUTION_SIDE.map((item) => (
-                    <Link
-                      key={item.label}
-                      href={item.href}
-                      className="block text-sm font-semibold text-slate-900 hover:text-blue-600 no-underline hover:no-underline"
-                    >
-                      {item.label}
-                    </Link>
-                  ))}
-                </div>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-4 border-l border-slate-200 pl-6">
+                {SOLUTION_SIDE.map((item) => (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    className="block text-sm font-semibold text-slate-900 hover:text-blue-600 no-underline hover:no-underline"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
               </div>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
+      </div>
+    );
 
-        <nav className="flex items-center gap-5 text-sm font-semibold text-slate-600">
-          {MENU_LINKS.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`no-underline hover:text-blue-600 hover:no-underline ${
-                item.accent ? "text-blue-600" : "text-slate-600"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="hidden lg:flex items-center gap-2">
+    if (layout === "actions") {
+      return (
+        <div className="hidden md:flex w-full items-center justify-end gap-6 text-[13px] font-semibold lg:gap-7 lg:text-[15px] xl:hidden">
           <Link
             href="/knexit-workspace#contato"
-            className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-blue-600 no-underline hover:bg-slate-50 hover:no-underline"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-slate-300 px-4 py-2 text-[12px] font-semibold text-blue-600 no-underline hover:bg-slate-50 hover:no-underline lg:text-[14px]"
           >
             Fale com a equipe de vendas
           </Link>
           <Link
             href="/knexit-workspace/acesso"
-            className="inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white no-underline hover:bg-blue-700 hover:no-underline"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-blue-600 px-4 py-2 text-[12px] font-semibold text-white no-underline hover:bg-blue-700 hover:no-underline lg:text-[14px]"
+          >
+            Iniciar agora
+          </Link>
+        </div>
+      );
+    }
+
+    if (layout === "nav") {
+      return (
+        <div className="hidden md:flex w-full items-center gap-6 text-[13px] font-semibold text-slate-600 lg:gap-7 lg:text-[15px] xl:hidden">
+          {solutionsTrigger}
+          <nav className="flex items-center gap-6 lg:gap-7">
+            {mainLinks.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="whitespace-nowrap text-slate-600 no-underline hover:text-blue-600 hover:no-underline"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          {adminLink ? (
+            <Link
+              key={adminLink.label}
+              href={adminLink.href}
+              className="ml-auto whitespace-nowrap text-blue-600 no-underline hover:text-blue-600 hover:no-underline"
+            >
+              {adminLink.label}
+            </Link>
+          ) : null}
+        </div>
+      );
+    }
+
+    return (
+      <div className="hidden xl:flex w-full items-center gap-6 text-[13px] font-semibold text-slate-600 lg:text-[15px]">
+        <div className="flex items-center gap-6 pl-12">
+          {solutionsTrigger}
+          <nav className="flex items-center gap-6 lg:gap-7">
+            {mainLinks.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="whitespace-nowrap text-slate-600 no-underline hover:text-blue-600 hover:no-underline"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+        <div className="ml-auto flex items-center gap-6 text-[13px] font-semibold lg:gap-7 lg:text-[15px]">
+          {adminLink ? (
+            <Link
+              key={adminLink.label}
+              href={adminLink.href}
+              className="whitespace-nowrap text-blue-600 no-underline hover:text-blue-600 hover:no-underline"
+            >
+              {adminLink.label}
+            </Link>
+          ) : null}
+          <Link
+            href="/knexit-workspace#contato"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-slate-300 px-4 py-2 text-[12px] font-semibold text-blue-600 no-underline hover:bg-slate-50 hover:no-underline lg:text-[14px]"
+          >
+            Fale com a equipe de vendas
+          </Link>
+          <Link
+            href="/knexit-workspace/acesso"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-blue-600 px-4 py-2 text-[12px] font-semibold text-white no-underline hover:bg-blue-700 hover:no-underline lg:text-[14px]"
           >
             Iniciar agora
           </Link>

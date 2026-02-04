@@ -18,7 +18,7 @@ export type NavItem = {
 };
 
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Knexspace", href: "/knexit-workspace", icon: AppWindow },
+  { label: "Knexspace One", href: "/knexit-workspace", icon: AppWindow },
   { label: "KnexChat", href: "/knexchat/web", icon: MessageCircle },
   { label: "Supadrive", href: "/supadrive/web", icon: Folder },
   { label: "KnexMail", href: "/knexmail/web", icon: Mail },

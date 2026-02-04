@@ -56,10 +56,19 @@ export default function AppShell({ children }: AppShellProps) {
     <div className="flex h-screen min-w-0 flex-col bg-slate-50 text-slate-900">
       <div className="relative z-30">
         <Header
-          title={activeItem?.label ?? "Knexspace"}
-          subtitle="Ecossistema KnexIT"
+          title={activeItem?.label ?? "Knexspace One"}
           onMenuClick={() => setMobileOpen((prev) => !prev)}
-          rightSlot={<KnexspaceMenu variant="desktop" />}
+          rightSlot={
+            <>
+              <KnexspaceMenu variant="desktop" layout="full" />
+              <KnexspaceMenu variant="desktop" layout="actions" />
+            </>
+          }
+          bottomSlot={
+            <div className="hidden min-h-[3.85rem] items-center border-t border-slate-200/70 px-6 md:flex xl:hidden">
+              <KnexspaceMenu variant="desktop" layout="nav" />
+            </div>
+          }
         />
         {mobileOpen ? (
           <div className="absolute left-0 right-0 top-full border-b border-slate-200 bg-white shadow-md md:hidden">
