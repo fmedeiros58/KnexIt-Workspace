@@ -201,7 +201,7 @@ export default function KnexitWorkspaceAccessPage() {
         <div className="pointer-events-none absolute right-[-120px] top-24 h-72 w-72 rounded-full bg-emerald-200/50 blur-3xl" />
         <div className="pointer-events-none absolute bottom-[-80px] left-1/3 h-56 w-56 rounded-full bg-amber-200/50 blur-3xl" />
 
-        <header className="relative z-10 border-b border-slate-200/80 bg-white/70 backdrop-blur">
+        <header className="relative z-40 border-b border-slate-200/80 bg-white/70 backdrop-blur">
           <div className="mx-auto grid w-full grid-cols-[1fr,auto,1fr] items-center px-4 py-4 sm:px-6 lg:px-8">
             <div />
             <Link
@@ -235,7 +235,7 @@ export default function KnexitWorkspaceAccessPage() {
                 {menuOpen && (
                   <div
                     role="menu"
-                    className="absolute right-0 mt-3 w-[min(92vw,320px)] rounded-3xl border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.6)]"
+                    className="absolute right-0 z-50 mt-3 w-[min(92vw,320px)] rounded-3xl border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.6)]"
                   >
                     <div className="flex items-start justify-between">
                       <p className="text-xs font-semibold text-slate-600">{profile.email}</p>
