@@ -33,7 +33,7 @@ function PricingCard({ plan, className }: PricingCardProps) {
         <p className="mt-1 text-sm text-slate-600">{plan.description}</p>
         <div className="mt-4 text-3xl font-bold text-slate-900">{plan.priceLabel}</div>
         <div className="mt-2 flex items-center justify-center gap-2 text-xs text-slate-500">
-          <span>mensais por usuario (contrato de um ano)</span>
+          <span>mensais por usuário (contrato de um ano)</span>
           <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] font-semibold">
             i
           </span>
@@ -115,9 +115,9 @@ export default function PricingSection() {
     <section id="precos" className="bg-[#E5F3F4] py-14">
       <div className="mx-auto max-w-6xl space-y-10 px-4 md:px-6">
         <div className="space-y-3 text-center">
-          <h2 className="text-3xl font-bold text-slate-900">Planos e precos</h2>
+          <h2 className="text-3xl font-bold text-slate-900">Planos e preços</h2>
           <p className="text-lg text-slate-600">
-            Escolha o nivel de recursos, IA e colaboracao que faz sentido para sua realidade.
+            Escolha o nível de recursos, IA e colaboração que faz sentido para sua realidade.
           </p>
         </div>
 

@@ -3,12 +3,12 @@ import Link from "next/link";
 export default function HeroSection() {
   return (
     <section className="bg-[#E5F3F4]">
-      <div className="mx-auto flex max-w-6xl flex-col gap-10 px-1 pb-16 pt-12 sm:px-4 md:flex-row md:items-center md:justify-between md:px-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-10 px-4 pb-16 pt-12 md:flex-row md:items-center md:justify-between md:px-6">
         <div className="space-y-4 md:w-[40%]">
           {/* Icons removed per request */}
 
           <h1 className="text-center text-4xl font-bold leading-tight text-black md:text-left md:text-5xl">
-            Veja sua instituição ir mais longe com o KnexIT Workspace
+            Veja sua instituição ir mais longe com o Knexspace One
           </h1>
 
           <p className="text-center text-lg text-slate-700 md:text-left">

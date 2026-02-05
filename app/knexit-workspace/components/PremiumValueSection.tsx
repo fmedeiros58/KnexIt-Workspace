@@ -228,7 +228,7 @@ export default function PremiumValueSection() {
   }, [updateActiveIndex]);
 
   return (
-    <section className="bg-[#E5F3F4] py-12">
+    <section id="premium" className="bg-[#E5F3F4] py-12">
       <div className="mx-auto max-w-6xl space-y-6 px-4 md:px-6">
         <div className="flex flex-wrap items-center justify-center gap-4 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Uma assinatura com muito valor premium.</h2>
