@@ -1,0 +1,152 @@
+﻿<!-- cole exatamente este SVG em um arquivo .svg (ex: knexspace-one.svg) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 0.35 0" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-opacity="0.18"/>
+    </filter>
+
+    <linearGradient id="brandBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2F7BFF"/>
+      <stop offset="1" stop-color="#39C6FF"/>
+    </linearGradient>
+
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.98"/>
+      <stop offset="1" stop-color="#F6FAFF" stop-opacity="0.98"/>
+    </linearGradient>
+
+    <style>
+      .tMuted { fill:#5b6b7c; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+      .tTitle { fill:#0f172a; font-weight:700; font-size:22px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+      .tSmall { fill:#6b7a8c; font-size:14px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+      .strokeNet { stroke:#7dd3fc; stroke-opacity:0.55; stroke-width:3; fill:none; }
+      .nodeRing { fill:#e6f4ff; stroke:#7fbfff; stroke-width:6; }
+      .card { fill:url(#panel); stroke:#e7f1ff; stroke-width:2; }
+    </style>
+  </defs>
+
+  <g filter="url(#softGlow)">
+    <path d="M350 450 C420 260, 650 190, 820 220 C980 250, 1140 210, 1240 310
+             C1360 430, 1290 620, 1140 690 C980 770, 760 780, 610 720
+             C470 665, 290 580, 350 450 Z"
+          fill="url(#brandBlue)" fill-opacity="0.10"/>
+  </g>
+
+  <g class="strokeNet">
+    <path d="M300 270 C520 170, 650 160, 820 230"/>
+    <path d="M1300 270 C1080 170, 950 160, 820 230"/>
+    <path d="M300 640 C520 760, 650 760, 820 680"/>
+    <path d="M1300 640 C1080 760, 950 760, 820 680"/>
+  </g>
+
+  <g id="hub" transform="translate(410 230)" filter="url(#shadow)">
+    <rect width="780" height="460" rx="26" class="card"/>
+    <rect x="0" y="0" width="780" height="62" rx="26" fill="#ffffff" opacity="0.85"/>
+    <circle cx="36" cy="31" r="7" fill="#ff5f57"/>
+    <circle cx="60" cy="31" r="7" fill="#febc2e"/>
+    <circle cx="84" cy="31" r="7" fill="#28c840"/>
+    <text x="120" y="38" class="tMuted" font-size="16">Knexspace One</text>
+
+    <rect x="22" y="86" width="170" height="340" rx="18" fill="#f4f9ff"/>
+    <rect x="44" y="112" width="126" height="14" rx="7" fill="#d6eaff"/>
+    <rect x="44" y="148" width="106" height="12" rx="6" fill="#e5f1ff"/>
+    <rect x="44" y="176" width="116" height="12" rx="6" fill="#e5f1ff"/>
+    <rect x="44" y="204" width="92"  height="12" rx="6" fill="#e5f1ff"/>
+
+    <rect x="214" y="86" width="544" height="340" rx="18" fill="#ffffff"/>
+    <text x="242" y="132" class="tTitle">Seu ecossistema, um só espaço</text>
+    <text x="242" y="162" class="tSmall">Mensagens, arquivos e notas conectados por contexto.</text>
+
+    <rect x="242" y="190" width="430" height="12" rx="6" fill="#eef6ff"/>
+    <rect x="242" y="214" width="390" height="12" rx="6" fill="#eef6ff"/>
+    <rect x="242" y="238" width="410" height="12" rx="6" fill="#eef6ff"/>
+    <rect x="242" y="262" width="360" height="12" rx="6" fill="#eef6ff"/>
+
+    <g transform="translate(240 360)">
+      <rect width="180" height="86" rx="16" fill="#f7fbff" stroke="#e7f1ff" stroke-width="2"/>
+      <rect x="18" y="20" width="144" height="12" rx="6" fill="#e5f1ff"/>
+      <rect x="18" y="44" width="110" height="12" rx="6" fill="#e5f1ff"/>
+    </g>
+    <g transform="translate(436 360)">
+      <rect width="180" height="86" rx="16" fill="#f7fbff" stroke="#e7f1ff" stroke-width="2"/>
+      <rect x="18" y="20" width="120" height="12" rx="6" fill="#e5f1ff"/>
+      <rect x="18" y="44" width="144" height="12" rx="6" fill="#e5f1ff"/>
+    </g>
+    <g transform="translate(632 360)">
+      <rect width="110" height="86" rx="16" fill="#f7fbff" stroke="#e7f1ff" stroke-width="2"/>
+      <circle cx="55" cy="43" r="20" fill="url(#brandBlue)"/>
+    </g>
+  </g>
+
+  <g id="icons">
+    <g transform="translate(300 270)">
+      <circle r="84" class="nodeRing" filter="url(#shadow)"/>
+      <g transform="translate(-34 -22)">
+        <rect x="0" y="10" width="68" height="46" rx="10" fill="url(#brandBlue)"/>
+        <path d="M6 18 L34 36 L62 18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M6 52 L28 34" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+        <path d="M62 52 L40 34" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+      </g>
+      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexMail</text>
+    </g>
+
+    <g transform="translate(1300 270)">
+      <circle r="84" class="nodeRing" filter="url(#shadow)"/>
+      <g transform="translate(-38 -28)">
+        <path d="M26 50
+                 C14 50, 6 42, 6 32
+                 C6 22, 14 14, 24 14
+                 C28 6, 38 2, 46 6
+                 C52 4, 60 8, 62 16
+                 C72 16, 80 24, 80 34
+                 C80 44, 72 50, 62 50 Z"
+              fill="url(#brandBlue)"/>
+        <path d="M43 44 V26" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+        <path d="M34 33 L43 24 L52 33" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexDrive</text>
+    </g>
+
+    <g transform="translate(1300 640)">
+      <circle r="84" class="nodeRing" filter="url(#shadow)"/>
+      <g transform="translate(-41 -44)">
+        <path d="M10 10 H54 L72 28 V78 H10 Z" fill="url(#brandBlue)"/>
+        <path d="M54 10 V28 H72" fill="none" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M20 40 H62" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+        <path d="M20 54 H56" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+        <path d="M20 68 H50" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+      </g>
+      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexNote</text>
+    </g>
+
+    <g transform="translate(300 640)">
+      <circle r="84" class="nodeRing" filter="url(#shadow)"/>
+      <g transform="translate(-45 -38)">
+        <path d="M14 18 C14 10, 20 4, 28 4 H62
+                 C70 4, 76 10, 76 18 V46
+                 C76 54, 70 60, 62 60 H38
+                 L26 72 V60 H28
+                 C20 60, 14 54, 14 46 Z"
+              fill="url(#brandBlue)"/>
+        <circle cx="32" cy="32" r="4" fill="#fff"/>
+        <circle cx="45" cy="32" r="4" fill="#fff"/>
+        <circle cx="58" cy="32" r="4" fill="#fff"/>
+      </g>
+      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexChat</text>
+    </g>
+  </g>
+
+</svg>
