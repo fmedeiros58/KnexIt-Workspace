@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+
 type PlanId = "starter" | "pro" | "plus" | "enterprise";
 
 interface Plan {
@@ -274,6 +278,24 @@ const APPS = [
     { name: "KnexPay", slug: "knexpay", icon: "credit" as const },
   ];
 
+const HIGHLIGHTS = [
+  {
+    title: "IA premium integrada",
+    description:
+      "Trabalhe melhor e mais rápido com o app Gemini, o NotebookLM e o Gemini no Gmail, Documentos, Planilhas e muito mais.",
+  },
+  {
+    title: "Ferramentas nativas da nuvem",
+    description:
+      "Colabore em tempo real, de qualquer dispositivo, com ferramentas sempre atualizadas.",
+  },
+  {
+    title: "Segurança de nível empresarial",
+    description:
+      "Proteja seus e-mails, arquivos e reuniões com controles de compliance e segurança com tecnologia de IA.",
+  },
+];
+
 const IconBadge = ({ icon, label }: { icon: keyof typeof ICONS; label: string }) => {
   const cfg = ICONS[icon];
   return (
@@ -289,16 +311,45 @@ const IconBadge = ({ icon, label }: { icon: keyof typeof ICONS; label: string })
 };
 
 export default function PlansSection() {
+  const [activeHighlight, setActiveHighlight] = useState(0);
 
   return (
     <section id="planos" className="bg-[#E5F3F4] py-14">
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-10">
-        <div className="space-y-3 text-center">
-          <h2 className="text-3xl font-bold text-slate-900">Encontre o plano ideal para sua instituição</h2>
-          <p className="text-lg text-slate-600">
-            Planos pensados para diferentes portes, de professores individuais a grandes redes. Escolha o nível de
-            recursos, IA e colaboração que faz sentido para sua realidade.
-          </p>
+        <div className="space-y-8 text-center">
+          <h2 className="mx-auto max-w-3xl text-center text-3xl font-bold text-slate-900">
+            Todas as ferramentas que você precisa e algumas outras que você vai adorar.
+          </h2>
+          <div className="hidden gap-6 text-center md:grid md:grid-cols-3">
+            {HIGHLIGHTS.map((item) => (
+              <div key={item.title} className="space-y-2">
+                <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
+                <p className="text-sm text-slate-600">{item.description}</p>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-4 text-left md:hidden">
+            {HIGHLIGHTS.map((item, index) => {
+              const isActive = activeHighlight === index;
+              return (
+                <button
+                  key={item.title}
+                  type="button"
+                  onClick={() => setActiveHighlight(index)}
+                  aria-expanded={isActive}
+                  className={`mx-auto block w-full max-w-[520px] rounded-xl border-2 bg-white px-5 py-4 text-left transition ${
+                    isActive ? "border-[#2F8FA7]" : "border-slate-200"
+                  }`}
+                >
+                  <span className={`text-sm font-semibold ${isActive ? "text-slate-900" : "text-slate-700"}`}>
+                    {item.title}
+                  </span>
+                  {isActive ? <p className="mt-2 text-sm text-slate-600">{item.description}</p> : null}
+                </button>
+              );
+            })}
+          </div>
+          <p className="pt-2 text-center text-sm font-semibold text-slate-700">O Knexspace One inclui:</p>
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-4">

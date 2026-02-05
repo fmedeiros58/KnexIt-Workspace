@@ -257,8 +257,11 @@ export default function ProductsStrip() {
     <section id="produtos" className="py-14 bg-white">
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-6">
         <div className="space-y-2 text-center">
-          <h2 className="text-3xl font-bold text-slate-900">O KnexIT Workspace inclui:</h2>
-          <p className="text-lg text-slate-600">Suíte completa de apps para aulas, arquivos, colaboração e IA.</p>
+          <h2 className="text-3xl font-bold text-slate-900">O Knexspace One inclui:</h2>
+          <p className="text-lg text-slate-600">
+            Ecossistema integrado para aulas, lives, arquivos, colaboração, automação e IA, com métricas e segurança para
+            escalar sua instituição.
+          </p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4 justify-items-center">
           {PRODUCTS.map((p, idx) => {
