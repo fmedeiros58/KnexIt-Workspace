@@ -11,7 +11,7 @@ interface Plan {
   features: string[];
 }
 
-const PLANS: Plan[] = [
+export const PLANS: Plan[] = [
   {
     id: "starter",
     name: "Starter",
@@ -70,8 +70,7 @@ const PLANS: Plan[] = [
   },
 ];
 
-export default function PlansSection() {
-  const ICONS = {
+const ICONS = {
     play: {
       bg: "bg-indigo-100",
       fg: "text-indigo-700",
@@ -256,7 +255,7 @@ export default function PlansSection() {
     },
   };
 
-  const APPS = [
+const APPS = [
     { name: "VioClass", slug: "vioclass", icon: "play" as const },
     { name: "VioLive", slug: "violive", icon: "live" as const },
     { name: "VioRecord", slug: "viorecord", icon: "record" as const },
@@ -275,19 +274,21 @@ export default function PlansSection() {
     { name: "KnexPay", slug: "knexpay", icon: "credit" as const },
   ];
 
-  const IconBadge = ({ icon, label }: { icon: keyof typeof ICONS; label: string }) => {
-    const cfg = ICONS[icon];
-    return (
-      <div className="flex flex-col items-center gap-2">
-        <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm">
-          <svg viewBox="0 0 24 24" className={`h-17 w-17 ${cfg.fg}`} aria-hidden style={{ transform: "translateX(0.5px)" }}>
-            {cfg.path}
-          </svg>
-        </div>
-        <span className="text-xs font-semibold text-slate-700">{label}</span>
+const IconBadge = ({ icon, label }: { icon: keyof typeof ICONS; label: string }) => {
+  const cfg = ICONS[icon];
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm">
+        <svg viewBox="0 0 24 24" className={`h-17 w-17 ${cfg.fg}`} aria-hidden style={{ transform: "translateX(0.5px)" }}>
+          {cfg.path}
+        </svg>
       </div>
-    );
-  };
+      <span className="text-xs font-semibold text-slate-700">{label}</span>
+    </div>
+  );
+};
+
+export default function PlansSection() {
 
   return (
     <section id="planos" className="bg-[#E5F3F4] py-14">
@@ -312,40 +313,6 @@ export default function PlansSection() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-          {PLANS.map((plan) => (
-            <div
-              key={plan.id}
-              className={`border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition bg-white ${
-                plan.highlight ? "ring-2 ring-indigo-500" : ""
-              }`}
-            >
-              {plan.highlight ? (
-                <span className="inline-flex items-center rounded-full bg-emerald-500 text-white text-xs font-semibold px-2 py-1 mb-3">
-                  Mais popular
-                </span>
-              ) : null}
-              <h3 className="text-xl font-semibold text-slate-900">{plan.name}</h3>
-              <p className="text-slate-700 text-sm mt-1">{plan.description}</p>
-              <div className="mt-3 text-2xl font-bold text-slate-900">{plan.priceLabel}</div>
-              {plan.billingNote ? <div className="text-xs text-slate-500">{plan.billingNote}</div> : null}
-              <div className="mt-2 text-sm text-slate-600">{plan.idealFor}</div>
-              <ul className="mt-4 space-y-2 text-sm text-slate-700">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex gap-2">
-                    <span className="text-emerald-600">•</span>
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-5">
-                <button className="w-full rounded-xl bg-indigo-600 text-white font-semibold px-4 py-2 hover:bg-indigo-500">
-                  {plan.id === "enterprise" ? "Falar com o time" : "Começar agora"}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
     </section>
   );

@@ -271,7 +271,9 @@ export default function ProductsStrip() {
                 style={{ backgroundColor: color, ["--card-color" as string]: color }}
               >
                 <ProductIcon icon={p.icon} />
-                <div className="text-sm font-semibold text-white drop-shadow-sm">{p.name}</div>
+                <div className="h-5 max-w-full truncate text-sm font-semibold leading-5 text-white drop-shadow-sm">
+                  {p.name}
+                </div>
                 <div className="text-xs text-white/90 leading-relaxed">{p.description}</div>
                 <span className="mt-1 inline-flex w-fit rounded-full bg-white/20 px-2 py-0.5 text-[11px] text-white group-hover:bg-white/30">
                   {CATEGORY_LABEL[p.category]}
