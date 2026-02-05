@@ -32,6 +32,7 @@
       .tMuted { fill:#5b6b7c; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
       .tTitle { fill:#0f172a; font-weight:700; font-size:22px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
       .tSmall { fill:#6b7a8c; font-size:14px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+      .appLabel { fill:#6b7a8c; font-size:20px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; dominant-baseline: middle; }
       .strokeNet { stroke:#7dd3fc; stroke-opacity:0.55; stroke-width:3; fill:none; }
       .nodeRing { fill:#e6f4ff; stroke:#7fbfff; stroke-width:6; }
       .card { fill:url(#panel); stroke:#e7f1ff; stroke-width:2; }
@@ -100,7 +101,7 @@
         <path d="M6 52 L28 34" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
         <path d="M62 52 L40 34" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
       </g>
-      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexMail</text>
+      <text y="118" text-anchor="middle" class="appLabel">KnexMail</text>
     </g>
 
     <g transform="translate(1300 270)">
@@ -117,7 +118,7 @@
         <path d="M43 44 V26" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
         <path d="M34 33 L43 24 L52 33" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
       </g>
-      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexDrive</text>
+      <text y="118" text-anchor="middle" class="appLabel">KnexDrive</text>
     </g>
 
     <g transform="translate(1300 640)">
@@ -129,7 +130,7 @@
         <path d="M20 54 H56" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
         <path d="M20 68 H50" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
       </g>
-      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexNote</text>
+      <text y="118" text-anchor="middle" class="appLabel">KnexNote</text>
     </g>
 
     <g transform="translate(300 640)">
@@ -145,7 +146,7 @@
         <circle cx="45" cy="32" r="4" fill="#fff"/>
         <circle cx="58" cy="32" r="4" fill="#fff"/>
       </g>
-      <text y="118" text-anchor="middle" class="tSmall" style="font-size:20px;">KnexChat</text>
+      <text y="118" text-anchor="middle" class="appLabel">KnexChat</text>
     </g>
   </g>
 
