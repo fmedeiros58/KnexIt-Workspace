@@ -15,7 +15,7 @@ import FooterSection from "./components/FooterSection";
 
 export default function KnexItWorkspacePage() {
   return (
-    <main className="min-h-screen bg-white text-slate-900">
+    <main className="min-h-screen bg-transparent text-slate-900">
       <HeroSection />
       <StickyNav
         items={[
