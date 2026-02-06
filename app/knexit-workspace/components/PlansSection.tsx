@@ -2,74 +2,114 @@
 
 import { useState } from "react";
 
-type PlanId = "starter" | "pro" | "plus" | "enterprise";
+type PlanId = "starter" | "standard" | "plus" | "enterprise";
+
+type PlanFeatureIcon =
+  | "drive"
+  | "mail"
+  | "spark"
+  | "search"
+  | "video"
+  | "calendar"
+  | "doc"
+  | "check";
+
+type PlanFeature = {
+  icon: PlanFeatureIcon;
+  title: string;
+  detail?: string;
+};
 
 interface Plan {
   id: PlanId;
   name: string;
   highlight?: boolean;
-  description: string;
-  priceLabel: string;
-  billingNote?: string;
-  idealFor: string;
-  features: string[];
+  badge?: string;
+  price?: string;
+  priceUnit?: string;
+  oldPrice?: string;
+  priceNote?: string[];
+  description?: string;
+  ctaLabel: string;
+  features: PlanFeature[];
 }
 
 export const PLANS: Plan[] = [
   {
     id: "starter",
     name: "Starter",
-    description: "Para professores individuais e pequenos times.",
-    priceLabel: "R$ XX / usuário / mês",
-    billingNote: "Cobrança mensal ou anual",
-    idealFor: "Professores individuais, pequenos times.",
+    price: "R$32.72",
+    priceUnit: "BRL",
+    oldPrice: "R$40.90",
+    priceNote: ["mensais por usuario", "(contrato de um ano)"],
+    ctaLabel: "Iniciar agora",
     features: [
-      "Acesso ao VioClass e VioLive com limites básicos",
-      "SupaDrive com armazenamento inicial para materiais",
-      "KnexDocs e KnexFlow para organizar conteúdos e tarefas",
-      "Uso inicial de KnexAI e KnexSearch",
+      { icon: "drive", title: "30 GB", detail: "de armazenamento em pool por usuario*" },
+      { icon: "mail", title: "E-mail comercial personalizado", detail: "voce@suaempresa.com" },
+      { icon: "spark", title: "Assistente de IA Gemini no Gmail" },
+      { icon: "spark", title: "Converse com a IA no app Gemini" },
+      { icon: "video", title: "Videochamadas, limite de 100 participantes" },
+      { icon: "check", title: "Controles de seguranca e gerenciamento" },
     ],
   },
   {
-    id: "pro",
-    name: "Pro",
+    id: "standard",
+    name: "Standard",
     highlight: true,
-    description: "Mais popular para escolas e departamentos.",
-    priceLabel: "R$ YY / usuário / mês",
-    billingNote: "Cobrança mensal ou anual",
-    idealFor: "Escolas, cursinhos e departamentos.",
+    price: "R$81.80",
+    priceUnit: "BRL",
+    priceNote: ["mensais por usuario", "(contrato de um ano)"],
+    ctaLabel: "Iniciar agora",
     features: [
-      "Tudo do Starter",
-      "Mais armazenamento no SupaDrive",
-      "Mais recursos de VioLive e VioAnalytics",
-      "Uso ampliado de VioRead, KnexReview e KnexAI",
+      { icon: "drive", title: "2 TB", detail: "65x mais do que o plano Starter*" },
+      {
+        icon: "mail",
+        title: "E-mail comercial personalizado",
+        detail: "voce@suaempresa.com + layouts personalizados e mala direta",
+      },
+      { icon: "spark", title: "Assistente de IA Gemini no Gmail, Google Docs, Meet e outros apps" },
+      { icon: "search", title: "Assistente de pesquisa com tecnologia de IA (NotebookLM)" },
+      { icon: "spark", title: "Converse com a IA no app Gemini e crie sua propria equipe de especialistas" },
+      { icon: "video", title: "Videochamadas com gravacao, cancelamento de ruido e limite de 150 participantes" },
+      { icon: "calendar", title: "Paginas de agendamento de horario" },
+      { icon: "doc", title: "Assinatura eletronica no Google Docs e em PDFs" },
+      { icon: "check", title: "Ferramenta Google Workspace Migrate para migracao de dados" },
     ],
   },
   {
     id: "plus",
     name: "Plus",
-    description: "Para redes e instituições com múltiplos campi.",
-    priceLabel: "R$ ZZ / usuário / mês",
-    billingNote: "Cobrança mensal ou anual",
-    idealFor: "Instituições com múltiplos campi, redes de ensino.",
+    price: "R$128.40",
+    priceUnit: "BRL",
+    priceNote: ["mensais por usuario", "(contrato de um ano)"],
+    ctaLabel: "Iniciar agora",
     features: [
-      "Tudo do Pro",
-      "Métricas avançadas e relatórios consolidados",
-      "Automação de envios via KnexMail",
-      "Fluxos complexos com KnexFlow",
+      { icon: "drive", title: "5 TB", detail: "2,5x mais do que o Standard*" },
+      { icon: "mail", title: "E-mail comercial personalizado", detail: "+ e-discovery" },
+      { icon: "video", title: "Videochamadas com controle de presenca, limite de 500 participantes" },
+      { icon: "check", title: "Vault para retencao, arquivamento e pesquisa de dados" },
+      { icon: "check", title: "LDAP seguro" },
+      { icon: "check", title: "Gerenciamento avancado de endpoints" },
+      { icon: "check", title: "Controles aprimorados de seguranca e gerenciamento" },
     ],
   },
   {
     id: "enterprise",
     name: "Enterprise",
-    description: "Para grandes redes e universidades.",
-    priceLabel: "Fale com o time",
-    idealFor: "Grandes redes, secretarias, universidades, poder público.",
+    description: "Entre em contato com a equipe de vendas para saber os precos",
+    ctaLabel: "Fale com a equipe de vendas",
     features: [
-      "Tudo do Plus",
-      "Atendimento dedicado e suporte prioritário",
-      "Opções avançadas de segurança e integrações",
-      "Estudo de casos personalizados para sua realidade",
+      { icon: "drive", title: "5 TB", detail: "ou faca upgrade para ter mais*" },
+      { icon: "mail", title: "E-mail comercial personalizado", detail: "+ Criptografia S/MIME" },
+      { icon: "video", title: "Videochamadas com transmissao ao vivo no dominio, limite de 1.000 participantes" },
+      { icon: "check", title: "Prevencao contra perda de dados (DLP)" },
+      { icon: "check", title: "Acesso Baseado no Contexto (CAA)" },
+      { icon: "check", title: "Regioes de dados corporativas" },
+      { icon: "check", title: "Cloud Identity Premium" },
+      { icon: "check", title: "Gerenciamento corporativo de endpoints" },
+      { icon: "check", title: "Classificacao por IA para o Google Drive" },
+      { icon: "check", title: "Assured Controls disponivel como um complemento" },
+      { icon: "check", title: "Suporte avancado com respostas mais rapidas para problemas criticos" },
     ],
   },
 ];
@@ -259,24 +299,31 @@ const ICONS = {
     },
   };
 
-const APPS = [
-    { name: "VioClass", slug: "vioclass", icon: "play" as const },
-    { name: "VioLive", slug: "violive", icon: "live" as const },
-    { name: "VioRecord", slug: "viorecord", icon: "record" as const },
-    { name: "VioStudio", slug: "viostudio", icon: "edit" as const },
-    { name: "VioAnalytics", slug: "vioanalytics", icon: "analytics" as const },
-    { name: "VioHub", slug: "viohub", icon: "hub" as const },
-    { name: "SupaDrive", slug: "supadrive", icon: "supadrive" as const },
-    { name: "VioRead", slug: "vioread", icon: "read" as const },
-    { name: "KnexReview", slug: "knexreview", icon: "review" as const },
-    { name: "KnexDocs", slug: "knexdocs", icon: "doc" as const },
-    { name: "KnexFlow", slug: "knexflow", icon: "kanban" as const },
-    { name: "KnexChat", slug: "knexchat", icon: "chat" as const },
-    { name: "KnexSearch", slug: "knexsearch", icon: "search" as const },
-    { name: "KnexAI", slug: "knexai", icon: "owl" as const },
-    { name: "KnexMail", slug: "knexmail", icon: "mail" as const },
-    { name: "KnexPay", slug: "knexpay", icon: "credit" as const },
-  ];
+type AppHighlight = {
+  name: string;
+  slug: string;
+  icon: keyof typeof ICONS;
+  detail: string;
+};
+
+const APPS: AppHighlight[] = [
+  { name: "VioClass", slug: "vioclass", icon: "play", detail: "Plataforma de cursos e aulas em video." },
+  { name: "VioLive", slug: "violive", icon: "live", detail: "Aulas ao vivo e mentorias sincronas." },
+  { name: "VioRecord", slug: "viorecord", icon: "record", detail: "Grave tela, webcam e voz no navegador." },
+  { name: "VioStudio", slug: "viostudio", icon: "edit", detail: "Edicao online de video e legendas." },
+  { name: "VioAnalytics", slug: "vioanalytics", icon: "analytics", detail: "Metricas de visualizacao e engajamento." },
+  { name: "VioHub", slug: "viohub", icon: "hub", detail: "Producao audiovisual integrada e entrega." },
+  { name: "SupaDrive", slug: "supadrive", icon: "supadrive", detail: "Drive de arquivos para materiais e provas." },
+  { name: "VioRead", slug: "vioread", icon: "read", detail: "Leitura assistida de PDFs e artigos." },
+  { name: "KnexReview", slug: "knexreview", icon: "review", detail: "Revisao sistematica de literatura." },
+  { name: "KnexDocs", slug: "knexdocs", icon: "doc", detail: "Documentos colaborativos em tempo real." },
+  { name: "KnexFlow", slug: "knexflow", icon: "kanban", detail: "Tarefas, quadros e fluxos de trabalho." },
+  { name: "KnexChat", slug: "knexchat", icon: "chat", detail: "Chat interno para times e turmas." },
+  { name: "KnexSearch", slug: "knexsearch", icon: "search", detail: "Busca global com IA em aulas e arquivos." },
+  { name: "KnexAI", slug: "knexai", icon: "owl", detail: "Camada unificada de IA e assistentes." },
+  { name: "KnexMail", slug: "knexmail", icon: "mail", detail: "Emails transacionais e campanhas." },
+  { name: "KnexPay", slug: "knexpay", icon: "credit", detail: "Billing e planos em breve." },
+];
 
 const HIGHLIGHTS = [
   {
@@ -296,16 +343,28 @@ const HIGHLIGHTS = [
   },
 ];
 
-const IconBadge = ({ icon, label }: { icon: keyof typeof ICONS; label: string }) => {
+const IconBadge = ({ icon, label, detail }: { icon: keyof typeof ICONS; label: string; detail: string }) => {
   const cfg = ICONS[icon];
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm">
-        <svg viewBox="0 0 24 24" className={`h-17 w-17 ${cfg.fg}`} aria-hidden style={{ transform: "translateX(0.5px)" }}>
-          {cfg.path}
-        </svg>
+    <div className="relative flex flex-col items-center">
+      <div className="flex w-[72px] flex-col items-center rounded-xl border border-transparent bg-transparent px-1.5 py-2 text-center transition-all duration-200 sm:w-[84px] lg:w-full lg:group-hover:border-slate-200 lg:group-hover:bg-white lg:group-hover:py-3 lg:group-hover:shadow-[0_12px_24px_rgba(15,23,42,0.12)]">
+        <div className="inline-flex h-14 w-14 items-center justify-center rounded-xl border border-slate-100 bg-white shadow-sm transition duration-200 lg:group-hover:scale-110 lg:group-hover:shadow-md">
+          <svg viewBox="0 0 24 24" className={`h-10 w-10 ${cfg.fg}`} aria-hidden style={{ transform: "translateX(0.5px)" }}>
+            {cfg.path}
+          </svg>
+        </div>
+        <span className="mt-2 max-w-[4.5rem] truncate text-[10px] font-semibold text-slate-700 lg:group-hover:mt-3 lg:group-hover:max-w-none lg:group-hover:whitespace-normal">
+          {label}
+        </span>
+        <div className="mt-0 max-h-0 overflow-hidden opacity-0 transition-all duration-200 lg:group-hover:mt-1 lg:group-hover:max-h-20 lg:group-hover:opacity-100">
+          <div className="flex h-16 w-full flex-col items-center">
+            <p className="max-h-10 overflow-hidden text-[11px] leading-snug text-slate-500">
+              {detail}
+            </p>
+            <span className="mt-auto text-[11px] font-semibold text-blue-600">Saiba mais</span>
+          </div>
+        </div>
       </div>
-      <span className="text-xs font-semibold text-slate-700">{label}</span>
     </div>
   );
 };
@@ -314,17 +373,17 @@ export default function PlansSection() {
   const [activeHighlight, setActiveHighlight] = useState(0);
 
   return (
-    <section id="planos" className="bg-[#E5F3F4] py-14">
-      <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-10">
+    <section id="planos" className="bg-[#E5F3F4] pt-14 pb-0">
+      <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-7">
         <div className="space-y-8 text-center">
-          <h2 className="mx-auto max-w-3xl text-center text-3xl font-bold text-slate-900">
+          <h2 className="mx-auto max-w-5xl px-6 text-center text-[2.75rem] font-bold text-slate-900 font-[family:Arial,Helvetica,sans-serif] sm:px-10 md:px-16">
             Todas as ferramentas que você precisa e algumas outras que você vai adorar.
           </h2>
           <div className="hidden gap-6 text-center md:grid md:grid-cols-3">
             {HIGHLIGHTS.map((item) => (
-              <div key={item.title} className="space-y-2">
-                <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
-                <p className="text-sm text-slate-600">{item.description}</p>
+              <div key={item.title} className="mx-auto max-w-[300px] space-y-2 lg:max-w-[320px]">
+                <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
+                <p className="text-[15px] text-slate-600">{item.description}</p>
               </div>
             ))}
           </div>
@@ -341,25 +400,27 @@ export default function PlansSection() {
                     isActive ? "border-[#2F8FA7]" : "border-slate-200"
                   }`}
                 >
-                  <span className={`text-sm font-semibold ${isActive ? "text-slate-900" : "text-slate-700"}`}>
+                  <span className={`text-base font-semibold ${isActive ? "text-slate-900" : "text-slate-700"}`}>
                     {item.title}
                   </span>
-                  {isActive ? <p className="mt-2 text-sm text-slate-600">{item.description}</p> : null}
+                  {isActive ? <p className="mt-2 text-[15px] text-slate-600">{item.description}</p> : null}
                 </button>
               );
             })}
           </div>
-          <p className="pt-2 text-center text-sm font-semibold text-slate-700">O Knexspace One inclui:</p>
+          <p className="pt-2 text-center text-lg font-semibold text-[#0F5F6E] drop-shadow-[0_0_10px_rgba(15,95,110,0.35)]">
+            O Knexspace One inclui:
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-4">
+        <div className="flex w-full flex-wrap items-center justify-center gap-3 lg:flex-nowrap lg:items-start lg:justify-between lg:gap-0 lg:h-[208px]">
           {APPS.map((app) => (
             <a
                   key={app.slug}
                   href={`/lobby/${app.slug}`}
-                  className="flex flex-col items-center gap-2 hover:scale-105 transition no-underline hover:no-underline focus:no-underline"
+                  className="group relative flex flex-col items-center gap-1 no-underline transition hover:no-underline focus:no-underline lg:w-12 lg:shrink-0 lg:justify-start lg:transition-[width] lg:duration-200 lg:hover:w-36 lg:hover:z-10"
                 >
-              <IconBadge icon={app.icon} label={app.name} />
+              <IconBadge icon={app.icon} label={app.name} detail={app.detail} />
             </a>
           ))}
         </div>

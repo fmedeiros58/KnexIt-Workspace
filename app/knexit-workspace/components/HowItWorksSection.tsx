@@ -24,10 +24,10 @@ export default function HowItWorksSection() {
   ];
 
   return (
-    <section className="bg-[#E5F3F4] py-12">
+    <section className="bg-[#E5F3F4] pt-6 pb-12">
       <div className="mx-auto max-w-6xl space-y-6 px-4 md:px-6">
         <div className="space-y-2 text-center">
-          <h2 className="text-3xl font-bold text-slate-900">Como o KnexIT Workspace se encaixa no seu dia a dia</h2>
+          <h2 className="text-3xl font-bold text-slate-900">Como o Knexspace One se encaixa no seu dia a dia</h2>
           <p className="text-lg text-slate-600 max-w-3xl mx-auto">
             Fluxo simples para criar, transmitir, organizar e analisar conteúdos em uma única suíte, com IA apoiando cada
             etapa.
