@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Header from "./Header";
 import KnexspaceMenu from "./KnexspaceMenu";
 import { NAV_ITEMS, getActiveNavItem } from "./navigation";
+import ProductPanel from "./ProductPanel";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -35,6 +36,7 @@ const HIDE_SHELL_PREFIXES = ["/knexit-workspace/acesso", "/login", "/admin"];
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [productsPanelOpen, setProductsPanelOpen] = useState(false);
 
   const shouldUseShell = useMemo(() => {
     if (!pathname) return true;
@@ -46,34 +48,49 @@ export default function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     setMobileOpen(false);
+    setProductsPanelOpen(false);
   }, [pathname]);
+
+  const toggleProductsPanel = () => setProductsPanelOpen((prev) => !prev);
+
+  const closeProductsPanel = () => setProductsPanelOpen(false);
 
   if (!shouldUseShell) {
     return <div className="h-screen overflow-y-auto bg-[#E5F3F4] text-slate-900">{children}</div>;
   }
 
   return (
-    <div className="flex h-screen min-w-0 flex-col bg-[#E5F3F4] text-slate-900">
+    <div className="flex h-screen min-w-0 flex-col bg-[#E5F3F4] text-slate-900 overflow-x-visible">
       <div className="relative z-30">
         <Header
           title={activeItem?.label ?? "Knexspace One"}
-          onMenuClick={() => setMobileOpen((prev) => !prev)}
+          onMenuClick={() => {
+            setMobileOpen((prev) => !prev);
+            closeProductsPanel();
+          }}
           rightSlot={
             <>
-              <KnexspaceMenu variant="desktop" layout="full" />
+              <KnexspaceMenu variant="desktop" layout="full" onProductsClick={toggleProductsPanel} />
               <KnexspaceMenu variant="desktop" layout="actions" />
             </>
           }
           bottomSlot={
             <div className="hidden min-h-[3.85rem] items-center border-t border-slate-200/70 px-6 md:flex xl:hidden">
-              <KnexspaceMenu variant="desktop" layout="nav" />
+              <KnexspaceMenu variant="desktop" layout="nav" onProductsClick={toggleProductsPanel} />
             </div>
           }
         />
+        {productsPanelOpen ? <ProductPanel onClose={closeProductsPanel} /> : null}
         {mobileOpen ? (
           <div className="absolute left-0 right-0 top-full border-b border-slate-200 bg-white shadow-md md:hidden">
             <div className="max-h-[calc(100svh-3.5rem)] overflow-y-auto">
-              <KnexspaceMenu onNavigate={() => setMobileOpen(false)} />
+              <KnexspaceMenu
+                onNavigate={() => setMobileOpen(false)}
+                onProductsClick={() => {
+                  toggleProductsPanel();
+                  setMobileOpen(false);
+                }}
+              />
             </div>
           </div>
         ) : null}
