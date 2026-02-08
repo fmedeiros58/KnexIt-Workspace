@@ -1,0 +1,400 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400,500,600,700&display=swap");
+
+body {
+  background: #eef2f7;
+  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+}
+
+.pricing-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 20px 56px;
+}
+
+.pricing-hero {
+  text-align: center;
+}
+
+.pricing-hero h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1b1f24;
+  margin: 0;
+}
+
+.pricing-hero em {
+  font-style: italic;
+  font-weight: 700;
+}
+
+.pricing-hero p {
+  margin: 6px 0 16px;
+  color: #5b6573;
+  font-size: 13px;
+}
+
+.hero-subline {
+  margin-bottom: 14px;
+  color: #1f2a44;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.usage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #1e1f21;
+  color: #f2f2f2;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.usage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e2f252;
+}
+
+.usage-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #2a2b2f;
+  border-radius: 999px;
+  padding: 4px 8px;
+  margin-left: 6px;
+}
+
+.usage-user img {
+  border-radius: 50%;
+}
+
+.pricing-controls {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-control label {
+  display: block;
+  font-size: 12px;
+  color: #59606d;
+  margin-bottom: 6px;
+}
+
+.user-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-input input {
+  width: 56px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #d9dee6;
+  text-align: center;
+  font-size: 12px;
+  background: #fff;
+}
+
+.user-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.user-buttons button {
+  width: 20px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid #d9dee6;
+  background: #fff;
+  font-size: 10px;
+  color: #6b7684;
+  cursor: default;
+}
+
+.info-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #d9dee6;
+  background: #fff;
+  color: #6b7684;
+  font-size: 11px;
+}
+
+.app-icons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.app-icons img {
+  width: 22px;
+  height: 22px;
+}
+
+.billing-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+  color: #2a2f36;
+}
+
+.billing-toggle .save {
+  color: #5a6a7a;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: default;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #d7dce3;
+  border-radius: 999px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  top: 2px;
+  background-color: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.switch input:checked + .slider {
+  background-color: #2f66ff;
+}
+
+.switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.pricing-grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  background: #f7f9fc;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 12px 30px rgba(30, 40, 60, 0.08);
+}
+
+.plan-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid #e3e8ef;
+}
+
+.plan-card.is-featured {
+  border: 2px solid #4b7cff;
+  box-shadow: 0 14px 30px rgba(75, 124, 255, 0.15);
+}
+
+.plan-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1d2330;
+}
+
+.plan-top-tag {
+  display: inline-flex;
+  align-self: flex-start;
+  font-size: 10px;
+  color: #3b5bd6;
+  background: #e6edff;
+  padding: 4px 8px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.plan-badge {
+  font-size: 10px;
+  background: #e5f5dc;
+  color: #2b6f2d;
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  margin: 8px 0;
+}
+
+.plan-price {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1d2330;
+}
+
+.plan-price .muted {
+  font-size: 12px;
+  color: #9aa3af;
+  text-decoration: line-through;
+  margin-left: 6px;
+}
+
+.plan-sub {
+  font-size: 11px;
+  color: #6b7481;
+  margin-bottom: 10px;
+}
+
+.plan-cta {
+  width: 100%;
+  border-radius: 999px;
+  border: 1px solid #cdd6e4;
+  background: #fff;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #2b3a55;
+}
+
+.plan-cta.primary {
+  background: #2f66ff;
+  border-color: #2f66ff;
+  color: #fff;
+}
+
+.plan-section {
+  font-size: 12px;
+  margin: 12px 0 8px;
+  color: #2c3440;
+  font-weight: 600;
+}
+
+.plan-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  color: #3b4452;
+}
+
+.plan-features li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.plan-features strong {
+  font-weight: 700;
+}
+
+.pill {
+  display: inline-block;
+  margin-top: 4px;
+  background: #d9f2dd;
+  color: #2b6f2d;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.icon {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: #d9e1ee;
+  margin-top: 2px;
+}
+
+.icon.storage {
+  background: #6b8cff;
+}
+.icon.gmail {
+  background: #ff6b6b;
+}
+.icon.gemini {
+  background: #7c5cff;
+}
+.icon.meet {
+  background: #00b894;
+}
+.icon.vids {
+  background: #ff9f43;
+}
+.icon.admin {
+  background: #4b6bff;
+}
+.icon.calendar {
+  background: #ffcb2f;
+}
+.icon.docs {
+  background: #1e90ff;
+}
+.icon.notebook {
+  background: #7f8fa6;
+}
+.icon.vault {
+  background: #6c5ce7;
+}
+.icon.check {
+  background: #2ecc71;
+}
+
+.pricing-footnote {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #6b7481;
+}
+
+@media (max-width: 1100px) {
+  .pricing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pricing-controls {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+  .billing-toggle {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+  .pricing-footnote {
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+  }
+}
