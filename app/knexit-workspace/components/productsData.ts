@@ -15,7 +15,7 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
     name: "VioClass",
     slug: "vioclass",
     category: "video",
-    description: "Plataforma de cursos e aulas em vídeo.",
+    description: "Plataforma de cursos e aulas em vÃ­deo.",
     icon: "play",
   },
   {
@@ -23,7 +23,7 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
     name: "VioLive",
     slug: "violive",
     category: "video",
-    description: "Aulas ao vivo e mentorias síncronas.",
+    description: "Aulas ao vivo e mentorias sÃ­ncronas.",
     icon: "live",
   },
   {
@@ -39,7 +39,7 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
     name: "VioStudio",
     slug: "viostudio",
     category: "video",
-    description: "Edição online de vídeo e legendas.",
+    description: "EdiÃ§Ã£o online de vÃ­deo e legendas.",
     icon: "edit",
   },
   {
@@ -47,7 +47,7 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
     name: "VioAnalytics",
     slug: "vioanalytics",
     category: "video",
-    description: "Métricas de visualização e engajamento.",
+    description: "MÃ©tricas de visualizaÃ§Ã£o e engajamento.",
     icon: "analytics",
   },
   {
@@ -55,7 +55,7 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
     name: "VioHub",
     slug: "viohub",
     category: "video",
-    description: "Produção audiovisual integrada e entrega.",
+    description: "ProduÃ§Ã£o audiovisual integrada e entrega.",
     icon: "hub",
   },
   {
@@ -111,7 +111,7 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
     name: "KnexReview",
     slug: "knexreview",
     category: "produtividade",
-    description: "Revisão sistemática de literatura.",
+    description: "RevisÃ£o sistemÃ¡tica de literatura.",
     icon: "review",
   },
   {
@@ -141,10 +141,10 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
 ];
 
 export const CATEGORY_LABEL: Record<WorkspaceProductCategory, string> = {
-  video: "Vídeo",
+  video: "VÃ­deo",
   produtividade: "Produtividade",
   ia: "IA",
-  comunicacao: "Comunicação",
+  comunicacao: "ComunicaÃ§Ã£o",
   infra: "Infraestrutura",
 };
 
@@ -167,8 +167,8 @@ export const PRODUCT_CARD_COLORS = [
 ];
 
 export const PRODUCT_PANEL_SIDE_LINKS = [
-  { label: "Soluções de IA", href: "/lobby/solucoes/desenvolvedores" },
-  { label: "Segurança", href: "/lobby/info/seguranca-compliance" },
+  { label: "SoluÃ§Ãµes de IA", href: "/lobby/solucoes/desenvolvedores" },
+  { label: "SeguranÃ§a", href: "/lobby/info/seguranca-compliance" },
   { label: "Admin Console", href: "/admin/login" },
   { label: "Complementos", href: "/lobby/info/integracoes" },
   { label: "Ver mais apps", href: "/lobby" },

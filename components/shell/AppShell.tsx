@@ -13,6 +13,7 @@ type AppShellProps = {
 
 const SHELL_PREFIXES = [
   "/knexit-workspace",
+  "/landing-produtos",
   "/knexchat",
   "/supadrive",
   "/knexai",
@@ -64,19 +65,30 @@ export default function AppShell({ children }: AppShellProps) {
       <div className="relative z-30">
         <Header
           title={activeItem?.label ?? "Knexspace One"}
+          menuOpen={mobileOpen}
           onMenuClick={() => {
             setMobileOpen((prev) => !prev);
             closeProductsPanel();
           }}
           rightSlot={
             <>
-              <KnexspaceMenu variant="desktop" layout="full" onProductsClick={toggleProductsPanel} />
+              <KnexspaceMenu
+                variant="desktop"
+                layout="full"
+                onProductsClick={toggleProductsPanel}
+                productsOpen={productsPanelOpen}
+              />
               <KnexspaceMenu variant="desktop" layout="actions" />
             </>
           }
           bottomSlot={
             <div className="hidden min-h-[3.85rem] items-center border-t border-slate-200/70 px-6 md:flex xl:hidden">
-              <KnexspaceMenu variant="desktop" layout="nav" onProductsClick={toggleProductsPanel} />
+              <KnexspaceMenu
+                variant="desktop"
+                layout="nav"
+                onProductsClick={toggleProductsPanel}
+                productsOpen={productsPanelOpen}
+              />
             </div>
           }
         />
