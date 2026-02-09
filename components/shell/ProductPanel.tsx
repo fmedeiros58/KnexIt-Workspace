@@ -77,6 +77,10 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
       aria-label="Menu de produtos"
     >
       <div className="relative">
+        <div
+          className="pointer-events-none absolute right-0 top-0 hidden h-full md:block md:w-[clamp(0px,calc((100vw-72rem)/2),9999px)] bg-slate-100"
+          aria-hidden
+        />
         <button
           type="button"
           className="absolute right-4 top-2 text-3xl font-semibold text-slate-500 transition hover:text-slate-700"
@@ -85,26 +89,26 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
         >
           ×
         </button>
-        <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 md:px-[clamp(1.5rem,4vw,3rem)]">
+        <div className="relative z-10 mx-auto w-full max-w-6xl px-4 sm:px-6 md:px-[clamp(1.5rem,4vw,3rem)]">
           <div className="flex flex-col gap-6 border-t border-slate-200 pb-6 pt-6 md:flex-row md:items-start md:gap-8">
             <div className="min-w-0 flex-1">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:hidden">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 md:hidden">
                 {WORKSPACE_PRODUCTS.map((product) => {
                   const iconSrc = product.icon ? iconSrcByType[product.icon] ?? fallbackIconSrc : fallbackIconSrc;
                   return (
                     <Link
                       key={product.slug}
-                      href={`/branding/${product.slug}`}
+                      href={`/landing-produtos/${product.slug}`}
                       onClick={onClose}
-                      className="flex items-start gap-3 rounded-lg border border-transparent px-2 py-2 text-left no-underline transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
+                      className="flex items-start gap-4 rounded-lg border border-transparent px-3 py-1.5 text-left no-underline transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
                     >
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center">
                         <img
                           src={iconSrc}
                           alt={product.name}
-                          width={28}
-                          height={28}
-                          className="h-7 w-7 object-contain"
+                          width={40}
+                          height={40}
+                          className="h-10 w-10 object-contain"
                         />
                       </div>
                       <p className="min-w-0 text-sm leading-snug text-slate-900">
@@ -115,23 +119,23 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
                   );
                 })}
               </div>
-              <div className="hidden md:grid md:w-full md:grid-cols-2 lg:grid-cols-3 md:gap-x-6 md:gap-y-3">
+              <div className="hidden md:grid md:w-full md:grid-cols-2 lg:grid-cols-3 md:gap-x-6 md:gap-y-2">
                 {WORKSPACE_PRODUCTS.map((product) => {
                   const iconSrc = product.icon ? iconSrcByType[product.icon] ?? fallbackIconSrc : fallbackIconSrc;
                   return (
                     <Link
                       key={product.slug}
-                      href={`/branding/${product.slug}`}
+                      href={`/landing-produtos/${product.slug}`}
                       onClick={onClose}
-                      className="group flex items-start gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left no-underline transition hover:bg-slate-50 hover:ring-1 hover:ring-inset hover:ring-[#2F7E95] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
+                      className="group flex items-start gap-4 rounded-lg border border-transparent px-3 py-1 text-left no-underline transition hover:bg-slate-50 hover:ring-1 hover:ring-inset hover:ring-[#2F7E95] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
                     >
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center">
                         <img
                           src={iconSrc}
                           alt={product.name}
-                          width={28}
-                          height={28}
-                          className="h-7 w-7 object-contain"
+                          width={40}
+                          height={40}
+                          className="h-10 w-10 object-contain"
                         />
                       </div>
                       <p className="min-w-0 text-sm leading-snug text-slate-900">
@@ -143,9 +147,12 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
                 })}
               </div>
             </div>
-            <details className="product-panel-links w-full bg-slate-50 md:w-[32%] md:max-w-[320px]" open>
+            <details
+              className="product-panel-links w-full bg-slate-100 md:-mb-6 md:-mt-6 md:w-[32%] md:max-w-[320px] md:self-stretch md:pb-6 md:pt-6 md:pr-[clamp(1.5rem,4vw,3rem)] md:-mr-[clamp(1.5rem,4vw,3rem)] md:border-t"
+              open
+            >
               <summary className="sr-only">Links rápidos</summary>
-              <aside className="w-full border-t border-slate-100 pt-6 text-sm md:border-t-0 md:border-l md:pl-6">
+              <aside className="w-full border-t border-slate-100 pt-6 text-sm md:h-full md:border-t-0 md:border-l md:pl-6">
                 <div className="space-y-4">
                   {PRODUCT_PANEL_SIDE_LINKS.map((item) => (
                     <Link

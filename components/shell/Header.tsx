@@ -1,29 +1,37 @@
 import type { ReactNode } from "react";
-import { Menu } from "lucide-react";
+import { Menu, X } from "lucide-react";
 
 type HeaderProps = {
   title: string;
   subtitle?: string;
   onMenuClick?: () => void;
+  menuOpen?: boolean;
   rightSlot?: ReactNode;
   bottomSlot?: ReactNode;
 };
 
-export default function Header({ title, subtitle, onMenuClick, rightSlot, bottomSlot }: HeaderProps) {
+export default function Header({
+  title,
+  subtitle,
+  onMenuClick,
+  menuOpen = false,
+  rightSlot,
+  bottomSlot,
+}: HeaderProps) {
   return (
     <header
       className="sticky top-0 z-30 flex flex-col border-b border-slate-200/70 bg-[#3E8FA3] text-slate-900 backdrop-blur"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
-      <div className="flex min-h-[3.85rem] items-center justify-between gap-3 px-6">
+      <div className="flex min-h-[3.85rem] items-center justify-between gap-3 px-3">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onMenuClick}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100 md:hidden"
-            aria-label="Abrir menu"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white transition hover:bg-white/15 md:hidden"
+            aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
           >
-            <Menu className="h-5 w-5" />
+            {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
           <div className="min-w-0">
             {title === "Knexspace One" ? (
