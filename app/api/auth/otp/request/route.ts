@@ -105,12 +105,31 @@ export async function POST(req: NextRequest) {
     return Response.json({ message: "Senha obrigatória para criar conta." }, { status: 400 });
   }
 
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: otpType,
-    email,
-    ...(otpType === "signup" ? { password } : {}),
-    options: name ? { data: { name } } : undefined,
-  });
+  let generateLinkParams;
+  if (otpType === "signup") {
+    if (!password) {
+      return Response.json({ message: "Senha obrigatória para criar conta." }, { status: 400 });
+    }
+    generateLinkParams = {
+      type: "signup" as const,
+      email,
+      password,
+      options: name ? { data: { name } } : undefined,
+    };
+  } else if (otpType === "recovery") {
+    generateLinkParams = {
+      type: "recovery" as const,
+      email,
+    };
+  } else {
+    generateLinkParams = {
+      type: "magiclink" as const,
+      email,
+      options: name ? { data: { name } } : undefined,
+    };
+  }
+
+  const { data, error } = await admin.auth.admin.generateLink(generateLinkParams);
 
   if (error || !data?.properties?.email_otp) {
     return Response.json({ message: error?.message ?? "Falha ao gerar código." }, { status: 400 });
