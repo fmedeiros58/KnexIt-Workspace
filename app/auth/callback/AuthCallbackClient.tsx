@@ -20,8 +20,28 @@ export default function AuthCallbackClient() {
       if (typeof window !== "undefined") {
         localStorage.removeItem("postAuthRedirect");
       }
-      const returnTo = searchParams?.get("returnTo") || stored || "/knexit-workspace";
-      router.replace(returnTo);
+      const fallback = "/knexit-workspace";
+      const rawReturn = searchParams?.get("returnTo") || stored || fallback;
+      let safeReturn = rawReturn;
+      try {
+        const origin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+        const url = new URL(rawReturn, origin);
+        const path = url.pathname || "/";
+        if (path === "/login" || path.startsWith("/login/") || path.startsWith("/lobby")) {
+          safeReturn = fallback;
+        } else {
+          safeReturn = `${path}${url.search}${url.hash}`;
+        }
+      } catch {
+        if (
+          rawReturn === "/login" ||
+          rawReturn.startsWith("/login/") ||
+          rawReturn.startsWith("/lobby")
+        ) {
+          safeReturn = fallback;
+        }
+      }
+      router.replace(safeReturn);
     };
     run();
   }, [router, searchParams]);

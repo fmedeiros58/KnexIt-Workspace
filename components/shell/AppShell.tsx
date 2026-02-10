@@ -6,6 +6,7 @@ import Header from "./Header";
 import KnexspaceMenu from "./KnexspaceMenu";
 import { NAV_ITEMS, getActiveNavItem } from "./navigation";
 import ProductPanel from "./ProductPanel";
+import { PRODUCTS } from "@/lib/products";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -32,7 +33,9 @@ const SHELL_PREFIXES = [
   "/viostudio",
 ];
 
-const HIDE_SHELL_PREFIXES = ["/knexit-workspace/acesso", "/login", "/admin"];
+const PRODUCT_PREFIXES = Object.values(PRODUCTS).map((product) => `/${product.slug}`);
+
+const HIDE_SHELL_PREFIXES = ["/knexit-workspace/acesso", "/login", "/admin", ...PRODUCT_PREFIXES];
 
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();

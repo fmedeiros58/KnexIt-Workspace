@@ -43,7 +43,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     const goLogin = () => {
-      router.replace(`/login?redirect=${redirectTarget}`);
+      router.replace(`/knexit-workspace/acesso?returnTo=${redirectTarget}`);
     };
 
     const check = async () => {

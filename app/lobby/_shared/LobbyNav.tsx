@@ -245,7 +245,8 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
   const product = getProduct(productSlug);
   const productPath = product?.homePath ?? `/${productSlug}`;
   const defaultFrom = appBase ? `${appBase}${productPath}` : productPath;
-  const loginLink = loginHref ?? `/login?product=${encodeURIComponent(productSlug)}&from=${encodeURIComponent(defaultFrom)}`;
+  const loginLink =
+    loginHref ?? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(defaultFrom)}`;
   const navRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {

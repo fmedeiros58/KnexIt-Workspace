@@ -19,7 +19,7 @@ export default function HeroSection() {
 
           <div className="flex flex-wrap justify-center gap-3 sm:justify-start">
             <Link
-              href="/knexit-workspace/acesso"
+              href="/knexit-workspace/acesso?stay=1"
               className="inline-flex min-h-[48px] min-w-[200px] items-center justify-center rounded-xl bg-[#3E8FA3] px-6 py-3 text-sm font-semibold text-white shadow-sm no-underline hover:bg-[#337E91] hover:no-underline"
             >
               Iniciar agora
