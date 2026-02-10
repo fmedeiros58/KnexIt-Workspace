@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { consumeRealtimeTicket, getSupabaseAdmin, resolveAuthEmail } from "@/app/api/knexchat/_auth";
+import { consumeRealtimeTicket, getSupabaseAdmin, requireKnexchatEntitlement } from "@/app/api/knexchat/_auth";
 
 export const runtime = "nodejs";
 
@@ -23,8 +23,9 @@ export async function GET(req: NextRequest) {
     if (!token) {
       return new Response("Missing token", { status: 401 });
     }
-    const authEmail = await resolveAuthEmail(req, token);
-    email = authEmail ? normalizeEmail(authEmail) : "";
+    const entitlement = await requireKnexchatEntitlement(req, token);
+    if (entitlement.response) return entitlement.response;
+    email = entitlement.user?.email ? normalizeEmail(entitlement.user.email) : "";
   }
 
   if (!isValidEmail(email)) {

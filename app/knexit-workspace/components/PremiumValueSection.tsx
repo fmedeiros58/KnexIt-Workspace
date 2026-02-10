@@ -255,7 +255,7 @@ export default function PremiumValueSection() {
 
         <div
           ref={scrollerRef}
-          className="no-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-4 pt-2 scroll-px-4 max-lg:gap-0 max-lg:px-0 max-lg:scroll-px-0 lg:gap-5 lg:px-6 lg:scroll-px-6"
+          className="no-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-4 pt-2 scroll-px-4 max-lg:gap-0 max-lg:px-0 max-lg:scroll-px-0 lg:gap-5 lg:px-28 lg:scroll-px-28"
         >
           {VALUE_CARDS.map((card, index) => {
             const isActive = index === activeIndex;
@@ -269,13 +269,13 @@ export default function PremiumValueSection() {
                 <article
                   onMouseEnter={() => setSelectedIndex(index)}
                   onMouseLeave={() => setSelectedIndex(null)}
-                  className={`group relative flex w-[min(78vw,320px)] min-w-[min(78vw,320px)] cursor-pointer flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-slate-50 transition sm:w-[min(72vw,420px)] sm:min-w-[min(72vw,420px)] md:w-[min(68vw,520px)] md:min-w-[min(68vw,520px)] lg:w-[min(28vw,380px)] lg:min-w-[min(28vw,380px)] aspect-[18/25] max-md:aspect-auto hover:border-[#2F7BFF] max-lg:hover:bg-[#2B6D7C] hover:shadow-lg ${
-                    isActive ? "max-lg:border-[#2F7BFF] max-lg:bg-[#2B6D7C] max-lg:shadow-md" : ""
+                  className={`group relative flex w-[min(78vw,320px)] min-w-[min(78vw,320px)] cursor-pointer flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-slate-50 transition sm:w-[min(72vw,420px)] sm:min-w-[min(72vw,420px)] md:w-[min(68vw,520px)] md:min-w-[min(68vw,520px)] lg:w-[min(28vw,380px)] lg:min-w-[min(28vw,380px)] aspect-[18/25] max-md:aspect-auto hover:border-[#2F7BFF] max-lg:hover:bg-[#2F7BFF] hover:shadow-lg ${
+                    isActive ? "max-lg:border-[#2F7BFF] max-lg:bg-[#2F7BFF] max-lg:shadow-md" : ""
                   } ${isDesktopSelected ? "lg:border-[#2F7BFF] lg:shadow-md" : ""}`}
                 >
                   <span
                     aria-hidden="true"
-                    className={`pointer-events-none absolute left-1/2 top-0 hidden h-[320%] w-[320%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#2B6D7C] opacity-0 transition-[transform,opacity] duration-500 ease-out lg:block ${
+                    className={`pointer-events-none absolute left-1/2 top-0 hidden h-[320%] w-[320%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#2F7BFF] opacity-0 transition-[transform,opacity] duration-500 ease-out lg:block ${
                       isDesktopSelected ? "lg:scale-100 lg:opacity-100" : "lg:scale-0 lg:opacity-0"
                     }`}
                   />
@@ -303,9 +303,9 @@ export default function PremiumValueSection() {
                     } ${isDesktopSelected ? "lg:text-white" : ""}`}
                   >
                     <span
-                      className={`inline-flex w-fit items-center rounded-full bg-[#2F7BFF]/10 px-3 py-1 text-[clamp(0.65rem,0.9vw,0.75rem)] font-semibold text-[#2F7BFF] transition-colors max-lg:group-hover:bg-white max-lg:group-hover:text-[#2B6D7C] ${
-                        isActive ? "max-lg:bg-white max-lg:text-[#2B6D7C]" : ""
-                      } ${isDesktopSelected ? "lg:bg-white lg:text-[#2B6D7C]" : ""}`}
+                      className={`inline-flex w-fit items-center rounded-full bg-[#2F7BFF]/10 px-3 py-1 text-[clamp(0.65rem,0.9vw,0.75rem)] font-semibold text-[#2F7BFF] transition-colors max-lg:group-hover:bg-white max-lg:group-hover:text-[#2F7BFF] ${
+                        isActive ? "max-lg:bg-white max-lg:text-[#2F7BFF]" : ""
+                      } ${isDesktopSelected ? "lg:bg-white lg:text-[#2F7BFF]" : ""}`}
                     >
                       <span className="mr-2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white/80">
                         <svg viewBox="0 0 24 24" className={`h-3 w-3 ${ICONS[CARD_ICON[card.badge] ?? "mail"].fg}`} aria-hidden="true">

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Menu, X } from "lucide-react";
 
 type HeaderProps = {
@@ -35,11 +36,13 @@ export default function Header({
           </button>
           <div className="min-w-0">
             {title === "Knexspace One" ? (
-              <img
-                src="/brand/knexspace-one.svg"
-                alt="Knexspace One"
-                className="h-[34px] w-auto"
-              />
+              <Link href="/knexit-workspace" aria-label="Ir para a página principal">
+                <img
+                  src="/brand/knexspace-one.svg"
+                  alt="Knexspace One"
+                  className="h-[34px] w-auto"
+                />
+              </Link>
             ) : (
               <p className="truncate text-[26px] font-semibold">{title}</p>
             )}
