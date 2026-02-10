@@ -376,7 +376,7 @@ export default function PlansSection() {
     <section id="planos" className="bg-[#E5F3F4] pt-14 pb-0">
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-7">
         <div className="space-y-8 text-center">
-          <h2 className="mx-auto max-w-5xl px-6 text-center text-[2.75rem] font-bold text-slate-900 font-[family:Arial,Helvetica,sans-serif] sm:px-10 md:px-16">
+          <h2 className="mx-auto max-w-5xl px-6 text-center text-[clamp(1.75rem,5.6vw,2.75rem)] leading-tight font-bold text-slate-900 font-[family:Arial,Helvetica,sans-serif] sm:px-10 md:px-16">
             Todas as ferramentas que você precisa e algumas outras que você vai adorar.
           </h2>
           <div className="hidden gap-6 text-center md:grid md:grid-cols-3">

@@ -4,7 +4,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { identitySupabase } from "../lib/identitySupabaseClient";
+
+const supabase = identitySupabase();
 
 /* ===== Tipos fortes p/ apps ===== */
 type AppSize = "sm" | "md" | "lg";

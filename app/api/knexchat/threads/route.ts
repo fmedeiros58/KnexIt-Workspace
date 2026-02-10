@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getSupabaseAdmin, resolveAuthEmail } from "@/app/api/knexchat/_auth";
+import { getSupabaseAdmin, requireKnexchatEntitlement } from "@/app/api/knexchat/_auth";
 
 export const runtime = "nodejs";
 
@@ -73,10 +73,9 @@ export async function GET(req: NextRequest) {
   if (!getSupabaseAdmin()) {
     return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
   }
-  const authEmail = await resolveAuthEmail(req);
-  if (!authEmail) {
-    return Response.json({ message: "Unauthorized" }, { status: 401 });
-  }
+  const entitlement = await requireKnexchatEntitlement(req);
+  if (entitlement.response) return entitlement.response;
+  const authEmail = entitlement.user?.email ?? "";
   const { searchParams } = new URL(req.url);
   const emailParam = searchParams.get("email");
   const email = emailParam ? normalizeEmail(emailParam) : normalizeEmail(authEmail);
@@ -172,10 +171,9 @@ export async function POST(req: NextRequest) {
   if (!getSupabaseAdmin()) {
     return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
   }
-  const authEmail = await resolveAuthEmail(req);
-  if (!authEmail) {
-    return Response.json({ message: "Unauthorized" }, { status: 401 });
-  }
+  const entitlement = await requireKnexchatEntitlement(req);
+  if (entitlement.response) return entitlement.response;
+  const authEmail = entitlement.user?.email ?? "";
   try {
     const body = await req.json().catch(() => ({}));
     const createdByRaw = typeof body?.createdBy === "string" ? body.createdBy : "";

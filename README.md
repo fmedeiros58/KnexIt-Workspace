@@ -1,6 +1,6 @@
 # KnexIT - Ecossistema central / autenticação / billing / painel único
 
-Template com Next.js 14 + Tailwind + Supabase para autenticação por e-mail (link mágico), páginas base e componentes de vídeo e questões.
+Template com Next.js 14 + Tailwind + Supabase para autenticação (senha, OTP de 6 dígitos e OAuth), páginas base e componentes de vídeo e questões.
 
 ## Como rodar
 
@@ -9,6 +9,10 @@ Template com Next.js 14 + Tailwind + Supabase para autenticação por e-mail (li
 3. Copie `.env.example` para `.env.local` e preencha:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_IDENTITY_SUPABASE_URL`
+   - `NEXT_PUBLIC_IDENTITY_SUPABASE_ANON_KEY`
+   - `IDENTITY_SUPABASE_SERVICE_ROLE_KEY`
+   - `IDENTITY_AUTH_REDIRECT_URL`
 4. `npm run dev` na raiz para subir o workspace principal (app + portal).
    - Portal: `http://localhost:3003/knexit-workspace`
    - Rotas diretas: `http://localhost:3000/<produto>` (lista abaixo)
@@ -62,9 +66,31 @@ Para testar cada produto basta abrir o URL correspondente depois que o `npm run 
 
 ## Login local
 
-- A página de login agora é um formulário simples dentro de `app/login`.
-- O guard redireciona para `/login`, então o fluxo permanece relativo (não usa domínios externos).
-- Para testar, abra `http://localhost:3000/login`, preencha seu e-mail e aguarde o link mágico enviado pelo Supabase usando o próprio domínio local.
+- A página de login fica em `app/login` e oferece:
+  - senha
+  - código OTP de 6 dígitos (sem link mágico)
+  - OAuth (Google, Microsoft, Facebook)
+- Para testar localmente, abra `http://localhost:3000/login`.
+
+### OTP sem magic link (Supabase)
+
+Para garantir que o e-mail envie **apenas o código**:
+
+1. Em **Supabase > Authentication > Email Templates**, edite o template de OTP.
+2. Remova/ignore qualquer `{{ .ConfirmationURL }}`.
+3. Inclua o token diretamente no corpo, por exemplo: `{{ .Token }}`.
+
+O envio é feito via `POST /api/auth/otp/request` e a verificação via `POST /api/auth/otp/verify`.
+
+### OAuth (callback)
+
+Configure o redirect no Supabase para bater com `IDENTITY_AUTH_REDIRECT_URL`.
+Exemplo em dev: `http://127.0.0.1:3000/auth/callback`.
+
+## Entitlements (KnexChat)
+
+- O acesso ao KnexChat exige entitlement ativo em `public.app_entitlements`.
+- APIs retornam `403` com `{ code: "ENTITLEMENT_REQUIRED", appKey: "knexchat" }` quando o acesso não está liberado.
 
 ## Resend (teste de e-mail)
 

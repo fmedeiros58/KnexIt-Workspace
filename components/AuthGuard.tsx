@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { identitySupabase } from "@/lib/identitySupabaseClient";
 import { getProduct } from "@/lib/products";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -19,6 +19,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const search = useSearchParams();
   const [authorized, setAuthorized] = useState(false);
   const [checking, setChecking] = useState(true);
+  const supabase = identitySupabase();
 
   const normalizeRedirectPath = (path: string): string => {
     const parts = path.split("?")[0].split("/").filter(Boolean);

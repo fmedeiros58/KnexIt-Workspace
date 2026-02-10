@@ -64,7 +64,7 @@ import type { LucideIcon } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { identitySupabase } from "@/lib/identitySupabaseClient";
 import MasterDetail from "@/components/layout/MasterDetail";
 import Skeleton from "@/components/ui/Skeleton";
 
@@ -79,6 +79,7 @@ const SHOW_OTP_PREVIEW = process.env.NEXT_PUBLIC_KNEXCHAT_SHOW_OTP === "1";
 const MOCK_RESEND_WARNING =
   "The knexit.com domain is not verified. Please, add and verify your domain on https://resend.com/domains";
 const OTP_CODE_REGEX = /^\d{6}$/;
+const supabase = identitySupabase();
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -1148,6 +1149,7 @@ export default function KnexChatPage() {
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isKnexchatActivated, setIsKnexchatActivated] = useState<boolean | null>(null);
+  const [entitlementBlocked, setEntitlementBlocked] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   const [isMobileDetailOpen, setIsMobileDetailOpen] = useState(false);
@@ -2315,13 +2317,20 @@ export default function KnexChatPage() {
   }, [authSession?.access_token]);
 
   const authFetch = useCallback(
-    (input: RequestInfo | URL, init: RequestInit = {}) => {
+    async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const headers = new Headers(init.headers ?? {});
       const token = authTokenRef.current ?? authSession?.access_token;
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
       }
-      return fetch(input, { ...init, headers });
+      const response = await fetch(input, { ...init, headers });
+      if (response.status === 403) {
+        const payload = await response.clone().json().catch(() => null);
+        if (payload && typeof payload === "object" && payload.code === "ENTITLEMENT_REQUIRED") {
+          setEntitlementBlocked(true);
+        }
+      }
+      return response;
     },
     [authSession?.access_token],
   );
@@ -3250,6 +3259,12 @@ export default function KnexChatPage() {
   }, []);
 
   useEffect(() => {
+    if (authSession?.user?.id) {
+      setEntitlementBlocked(false);
+    }
+  }, [authSession?.user?.id]);
+
+  useEffect(() => {
     if (!isAuthReady) return;
     if (!authSession?.user?.email) {
       setIsKnexchatActivated(false);
@@ -3736,6 +3751,12 @@ export default function KnexChatPage() {
     }
   }, [activationHref, chatHref, identity, isChatRoute, isReady, router]);
 
+  useEffect(() => {
+    if (!entitlementBlocked) return;
+    const returnTo = `${pathname ?? "/knexchat/web"}${searchQuery ? `?${searchQuery}` : ""}`;
+    router.replace(`/knexchat/ativacao?returnTo=${encodeURIComponent(returnTo)}`);
+  }, [entitlementBlocked, pathname, router, searchQuery]);
+
   const handleSendCode = async () => {
     const normalizedName = normalizeName(registeringName);
     if (!normalizedName) {
@@ -3755,14 +3776,14 @@ export default function KnexChatPage() {
     setActivationError(null);
     setActivationNotice(null);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: normalized,
-        options: {
-          data: { name: normalizedName },
-        },
+      const res = await fetch("/api/auth/otp/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalized, name: normalizedName }),
       });
-      if (error) {
-        throw new Error(error.message);
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(payload?.message ?? "Falha ao enviar cÃ³digo.");
       }
       if (SHOW_OTP_PREVIEW) {
         setOtpGenerated("000000");
@@ -3800,16 +3821,26 @@ export default function KnexChatPage() {
     setIsSendingOtp(true);
     setActivationError(null);
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: normalized,
-        token,
-        type: "email",
+      const res = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalized, token }),
       });
-      if (error) {
-        throw new Error(error.message);
+      const payload = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        session?: { access_token?: string; refresh_token?: string };
+      };
+      if (!res.ok) {
+        throw new Error(payload?.message ?? "Falha ao validar cÃ³digo.");
+      }
+      if (payload?.session?.access_token && payload?.session?.refresh_token) {
+        await supabase.auth.setSession({
+          access_token: payload.session.access_token,
+          refresh_token: payload.session.refresh_token,
+        });
       }
       const accessToken =
-        data?.session?.access_token ||
+        payload?.session?.access_token ||
         (await supabase.auth.getSession().then((result) => result.data.session?.access_token));
       if (accessToken) {
         try {
@@ -3862,6 +3893,7 @@ export default function KnexChatPage() {
       // Ignore storage errors.
     }
     setIdentity(null);
+    setEntitlementBlocked(false);
     setRegisteringName("");
     setRegisteringEmail("");
     setOtpGenerated(null);
