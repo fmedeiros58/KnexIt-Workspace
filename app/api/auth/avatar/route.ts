@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       if (!sub || !isUuid(sub)) {
         return Response.json({ message: "Sessão inválida." }, { status: 401 });
       }
-      const { data: byId, error: byIdError } = await admin.auth.getUserById(sub);
+      const { data: byId, error: byIdError } = await admin.auth.admin.getUserById(sub);
       if (byIdError || !byId?.user) {
         return Response.json({ message: "Sessão inválida." }, { status: 401 });
       }
