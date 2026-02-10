@@ -1134,7 +1134,7 @@ export default function KnexChatPage() {
     return searchQuery ? `${base}?${searchQuery}` : base;
   }, [pathname, searchQuery]);
   const activationHref = useMemo(
-    () => `/knexchat/ativacao?returnTo=${encodeURIComponent(activationReturnTo)}`,
+    () => `/knexchat/activate?returnTo=${encodeURIComponent(activationReturnTo)}`,
     [activationReturnTo],
   );
   const joinToken = useMemo(() => {
@@ -3270,22 +3270,29 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!isAuthReady) return;
-    if (!authSession?.user?.email) {
+    if (!authSession?.access_token) {
       setIsKnexchatActivated(false);
       return;
     }
     let active = true;
-    const email = normalizeEmail(authSession.user.email);
     (async () => {
-      const exists = await checkEmailRegistered(email);
-      if (active) {
-        setIsKnexchatActivated(exists);
+      try {
+        const res = await authFetch("/api/knexchat/activation/status");
+        if (!res.ok) throw new Error("status_failed");
+        const payload = (await res.json().catch(() => null)) as { activated?: boolean } | null;
+        if (active) {
+          setIsKnexchatActivated(Boolean(payload?.activated));
+        }
+      } catch {
+        if (active) {
+          setIsKnexchatActivated(false);
+        }
       }
     })();
     return () => {
       active = false;
     };
-  }, [authSession?.user?.email, checkEmailRegistered, isAuthReady]);
+  }, [authFetch, authSession?.access_token, isAuthReady]);
 
   useEffect(() => {
     if (!workspaceEmail) return;
@@ -3746,19 +3753,19 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!isReady) return;
-    if (identity && !isChatRoute) {
-      router.replace(chatHref);
+    if (identity) {
+      if (!isChatRoute) {
+        router.replace(chatHref);
+      }
       return;
     }
-    if (!identity && isChatRoute) {
-      router.replace(activationHref);
-    }
+    router.replace(activationHref);
   }, [activationHref, chatHref, identity, isChatRoute, isReady, router]);
 
   useEffect(() => {
     if (!entitlementBlocked) return;
     const returnTo = `${pathname ?? "/knexchat/web"}${searchQuery ? `?${searchQuery}` : ""}`;
-    router.replace(`/knexchat/ativacao?returnTo=${encodeURIComponent(returnTo)}`);
+    router.replace(`/knexchat/activate?returnTo=${encodeURIComponent(returnTo)}`);
   }, [entitlementBlocked, pathname, router, searchQuery]);
 
   const handleSendCode = async () => {
@@ -5095,46 +5102,10 @@ export default function KnexChatPage() {
   }
 
   if (!identity) {
-    if (isChatRoute) {
-      return (
-        <main
-          style={THEME_STYLE}
-          className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
-        >
-          <div className="relative z-10 flex min-h-screen items-center justify-center">
-            <div className="text-sm text-slate-400">Redirecionando para ativa??o...</div>
-          </div>
-        </main>
-      );
-    }
     return (
       <main className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}>
-        {activationBackdrop}
-        <div className="relative z-10">
-          <ActivationScreen
-            headingClassName={spaceGrotesk.className}
-            registeringName={registeringName}
-            registeringEmail={registeringEmail}
-            onNameChange={setRegisteringName}
-            onEmailChange={setRegisteringEmail}
-            activationStep={activationStep}
-            otpInput={otpInput}
-            otpGenerated={otpGenerated}
-            activationError={activationError}
-            activationNotice={activationNotice}
-            isSendingOtp={isSendingOtp}
-            showOtpPreview={SHOW_OTP_PREVIEW}
-            lockEmail={isWorkspaceEmailLocked}
-            onSendCode={handleSendCode}
-            onOtpChange={setOtpInput}
-            onConfirmOtp={handleConfirmOtp}
-            onEditEmail={() => {
-              setActivationStep("email");
-              setActivationError(null);
-              setActivationNotice(null);
-              setOtpInput("");
-            }}
-          />
+        <div className="relative z-10 flex min-h-screen items-center justify-center">
+          <div className="text-sm text-slate-400">Redirecionando para ativacao...</div>
         </div>
       </main>
     );

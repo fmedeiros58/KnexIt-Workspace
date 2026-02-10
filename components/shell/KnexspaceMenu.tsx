@@ -132,7 +132,7 @@ export default function KnexspaceMenu({
   const showAdmin = !isLanding;
   const landingReturnTo = landingProduct
     ? landingProduct.slug === "knexchat"
-      ? `/knexchat/ativacao?returnTo=${landingProduct.homePath}`
+      ? `/knexchat/activate?returnTo=${landingProduct.homePath}`
       : landingProduct.homePath
     : null;
   const landingLoginHref = landingReturnTo
