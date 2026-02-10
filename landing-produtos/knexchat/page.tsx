@@ -34,6 +34,8 @@ const highlightsBySlug: Record<string, string[]> = {
 export default function ProductLandingPage() {
   const product = WORKSPACE_PRODUCTS.find((item) => item.slug === PRODUCT_SLUG);
   if (!product) return notFound();
+  const activationReturnTo = "/knexchat/ativacao?returnTo=/knexchat/web";
+  const activationLoginHref = `/knexit-workspace/acesso?returnTo=${encodeURIComponent(activationReturnTo)}`;
 
   const highlights = highlightsBySlug[product.slug] ?? [
     "Implementa??o r?pida",
@@ -48,7 +50,7 @@ export default function ProductLandingPage() {
         title={product.name}
         subtitle={product.description}
         primaryCta={{ label: "Ver planos e pre?os", href: "/knexit-workspace/precos" }}
-        secondaryCta={{ label: "Solicitar demonstra??o", href: "/knexit-workspace/acesso" }}
+        secondaryCta={{ label: "Solicitar demonstra??o", href: activationLoginHref }}
       />
       <LandingIncluded
         title="A IA premium est? inclu?da nos planos"
