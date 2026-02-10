@@ -15,6 +15,40 @@ const WARNING_THRESHOLD = 2;
 
 const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
 
+const findUserByEmail = async (
+  admin: ReturnType<typeof identitySupabaseAdmin>,
+  email: string,
+) => {
+  const normalizedEmail = email.toLowerCase();
+  let page = 1;
+  const perPage = 200;
+
+  for (;;) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) {
+      return { user: null, error };
+    }
+    const user = data?.users?.find(
+      (entry) => (entry.email ?? "").toLowerCase() === normalizedEmail,
+    );
+    if (user) {
+      return { user, error: null };
+    }
+    if (!data?.users || data.users.length < perPage) {
+      return { user: null, error: null };
+    }
+    if (data?.nextPage && data.nextPage !== page) {
+      page = data.nextPage;
+      continue;
+    }
+    if (data?.lastPage && page < data.lastPage) {
+      page += 1;
+      continue;
+    }
+    return { user: null, error: null };
+  }
+};
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const email = String(body?.email ?? "").trim().toLowerCase();
@@ -146,8 +180,11 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "Código inválido." }, { status: 401 });
     }
 
-    const { data: existingUser } = await admin.auth.admin.getUserByEmail(email);
-    if (!existingUser?.user) {
+    const { user: existingUser, error: listError } = await findUserByEmail(admin, email);
+    if (listError) {
+      return Response.json({ message: listError.message ?? "Falha ao consultar usuário." }, { status: 500 });
+    }
+    if (!existingUser) {
       const { error: createError } = await admin.auth.admin.createUser({
         email,
         password,
