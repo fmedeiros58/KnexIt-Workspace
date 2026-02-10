@@ -130,11 +130,7 @@ export default function KnexspaceMenu({
   const landingProduct = resolvedSlug ? getProduct(resolvedSlug) : null;
   const isLanding = Boolean(landingMatch);
   const showAdmin = !isLanding;
-  const landingReturnTo = landingProduct
-    ? landingProduct.slug === "knexchat"
-      ? `/knexchat/ativacao?returnTo=${landingProduct.homePath}`
-      : landingProduct.homePath
-    : null;
+  const landingReturnTo = landingProduct ? landingProduct.homePath : null;
   const landingLoginHref = landingReturnTo
     ? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(landingReturnTo)}`
     : "/knexit-workspace/acesso?stay=1";

@@ -34,8 +34,7 @@ const highlightsBySlug: Record<string, string[]> = {
 export default function ProductLandingPage() {
   const product = WORKSPACE_PRODUCTS.find((item) => item.slug === PRODUCT_SLUG);
   if (!product) return notFound();
-  const activationReturnTo = "/knexchat/ativacao?returnTo=/knexchat/web";
-  const activationLoginHref = `/knexit-workspace/acesso?returnTo=${encodeURIComponent(activationReturnTo)}`;
+  const activationLoginHref = `/knexit-workspace/acesso?returnTo=${encodeURIComponent(product.homePath)}`;
 
   const highlights = highlightsBySlug[product.slug] ?? [
     "Implementa??o r?pida",
