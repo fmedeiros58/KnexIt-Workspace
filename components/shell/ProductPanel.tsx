@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useRef } from "react";
 import {
   CATEGORY_LABEL,
@@ -103,7 +104,7 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
                       className="flex items-start gap-4 rounded-lg border border-transparent px-3 py-1.5 text-left no-underline transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center">
-                        <img
+                        <Image
                           src={iconSrc}
                           alt={product.name}
                           width={40}
@@ -130,7 +131,7 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
                       className="group flex items-start gap-4 rounded-lg border border-transparent px-3 py-1 text-left no-underline transition hover:bg-slate-50 hover:ring-1 hover:ring-inset hover:ring-[#2F7E95] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center">
-                        <img
+                        <Image
                           src={iconSrc}
                           alt={product.name}
                           width={40}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function HeroSection() {
   return (
@@ -34,11 +35,13 @@ export default function HeroSection() {
         </div>
 
         <div className="md:w-[60%]">
-          <img
+          <Image
             src="/knexit-workspace/knexspace-one-hero.svg"
             alt="Ecossistema Knexspace One"
+            width={1600}
+            height={900}
             className="h-auto w-full"
-            loading="lazy"
+            priority={false}
           />
         </div>
       </div>

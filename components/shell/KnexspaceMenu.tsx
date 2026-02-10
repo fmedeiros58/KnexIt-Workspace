@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
@@ -647,11 +648,12 @@ export default function KnexspaceMenu({
                 onClick={onNavigate}
                 className="flex items-start gap-3 py-3 text-sm font-semibold leading-normal text-slate-900 no-underline hover:text-blue-600 hover:no-underline"
               >
-                <img
+                <Image
                   src={`/knexit-workspace/product-icons/${product.icon ?? "doc"}.svg`}
                   alt={product.name}
                   width={28}
                   height={28}
+                  className="h-7 w-7 object-contain"
                 />
                 <span>{product.name}</span>
               </Link>

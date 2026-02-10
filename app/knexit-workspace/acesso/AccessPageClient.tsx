@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import Link from "next/link";
 import Script from "next/script";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
@@ -794,7 +795,14 @@ export default function KnexitWorkspaceAccessPage({
                 >
                   <span className="flex h-full w-full items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700">
                     {profile.imageUrl ? (
-                      <img src={profile.imageUrl} alt={profile.name} className="h-full w-full rounded-full object-cover" />
+                      <Image
+                        src={profile.imageUrl}
+                        alt={profile.name}
+                        width={44}
+                        height={44}
+                        className="h-full w-full rounded-full object-cover"
+                        unoptimized
+                      />
                     ) : (
                       profile.initials
                     )}
@@ -839,7 +847,14 @@ export default function KnexitWorkspaceAccessPage({
                         <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-600 via-emerald-400 to-rose-500 p-[2px]">
                           <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-semibold text-slate-700">
                             {profile.imageUrl ? (
-                              <img src={profile.imageUrl} alt={profile.name} className="h-full w-full rounded-full object-cover" />
+                              <Image
+                                src={profile.imageUrl}
+                                alt={profile.name}
+                                width={80}
+                                height={80}
+                                className="h-full w-full rounded-full object-cover"
+                                unoptimized
+                              />
                             ) : (
                               profile.initials
                             )}

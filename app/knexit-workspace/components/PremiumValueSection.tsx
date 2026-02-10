@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const VALUE_CARDS = [
@@ -289,11 +290,12 @@ export default function PremiumValueSection() {
                         isActive || isDesktopSelected ? "border-[#2F7BFF]/60 shadow-md" : ""
                       }`}
                     >
-                      <img
+                      <Image
                         src={card.image}
                         alt={`Prévia ${card.badge}`}
+                        width={640}
+                        height={480}
                         className="h-full w-full object-cover"
-                        loading="lazy"
                       />
                     </div>
                   </div>

@@ -19,7 +19,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const search = useSearchParams();
   const [authorized, setAuthorized] = useState(false);
   const [checking, setChecking] = useState(true);
-  const supabase = identitySupabase();
+  const supabase = useMemo(() => identitySupabase(), []);
 
   const normalizeRedirectPath = (path: string): string => {
     const parts = path.split("?")[0].split("/").filter(Boolean);
@@ -69,7 +69,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       mounted = false;
       sub?.subscription?.unsubscribe();
     };
-  }, [redirectTarget, router]);
+  }, [redirectTarget, router, supabase]);
 
   if (checking) return null;
   if (!authorized) return null;
