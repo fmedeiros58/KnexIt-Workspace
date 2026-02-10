@@ -1129,17 +1129,13 @@ export default function KnexChatPage() {
     () => (searchQuery ? `/knexchat/web/chat?${searchQuery}` : "/knexchat/web/chat"),
     [searchQuery],
   );
-  const activationHref = useMemo(
-    () => (searchQuery ? `/knexchat/web?${searchQuery}` : "/knexchat/web"),
-    [searchQuery],
-  );
-  const entitlementReturnTo = useMemo(() => {
+  const activationReturnTo = useMemo(() => {
     const base = pathname ?? "/knexchat/web";
     return searchQuery ? `${base}?${searchQuery}` : base;
   }, [pathname, searchQuery]);
-  const entitlementLoginHref = useMemo(
-    () => `/knexit-workspace/acesso?returnTo=${encodeURIComponent(entitlementReturnTo)}`,
-    [entitlementReturnTo],
+  const activationHref = useMemo(
+    () => `/knexchat/ativacao?returnTo=${encodeURIComponent(activationReturnTo)}`,
+    [activationReturnTo],
   );
   const joinToken = useMemo(() => {
     const raw = searchParams?.get("join");
@@ -3761,9 +3757,9 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!entitlementBlocked) return;
-    setActivationError(null);
-    setActivationNotice(null);
-  }, [entitlementBlocked]);
+    const returnTo = `${pathname ?? "/knexchat/web"}${searchQuery ? `?${searchQuery}` : ""}`;
+    router.replace(`/knexchat/ativacao?returnTo=${encodeURIComponent(returnTo)}`);
+  }, [entitlementBlocked, pathname, router, searchQuery]);
 
   const handleSendCode = async () => {
     const normalizedName = normalizeName(registeringName);
@@ -5093,51 +5089,6 @@ export default function KnexChatPage() {
         {activationBackdrop}
         <div className="relative z-10 flex min-h-screen items-center justify-center">
           <div className="text-sm text-slate-400">Verificando sua conta KnexChat...</div>
-        </div>
-      </main>
-    );
-  }
-
-  if (entitlementBlocked) {
-    return (
-      <main
-        style={THEME_STYLE}
-        className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
-      >
-        {activationBackdrop}
-        <div className="relative z-10 flex min-h-screen items-center justify-center px-4">
-          <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
-            <div className="mb-4 inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              KnexChat
-            </div>
-            <h1 className="text-2xl font-semibold">Ative seu acesso ao KnexChat</h1>
-            <p className="mt-3 text-sm text-slate-600">
-              Sua conta Knex ID estÃ¡ ativa, mas o KnexChat ainda nÃ£o foi habilitado para este usuÃ¡rio ou time.
-            </p>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => router.replace(entitlementLoginHref)}
-                className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Entrar com outra conta
-              </button>
-              <button
-                type="button"
-                onClick={() => router.replace("/knexit-workspace/precos")}
-                className="inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700"
-              >
-                Ver planos
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => router.replace(entitlementReturnTo)}
-              className="mt-4 text-xs font-semibold text-blue-600 hover:underline"
-            >
-              Voltar para o app
-            </button>
-          </div>
         </div>
       </main>
     );
