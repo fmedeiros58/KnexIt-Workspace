@@ -130,19 +130,23 @@ export default function KnexspaceMenu({
   const landingProduct = resolvedSlug ? getProduct(resolvedSlug) : null;
   const isLanding = Boolean(landingMatch);
   const showAdmin = !isLanding;
+  const landingReturnTo = landingProduct
+    ? landingProduct.slug === "knexchat"
+      ? `/knexchat/activate?returnTo=${landingProduct.homePath}`
+      : landingProduct.homePath
+    : null;
+  const landingLoginHref = landingReturnTo
+    ? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(landingReturnTo)}`
+    : "/knexit-workspace/acesso?stay=1";
   const secondaryCtaLabel = isLanding
     ? `Teste o ${landingProduct?.name ?? "Knexspace"} no trabalho`
     : "Fale com a equipe de vendas";
   const secondaryCtaHref = isLanding
-    ? landingProduct
-      ? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(landingProduct.homePath)}`
-      : "/knexit-workspace/acesso?stay=1"
+    ? landingLoginHref
     : "/knexit-workspace#contato";
   const primaryCtaLabel = isLanding ? "Fazer login" : "Iniciar agora";
   const primaryCtaHref =
-    isLanding && landingProduct
-      ? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(landingProduct.homePath)}`
-      : "/knexit-workspace/acesso?stay=1";
+    isLanding ? landingLoginHref : "/knexit-workspace/acesso?stay=1";
   const [desktopOpen, setDesktopOpen] = useState<"solucoes" | "setores" | "recursos" | null>(null);
   const [mobileSection, setMobileSection] = useState<
     "solucoes" | "produtos" | "setores" | "recursos" | null

@@ -111,6 +111,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      knexchat_profiles: {
+        Row: {
+          user_id: string;
+          nickname: string;
+          nickname_normalized: string;
+          display_name: string | null;
+          terms_accepted_at: string | null;
+          activated_at: string | null;
+          nickname_updated_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          nickname: string;
+          nickname_normalized: string;
+          display_name?: string | null;
+          terms_accepted_at?: string | null;
+          activated_at?: string | null;
+          nickname_updated_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          nickname?: string;
+          nickname_normalized?: string;
+          display_name?: string | null;
+          terms_accepted_at?: string | null;
+          activated_at?: string | null;
+          nickname_updated_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      knexchat_reserved_nicknames: {
+        Row: {
+          nickname_normalized: string;
+        };
+        Insert: {
+          nickname_normalized: string;
+        };
+        Update: {
+          nickname_normalized?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {};
     Functions: {};
