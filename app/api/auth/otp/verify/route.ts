@@ -4,6 +4,7 @@ import { identitySupabase } from "@/lib/identitySupabaseClient";
 import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
 import { getResendClient } from "@/lib/resend";
 import { mapFlowToOtpKind, mapFlowToSupabaseOtpType, resolveOtpFlow } from "@/lib/otpKinds";
+import { findUserByEmail } from "@/lib/identityUserLookup";
 
 export const runtime = "nodejs";
 
@@ -15,46 +16,13 @@ const WARNING_THRESHOLD = 2;
 
 const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
 
-const findUserByEmail = async (
-  admin: ReturnType<typeof identitySupabaseAdmin>,
-  email: string,
-) => {
-  const normalizedEmail = email.toLowerCase();
-  let page = 1;
-  const perPage = 200;
-
-  for (;;) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) {
-      return { user: null, error };
-    }
-    const user = data?.users?.find(
-      (entry) => (entry.email ?? "").toLowerCase() === normalizedEmail,
-    );
-    if (user) {
-      return { user, error: null };
-    }
-    if (!data?.users || data.users.length < perPage) {
-      return { user: null, error: null };
-    }
-    if (data?.nextPage && data.nextPage !== page) {
-      page = data.nextPage;
-      continue;
-    }
-    if (data?.lastPage && page < data.lastPage) {
-      page += 1;
-      continue;
-    }
-    return { user: null, error: null };
-  }
-};
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const email = String(body?.email ?? "").trim().toLowerCase();
-  const token = String(body?.token ?? "").trim();
+  const token = String(body?.code ?? body?.token ?? "").trim();
   const password = String(body?.password ?? "").trim();
-  const rawType = String(body?.type ?? "").trim();
+  const rawType = String(body?.purpose ?? body?.type ?? "").trim();
   const mode = String(body?.mode ?? "").trim();
   const flow = resolveOtpFlow({ mode, type: rawType });
 
@@ -64,14 +32,15 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const otpType = mapFlowToSupabaseOtpType(flow);
-
   if (!emailRegex.test(email)) {
     return Response.json({ message: "E-mail inválido." }, { status: 400 });
   }
   if (!tokenRegex.test(token)) {
     return Response.json({ message: "Código inválido." }, { status: 400 });
   }
+
+  const domain = email.split("@")[1] ?? "";
+  console.info("[auth] otp_verify", { flow, mode, domain });
 
   let admin;
   try {
@@ -140,9 +109,11 @@ export async function POST(req: NextRequest) {
     if (sendError) return;
   };
 
-  if (flow === "signup") {
+  if (flow === "signup" || flow === "oauth_verify") {
     if (!password) {
-      return Response.json({ message: "Senha obrigatória para criar conta." }, { status: 400 });
+      if (flow === "signup") {
+        return Response.json({ message: "Senha obrigatória para criar conta." }, { status: 400 });
+      }
     }
 
     const { data: signupTokens, error: signupError } = await admin
@@ -178,6 +149,24 @@ export async function POST(req: NextRequest) {
       }
       await sendWarningIfNeeded((failCount ?? 0) + 1);
       return Response.json({ message: "Código inválido." }, { status: 401 });
+    }
+
+    await admin
+      .from("auth_email_otps")
+      .delete()
+      .eq("email", email)
+      .eq("kind", requestKind)
+      .eq("token_hash", tokenHash);
+
+    if (flow === "oauth_verify") {
+      const { user: oauthUser } = await findUserByEmail(admin, email);
+      if (!oauthUser?.id) {
+        return Response.json({ message: "Usuário não encontrado." }, { status: 404 });
+      }
+      await admin.auth.admin.updateUserById(oauthUser.id, {
+        user_metadata: { email_verified_by_code_at: new Date().toISOString() },
+      });
+      return Response.json({ ok: true, sessionCreated: false }, { status: 200 });
     }
 
     const { user: existingUser, error: listError } = await findUserByEmail(admin, email);
@@ -216,9 +205,16 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: signInError?.message ?? "Falha ao autenticar." }, { status: 401 });
     }
 
-    return Response.json({ session: signInData.session }, { status: 200 });
+    if (signInData?.session?.user?.id) {
+      await admin.auth.admin.updateUserById(signInData.session.user.id, {
+        user_metadata: { email_verified_by_code_at: new Date().toISOString() },
+      });
+    }
+
+    return Response.json({ ok: true, sessionCreated: true, session: signInData.session }, { status: 200 });
   }
 
+  const otpType = mapFlowToSupabaseOtpType(flow);
   const { data, error } = await identitySupabase().auth.verifyOtp({
     email,
     token,
@@ -241,5 +237,14 @@ export async function POST(req: NextRequest) {
     return Response.json({ message: error.message }, { status: 401 });
   }
 
-  return Response.json({ session: data?.session ?? null }, { status: 200 });
+  if (data?.user?.id) {
+    await admin.auth.admin.updateUserById(data.user.id, {
+      user_metadata: { email_verified_by_code_at: new Date().toISOString() },
+    });
+  }
+
+  return Response.json(
+    { ok: true, sessionCreated: Boolean(data?.session), session: data?.session ?? null },
+    { status: 200 },
+  );
 }

@@ -1,5 +1,6 @@
 ﻿import { NextRequest } from "next/server";
 import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
+import { findUserByEmail } from "@/lib/identityUserLookup";
 
 export const runtime = "nodejs";
 
@@ -60,31 +61,48 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: profileData } = await admin.from("profiles").select("id").eq("email", email).limit(1);
-    if (profileData && profileData.length > 0) {
-      return Response.json({ exists: true }, { status: 200 });
-    }
+    const profileExists = Boolean(profileData && profileData.length > 0);
 
-    const perPage = 200;
-    let page = 1;
-    const maxPages = 10;
-    while (page && page <= maxPages) {
-      const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-      if (error) {
-        return Response.json(
-          { message: process.env.NODE_ENV === "development" ? error.message : "Falha ao consultar o e-mail." },
-          { status: 500 },
-        );
-      }
-      const exists = Boolean(
-        data?.users?.some((user) => (user.email || "").toLowerCase() === email),
+    const { user, error: userError } = await findUserByEmail(admin, email);
+    if (userError) {
+      return Response.json(
+        {
+          message:
+            process.env.NODE_ENV === "development"
+              ? userError.message
+              : "Falha ao consultar o e-mail.",
+        },
+        { status: 500 },
       );
-      if (exists) {
-        return Response.json({ exists: true }, { status: 200 });
-      }
-      page = data?.nextPage ?? 0;
     }
 
-    return Response.json({ exists: false }, { status: 200 });
+    const providers = new Set<string>();
+    if (user) {
+      const identityProviders = user.identities?.map((identity) => identity.provider).filter(Boolean) ?? [];
+      identityProviders.forEach((provider) => providers.add(provider));
+      const appProviders = (user.app_metadata as { providers?: string[] } | null)?.providers ?? [];
+      appProviders.forEach((provider) => providers.add(provider));
+    }
+
+    const exists = Boolean(user) || profileExists;
+    const providersKnown = providers.size > 0;
+    const hasEmailProvider = providers.has("email");
+    const hasPassword = exists ? (providersKnown ? hasEmailProvider : true) : false;
+    const providersFlags = {
+      google: providers.has("google"),
+      facebook: providers.has("facebook"),
+    };
+    const methods = {
+      otp: true,
+      password: exists ? hasPassword : true,
+      google: exists ? (providersKnown ? providersFlags.google : true) : true,
+      facebook: exists ? (providersKnown ? providersFlags.facebook : true) : true,
+    };
+
+    const domain = email.split("@")[1] ?? "";
+    console.info("[auth] lookup-email", { exists, providers: Array.from(providers), domain });
+
+    return Response.json({ exists, hasPassword, providers: providersFlags, methods }, { status: 200 });
   } catch (error) {
     console.error("lookup-email failed", error);
     return Response.json(

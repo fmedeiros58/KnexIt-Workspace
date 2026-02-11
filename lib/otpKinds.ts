@@ -5,8 +5,8 @@ export const OtpKind = {
 
 export type OtpKind = (typeof OtpKind)[keyof typeof OtpKind];
 
-export type OtpFlow = "login" | "signup" | "recovery";
-export type OtpMode = "otp_login" | "otp_signup" | "otp_recovery";
+export type OtpFlow = "login" | "signup" | "recovery" | "oauth_verify";
+export type OtpMode = "otp_login" | "otp_signup" | "otp_recovery" | "otp_oauth_verify";
 export type OtpPhase = "request" | "verify";
 
 export const mapFlowToOtpKind = (_flow: OtpFlow, phase: OtpPhase): OtpKind =>
@@ -20,6 +20,8 @@ export const flowFromMode = (mode?: string | null): OtpFlow | null => {
       return "signup";
     case "otp_recovery":
       return "recovery";
+    case "otp_oauth_verify":
+      return "oauth_verify";
     default:
       return null;
   }
@@ -27,10 +29,14 @@ export const flowFromMode = (mode?: string | null): OtpFlow | null => {
 
 export const flowFromType = (type?: string | null): OtpFlow | null => {
   switch (type) {
+    case "login":
+      return "login";
     case "signup":
       return "signup";
     case "recovery":
       return "recovery";
+    case "oauth_verify":
+      return "oauth_verify";
     case "magiclink":
     case "email":
       return "login";

@@ -2,6 +2,7 @@
 import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
 import { getResendClient } from "@/lib/resend";
 import { mapFlowToOtpKind, mapFlowToSupabaseOtpType, resolveOtpFlow } from "@/lib/otpKinds";
+import { findUserByEmail } from "@/lib/identityUserLookup";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const email = String(body?.email ?? "").trim().toLowerCase();
   const name = String(body?.name ?? "").trim();
-  const requestedType = String(body?.type ?? "").trim();
+  const requestedType = String(body?.purpose ?? body?.type ?? "").trim();
   const mode = String(body?.mode ?? "").trim();
   const password = String(body?.password ?? "").trim();
   const captchaToken = String(body?.captchaToken ?? "").trim();
@@ -65,15 +66,17 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const otpType = mapFlowToSupabaseOtpType(flow);
   const requestKind = mapFlowToOtpKind(flow, "request");
 
   if (!emailRegex.test(email)) {
     return Response.json({ message: "E-mail inválido." }, { status: 400 });
   }
 
+  const domain = email.split("@")[1] ?? "";
+  console.info("[auth] otp_request", { flow, mode, domain });
+
   const ip = getClientIp(req);
-  if (otpType === "signup" && HCAPTCHA_SECRET_KEY) {
+  if (flow === "signup" && HCAPTCHA_SECRET_KEY) {
     const captchaResult = await verifyHcaptcha(captchaToken, ip);
     if (!captchaResult.ok) {
       return Response.json({ message: captchaResult.message }, { status: 400 });
@@ -85,6 +88,33 @@ export async function POST(req: NextRequest) {
     admin = identitySupabaseAdmin();
   } catch (err) {
     return Response.json({ message: "Identity service role not configured." }, { status: 500 });
+  }
+  const needsExistingUser = flow === "login" || flow === "recovery" || flow === "oauth_verify";
+  if (needsExistingUser || flow === "signup") {
+    const { user: existingUser, error: userError } = await findUserByEmail(admin, email);
+    if (userError) {
+      return Response.json(
+        {
+          message:
+            process.env.NODE_ENV === "development"
+              ? userError.message
+              : "Falha ao validar o e-mail.",
+        },
+        { status: 500 },
+      );
+    }
+    if (needsExistingUser && !existingUser) {
+      return Response.json(
+        { message: "E-mail não encontrado. Crie sua conta.", code: "USER_NOT_FOUND" },
+        { status: 404 },
+      );
+    }
+    if (flow === "signup" && existingUser) {
+      return Response.json(
+        { message: "E-mail já cadastrado. Faça login.", code: "EMAIL_EXISTS" },
+        { status: 409 },
+      );
+    }
   }
   const since = new Date(Date.now() - REQUEST_WINDOW_MS).toISOString();
   const { count: emailCount, error: emailCountError } = await admin
@@ -106,32 +136,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if ((emailCount ?? 0) >= REQUEST_LIMIT) {
+  const nextAttempt = (emailCount ?? 0) + 1;
+  if (nextAttempt > REQUEST_LIMIT) {
     return Response.json({ message: "Limite de envios atingido. Tente novamente em alguns minutos." }, { status: 429 });
   }
 
-  if (ip) {
-    const { count: ipCount, error: ipCountError } = await admin
-      .from("auth_email_otps")
-      .select("id", { count: "exact", head: true })
-      .eq("request_ip", ip)
-      .eq("kind", requestKind)
-      .gte("created_at", since);
-    if (ipCountError) {
-      return Response.json(
-        {
-          message:
-            process.env.NODE_ENV === "development"
-              ? ipCountError.message
-              : "Falha ao validar limite.",
-        },
-        { status: 500 },
-      );
-    }
-    if ((ipCount ?? 0) >= REQUEST_LIMIT) {
-      return Response.json({ message: "Limite de envios atingido. Tente novamente em alguns minutos." }, { status: 429 });
-    }
-  }
+  // limite apenas por e-mail (não usar IP/IMEI)
 
   if (flow === "signup" && !password) {
     return Response.json({ message: "Senha obrigatória para criar conta." }, { status: 400 });
@@ -143,7 +153,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ message: "Serviço de e-mail não configurado." }, { status: 500 });
   }
 
-  if (flow === "signup") {
+  if (flow === "signup" || flow === "oauth_verify") {
     const code = generateOtpCode();
     const tokenHash = hashToken(code);
     const { error: signupInsertError } = await admin.from("auth_email_otps").insert({
@@ -171,7 +181,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const subject = "Seu código de acesso Knexspace One";
+    const subject =
+      flow === "oauth_verify"
+        ? "Confirme seu acesso Knexspace One"
+        : "Seu código de acesso Knexspace One";
     const html = `
       <div style="font-family: Arial, sans-serif; color: #0f172a;">
         <h2 style="margin: 0 0 12px;">Seu código de acesso</h2>
@@ -197,6 +210,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ ok: true }, { status: 200 });
   }
 
+  const otpType = mapFlowToSupabaseOtpType(flow);
   const insertResult = await admin.from("auth_email_otps").insert({
     email,
     kind: requestKind,
