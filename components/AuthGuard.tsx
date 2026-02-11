@@ -42,7 +42,11 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    const goLogin = () => {
+    const goLogin = (verify?: "otp") => {
+      if (verify === "otp") {
+        router.replace(`/knexit-workspace/acesso?returnTo=${redirectTarget}&verify=otp`);
+        return;
+      }
       router.replace(`/knexit-workspace/acesso?returnTo=${redirectTarget}`);
     };
 
@@ -50,7 +54,14 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.getSession();
       if (error || !data?.session) {
         goLogin();
-      } else if (mounted) {
+        return;
+      }
+      const metadata = data.session.user?.user_metadata as { email_verified_by_code_at?: string } | null;
+      if (!metadata?.email_verified_by_code_at) {
+        goLogin("otp");
+        return;
+      }
+      if (mounted) {
         setAuthorized(true);
       }
       if (mounted) setChecking(false);
@@ -61,6 +72,11 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       if (!session) {
         goLogin();
       } else {
+        const metadata = session.user?.user_metadata as { email_verified_by_code_at?: string } | null;
+        if (!metadata?.email_verified_by_code_at) {
+          goLogin("otp");
+          return;
+        }
         setAuthorized(true);
       }
     });

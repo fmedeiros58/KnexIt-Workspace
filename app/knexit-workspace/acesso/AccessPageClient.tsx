@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import Link from "next/link";
 import Script from "next/script";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { Session, User } from "@supabase/supabase-js";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
 
 const supabase = identitySupabase();
@@ -27,6 +27,15 @@ type AccessPageClientProps = {
   stayOnLogin?: boolean;
 };
 
+type AuthMethodAvailability = {
+  otp: boolean;
+  password: boolean;
+  google: boolean;
+  facebook: boolean;
+};
+
+type AuthMethod = "password" | "otp" | "google" | "facebook";
+
 type UserProfile = {
   name: string;
   email: string;
@@ -43,6 +52,7 @@ const FALLBACK_PROFILE: UserProfile = {
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_REGEX = /^\d{6}$/;
+const RECENT_ACCOUNTS_KEY = "knex_recent_accounts";
 const normalizeAllowedDomain = (value: string) => {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return "";
@@ -68,6 +78,69 @@ function getInitials(name: string, email: string) {
   }
   return source.slice(0, 2).toUpperCase();
 }
+
+const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
+
+const needsOauthVerification = (user: User | null, oauthPending: boolean) => {
+  if (!user) return false;
+  const appMeta = user.app_metadata as { provider?: string; providers?: string[] } | null;
+  const provider = appMeta?.provider ?? "";
+  const providers = appMeta?.providers ?? [];
+  const identityProviders =
+    (user.identities ?? []).map((identity) => identity.provider).filter(Boolean) ?? [];
+  const hasOauthProvider =
+    provider === "google" ||
+    provider === "facebook" ||
+    providers.includes("google") ||
+    providers.includes("facebook") ||
+    identityProviders.includes("google") ||
+    identityProviders.includes("facebook");
+  if (!hasOauthProvider && !oauthPending) return false;
+  const metadata = user.user_metadata as { email_verified_by_code_at?: string } | null;
+  return !metadata?.email_verified_by_code_at;
+};
+
+const needsEmailVerification = (user: User | null) => {
+  if (!user) return false;
+  const metadata = user.user_metadata as { email_verified_by_code_at?: string } | null;
+  return !metadata?.email_verified_by_code_at;
+};
+
+const getOauthProvider = (user: User | null): "google" | "facebook" | null => {
+  if (!user) return null;
+  const appMeta = user.app_metadata as { provider?: string; providers?: string[] } | null;
+  const provider = appMeta?.provider ?? "";
+  if (provider === "google" || provider === "facebook") return provider;
+  const providers = appMeta?.providers ?? [];
+  if (providers.includes("google")) return "google";
+  if (providers.includes("facebook")) return "facebook";
+  const identityProviders =
+    (user.identities ?? []).map((identity) => identity.provider).filter(Boolean) ?? [];
+  if (identityProviders.includes("google")) return "google";
+  if (identityProviders.includes("facebook")) return "facebook";
+  return null;
+};
+
+const getAppBaseUrl = () => {
+  const envBase = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (envBase) return normalizeBaseUrl(envBase);
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+    return normalizeBaseUrl(window.location.origin);
+  }
+  return "https://knexspace.com";
+};
+
+const isWebViewEnvironment = () => {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const isAndroid = /Android/i.test(ua);
+  const isIos = /iPhone|iPad|iPod/i.test(ua);
+  const isWebView =
+    (isAndroid && /wv|Version\/\d+/.test(ua)) ||
+    (isIos && !/Safari/i.test(ua)) ||
+    /FBAN|FBAV|Instagram|Line|Twitter|Snapchat|TikTok|WhatsApp/i.test(ua);
+  return isWebView;
+};
 
 function buildProfile(user: User | null): UserProfile {
   if (!user) return FALLBACK_PROFILE;
@@ -97,12 +170,16 @@ export default function KnexitWorkspaceAccessPage({
   stayOnLogin = false,
 }: AccessPageClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [profile, setProfile] = useState<UserProfile>(FALLBACK_PROFILE);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
   const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "done">("idle");
   const [emailExists, setEmailExists] = useState<boolean | null>(null);
+  const [availableMethods, setAvailableMethods] = useState<AuthMethodAvailability | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<AuthMethod | null>(null);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -110,7 +187,7 @@ export default function KnexitWorkspaceAccessPage({
   const [resetLoading, setResetLoading] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [otpSent, setOtpSent] = useState(false);
-  const [otpEnabled, setOtpEnabled] = useState(false);
+  const [otpPurpose, setOtpPurpose] = useState<"login" | "signup" | "oauth_verify" | "recovery" | null>(null);
   const [otpVerified, setOtpVerified] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -122,12 +199,28 @@ export default function KnexitWorkspaceAccessPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [authIntent, setAuthIntent] = useState<"default" | "recovery">("default");
   const otpInputsRef = useRef<Array<HTMLInputElement | null>>([]);
+  const emailVerifySentRef = useRef(false);
+  const [oauthPending, setOauthPending] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaError, setCaptchaError] = useState<string | null>(null);
+  const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
+  const isWebView = useMemo(() => isWebViewEnvironment(), []);
+  const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
+  const [recentAccounts, setRecentAccounts] = useState<string[]>([]);
+  const oauthVerifyRequested = useMemo(
+    () => (searchParams?.get("verify") ?? "") === "oauth",
+    [searchParams],
+  );
+  const otpVerifyRequested = useMemo(
+    () => (searchParams?.get("verify") ?? "") === "otp",
+    [searchParams],
+  );
+  const oauthVerifyActive = oauthVerifyRequested || oauthPending;
+  const emailVerifyActive = oauthVerifyActive || otpVerifyRequested;
   const isStepTwo = emailExists !== null;
   const isSignupFlow = emailExists === false;
   const captchaSiteKey = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY || "";
@@ -137,6 +230,43 @@ export default function KnexitWorkspaceAccessPage({
     !isSignupFlow || (Boolean(password) && Boolean(passwordConfirm) && password === passwordConfirm);
   const canSubmitPassword = Boolean(
     password && (!isSignupFlow || (passwordConfirm && passwordsMatch && termsAccepted && captchaValid)),
+  );
+
+  const logAuth = useCallback((event: string, details?: Record<string, unknown>) => {
+    try {
+      console.info("[auth]", event, details ?? {});
+    } catch {
+      // noop
+    }
+  }, []);
+
+  const readRecentAccounts = useCallback(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(RECENT_ACCOUNTS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as string[];
+      if (!Array.isArray(parsed)) return [];
+      const normalized = parsed
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter((value) => EMAIL_REGEX.test(value));
+      return Array.from(new Set(normalized));
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const saveRecentAccount = useCallback(
+    (email: string) => {
+      if (typeof window === "undefined") return;
+      const normalized = email.trim().toLowerCase();
+      if (!EMAIL_REGEX.test(normalized)) return;
+      const existing = readRecentAccounts();
+      const next = [normalized, ...existing.filter((item) => item !== normalized)].slice(0, 6);
+      localStorage.setItem(RECENT_ACCOUNTS_KEY, JSON.stringify(next));
+      setRecentAccounts(next);
+    },
+    [readRecentAccounts],
   );
 
   const allowedDomain = normalizeAllowedDomain(process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "");
@@ -159,8 +289,12 @@ export default function KnexitWorkspaceAccessPage({
       decoded = initialReturnTo;
     }
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
-      const url = new URL(decoded, origin);
+      const base = appBaseUrl || "https://knexspace.com";
+      const url = new URL(decoded, base);
+      const baseOrigin = new URL(base).origin;
+      if (url.origin !== baseOrigin) {
+        return fallback;
+      }
       const path = url.pathname || "/";
       if (path === "/login" || path.startsWith("/login/") || path.startsWith("/lobby")) {
         return fallback;
@@ -172,45 +306,26 @@ export default function KnexitWorkspaceAccessPage({
       }
       return decoded;
     }
-  }, [initialReturnTo]);
+  }, [appBaseUrl, initialReturnTo]);
 
   const oauthRedirect = useMemo(() => {
-    if (oauthRedirectUrl) return oauthRedirectUrl;
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
-    return `${origin}/auth/callback`;
-  }, [oauthRedirectUrl]);
-
-  useEffect(() => {
-    if (stayOnLogin) return;
-    let active = true;
-    const checkSession = async () => {
-      const { data, error } = await supabase.auth.getSession();
-      if (!active) return;
-      if (error || !data?.session) return;
-      const email = data.session.user?.email ?? "";
-      if (email && !isAllowedEmail(email)) {
-        setError("E-mail não autorizado para acessar o KnexIT Workspace.");
-        await supabase.auth.signOut();
-        return;
+    const base = appBaseUrl || "https://knexspace.com";
+    const safeBase = normalizeBaseUrl(base);
+    const fallback = `${safeBase}/auth/callback`;
+    if (oauthRedirectUrl) {
+      try {
+        const url = new URL(oauthRedirectUrl, safeBase);
+        if (url.origin === new URL(safeBase).origin) {
+          return url.toString();
+        }
+      } catch {
+        // ignore
       }
-      router.replace(returnTo);
-    };
-    checkSession();
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) return;
-      const email = session.user?.email ?? "";
-      if (email && !isAllowedEmail(email)) {
-        setError("E-mail não autorizado para acessar o KnexIT Workspace.");
-        supabase.auth.signOut();
-        return;
-      }
-      router.replace(returnTo);
-    });
-    return () => {
-      active = false;
-      sub.subscription.unsubscribe();
-    };
-  }, [returnTo, router, isAllowedEmail, stayOnLogin]);
+    }
+    const url = new URL(fallback);
+    url.searchParams.set("returnTo", returnTo);
+    return url.toString();
+  }, [appBaseUrl, oauthRedirectUrl, returnTo]);
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -245,6 +360,39 @@ export default function KnexitWorkspaceAccessPage({
   }, [isSignupFlow]);
 
   useEffect(() => {
+    if (selectedMethod !== "password") return;
+    setOtpSent(false);
+    setOtpCode("");
+    setOtpVerified(false);
+    setOtpPurpose(null);
+  }, [selectedMethod]);
+
+  useEffect(() => {
+    if (!isStepTwo) return;
+    if (authIntent === "recovery") {
+      setSelectedMethod("otp");
+      return;
+    }
+    if (!availableMethods) return;
+    if (selectedMethod && availableMethods[selectedMethod]) return;
+    if (availableMethods.password) {
+      setSelectedMethod("password");
+      return;
+    }
+    if (availableMethods.otp) {
+      setSelectedMethod("otp");
+      return;
+    }
+    if (availableMethods.google) {
+      setSelectedMethod("google");
+      return;
+    }
+    if (availableMethods.facebook) {
+      setSelectedMethod("facebook");
+    }
+  }, [authIntent, availableMethods, isStepTwo, selectedMethod]);
+
+  useEffect(() => {
     if (!useHcaptcha || typeof window === "undefined") return;
     (window as any).kxCaptchaSuccess = (token: string) => {
       setCaptchaToken(token);
@@ -265,11 +413,30 @@ export default function KnexitWorkspaceAccessPage({
   }, [useHcaptcha]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pending = localStorage.getItem("oauthPending");
+    if (pending) {
+      setOauthPending(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    setRecentAccounts(readRecentAccounts());
+  }, [readRecentAccounts]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      setAccountSwitcherOpen(false);
+    }
+  }, [menuOpen]);
+
+  useEffect(() => {
     let active = true;
     const loadUser = async () => {
       const { data } = await supabase.auth.getUser();
       if (!active) return;
       setProfile(buildProfile(data.user ?? null));
+      setCurrentUser(data.user ?? null);
     };
 
     loadUser();
@@ -277,6 +444,7 @@ export default function KnexitWorkspaceAccessPage({
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
       setProfile(buildProfile(session?.user ?? null));
+      setCurrentUser(session?.user ?? null);
     });
 
     return () => {
@@ -290,14 +458,16 @@ export default function KnexitWorkspaceAccessPage({
   const resetFlow = () => {
     setLookupStatus("idle");
     setEmailExists(null);
+    setAvailableMethods(null);
+    setSelectedMethod(null);
     setPassword("");
     setPasswordConfirm("");
     setNewPassword("");
     setNewPasswordConfirm("");
     setOtpCode("");
     setOtpSent(false);
-    setOtpEnabled(false);
     setOtpVerified(false);
+    setOtpPurpose(null);
     setAuthIntent("default");
     setResendCooldown(0);
     setError(null);
@@ -310,10 +480,25 @@ export default function KnexitWorkspaceAccessPage({
   function handleAddAccount() {
     resetFlow();
     setLoginEmail("");
+    setAccountSwitcherOpen(false);
   }
+
+  const handleSwitchAccount = async (email: string) => {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return;
+    setMenuOpen(false);
+    setAccountSwitcherOpen(false);
+    resetFlow();
+    setLoginEmail(normalized);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("loginEmailHint", normalized);
+    }
+    await supabase.auth.signOut();
+  };
 
   async function handleSignOut() {
     setMenuOpen(false);
+    setAccountSwitcherOpen(false);
     if (typeof window !== "undefined") {
       localStorage.removeItem("loginEmailHint");
     }
@@ -404,6 +589,189 @@ export default function KnexitWorkspaceAccessPage({
     return true;
   };
 
+  const resolvePostLoginRedirect = useCallback(async () => {
+    if (!returnTo.startsWith("/knexchat")) {
+      return returnTo;
+    }
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return returnTo;
+    try {
+      const res = await fetch("/api/knexchat/activation/status", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = (await res.json().catch(() => null)) as { activated?: boolean } | null;
+      if (res.ok && payload && payload.activated === false) {
+        return `/knexchat/activate?returnTo=${encodeURIComponent(returnTo)}`;
+      }
+    } catch {
+      // ignore and fall back
+    }
+    return returnTo;
+  }, [returnTo]);
+
+  const finalizeLogin = useCallback(
+    async (source: string) => {
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !data?.session) {
+        setError("Não foi possível autenticar. Tente novamente.");
+        logAuth("session_missing", { source });
+        return;
+      }
+      const email = data.session.user?.email ?? "";
+        if (email && !isAllowedEmail(email)) {
+          setError("E-mail não autorizado para acessar o KnexIT Workspace.");
+          logAuth("email_not_allowed", { source });
+          await supabase.auth.signOut();
+          return;
+        }
+        if (email) {
+          saveRecentAccount(email);
+        }
+        logAuth("session_created", { source });
+      const target = await resolvePostLoginRedirect();
+      router.replace(target);
+    },
+      [isAllowedEmail, logAuth, resolvePostLoginRedirect, router, saveRecentAccount],
+    );
+
+  useEffect(() => {
+    if (stayOnLogin) return;
+    if (emailVerifyActive) return;
+    let active = true;
+    const checkSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!active) return;
+      if (error || !data?.session) return;
+      const sessionUser = data.session.user;
+      const email = sessionUser?.email ?? "";
+      if (email && !isAllowedEmail(email)) {
+        setError("E-mail não autorizado para acessar o KnexIT Workspace.");
+        await supabase.auth.signOut();
+        return;
+      }
+      const pending =
+        oauthPending || (typeof window !== "undefined" && Boolean(localStorage.getItem("oauthPending")));
+      if (!pending && typeof window !== "undefined") {
+        const hint = localStorage.getItem("oauthPendingEmail");
+        if (hint && email && hint.toLowerCase() === email.toLowerCase()) {
+          localStorage.setItem("oauthPending", "1");
+          setOauthPending(true);
+        }
+      }
+      const pendingResolved =
+        oauthPending || (typeof window !== "undefined" && Boolean(localStorage.getItem("oauthPending")));
+      const metadata = sessionUser?.user_metadata as { email_verified_by_code_at?: string } | null;
+      if (metadata?.email_verified_by_code_at && pendingResolved && typeof window !== "undefined") {
+        localStorage.removeItem("oauthPending");
+        localStorage.removeItem("oauthPendingEmail");
+        setOauthPending(false);
+      }
+      if (needsEmailVerification(sessionUser)) {
+        if (needsOauthVerification(sessionUser, pendingResolved)) {
+          if (!pendingResolved && typeof window !== "undefined") {
+            localStorage.setItem("oauthPending", "1");
+            localStorage.setItem("oauthPendingEmail", email.toLowerCase());
+            setOauthPending(true);
+          }
+          if (!oauthVerifyRequested) {
+            const params = new URLSearchParams();
+            params.set("returnTo", returnTo);
+            if (stayOnLogin) {
+              params.set("stay", "1");
+            }
+            params.set("verify", "oauth");
+            router.replace(`/knexit-workspace/acesso?${params.toString()}`);
+          }
+          return;
+        }
+        if (!otpVerifyRequested) {
+          const params = new URLSearchParams();
+          params.set("returnTo", returnTo);
+          if (stayOnLogin) {
+            params.set("stay", "1");
+          }
+          params.set("verify", "otp");
+          router.replace(`/knexit-workspace/acesso?${params.toString()}`);
+        }
+        return;
+      }
+      const target = await resolvePostLoginRedirect();
+      router.replace(target);
+    };
+    checkSession();
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) return;
+      if (oauthVerifyRequested || otpVerifyRequested) return;
+      const email = session.user?.email ?? "";
+      if (email && !isAllowedEmail(email)) {
+        setError("E-mail não autorizado para acessar o KnexIT Workspace.");
+        supabase.auth.signOut();
+        return;
+      }
+      const pending =
+        oauthPending || (typeof window !== "undefined" && Boolean(localStorage.getItem("oauthPending")));
+      if (!pending && typeof window !== "undefined") {
+        const hint = localStorage.getItem("oauthPendingEmail");
+        if (hint && email && hint.toLowerCase() === email.toLowerCase()) {
+          localStorage.setItem("oauthPending", "1");
+          setOauthPending(true);
+        }
+      }
+      const pendingResolved =
+        oauthPending || (typeof window !== "undefined" && Boolean(localStorage.getItem("oauthPending")));
+      const metadata = session.user?.user_metadata as { email_verified_by_code_at?: string } | null;
+      if (metadata?.email_verified_by_code_at && pendingResolved && typeof window !== "undefined") {
+        localStorage.removeItem("oauthPending");
+        localStorage.removeItem("oauthPendingEmail");
+        setOauthPending(false);
+      }
+      if (needsEmailVerification(session.user)) {
+        if (needsOauthVerification(session.user, pendingResolved)) {
+          if (!pendingResolved && typeof window !== "undefined") {
+            localStorage.setItem("oauthPending", "1");
+            localStorage.setItem("oauthPendingEmail", email.toLowerCase());
+            setOauthPending(true);
+          }
+          const params = new URLSearchParams();
+          params.set("returnTo", returnTo);
+          if (stayOnLogin) {
+            params.set("stay", "1");
+          }
+          params.set("verify", "oauth");
+          router.replace(`/knexit-workspace/acesso?${params.toString()}`);
+          return;
+        }
+        if (!otpVerifyRequested) {
+          const params = new URLSearchParams();
+          params.set("returnTo", returnTo);
+          if (stayOnLogin) {
+            params.set("stay", "1");
+          }
+          params.set("verify", "otp");
+          router.replace(`/knexit-workspace/acesso?${params.toString()}`);
+          return;
+        }
+        return;
+      }
+      resolvePostLoginRedirect().then((target) => router.replace(target));
+    });
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [
+    resolvePostLoginRedirect,
+    router,
+    isAllowedEmail,
+    stayOnLogin,
+    oauthVerifyRequested,
+    otpVerifyRequested,
+    emailVerifyActive,
+    oauthPending,
+    returnTo,
+  ]);
+
   const handleLookup = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -414,8 +782,8 @@ export default function KnexitWorkspaceAccessPage({
     setPasswordConfirm("");
     setNewPassword("");
     setNewPasswordConfirm("");
-    setOtpEnabled(false);
     setOtpVerified(false);
+    setOtpPurpose(null);
     setAuthIntent("default");
     setResendCooldown(0);
     const email = loginEmail.trim().toLowerCase();
@@ -433,10 +801,26 @@ export default function KnexitWorkspaceAccessPage({
       setLookupStatus("idle");
       return;
     }
-    const payload = (await res.json().catch(() => ({}))) as { exists?: boolean };
+    const payload = (await res.json().catch(() => ({}))) as {
+      exists?: boolean;
+      hasPassword?: boolean;
+      providers?: { google?: boolean; facebook?: boolean };
+      methods?: Partial<AuthMethodAvailability>;
+    };
     const exists = Boolean(payload?.exists);
+    const passwordAllowed = exists ? Boolean(payload?.hasPassword) : true;
+    const fallbackMethods: AuthMethodAvailability = {
+      otp: true,
+      password: passwordAllowed,
+      google: true,
+      facebook: true,
+    };
+    const methods = { ...fallbackMethods, ...(payload?.methods ?? {}) };
     setEmailExists(exists);
+    setAvailableMethods(methods);
+    setSelectedMethod(null);
     setLookupStatus("done");
+    logAuth("lookup_email", { exists, methods });
   };
 
   const handleForgotPassword = async () => {
@@ -472,8 +856,9 @@ export default function KnexitWorkspaceAccessPage({
       return;
     }
     setEmailExists(true);
+    setAvailableMethods({ otp: true, password: false, google: false, facebook: false });
+    setSelectedMethod("otp");
     setLookupStatus("done");
-    setOtpEnabled(true);
     setAuthIntent("recovery");
     await handleRequestOtp("recovery");
   };
@@ -516,25 +901,31 @@ export default function KnexitWorkspaceAccessPage({
     }
     if (emailExists) {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setPasswordLoading(false);
       if (error) {
-        setPasswordLoading(false);
         setError(error.message);
+        logAuth("login_password_error", { email });
         return;
       }
-      await supabase.auth.signOut();
+      logAuth("login_password_success", { email });
+      await finalizeLogin("password");
+      return;
     }
     setPasswordLoading(false);
-    setOtpEnabled(true);
-    await handleRequestOtp(emailExists ? "magiclink" : "signup");
+    setSelectedMethod("otp");
+    await handleRequestOtp("signup");
   };
 
-  const handleRequestOtp = async (typeOverride?: "magiclink" | "signup" | "recovery") => {
+  const handleRequestOtp = async (
+    typeOverride?: "login" | "signup" | "recovery" | "oauth_verify",
+    emailOverride?: string,
+  ) => {
     setError(null);
     setNotice(null);
-    const email = loginEmail.trim().toLowerCase();
+    const email = (emailOverride ?? loginEmail).trim().toLowerCase();
     if (!ensureAllowedEmail(email)) return;
     const otpType =
-      typeOverride ?? (authIntent === "recovery" ? "recovery" : emailExists ? "magiclink" : "signup");
+      typeOverride ?? (authIntent === "recovery" ? "recovery" : emailExists ? "login" : "signup");
     if (otpType === "signup" && !password) {
       setError("Informe sua senha para criar a conta.");
       return;
@@ -553,14 +944,22 @@ export default function KnexitWorkspaceAccessPage({
     if (typeof window !== "undefined") {
       localStorage.setItem("postAuthRedirect", returnTo);
     }
+    logAuth("otp_request", { email, flow: otpType });
+    setOtpPurpose(otpType);
     const mode =
-      otpType === "signup" ? "otp_signup" : otpType === "recovery" ? "otp_recovery" : "otp_login";
-    const res = await fetch("/api/auth/otp/request", {
+      otpType === "signup"
+        ? "otp_signup"
+        : otpType === "recovery"
+          ? "otp_recovery"
+          : otpType === "oauth_verify"
+            ? "otp_oauth_verify"
+            : "otp_login";
+    const res = await fetch("/api/auth/otp/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
-        type: otpType,
+        purpose: otpType,
         mode,
         ...(otpType === "signup" ? { password } : {}),
         ...(otpType === "signup" && useHcaptcha ? { captchaToken } : {}),
@@ -574,13 +973,105 @@ export default function KnexitWorkspaceAccessPage({
           ? "Não foi possível enviar o código. Tente novamente."
           : payload?.message ?? "Falha ao enviar código.",
       );
+      logAuth("otp_request_error", { email, flow: otpType, code: payload?.code ?? "unknown" });
       return;
     }
     setOtpSent(true);
     setOtpCode("");
     setResendCooldown(30);
     setNotice("Código de 6 dígitos enviado para seu e-mail.");
+    logAuth("otp_request_success", { email, flow: otpType });
   };
+
+  useEffect(() => {
+    if (!emailVerifyActive || emailVerifySentRef.current) return;
+    let active = true;
+    let timeoutId: number | null = null;
+    let authSubscription: { unsubscribe: () => void } | null = null;
+
+    const proceed = async (session: Session | null) => {
+      if (!active) return;
+      if (timeoutId && typeof window !== "undefined") {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      const email = session?.user?.email ?? "";
+      if (!email) {
+        if (oauthVerifyRequested || otpVerifyRequested) {
+          setError("Faça login novamente.");
+        }
+        return;
+      }
+      const metadata = session?.user?.user_metadata as { email_verified_by_code_at?: string } | null;
+      if (metadata?.email_verified_by_code_at) {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("oauthPending");
+        }
+        setOauthPending(false);
+        if (!stayOnLogin) {
+          await finalizeLogin("oauth_verify");
+        }
+        return;
+      }
+      if (emailVerifySentRef.current) return;
+      emailVerifySentRef.current = true;
+      if (oauthVerifyActive && typeof window !== "undefined") {
+        localStorage.setItem("oauthPending", "1");
+        setOauthPending(true);
+      }
+      setLoginEmail(email.toLowerCase());
+      setEmailExists(true);
+      setAvailableMethods({ otp: true, password: false, google: false, facebook: false });
+      setSelectedMethod("otp");
+      setOtpSent(false);
+      setOtpCode("");
+      setOtpPurpose("oauth_verify");
+      await handleRequestOtp("oauth_verify", email);
+    };
+
+    const run = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      if (data?.session) {
+        await proceed(data.session);
+        return;
+      }
+      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!session || !active) return;
+        authSubscription?.unsubscribe();
+        authSubscription = null;
+        proceed(session);
+      });
+      authSubscription = authListener?.subscription ?? null;
+      if (typeof window !== "undefined") {
+        timeoutId = window.setTimeout(() => {
+          if (!active) return;
+        if (oauthVerifyRequested || otpVerifyRequested) {
+          setError("Faça login novamente.");
+        }
+      }, 4000);
+    }
+  };
+
+  run();
+    return () => {
+      active = false;
+      if (timeoutId && typeof window !== "undefined") {
+        window.clearTimeout(timeoutId);
+      }
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
+    };
+  }, [
+    finalizeLogin,
+    emailVerifyActive,
+    oauthVerifyActive,
+    oauthVerifyRequested,
+    otpVerifyRequested,
+    stayOnLogin,
+    handleRequestOtp,
+  ]);
 
   const handleVerifyOtp = async () => {
     setError(null);
@@ -596,15 +1087,25 @@ export default function KnexitWorkspaceAccessPage({
       return;
     }
     setVerifyLoading(true);
+    const flow =
+      otpPurpose ??
+      (authIntent === "recovery" ? "recovery" : emailExists ? "login" : "signup");
     const mode =
-      authIntent === "recovery" ? "otp_recovery" : emailExists ? "otp_login" : "otp_signup";
+      flow === "signup"
+        ? "otp_signup"
+        : flow === "recovery"
+          ? "otp_recovery"
+          : flow === "oauth_verify"
+            ? "otp_oauth_verify"
+            : "otp_login";
     const res = await fetch("/api/auth/otp/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
         token: otpCode,
-        type: authIntent === "recovery" ? "recovery" : emailExists ? "magiclink" : "signup",
+        code: otpCode,
+        purpose: flow,
         mode,
         ...(authIntent !== "recovery" && emailExists === false ? { password } : {}),
       }),
@@ -621,6 +1122,7 @@ export default function KnexitWorkspaceAccessPage({
           ? "Não foi possível validar o código. Tente novamente."
           : payload?.message ?? "Falha ao validar código.",
       );
+      logAuth("otp_verify_error", { email, flow, code: payloadCode ?? "unknown" });
       return;
     }
     if (payload?.session?.access_token && payload?.session?.refresh_token) {
@@ -632,14 +1134,27 @@ export default function KnexitWorkspaceAccessPage({
     const { data } = await supabase.auth.getSession();
     if (!data?.session) {
       setError("Não foi possível autenticar. Tente novamente.");
+      logAuth("session_missing", { source: "otp" });
       return;
     }
-    if (authIntent === "recovery") {
+    if (flow === "recovery") {
       setOtpVerified(true);
       setNotice("Código confirmado. Defina uma nova senha.");
+      logAuth("otp_verified_recovery", { email });
       return;
     }
-    router.replace(returnTo);
+      if (flow === "oauth_verify") {
+        logAuth("otp_verified_oauth", { email });
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("oauthPending");
+          localStorage.removeItem("oauthPendingEmail");
+        }
+        setOauthPending(false);
+        await finalizeLogin("oauth_verify");
+        return;
+      }
+    logAuth("otp_verified_login", { email });
+    await finalizeLogin("otp");
   };
 
   const handleResetPassword = async (event: FormEvent) => {
@@ -668,6 +1183,20 @@ export default function KnexitWorkspaceAccessPage({
     const padded = `${otpCode}`.padEnd(6, " ");
     return padded.slice(0, 6).split("");
   }, [otpCode]);
+
+  const showPasswordMethod = Boolean(availableMethods?.password);
+  const showOtpMethod = Boolean(availableMethods?.otp);
+  const showGoogleMethod = availableMethods ? Boolean(availableMethods.google) : true;
+  const showFacebookMethod = availableMethods ? Boolean(availableMethods.facebook) : true;
+  const methodGridClass = showPasswordMethod && showOtpMethod ? "grid-cols-2" : "grid-cols-1";
+  const oauthProvider = useMemo(() => getOauthProvider(currentUser), [currentUser]);
+  const showAddGoogleAccount = oauthProvider === "google";
+  const showAddFacebookAccount = oauthProvider === "facebook";
+  const switcherAccounts = useMemo(() => {
+    const raw = (currentUser?.email ?? profile.email ?? "").trim().toLowerCase();
+    const currentEmail = EMAIL_REGEX.test(raw) ? raw : "";
+    return recentAccounts.filter((email) => email && email.toLowerCase() !== currentEmail).slice(0, 2);
+  }, [currentUser?.email, profile.email, recentAccounts]);
 
   const handlePasswordToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -713,20 +1242,62 @@ export default function KnexitWorkspaceAccessPage({
     otpInputsRef.current[nextIndex]?.focus();
   };
 
-  const handleOAuth = async (provider: "google" | "azure" | "facebook") => {
+  const handleOAuth = async (
+    provider: "google" | "facebook",
+    options?: { queryParams?: Record<string, string> },
+  ) => {
     setError(null);
     setNotice(null);
     if (typeof window !== "undefined") {
       localStorage.setItem("postAuthRedirect", returnTo);
+      localStorage.setItem("oauthEntryPath", "/knexit-workspace/acesso");
+      localStorage.setItem("oauthReturnTo", returnTo);
+      localStorage.setItem("oauthPending", provider);
+      if (loginEmail) {
+        localStorage.setItem("oauthPendingEmail", loginEmail.trim().toLowerCase());
+      }
+      setOauthPending(true);
+    }
+    logAuth("oauth_start", { provider, webview: isWebView });
+    if (isWebView) {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: oauthRedirect, skipBrowserRedirect: true, ...options },
+      });
+      if (error) {
+        setError(error.message);
+        logAuth("oauth_error", { provider, reason: error.message });
+        return;
+      }
+      if (data?.url && typeof window !== "undefined") {
+        logAuth("oauth_external_redirect", { provider });
+        const opened = window.open(data.url, "_blank", "noopener,noreferrer");
+        if (!opened) {
+          window.location.href = data.url;
+        }
+        return;
+      }
+      setError("Não foi possível iniciar o login.");
+      logAuth("oauth_error", { provider, reason: "missing_url" });
+      return;
     }
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: oauthRedirect },
+      options: { redirectTo: oauthRedirect, ...options },
     });
     if (error) {
       setError(error.message);
+      logAuth("oauth_error", { provider, reason: error.message });
+      return;
     }
+    logAuth("oauth_redirect", { provider });
   };
+
+  const handleAddGoogleAccount = () =>
+    handleOAuth("google", { queryParams: { prompt: "select_account" } });
+
+  const handleAddFacebookAccount = () =>
+    handleOAuth("facebook", { queryParams: { auth_type: "reauthenticate" } });
 
   return (
     <main
@@ -830,11 +1401,16 @@ export default function KnexitWorkspaceAccessPage({
                     role="menu"
                     className="absolute right-0 z-50 mt-3 w-[min(92vw,320px)] rounded-3xl border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.6)]"
                   >
-                    <div className="flex items-start justify-between">
-                      <p className="text-xs font-semibold text-slate-600">{profile.email}</p>
+                    <div className="relative flex items-center justify-end">
+                      <p className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center text-xs font-semibold text-blue-600">
+                        {profile.email}
+                      </p>
                       <button
                         type="button"
-                        onClick={() => setMenuOpen(false)}
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setAccountSwitcherOpen(false);
+                        }}
                         className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-white"
                         aria-label="Fechar menu"
                       >
@@ -871,36 +1447,88 @@ export default function KnexitWorkspaceAccessPage({
                         </button>
                       </div>
                       <p className="mt-3 text-lg font-semibold text-slate-900">Olá, {profile.name}!</p>
-                      <Link
-                        href="/admin/login"
-                        className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 no-underline hover:no-underline"
-                      >
-                        Gerenciar sua conta Knex
-                      </Link>
-                    </div>
+                    <Link
+                      href="/admin/login"
+                      className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 no-underline hover:no-underline"
+                    >
+                      Gerenciar sua conta Knex
+                    </Link>
+                  </div>
 
-                    <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                  <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
                       <button
                         type="button"
-                        onClick={handleAddAccount}
-                        className="flex min-h-[44px] items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        onClick={() => setAccountSwitcherOpen((prev) => !prev)}
+                        className="flex min-h-[44px] items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-blue-600 hover:bg-slate-50"
                       >
-                        <PlusIcon />
-                        Adicionar conta
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSignOut}
-                        className="flex min-h-[44px] items-center justify-center gap-2 border-l border-slate-200 px-3 py-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        <ExitIcon />
-                        Sair
-                      </button>
-                    </div>
+                        <SwitchIcon />
+                        Trocar conta
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSignOut}
+                      className="flex min-h-[44px] items-center justify-center gap-2 border-l border-slate-200 px-3 py-3 text-xs font-semibold text-rose-600 hover:bg-rose-50/60"
+                    >
+                      <ExitIcon />
+                      Sair
+                    </button>
+                  </div>
 
-                    {avatarError && (
-                      <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                        {avatarError}
+                  {accountSwitcherOpen && (
+                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                      <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-semibold text-slate-600">
+                          {profile.initials}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-slate-800">{profile.name}</p>
+                          <p className="text-[11px] text-slate-500">{profile.email}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {switcherAccounts.map((email) => (
+                          <button
+                            key={email}
+                            type="button"
+                            onClick={() => handleSwitchAccount(email)}
+                            className="flex min-h-[40px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+                              {email.charAt(0).toUpperCase()}
+                            </span>
+                            <span className="flex-1 text-left">
+                              <span className="block text-sm font-semibold text-slate-800">{email}</span>
+                              <span className="block text-[11px] text-slate-500">Desconectada</span>
+                            </span>
+                          </button>
+                        ))}
+                        {showAddGoogleAccount && (
+                          <button
+                            type="button"
+                            onClick={handleAddGoogleAccount}
+                            className="flex min-h-[40px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <GoogleIcon className="h-4 w-4" />
+                            Adicionar outra conta Google
+                          </button>
+                        )}
+                        {showAddFacebookAccount && (
+                          <button
+                            type="button"
+                            onClick={handleAddFacebookAccount}
+                            className="flex min-h-[40px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <FacebookIcon className="h-4 w-4" />
+                            Adicionar outra conta Facebook
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {avatarError && (
+                    <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {avatarError}
                       </div>
                     )}
                     <div className="mt-4 flex items-center justify-center gap-3 text-[10px] text-slate-500">
@@ -984,6 +1612,8 @@ export default function KnexitWorkspaceAccessPage({
                           type="email"
                           value={loginEmail}
                           onChange={(event) => setLoginEmail(event.target.value)}
+                          autoComplete="email"
+                          inputMode="email"
                           className="w-full rounded-2xl border border-slate-300 bg-white pl-[96px] pr-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                           required
                         />
@@ -1026,7 +1656,7 @@ export default function KnexitWorkspaceAccessPage({
                       <button
                         type="button"
                         onClick={() => handleOAuth("facebook")}
-                        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
                       >
                         <FacebookIcon className="h-6 w-6" />
                         Entrar com Facebook
@@ -1062,7 +1692,70 @@ export default function KnexitWorkspaceAccessPage({
 
               {isStepTwo && (
                 <div className="mt-5 space-y-4">
-                  {authIntent != "recovery" && (
+                  <div className={`grid gap-2 ${methodGridClass}`}>
+                    {showPasswordMethod && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMethod("password")}
+                        className={`inline-flex min-h-[44px] items-center justify-center rounded-xl border px-3 text-xs font-semibold transition ${
+                          selectedMethod === "password"
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {emailExists ? "Entrar com senha" : "Criar senha"}
+                      </button>
+                    )}
+                    {showOtpMethod && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMethod("otp")}
+                        className={`inline-flex min-h-[44px] items-center justify-center rounded-xl border px-3 text-xs font-semibold transition ${
+                          selectedMethod === "otp"
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {authIntent === "recovery" ? "Código de recuperação" : "Código por e-mail"}
+                      </button>
+                    )}
+                  </div>
+
+                  {(showGoogleMethod || showFacebookMethod) && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-center gap-3">
+                        <span className="h-px flex-1 bg-slate-200" />
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                          Ou entre com
+                        </p>
+                        <span className="h-px flex-1 bg-slate-200" />
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {showGoogleMethod && (
+                          <button
+                            type="button"
+                            onClick={() => handleOAuth("google")}
+                            className="inline-flex items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <GoogleIcon className="h-5 w-5" />
+                            Entrar com Google
+                          </button>
+                        )}
+                        {showFacebookMethod && (
+                          <button
+                            type="button"
+                            onClick={() => handleOAuth("facebook")}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
+                          >
+                            <FacebookIcon className="h-6 w-6" />
+                            Entrar com Facebook
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedMethod === "password" && authIntent != "recovery" && (
                     <div className="rounded-2xl bg-[#f1f6fb] p-4">
                       <p className="sr-only">
                         {emailExists ? "Entrar com senha" : "Criar conta com senha"}
@@ -1173,13 +1866,15 @@ export default function KnexitWorkspaceAccessPage({
                     </div>
                   )}
 
-                  {otpEnabled && (
+                  {selectedMethod === "otp" && (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-slate-900">
-                          {authIntent == "recovery"
+                          {otpPurpose === "recovery"
                             ? "Confirmar código de recuperação"
-                            : "Receber código de 6 dígitos"}
+                            : otpPurpose === "oauth_verify"
+                              ? "Verificar acesso por e-mail"
+                              : "Receber código de 6 dígitos"}
                         </p>
                         <span className="text-[11px] font-semibold text-blue-700">OTP</span>
                       </div>
@@ -1349,6 +2044,29 @@ function ExitIcon() {
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SwitchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path d="M7 4l-3 3 3 3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path
+        d="M4 7h11a3 3 0 0 1 3 3v1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path d="M17 20l3-3-3-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path
+        d="M20 17H9a3 3 0 0 1-3-3v-1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
       />
     </svg>
   );

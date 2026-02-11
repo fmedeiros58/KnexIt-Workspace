@@ -23,6 +23,29 @@ const normalizeAllowedDomain = (value: string) => {
   return trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
 };
 
+const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
+
+const getAppBaseUrl = () => {
+  const envBase = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (envBase) return normalizeBaseUrl(envBase);
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+    return normalizeBaseUrl(window.location.origin);
+  }
+  return "https://knexspace.com";
+};
+
+const isWebViewEnvironment = () => {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const isAndroid = /Android/i.test(ua);
+  const isIos = /iPhone|iPad|iPod/i.test(ua);
+  return (
+    (isAndroid && /wv|Version\/\d+/.test(ua)) ||
+    (isIos && !/Safari/i.test(ua)) ||
+    /FBAN|FBAV|Instagram|Line|Twitter|Snapchat|TikTok|WhatsApp/i.test(ua)
+  );
+};
+
 function normalizeRedirect(product: ProductEntry, target: string | null, origin: string) {
   if (!target) return target;
   try {
@@ -49,11 +72,8 @@ export default function LoginPageClient({
   oauthRedirectUrl = null,
 }: LoginPageClientProps) {
   const router = useRouter();
-  const appBaseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
+  const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
+  const isWebView = useMemo(() => isWebViewEnvironment(), []);
   const [loginEmail, setLoginEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignup, setIsSignup] = useState(false);
@@ -62,6 +82,7 @@ export default function LoginPageClient({
   const [otpSent, setOtpSent] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [otpPurpose, setOtpPurpose] = useState<"login" | "signup" | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const allowedDomain = normalizeAllowedDomain(process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "");
 
@@ -121,17 +142,25 @@ export default function LoginPageClient({
   }, [targetRedirect, appBaseUrl]);
 
   const oauthRedirect = useMemo(() => {
-    if (oauthRedirectUrl) return oauthRedirectUrl;
-    const base = typeof window !== "undefined" ? window.location.origin : appBaseUrl;
-    try {
-      const url = new URL(base || "http://127.0.0.1:3000");
-      url.pathname = "/auth/callback";
-      url.search = "";
-      return url.toString();
-    } catch {
-      return `${base}/auth/callback`;
+    const base = appBaseUrl || "https://knexspace.com";
+    const safeBase = normalizeBaseUrl(base);
+    const fallback = `${safeBase}/auth/callback`;
+    if (oauthRedirectUrl) {
+      try {
+        const url = new URL(oauthRedirectUrl, safeBase);
+        if (url.origin === new URL(safeBase).origin) {
+          return url.toString();
+        }
+      } catch {
+        // ignore
+      }
     }
-  }, [oauthRedirectUrl, appBaseUrl]);
+    const url = new URL(fallback);
+    if (targetRedirect) {
+      url.searchParams.set("returnTo", targetRedirect);
+    }
+    return url.toString();
+  }, [appBaseUrl, oauthRedirectUrl, targetRedirect]);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -193,22 +222,41 @@ export default function LoginPageClient({
     return () => window.clearInterval(timer);
   }, [resendCooldown]);
 
-  async function handleRequestCode(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    setOtpPurpose(null);
+    setOtpSent(false);
+    setOtpCode("");
+  }, [isSignup]);
+
+  async function handleRequestCode(
+    e?: React.SyntheticEvent,
+    purposeOverride?: "login" | "signup",
+  ) {
+    e?.preventDefault();
     setErr(null);
     const email = loginEmail.trim().toLowerCase();
     if (!isAllowedEmail(email)) {
       setErr("E-mail não autorizado para acessar o Knexit Workspace.");
       return;
     }
+    const purpose = purposeOverride ?? otpPurpose ?? "login";
+    if (purpose === "signup" && !password) {
+      setErr("Informe sua senha para criar a conta.");
+      return;
+    }
     setOtpLoading(true);
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
-    const res = await fetch("/api/auth/otp/request", {
+    const res = await fetch("/api/auth/otp/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({
+        email,
+        purpose,
+        mode: purpose === "signup" ? "otp_signup" : "otp_login",
+        ...(purpose === "signup" ? { password } : {}),
+      }),
     });
     setOtpLoading(false);
     if (!res.ok) {
@@ -216,6 +264,7 @@ export default function LoginPageClient({
       setErr(payload?.message ?? "Falha ao enviar código.");
       return;
     }
+    setOtpPurpose(purpose);
     setOtpSent(true);
     setOtpCode("");
     setResendCooldown(30);
@@ -233,11 +282,22 @@ export default function LoginPageClient({
       setErr("Codigo invalido. Use 6 digitos.");
       return;
     }
+    const purpose = otpPurpose ?? "login";
+    if (purpose === "signup" && !password) {
+      setErr("Informe sua senha para criar a conta.");
+      return;
+    }
     setVerifyLoading(true);
     const res = await fetch("/api/auth/otp/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, token: otpCode }),
+      body: JSON.stringify({
+        email,
+        token: otpCode,
+        purpose,
+        mode: purpose === "signup" ? "otp_signup" : "otp_login",
+        ...(purpose === "signup" ? { password } : {}),
+      }),
     });
     const payload = (await res.json().catch(() => ({}))) as {
       message?: string;
@@ -281,22 +341,19 @@ export default function LoginPageClient({
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
-    const { error } = isSignup
-      ? await supabase.auth.signUp({
-          email,
-          password,
-        })
-      : await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+    if (isSignup) {
+      setPasswordLoading(false);
+      await handleRequestCode(e, "signup");
+      setNotice("Enviamos um código de 6 dígitos para confirmar sua conta.");
+      return;
+    }
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     setPasswordLoading(false);
     if (error) {
       setErr(error.message);
-      return;
-    }
-    if (isSignup) {
-      setNotice("Conta criada. Verifique seu e-mail para confirmar o acesso.");
       return;
     }
     const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
@@ -304,11 +361,38 @@ export default function LoginPageClient({
     if (to) router.replace(to);
   }
 
-  async function handleOAuth(provider: "google" | "azure" | "facebook") {
+  async function handleOAuth(provider: "google" | "facebook") {
     setErr(null);
     setNotice(null);
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
+    }
+    if (typeof window !== "undefined") {
+      localStorage.setItem("oauthEntryPath", "/knexit-workspace/acesso");
+      localStorage.setItem("oauthReturnTo", postAuthRedirect || targetRedirect || "");
+      localStorage.setItem("oauthPending", provider);
+      if (loginEmail) {
+        localStorage.setItem("oauthPendingEmail", loginEmail.trim().toLowerCase());
+      }
+    }
+    if (isWebView) {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: oauthRedirect, skipBrowserRedirect: true },
+      });
+      if (error) {
+        setErr(error.message);
+        return;
+      }
+      if (data?.url && typeof window !== "undefined") {
+        const opened = window.open(data.url, "_blank", "noopener,noreferrer");
+        if (!opened) {
+          window.location.href = data.url;
+        }
+        return;
+      }
+      setErr("Não foi possível iniciar o login.");
+      return;
     }
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
