@@ -2,6 +2,8 @@
 import crypto from "crypto";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
 import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
+import { getResendClient } from "@/lib/resend";
+import { mapFlowToOtpKind, mapFlowToSupabaseOtpType, resolveOtpFlow } from "@/lib/otpKinds";
 
 export const runtime = "nodejs";
 
@@ -9,18 +11,60 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const tokenRegex = /^\d{6}$/;
 const VERIFY_WINDOW_MS = 15 * 60 * 1000;
 const VERIFY_LIMIT = 5;
+const WARNING_THRESHOLD = 2;
 
 const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+
+const findUserByEmail = async (
+  admin: ReturnType<typeof identitySupabaseAdmin>,
+  email: string,
+) => {
+  const normalizedEmail = email.toLowerCase();
+  let page = 1;
+  const perPage = 200;
+
+  for (;;) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) {
+      return { user: null, error };
+    }
+    const user = data?.users?.find(
+      (entry) => (entry.email ?? "").toLowerCase() === normalizedEmail,
+    );
+    if (user) {
+      return { user, error: null };
+    }
+    if (!data?.users || data.users.length < perPage) {
+      return { user: null, error: null };
+    }
+    if (data?.nextPage && data.nextPage !== page) {
+      page = data.nextPage;
+      continue;
+    }
+    if (data?.lastPage && page < data.lastPage) {
+      page += 1;
+      continue;
+    }
+    return { user: null, error: null };
+  }
+};
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const email = String(body?.email ?? "").trim().toLowerCase();
   const token = String(body?.token ?? "").trim();
-  const rawType = String(body?.type ?? "email").trim();
-  const otpType =
-    rawType === "signup" || rawType === "magiclink" || rawType === "recovery" || rawType === "email"
-      ? rawType
-      : "email";
+  const password = String(body?.password ?? "").trim();
+  const rawType = String(body?.type ?? "").trim();
+  const mode = String(body?.mode ?? "").trim();
+  const flow = resolveOtpFlow({ mode, type: rawType });
+
+  if (!flow) {
+    return Response.json(
+      { message: "Tipo de OTP inválido para este fluxo.", code: "OTP_KIND_INVALID" },
+      { status: 400 },
+    );
+  }
+  const otpType = mapFlowToSupabaseOtpType(flow);
 
   if (!emailRegex.test(email)) {
     return Response.json({ message: "E-mail inválido." }, { status: 400 });
@@ -38,42 +82,141 @@ export async function POST(req: NextRequest) {
   const since = new Date(Date.now() - VERIFY_WINDOW_MS).toISOString();
   const tokenHash = hashToken(token);
 
-  const { count: attemptCount, error: attemptError } = await admin
+  const verifyKind = mapFlowToOtpKind(flow, "verify");
+  const requestKind = mapFlowToOtpKind(flow, "request");
+  const { count: failCount, error: failCountError } = await admin
     .from("auth_email_otps")
     .select("id", { count: "exact", head: true })
     .eq("email", email)
-    .eq("kind", "verify")
-    .eq("token_hash", tokenHash)
+    .eq("kind", verifyKind)
     .gte("created_at", since);
 
-  if (attemptError) {
+  if (failCountError) {
     return Response.json(
       {
         message:
-          process.env.NODE_ENV === "development" ? attemptError.message : "Falha ao validar limite.",
+          process.env.NODE_ENV === "development" ? failCountError.message : "Falha ao validar limite.",
       },
       { status: 500 },
     );
   }
 
-  if ((attemptCount ?? 0) >= VERIFY_LIMIT) {
+  if ((failCount ?? 0) >= VERIFY_LIMIT) {
     return Response.json({ message: "Muitas tentativas. Aguarde alguns minutos." }, { status: 429 });
   }
 
-  const { error: insertError } = await admin.from("auth_email_otps").insert({
-    email,
-    kind: "verify",
-    token_hash: tokenHash,
-  });
+  const sendWarningIfNeeded = async (nextFailCount: number) => {
+    if (nextFailCount <= WARNING_THRESHOLD) return;
+    if (nextFailCount !== WARNING_THRESHOLD + 1) return;
 
-  if (insertError) {
-    return Response.json(
-      {
-        message:
-          process.env.NODE_ENV === "development" ? insertError.message : "Falha ao registrar tentativa.",
-      },
-      { status: 500 },
-    );
+    const resend = getResendClient();
+    const resendFrom = process.env.RESEND_FROM?.trim();
+    if (!resend || !resendFrom) return;
+
+    const subject = "Alerta de segurança da sua conta Knexspace";
+    const html = `
+      <div style="font-family: Arial, sans-serif; color: #0f172a;">
+        <h2 style="margin: 0 0 12px;">Tentativas de acesso detectadas</h2>
+        <p style="margin: 0 0 12px;">
+          Identificamos várias tentativas com código inválido para acessar sua conta Knexspace.
+        </p>
+        <p style="margin: 0 0 16px;">
+          Se não foi você, recomendamos alterar sua senha e revisar os acessos.
+        </p>
+        <p style="margin: 0; color: #64748b; font-size: 14px;">Este é um aviso automático de segurança.</p>
+      </div>
+    `;
+    const text =
+      "Identificamos várias tentativas com código inválido para acessar sua conta Knexspace. Se não foi você, recomendamos alterar sua senha e revisar os acessos.";
+
+    const { error: sendError } = await resend.emails.send({
+      from: resendFrom,
+      to: [email],
+      subject,
+      html,
+      text,
+    });
+
+    if (sendError) return;
+  };
+
+  if (flow === "signup") {
+    if (!password) {
+      return Response.json({ message: "Senha obrigatória para criar conta." }, { status: 400 });
+    }
+
+    const { data: signupTokens, error: signupError } = await admin
+      .from("auth_email_otps")
+      .select("id")
+      .eq("email", email)
+      .eq("kind", requestKind)
+      .eq("token_hash", tokenHash)
+      .gte("created_at", since)
+      .limit(1);
+
+    if (signupError) {
+      return Response.json(
+        {
+          message:
+            process.env.NODE_ENV === "development" ? signupError.message : "Falha ao validar código.",
+        },
+        { status: 500 },
+      );
+    }
+
+    if (!signupTokens || signupTokens.length === 0) {
+      const { error: failInsertError } = await admin.from("auth_email_otps").insert({
+        email,
+        kind: verifyKind,
+        token_hash: tokenHash,
+      });
+      if (failInsertError?.message?.includes("auth_email_otps_kind_check")) {
+        return Response.json(
+          { message: "Não foi possível validar o código. Tente novamente.", code: "OTP_KIND_INVALID" },
+          { status: 400 },
+        );
+      }
+      await sendWarningIfNeeded((failCount ?? 0) + 1);
+      return Response.json({ message: "Código inválido." }, { status: 401 });
+    }
+
+    const { user: existingUser, error: listError } = await findUserByEmail(admin, email);
+    if (listError) {
+      return Response.json({ message: listError.message ?? "Falha ao consultar usuário." }, { status: 500 });
+    }
+    if (!existingUser) {
+      const { error: createError } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+      });
+      if (createError && !/already|registered/i.test(createError.message)) {
+        return Response.json({ message: createError.message }, { status: 400 });
+      }
+    }
+
+    const { data: signInData, error: signInError } = await identitySupabase().auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (signInError || !signInData?.session) {
+      const { error: failInsertError } = await admin.from("auth_email_otps").insert({
+        email,
+        kind: verifyKind,
+        token_hash: tokenHash,
+      });
+      if (failInsertError?.message?.includes("auth_email_otps_kind_check")) {
+        return Response.json(
+          { message: "Não foi possível validar o código. Tente novamente.", code: "OTP_KIND_INVALID" },
+          { status: 400 },
+        );
+      }
+      await sendWarningIfNeeded((failCount ?? 0) + 1);
+      return Response.json({ message: signInError?.message ?? "Falha ao autenticar." }, { status: 401 });
+    }
+
+    return Response.json({ session: signInData.session }, { status: 200 });
   }
 
   const { data, error } = await identitySupabase().auth.verifyOtp({
@@ -83,6 +226,18 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
+    const { error: failInsertError } = await admin.from("auth_email_otps").insert({
+      email,
+      kind: verifyKind,
+      token_hash: tokenHash,
+    });
+    if (failInsertError?.message?.includes("auth_email_otps_kind_check")) {
+      return Response.json(
+        { message: "Não foi possível validar o código. Tente novamente.", code: "OTP_KIND_INVALID" },
+        { status: 400 },
+      );
+    }
+    await sendWarningIfNeeded((failCount ?? 0) + 1);
     return Response.json({ message: error.message }, { status: 401 });
   }
 

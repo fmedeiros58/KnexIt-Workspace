@@ -417,7 +417,7 @@ export default function PlansSection() {
           {APPS.map((app) => (
             <a
                   key={app.slug}
-                  href={`/lobby/${app.slug}`}
+                  href={`/landing-produtos/${app.slug}`}
                   className="group relative flex flex-col items-center gap-1 no-underline transition hover:no-underline focus:no-underline lg:w-12 lg:shrink-0 lg:justify-start lg:transition-[width] lg:duration-200 lg:hover:w-36 lg:hover:z-10"
                 >
               <IconBadge icon={app.icon} label={app.name} detail={app.detail} />

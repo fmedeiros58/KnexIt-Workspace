@@ -1,7 +1,9 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import Link from "next/link";
+import Script from "next/script";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
@@ -22,6 +24,7 @@ const theme = {
 type AccessPageClientProps = {
   oauthRedirectUrl?: string | null;
   initialReturnTo?: string | null;
+  stayOnLogin?: boolean;
 };
 
 type UserProfile = {
@@ -91,6 +94,7 @@ function buildProfile(user: User | null): UserProfile {
 export default function KnexitWorkspaceAccessPage({
   oauthRedirectUrl = null,
   initialReturnTo = null,
+  stayOnLogin = false,
 }: AccessPageClientProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -111,6 +115,8 @@ export default function KnexitWorkspaceAccessPage({
   const [otpLoading, setOtpLoading] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -119,21 +125,52 @@ export default function KnexitWorkspaceAccessPage({
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaError, setCaptchaError] = useState<string | null>(null);
   const isStepTwo = emailExists !== null;
+  const isSignupFlow = emailExists === false;
+  const captchaSiteKey = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY || "";
+  const useHcaptcha = Boolean(captchaSiteKey);
+  const captchaValid = !useHcaptcha || Boolean(captchaToken);
+  const passwordsMatch =
+    !isSignupFlow || (Boolean(password) && Boolean(passwordConfirm) && password === passwordConfirm);
+  const canSubmitPassword = Boolean(
+    password && (!isSignupFlow || (passwordConfirm && passwordsMatch && termsAccepted && captchaValid)),
+  );
 
   const allowedDomain = normalizeAllowedDomain(process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "");
-  const isAllowedEmail = (email: string) => {
-    if (!email) return false;
-    if (!allowedDomain) return true;
-    return email.endsWith(`@${allowedDomain}`);
-  };
+  const isAllowedEmail = useCallback(
+    (email: string) => {
+      if (!email) return false;
+      if (!allowedDomain) return true;
+      return email.endsWith(`@${allowedDomain}`);
+    },
+    [allowedDomain],
+  );
 
   const returnTo = useMemo(() => {
-    if (!initialReturnTo) return "/knexit-workspace";
+    const fallback = "/knexit-workspace";
+    if (!initialReturnTo) return fallback;
+    let decoded = initialReturnTo;
     try {
-      return decodeURIComponent(initialReturnTo);
+      decoded = decodeURIComponent(initialReturnTo);
     } catch {
-      return initialReturnTo;
+      decoded = initialReturnTo;
+    }
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+      const url = new URL(decoded, origin);
+      const path = url.pathname || "/";
+      if (path === "/login" || path.startsWith("/login/") || path.startsWith("/lobby")) {
+        return fallback;
+      }
+      return `${path}${url.search}${url.hash}`;
+    } catch {
+      if (decoded === "/login" || decoded.startsWith("/login/") || decoded.startsWith("/lobby")) {
+        return fallback;
+      }
+      return decoded;
     }
   }, [initialReturnTo]);
 
@@ -142,6 +179,38 @@ export default function KnexitWorkspaceAccessPage({
     const origin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
     return `${origin}/auth/callback`;
   }, [oauthRedirectUrl]);
+
+  useEffect(() => {
+    if (stayOnLogin) return;
+    let active = true;
+    const checkSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!active) return;
+      if (error || !data?.session) return;
+      const email = data.session.user?.email ?? "";
+      if (email && !isAllowedEmail(email)) {
+        setError("E-mail não autorizado para acessar o KnexIT Workspace.");
+        await supabase.auth.signOut();
+        return;
+      }
+      router.replace(returnTo);
+    };
+    checkSession();
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) return;
+      const email = session.user?.email ?? "";
+      if (email && !isAllowedEmail(email)) {
+        setError("E-mail não autorizado para acessar o KnexIT Workspace.");
+        supabase.auth.signOut();
+        return;
+      }
+      router.replace(returnTo);
+    });
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [returnTo, router, isAllowedEmail, stayOnLogin]);
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -167,6 +236,35 @@ export default function KnexitWorkspaceAccessPage({
   }, [menuOpen]);
 
   useEffect(() => {
+    if (!isSignupFlow) {
+      setTermsAccepted(false);
+      setCaptchaToken("");
+      setCaptchaError(null);
+      return;
+    }
+  }, [isSignupFlow]);
+
+  useEffect(() => {
+    if (!useHcaptcha || typeof window === "undefined") return;
+    (window as any).kxCaptchaSuccess = (token: string) => {
+      setCaptchaToken(token);
+      setCaptchaError(null);
+    };
+    (window as any).kxCaptchaExpired = () => {
+      setCaptchaToken("");
+    };
+    (window as any).kxCaptchaError = () => {
+      setCaptchaToken("");
+      setCaptchaError("Falha ao carregar o captcha.");
+    };
+    return () => {
+      delete (window as any).kxCaptchaSuccess;
+      delete (window as any).kxCaptchaExpired;
+      delete (window as any).kxCaptchaError;
+    };
+  }, [useHcaptcha]);
+
+  useEffect(() => {
     let active = true;
     const loadUser = async () => {
       const { data } = await supabase.auth.getUser();
@@ -187,6 +285,8 @@ export default function KnexitWorkspaceAccessPage({
     };
   }, []);
 
+  // browser autocomplete already provides recent emails
+
   const resetFlow = () => {
     setLookupStatus("idle");
     setEmailExists(null);
@@ -202,6 +302,9 @@ export default function KnexitWorkspaceAccessPage({
     setResendCooldown(0);
     setError(null);
     setNotice(null);
+    setTermsAccepted(false);
+    setCaptchaToken("");
+    setCaptchaError(null);
   };
 
   function handleAddAccount() {
@@ -215,7 +318,7 @@ export default function KnexitWorkspaceAccessPage({
       localStorage.removeItem("loginEmailHint");
     }
     await supabase.auth.signOut();
-    router.push("/login");
+    router.push("/knexit-workspace");
   }
 
   const handleAvatarSelect = () => {
@@ -236,22 +339,36 @@ export default function KnexitWorkspaceAccessPage({
     setAvatarUploading(true);
     setAvatarError(null);
     try {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData.user) {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      let session = sessionData?.session ?? null;
+      if (!session || sessionError) {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && refreshed?.session) {
+          session = refreshed.session;
+        }
+      } else if (session.expires_at && session.expires_at <= Math.floor(Date.now() / 1000) + 30) {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && refreshed?.session) {
+          session = refreshed.session;
+        }
+      }
+      if (!session) {
         throw new Error("Faça login para atualizar a imagem.");
       }
-      const userId = userData.user.id;
-      const filePath = `${userId}`;
-      const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, file, {
-        upsert: true,
-        contentType: file.type,
-        cacheControl: "3600",
+      const token = session.access_token;
+      const userId = session.user.id;
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/auth/avatar", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
-      if (uploadError) {
-        throw uploadError;
+      const payload = (await res.json().catch(() => ({}))) as { url?: string; message?: string };
+      if (!res.ok || !payload?.url) {
+        throw new Error(payload?.message ?? "Não foi possível atualizar a imagem.");
       }
-      const { data: publicData } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      const avatarUrl = `${publicData.publicUrl}?t=${Date.now()}`;
+      const avatarUrl = payload.url;
       await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } });
       await supabase.from("profiles").update({ avatar_url: avatarUrl }).eq("id", userId);
       setProfile((prev) => ({ ...prev, imageUrl: avatarUrl }));
@@ -317,7 +434,8 @@ export default function KnexitWorkspaceAccessPage({
       return;
     }
     const payload = (await res.json().catch(() => ({}))) as { exists?: boolean };
-    setEmailExists(Boolean(payload?.exists));
+    const exists = Boolean(payload?.exists);
+    setEmailExists(exists);
     setLookupStatus("done");
   };
 
@@ -374,13 +492,23 @@ export default function KnexitWorkspaceAccessPage({
       setError("Informe sua senha.");
       return;
     }
-    if (!passwordConfirm) {
-      setError("Confirme sua senha.");
-      return;
-    }
-    if (password !== passwordConfirm) {
-      setError("As senhas não coincidem.");
-      return;
+    if (!emailExists) {
+      if (!passwordConfirm) {
+        setError("Confirme sua senha.");
+        return;
+      }
+      if (password !== passwordConfirm) {
+        setError("As senhas não coincidem.");
+        return;
+      }
+      if (!termsAccepted) {
+        setError("Você precisa aceitar os Termos e Serviços para continuar.");
+        return;
+      }
+      if (!captchaValid) {
+        setError("Confirme o captcha para continuar.");
+        return;
+      }
     }
     setPasswordLoading(true);
     if (typeof window !== "undefined") {
@@ -411,23 +539,41 @@ export default function KnexitWorkspaceAccessPage({
       setError("Informe sua senha para criar a conta.");
       return;
     }
+    if (otpType === "signup") {
+      if (!termsAccepted) {
+        setError("Você precisa aceitar os Termos e Serviços para continuar.");
+        return;
+      }
+      if (!captchaValid) {
+        setError("Confirme o captcha para continuar.");
+        return;
+      }
+    }
     setOtpLoading(true);
     if (typeof window !== "undefined") {
       localStorage.setItem("postAuthRedirect", returnTo);
     }
+    const mode =
+      otpType === "signup" ? "otp_signup" : otpType === "recovery" ? "otp_recovery" : "otp_login";
     const res = await fetch("/api/auth/otp/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
         type: otpType,
+        mode,
         ...(otpType === "signup" ? { password } : {}),
+        ...(otpType === "signup" && useHcaptcha ? { captchaToken } : {}),
       }),
     });
     setOtpLoading(false);
     if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { message?: string };
-      setError(payload?.message ?? "Falha ao enviar código.");
+      const payload = (await res.json().catch(() => ({}))) as { message?: string; code?: string };
+      setError(
+        payload?.code === "OTP_KIND_INVALID"
+          ? "Não foi possível enviar o código. Tente novamente."
+          : payload?.message ?? "Falha ao enviar código.",
+      );
       return;
     }
     setOtpSent(true);
@@ -450,6 +596,8 @@ export default function KnexitWorkspaceAccessPage({
       return;
     }
     setVerifyLoading(true);
+    const mode =
+      authIntent === "recovery" ? "otp_recovery" : emailExists ? "otp_login" : "otp_signup";
     const res = await fetch("/api/auth/otp/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -457,6 +605,8 @@ export default function KnexitWorkspaceAccessPage({
         email,
         token: otpCode,
         type: authIntent === "recovery" ? "recovery" : emailExists ? "magiclink" : "signup",
+        mode,
+        ...(authIntent !== "recovery" && emailExists === false ? { password } : {}),
       }),
     });
     const payload = (await res.json().catch(() => ({}))) as {
@@ -465,7 +615,12 @@ export default function KnexitWorkspaceAccessPage({
     };
     setVerifyLoading(false);
     if (!res.ok) {
-      setError(payload?.message ?? "Falha ao validar código.");
+      const payloadCode = (payload as { code?: string })?.code;
+      setError(
+        payloadCode === "OTP_KIND_INVALID"
+          ? "Não foi possível validar o código. Tente novamente."
+          : payload?.message ?? "Falha ao validar código.",
+      );
       return;
     }
     if (payload?.session?.access_token && payload?.session?.refresh_token) {
@@ -481,7 +636,7 @@ export default function KnexitWorkspaceAccessPage({
     }
     if (authIntent === "recovery") {
       setOtpVerified(true);
-      setNotice("C?digo confirmado. Defina uma nova senha.");
+      setNotice("Código confirmado. Defina uma nova senha.");
       return;
     }
     router.replace(returnTo);
@@ -513,6 +668,18 @@ export default function KnexitWorkspaceAccessPage({
     const padded = `${otpCode}`.padEnd(6, " ");
     return padded.slice(0, 6).split("");
   }, [otpCode]);
+
+  const handlePasswordToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setShowPassword((prev) => !prev);
+  };
+
+  const handlePasswordConfirmToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setShowPasswordConfirm((prev) => !prev);
+  };
 
   const handleOtpChange =
     (index: number) => (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -615,8 +782,7 @@ export default function KnexitWorkspaceAccessPage({
               href="/knexit-workspace"
               className="text-[clamp(1.4rem,2.6vw,1.85rem)] font-semibold tracking-tight no-underline hover:no-underline"
             >
-              <span className="text-blue-700">Knexspace</span>
-              <span className="text-slate-900"> One</span>
+              <span className="text-white">Knexspace One</span>
             </Link>
             <div className="flex justify-end">
               <div className="relative" ref={menuRef}>
@@ -629,7 +795,14 @@ export default function KnexitWorkspaceAccessPage({
                 >
                   <span className="flex h-full w-full items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700">
                     {profile.imageUrl ? (
-                      <img src={profile.imageUrl} alt={profile.name} className="h-full w-full rounded-full object-cover" />
+                      <Image
+                        src={profile.imageUrl}
+                        alt={profile.name}
+                        width={44}
+                        height={44}
+                        className="h-full w-full rounded-full object-cover"
+                        unoptimized
+                      />
                     ) : (
                       profile.initials
                     )}
@@ -674,7 +847,14 @@ export default function KnexitWorkspaceAccessPage({
                         <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-600 via-emerald-400 to-rose-500 p-[2px]">
                           <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-semibold text-slate-700">
                             {profile.imageUrl ? (
-                              <img src={profile.imageUrl} alt={profile.name} className="h-full w-full rounded-full object-cover" />
+                              <Image
+                                src={profile.imageUrl}
+                                alt={profile.name}
+                                width={80}
+                                height={80}
+                                className="h-full w-full rounded-full object-cover"
+                                unoptimized
+                              />
                             ) : (
                               profile.initials
                             )}
@@ -691,12 +871,12 @@ export default function KnexitWorkspaceAccessPage({
                         </button>
                       </div>
                       <p className="mt-3 text-lg font-semibold text-slate-900">Olá, {profile.name}!</p>
-                      <button
-                        type="button"
-                        className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      <Link
+                        href="/admin/login"
+                        className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 no-underline hover:no-underline"
                       >
-                        Gerenciar sua conta KnexIT
-                      </button>
+                        Gerenciar sua conta Knex
+                      </Link>
                     </div>
 
                     <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -745,8 +925,8 @@ export default function KnexitWorkspaceAccessPage({
               }`}
             >
               <section className="space-y-4 fade-up text-center lg:text-left">
-              <div className="mx-auto w-full max-w-md text-left lg:ml-6">
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-200">Acesso Knexspace One</p>
+              <div className="mx-auto w-full max-w-md text-center lg:text-left lg:ml-6">
+                <p className="text-xs uppercase tracking-[0.3em] text-[#0b4f5c]">Acesso Knexspace One</p>
                 <h1 className="text-[clamp(2rem,3.6vw,3.2rem)] font-semibold leading-tight text-slate-900">
                   Vamos começar
                 </h1>
@@ -755,7 +935,7 @@ export default function KnexitWorkspaceAccessPage({
                   KnexIT Workspace.
                 </p>
               </div>
-              <div className="mx-auto w-full max-w-md rounded-3xl border border-slate-200 bg-[#f3f6fb] p-4 text-left shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)] lg:mx-0 lg:ml-6">
+              <div className="mx-auto w-full max-w-md rounded-3xl border border-slate-200 bg-[#f3f6fb] p-4 text-center lg:text-left shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)] lg:mx-0 lg:ml-6">
                 <p className="text-sm text-slate-700">
                   Comece do zero com uma nova conta para um e-mail personalizado, como voce@suaempresa.com
                 </p>
@@ -779,14 +959,14 @@ export default function KnexitWorkspaceAccessPage({
                 } ${isStepTwo ? "scale-[0.98] origin-center" : ""}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
+                  <div className="text-center w-full">
                     <h2 className="text-lg font-semibold text-slate-900">Entrar ou criar conta</h2>
                   <p className="mt-2 text-sm text-slate-600">
                     Digite seu e-mail. O Knexspace mostra as opções corretas para continuar.
                   </p>
                 </div>
                 <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                  Knex ID
+                  Acesso
                 </span>
               </div>
 
@@ -794,15 +974,20 @@ export default function KnexitWorkspaceAccessPage({
                 <>
                   <form onSubmit={handleLookup} className="mt-5 space-y-4">
                     <label className="block text-sm font-semibold text-slate-700">
-                      E-mail
-                      <input
-                        type="email"
-                        value={loginEmail}
-                        onChange={(event) => setLoginEmail(event.target.value)}
-                        placeholder="voce@empresa.com"
-                        className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                        required
-                      />
+                      <span className="sr-only">E-mail</span>
+                      <div className="relative mt-2">
+                        <span className="pointer-events-none absolute left-4 top-1/2 flex -translate-y-1/2 items-center gap-2 text-xs font-semibold text-slate-500">
+                          <MailIcon className="h-4 w-4 text-slate-400" />
+                          E-mail
+                        </span>
+                        <input
+                          type="email"
+                          value={loginEmail}
+                          onChange={(event) => setLoginEmail(event.target.value)}
+                          className="w-full rounded-2xl border border-slate-300 bg-white pl-[96px] pr-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                          required
+                        />
+                      </div>
                     </label>
                     <button
                       type="submit"
@@ -840,18 +1025,10 @@ export default function KnexitWorkspaceAccessPage({
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleOAuth("azure")}
-                        className="inline-flex items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        <MicrosoftIcon className="h-5 w-5" />
-                        Entrar com Microsoft
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => handleOAuth("facebook")}
-                        className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
                       >
-                        <FacebookIcon className="h-5 w-5" />
+                        <FacebookIcon className="h-6 w-6" />
                         Entrar com Facebook
                       </button>
                     </div>
@@ -886,44 +1063,110 @@ export default function KnexitWorkspaceAccessPage({
               {isStepTwo && (
                 <div className="mt-5 space-y-4">
                   {authIntent != "recovery" && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <p className="text-sm font-semibold text-slate-900">
+                    <div className="rounded-2xl bg-[#f1f6fb] p-4">
+                      <p className="sr-only">
                         {emailExists ? "Entrar com senha" : "Criar conta com senha"}
                       </p>
                       <form onSubmit={handlePasswordAuth} className="mt-3 space-y-3">
                         <label className="block text-sm text-slate-700">
-                          Senha
-                          <input
-                            type="password"
-                            value={password}
-                            onChange={(event) => setPassword(event.target.value)}
-                            placeholder="Digite sua senha"
-                            className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                            autoComplete={emailExists ? "current-password" : "new-password"}
-                            required
-                          />
+                          <span className="sr-only">Senha</span>
+                          <div className="relative mt-2">
+                            <span className="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center">
+                              <LockIcon className="h-4 w-4 text-slate-400" />
+                            </span>
+                            <input
+                              key={showPassword ? "password-text" : "password-hidden"}
+                              id="knexit-password"
+                              type={showPassword ? "text" : "password"}
+                              value={password}
+                              onChange={(event) => setPassword(event.target.value)}
+                              placeholder="Digite sua senha"
+                              className="w-full rounded-xl border border-slate-300 bg-white pl-10 pr-10 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                              autoComplete={emailExists ? "current-password" : "new-password"}
+                              required
+                            />
+                            <button
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={handlePasswordToggle}
+                              className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-slate-500 hover:text-slate-700 pointer-events-auto"
+                              aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                              aria-pressed={showPassword}
+                              aria-controls="knexit-password"
+                            >
+                              {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                            </button>
+                          </div>
                         </label>
-                        <label className="block text-sm text-slate-700">
-                          Confirmar senha
-                          <input
-                            type="password"
-                            value={passwordConfirm}
-                            onChange={(event) => setPasswordConfirm(event.target.value)}
-                            placeholder="Repita sua senha"
-                            className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                            autoComplete={emailExists ? "current-password" : "new-password"}
-                            required
-                          />
-                        </label>
+                        {!emailExists && (
+                          <label className="block text-sm text-slate-700">
+                            <span className="sr-only">Confirmar senha</span>
+                            <div className="relative mt-2">
+                              <span className="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center">
+                                <LockIcon className="h-4 w-4 text-slate-400" />
+                              </span>
+                              <input
+                                key={showPasswordConfirm ? "password-confirm-text" : "password-confirm-hidden"}
+                                id="knexit-password-confirm"
+                                type={showPasswordConfirm ? "text" : "password"}
+                                value={passwordConfirm}
+                                onChange={(event) => setPasswordConfirm(event.target.value)}
+                                placeholder="Confirmar senha"
+                                className="w-full rounded-xl border border-slate-300 bg-white pl-10 pr-10 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                                autoComplete="new-password"
+                                required
+                              />
+                              <button
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={handlePasswordConfirmToggle}
+                                className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-slate-500 hover:text-slate-700 pointer-events-auto"
+                                aria-label={showPasswordConfirm ? "Ocultar senha" : "Mostrar senha"}
+                                aria-pressed={showPasswordConfirm}
+                                aria-controls="knexit-password-confirm"
+                              >
+                                {showPasswordConfirm ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                              </button>
+                            </div>
+                          </label>
+                        )}
+                        {!emailExists && (
+                          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <label className="flex items-start gap-2 text-xs text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={termsAccepted}
+                                onChange={(event) => setTermsAccepted(event.target.checked)}
+                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-200"
+                              />
+                              <span>Concordo com os Termos de Serviço e Política de Privacidade.</span>
+                            </label>
+                            {useHcaptcha ? (
+                              <>
+                                <Script src="https://js.hcaptcha.com/1/api.js" strategy="afterInteractive" />
+                                <div className="flex justify-center">
+                                  <div
+                                    className="h-captcha"
+                                    data-sitekey={captchaSiteKey}
+                                    data-callback="kxCaptchaSuccess"
+                                    data-expired-callback="kxCaptchaExpired"
+                                    data-error-callback="kxCaptchaError"
+                                  />
+                                </div>
+                              </>
+                            ) : null}
+                            {useHcaptcha && captchaError && <p className="text-xs text-rose-600">{captchaError}</p>}
+                          </div>
+                        )}
                         <button
                           type="submit"
-                          disabled={passwordLoading || !password}
-                          className="inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                          disabled={passwordLoading || !canSubmitPassword}
+                          className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--kx-primary)] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 hover:brightness-110 disabled:opacity-60"
                         >
                           {passwordLoading
                             ? "Processando..."
                             : emailExists
-                              ? "Entrar com senha"
+                              ? "Fazer login"
                               : "Criar conta"}
                         </button>
                       </form>
@@ -944,7 +1187,7 @@ export default function KnexitWorkspaceAccessPage({
                         {otpSent ? (
                           <>
                             <div className="space-y-2" onPaste={handleOtpPaste}>
-                              <p className="text-sm text-slate-700">C?digo</p>
+                              <p className="text-sm text-slate-700">Código</p>
                               <div className="grid grid-cols-6 gap-2">
                                 {otpDigits.map((digit, index) => (
                                   <input
@@ -1111,6 +1354,66 @@ function ExitIcon() {
   );
 }
 
+function MailIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="m4 8 8 5 8-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function LockIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function EyeIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function EyeOffIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M4 4l16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M3 12s4-6 9-6c1.5 0 2.8.3 4 .8M21 12s-4 6-9 6c-1.6 0-3.1-.4-4.4-1.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 function GoogleIcon({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
@@ -1130,17 +1433,6 @@ function GoogleIcon({ className = "" }: { className?: string }) {
         fill="#34A853"
         d="M24 47.5c6.13 0 11.64-2.02 15.52-5.5l-7.4-5.74c-2.06 1.38-4.7 2.2-8.12 2.2-6.23 0-11.5-3.59-13.39-8.71l-8.03 6.23C6.55 42.62 14.64 47.5 24 47.5z"
       />
-    </svg>
-  );
-}
-
-function MicrosoftIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <rect x="1" y="1" width="10" height="10" fill="#F25022" />
-      <rect x="13" y="1" width="10" height="10" fill="#7FBA00" />
-      <rect x="1" y="13" width="10" height="10" fill="#00A4EF" />
-      <rect x="13" y="13" width="10" height="10" fill="#FFB900" />
     </svg>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function HeroSection() {
   return (
@@ -19,7 +20,7 @@ export default function HeroSection() {
 
           <div className="flex flex-wrap justify-center gap-3 sm:justify-start">
             <Link
-              href="/knexit-workspace/acesso"
+              href="/knexit-workspace/acesso?stay=1"
               className="inline-flex min-h-[48px] min-w-[200px] items-center justify-center rounded-xl bg-[#3E8FA3] px-6 py-3 text-sm font-semibold text-white shadow-sm no-underline hover:bg-[#337E91] hover:no-underline"
             >
               Iniciar agora
@@ -34,11 +35,13 @@ export default function HeroSection() {
         </div>
 
         <div className="md:w-[60%]">
-          <img
+          <Image
             src="/knexit-workspace/knexspace-one-hero.svg"
             alt="Ecossistema Knexspace One"
+            width={1600}
+            height={900}
             className="h-auto w-full"
-            loading="lazy"
+            priority={false}
           />
         </div>
       </div>

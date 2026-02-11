@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -213,7 +213,7 @@ export default function LoginPageClient({
     setOtpLoading(false);
     if (!res.ok) {
       const payload = (await res.json().catch(() => ({}))) as { message?: string };
-      setErr(payload?.message ?? "Falha ao enviar cÃ³digo.");
+      setErr(payload?.message ?? "Falha ao enviar código.");
       return;
     }
     setOtpSent(true);
@@ -245,7 +245,7 @@ export default function LoginPageClient({
     };
     setVerifyLoading(false);
     if (!res.ok) {
-      setErr(payload?.message ?? "Falha ao validar cÃ³digo.");
+      setErr(payload?.message ?? "Falha ao validar código.");
       return;
     }
     if (payload?.session?.access_token && payload?.session?.refresh_token) {
@@ -256,7 +256,7 @@ export default function LoginPageClient({
     }
     const { data } = await supabase.auth.getSession();
     if (!data?.session) {
-      setErr("NÃ£o foi possÃ­vel autenticar. Tente novamente.");
+      setErr("Não foi possível autenticar. Tente novamente.");
       return;
     }
     const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
@@ -270,7 +270,7 @@ export default function LoginPageClient({
     setNotice(null);
     const email = loginEmail.trim().toLowerCase();
     if (!isAllowedEmail(email)) {
-      setErr("E-mail nÃ£o autorizado para acessar o Knexit Workspace.");
+      setErr("E-mail não autorizado para acessar o Knexit Workspace.");
       return;
     }
     if (!password) {
@@ -402,7 +402,7 @@ export default function LoginPageClient({
                     onClick={() => setIsSignup((prev) => !prev)}
                     className="text-xs text-blue-600 hover:underline"
                   >
-                    {isSignup ? "JÃ¡ tenho conta, entrar com senha" : "Criar conta com senha"}
+                    {isSignup ? "Já tenho conta, entrar com senha" : "Criar conta com senha"}
                   </button>
                 </form>
               </section>
@@ -455,7 +455,13 @@ export default function LoginPageClient({
                     }
                     className="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-green-700 disabled:opacity-60"
                   >
-                    {otpSent ? (verifyLoading ? "Validando..." : "Confirmar codigo") : otpLoading ? "Enviando..." : "Enviar codigo"}
+                    {otpSent
+                      ? verifyLoading
+                        ? "Validando..."
+                        : "Confirmar código"
+                      : otpLoading
+                        ? "Enviando..."
+                        : "Enviar código"}
                   </button>
 
                   {otpSent && (
@@ -467,7 +473,7 @@ export default function LoginPageClient({
                         disabled={otpLoading || resendCooldown > 0}
                         className="text-blue-600 hover:underline disabled:text-neutral-400"
                       >
-                        {resendCooldown > 0 ? `Reenviar em ${resendCooldown}s` : "Reenviar codigo"}
+                        {resendCooldown > 0 ? `Reenviar em ${resendCooldown}s` : "Reenviar código"}
                       </button>
                     </div>
                   )}
@@ -481,7 +487,7 @@ export default function LoginPageClient({
                   <div className="h-9 w-9 rounded bg-emerald-500" aria-hidden />
                   <div>
                     <h2 className="text-lg font-semibold">Entrar com outra conta</h2>
-                    <p className="text-sm text-neutral-500">Conecte com Google, Microsoft ou Facebook.</p>
+                    <p className="text-sm text-neutral-500">Conecte com Google ou Facebook.</p>
                   </div>
                 </div>
                 <div className="grid gap-2">
@@ -491,13 +497,6 @@ export default function LoginPageClient({
                     className="inline-flex w-full items-center justify-center rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50"
                   >
                     Continuar com Google
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOAuth("azure")}
-                    className="inline-flex w-full items-center justify-center rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50"
-                  >
-                    Continuar com Microsoft
                   </button>
                   <button
                     type="button"

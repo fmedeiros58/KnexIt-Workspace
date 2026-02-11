@@ -2,6 +2,7 @@
 
 import "./precos.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 
 const BASE_PRICES = { starter: 32.72, standard: 81.8, plus: 128.4 };
 const PER_USER_INCREASE_PERCENT = { starter: 100, standard: 100, plus: 100 };
@@ -219,11 +220,13 @@ export default function PrecosPage() {
           </span>
           <span>Você está usando 84,1 GB de 100 GB disponíveis para</span>
           <span className="usage-user">
-            <img
+            <Image
               src="https://lh3.googleusercontent.com/a/ACg8ocJvVUYyu910xc1Su5xEbY1FoXN2i3cieHlTaNpG2Ymr-lCGsT3Bnw=s96"
-              width="20"
-              height="20"
+              width={20}
+              height={20}
               alt="Usuário"
+              className="rounded-full"
+              unoptimized
             />
             FMedeiros58@gmail.com
           </span>
@@ -296,29 +299,47 @@ export default function PrecosPage() {
           </div>
 
           <div className="app-icons" aria-hidden="true">
-            <img
+            <Image
               src="https://www.gstatic.com/images/branding/productlogos/gmail_2020q4/v11/192px.svg"
               alt=""
+              width={22}
+              height={22}
+              unoptimized
             />
-            <img
+            <Image
               src="https://www.gstatic.com/images/branding/productlogos/calendar_2020q4/v13/192px.svg"
               alt=""
+              width={22}
+              height={22}
+              unoptimized
             />
-            <img
+            <Image
               src="https://www.gstatic.com/images/branding/productlogos/drive_2020q4/v10/192px.svg"
               alt=""
+              width={22}
+              height={22}
+              unoptimized
             />
-            <img
+            <Image
               src="https://www.gstatic.com/images/branding/productlogos/meet_2020q4/v8/192px.svg"
               alt=""
+              width={22}
+              height={22}
+              unoptimized
             />
-            <img
+            <Image
               src="https://www.gstatic.com/images/branding/productlogos/editors_2020q4/v6/192px.svg"
               alt=""
+              width={22}
+              height={22}
+              unoptimized
             />
-            <img
+            <Image
               src="https://www.gstatic.com/images/branding/productlogos/gemini_2025/v1/192px.svg"
               alt=""
+              width={22}
+              height={22}
+              unoptimized
             />
           </div>
 

@@ -1,9 +1,12 @@
 ﻿"use client";
 
 import Link from "next/link";
+import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { WORKSPACE_PRODUCTS } from "@/app/knexit-workspace/components/productsData";
+import { getProduct } from "@/lib/products";
 
 type MenuLink = {
   label: string;
@@ -120,6 +123,26 @@ export default function KnexspaceMenu({
   variant = "mobile",
   layout = "full",
 }: KnexspaceMenuProps) {
+  const pathname = usePathname() ?? "";
+  const landingMatch = pathname.match(/^\/landing-produtos\/([^/?#]+)/);
+  const landingSlug = landingMatch?.[1] ?? null;
+  const resolvedSlug = landingSlug === "landing-ia" ? "knexai" : landingSlug;
+  const landingProduct = resolvedSlug ? getProduct(resolvedSlug) : null;
+  const isLanding = Boolean(landingMatch);
+  const showAdmin = !isLanding;
+  const secondaryCtaLabel = isLanding
+    ? `Teste o ${landingProduct?.name ?? "Knexspace"} no trabalho`
+    : "Fale com a equipe de vendas";
+  const secondaryCtaHref = isLanding
+    ? landingProduct
+      ? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(landingProduct.homePath)}`
+      : "/knexit-workspace/acesso?stay=1"
+    : "/knexit-workspace#contato";
+  const primaryCtaLabel = isLanding ? "Fazer login" : "Iniciar agora";
+  const primaryCtaHref =
+    isLanding && landingProduct
+      ? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(landingProduct.homePath)}`
+      : "/knexit-workspace/acesso?stay=1";
   const [desktopOpen, setDesktopOpen] = useState<"solucoes" | "setores" | "recursos" | null>(null);
   const [mobileSection, setMobileSection] = useState<
     "solucoes" | "produtos" | "setores" | "recursos" | null
@@ -183,7 +206,7 @@ export default function KnexspaceMenu({
     const productsLink = getLink("Produtos");
     const iaLink = getLink("IA");
     const precosLink = getLink("Preços");
-    const adminLink = MENU_LINKS.find((item) => item.accent);
+    const adminLink = showAdmin ? MENU_LINKS.find((item) => item.accent) : null;
 
     const triggerClass = (isOpen: boolean) =>
       `inline-flex flex-col items-center gap-0.5 whitespace-nowrap transition ${
@@ -456,16 +479,16 @@ export default function KnexspaceMenu({
       return (
         <div className="hidden md:flex w-full items-center justify-end gap-6 text-[13px] font-semibold lg:gap-7 lg:text-[15px] xl:hidden">
           <Link
-            href="/knexit-workspace#contato"
+            href={secondaryCtaHref}
             className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[#2F7E95] hover:no-underline lg:text-[14px]"
           >
-            Fale com a equipe de vendas
+            {secondaryCtaLabel}
           </Link>
           <Link
-            href="/knexit-workspace/acesso"
+            href={primaryCtaHref}
             className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#2F7E95] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
           >
-            Iniciar agora
+            {primaryCtaLabel}
           </Link>
         </div>
       );
@@ -528,16 +551,16 @@ export default function KnexspaceMenu({
             </Link>
           ) : null}
           <Link
-            href="/knexit-workspace#contato"
+            href={secondaryCtaHref}
             className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[#2F7E95] hover:no-underline lg:text-[14px]"
           >
-            Fale com a equipe de vendas
+            {secondaryCtaLabel}
           </Link>
           <Link
-            href="/knexit-workspace/acesso"
+            href={primaryCtaHref}
             className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#2F7E95] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
           >
-            Iniciar agora
+            {primaryCtaLabel}
           </Link>
         </div>
       </div>
@@ -625,11 +648,12 @@ export default function KnexspaceMenu({
                 onClick={onNavigate}
                 className="flex items-start gap-3 py-3 text-sm font-semibold leading-normal text-slate-900 no-underline hover:text-blue-600 hover:no-underline"
               >
-                <img
+                <Image
                   src={`/knexit-workspace/product-icons/${product.icon ?? "doc"}.svg`}
                   alt={product.name}
                   width={28}
                   height={28}
+                  className="h-7 w-7 object-contain"
                 />
                 <span>{product.name}</span>
               </Link>
@@ -772,29 +796,31 @@ export default function KnexspaceMenu({
       ) : null}
       <div className="px-4 py-0">
         <div>
-          {MENU_LINKS.filter((item) => item.label === "Admin Console").map((item) =>
-            renderLink(
-              item,
-              "block py-3 text-sm font-semibold leading-normal no-underline hover:no-underline text-blue-600"
-            )
-          )}
+          {showAdmin
+            ? MENU_LINKS.filter((item) => item.label === "Admin Console").map((item) =>
+                renderLink(
+                  item,
+                  "block py-3 text-sm font-semibold leading-normal no-underline hover:no-underline text-blue-600"
+                )
+              )
+            : null}
         </div>
       </div>
       <div className="border-t border-slate-200/80 px-4 pt-5 pb-6">
         <div className="space-y-3">
           <Link
-            href="/knexit-workspace#contato"
+            href={secondaryCtaHref}
             onClick={onNavigate}
             className="flex w-full items-center justify-center rounded-full border border-slate-300 px-4 py-3 text-sm font-semibold leading-normal text-blue-600 no-underline hover:bg-white hover:no-underline"
           >
-            Fale com a equipe de vendas
+            {secondaryCtaLabel}
           </Link>
           <Link
-            href="/knexit-workspace/acesso"
+            href={primaryCtaHref}
             onClick={onNavigate}
             className="flex w-full items-center justify-center rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold leading-normal text-white no-underline hover:bg-blue-700 hover:no-underline"
           >
-            Iniciar agora
+            {primaryCtaLabel}
           </Link>
         </div>
       </div>
