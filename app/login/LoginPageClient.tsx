@@ -224,11 +224,12 @@ export default function LoginPageClient({
           await supabase.auth.signOut();
           return;
         }
+        const email = user.email ?? "";
         const { data } = await supabase.auth.getSession();
         if (data?.session) {
           saveAccountSession(data.session as Session);
-        } else {
-          saveRecentAccount(user.email);
+        } else if (email) {
+          saveRecentAccount(email);
         }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
