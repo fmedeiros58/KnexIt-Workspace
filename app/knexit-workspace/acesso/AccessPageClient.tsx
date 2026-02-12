@@ -524,7 +524,8 @@ export default function KnexitWorkspaceAccessPage({
   }, []);
 
   useEffect(() => {
-    if (!currentUser?.email) return;
+    const email = currentUser?.email ?? "";
+    if (!email) return;
     const metadata = currentUser.user_metadata as { email_verified_by_code_at?: string } | null;
     if (!metadata?.email_verified_by_code_at) return;
     void (async () => {
@@ -533,7 +534,7 @@ export default function KnexitWorkspaceAccessPage({
         saveAccountSession(data.session);
         return;
       }
-      saveRecentAccount(currentUser.email);
+      saveRecentAccount(email);
     })();
   }, [currentUser, saveAccountSession, saveRecentAccount]);
 
