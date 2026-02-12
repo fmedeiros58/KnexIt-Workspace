@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
@@ -12,7 +13,6 @@ type LoginPageClientProps = {
   initialFrom?: string | null;
   initialProduct?: string | null;
   initialRedirect?: string | null;
-  oauthRedirectUrl?: string | null;
 };
 
 const DEFAULT_PRODUCT = getProduct(DEFAULT_PRODUCT_SLUG)!;
@@ -32,18 +32,6 @@ const getAppBaseUrl = () => {
     return normalizeBaseUrl(window.location.origin);
   }
   return "https://knexspace.com";
-};
-
-const isWebViewEnvironment = () => {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent || "";
-  const isAndroid = /Android/i.test(ua);
-  const isIos = /iPhone|iPad|iPod/i.test(ua);
-  return (
-    (isAndroid && /wv|Version\/\d+/.test(ua)) ||
-    (isIos && !/Safari/i.test(ua)) ||
-    /FBAN|FBAV|Instagram|Line|Twitter|Snapchat|TikTok|WhatsApp/i.test(ua)
-  );
 };
 
 function normalizeRedirect(product: ProductEntry, target: string | null, origin: string) {
@@ -69,11 +57,9 @@ export default function LoginPageClient({
   initialFrom = null,
   initialProduct = null,
   initialRedirect = null,
-  oauthRedirectUrl = null,
 }: LoginPageClientProps) {
   const router = useRouter();
   const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
-  const isWebView = useMemo(() => isWebViewEnvironment(), []);
   const [loginEmail, setLoginEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignup, setIsSignup] = useState(false);
@@ -85,9 +71,71 @@ export default function LoginPageClient({
   const [otpPurpose, setOtpPurpose] = useState<"login" | "signup" | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const allowedDomain = normalizeAllowedDomain(process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "");
+  const RECENT_ACCOUNTS_KEY = "knex_recent_accounts";
+  const ACCOUNT_SESSIONS_KEY = "knex_account_sessions";
+  const TRUSTED_ACCOUNTS_KEY = "knex_trusted_accounts";
 
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const saveRecentAccount = useCallback((email: string) => {
+    if (typeof window === "undefined") return;
+    const normalized = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return;
+    try {
+      const raw = localStorage.getItem(RECENT_ACCOUNTS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+      const next = [normalized, ...parsed.filter((item) => item !== normalized)].slice(0, 6);
+      localStorage.setItem(RECENT_ACCOUNTS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore storage issues
+    }
+  }, []);
+
+  const saveAccountSession = useCallback(
+    (session: Session) => {
+      if (typeof window === "undefined") return;
+      const email = session.user?.email?.trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+      const metadata = session.user?.user_metadata as {
+        full_name?: string;
+        name?: string;
+        avatar_url?: string;
+        picture?: string;
+        avatar?: string;
+      } | null;
+      const name = String(metadata?.full_name ?? metadata?.name ?? email.split("@")[0] ?? "")
+        .replace(/[._-]/g, " ")
+        .trim();
+      const avatarUrl = String(metadata?.avatar_url ?? metadata?.picture ?? metadata?.avatar ?? "");
+      try {
+        const raw = localStorage.getItem(ACCOUNT_SESSIONS_KEY);
+        const current = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        const next = {
+          ...(current || {}),
+          [email]: {
+            email,
+            name,
+            avatarUrl,
+            accessToken: session.access_token,
+            refreshToken: session.refresh_token,
+            expiresAt: session.expires_at ?? null,
+            lastUsed: new Date().toISOString(),
+          },
+        };
+        localStorage.setItem(ACCOUNT_SESSIONS_KEY, JSON.stringify(next));
+        const trustedRaw = localStorage.getItem(TRUSTED_ACCOUNTS_KEY);
+        const trusted = trustedRaw ? (JSON.parse(trustedRaw) as string[]) : [];
+        if (Array.isArray(trusted) && !trusted.includes(email)) {
+          localStorage.setItem(TRUSTED_ACCOUNTS_KEY, JSON.stringify([email, ...trusted].slice(0, 10)));
+        }
+      } catch {
+        // ignore storage issues
+      }
+      saveRecentAccount(email);
+    },
+    [saveRecentAccount],
+  );
 
   const isAllowedEmail = useCallback(
     (email?: string | null) => {
@@ -141,27 +189,6 @@ export default function LoginPageClient({
     }
   }, [targetRedirect, appBaseUrl]);
 
-  const oauthRedirect = useMemo(() => {
-    const base = appBaseUrl || "https://knexspace.com";
-    const safeBase = normalizeBaseUrl(base);
-    const fallback = `${safeBase}/auth/callback`;
-    if (oauthRedirectUrl) {
-      try {
-        const url = new URL(oauthRedirectUrl, safeBase);
-        if (url.origin === new URL(safeBase).origin) {
-          return url.toString();
-        }
-      } catch {
-        // ignore
-      }
-    }
-    const url = new URL(fallback);
-    if (targetRedirect) {
-      url.searchParams.set("returnTo", targetRedirect);
-    }
-    return url.toString();
-  }, [appBaseUrl, oauthRedirectUrl, targetRedirect]);
-
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && typeof window !== "undefined") {
@@ -171,6 +198,11 @@ export default function LoginPageClient({
           await supabase.auth.signOut();
           return;
         }
+        if (session) {
+          saveAccountSession(session as Session);
+        } else if (email) {
+          saveRecentAccount(email);
+        }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
         if (to) {
@@ -178,7 +210,9 @@ export default function LoginPageClient({
         }
       }
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      sub.subscription.unsubscribe();
+    };
   }, [postAuthRedirect, targetRedirect, router, isAllowedEmail]);
 
   useEffect(() => {
@@ -189,6 +223,13 @@ export default function LoginPageClient({
           setErr("E-mail não autorizado para acessar o Knexit Workspace.");
           await supabase.auth.signOut();
           return;
+        }
+        const email = user.email ?? "";
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+          saveAccountSession(data.session as Session);
+        } else if (email) {
+          saveRecentAccount(email);
         }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
@@ -361,50 +402,6 @@ export default function LoginPageClient({
     if (to) router.replace(to);
   }
 
-  async function handleOAuth(provider: "google" | "facebook") {
-    setErr(null);
-    setNotice(null);
-    if (typeof window !== "undefined" && postAuthRedirect) {
-      localStorage.setItem("postAuthRedirect", postAuthRedirect);
-    }
-    if (typeof window !== "undefined") {
-      localStorage.setItem("oauthEntryPath", "/knexit-workspace/acesso");
-      localStorage.setItem("oauthReturnTo", postAuthRedirect || targetRedirect || "");
-      localStorage.setItem("oauthPending", provider);
-      if (loginEmail) {
-        localStorage.setItem("oauthPendingEmail", loginEmail.trim().toLowerCase());
-      }
-    }
-    if (isWebView) {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo: oauthRedirect, skipBrowserRedirect: true },
-      });
-      if (error) {
-        setErr(error.message);
-        return;
-      }
-      if (data?.url && typeof window !== "undefined") {
-        const opened = window.open(data.url, "_blank", "noopener,noreferrer");
-        if (!opened) {
-          window.location.href = data.url;
-        }
-        return;
-      }
-      setErr("Não foi possível iniciar o login.");
-      return;
-    }
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: oauthRedirect,
-      },
-    });
-    if (error) {
-      setErr(error.message);
-    }
-  }
-
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50 text-neutral-900">
       <header className="w-full border-b border-neutral-200 bg-white">
@@ -566,32 +563,6 @@ export default function LoginPageClient({
             </div>
 
             <div className="space-y-6">
-              <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
-                <div className="flex items-center gap-3 mb-5">
-                  <div className="h-9 w-9 rounded bg-emerald-500" aria-hidden />
-                  <div>
-                    <h2 className="text-lg font-semibold">Entrar com outra conta</h2>
-                    <p className="text-sm text-neutral-500">Conecte com Google ou Facebook.</p>
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleOAuth("google")}
-                    className="inline-flex w-full items-center justify-center rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50"
-                  >
-                    Continuar com Google
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOAuth("facebook")}
-                    className="inline-flex w-full items-center justify-center rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50"
-                  >
-                    Continuar com Facebook
-                  </button>
-                </div>
-              </section>
-
               <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-3 mb-5">
                   <div className="h-9 w-9 rounded bg-emerald-500" aria-hidden />

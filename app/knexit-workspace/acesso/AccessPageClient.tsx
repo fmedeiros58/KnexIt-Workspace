@@ -22,7 +22,6 @@ const theme = {
 } as CSSProperties;
 
 type AccessPageClientProps = {
-  oauthRedirectUrl?: string | null;
   initialReturnTo?: string | null;
   stayOnLogin?: boolean;
 };
@@ -43,6 +42,16 @@ type UserProfile = {
   imageUrl: string;
 };
 
+type StoredAccount = {
+  email: string;
+  name?: string;
+  avatarUrl?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number | null;
+  lastUsed?: string;
+};
+
 const FALLBACK_PROFILE: UserProfile = {
   name: "Conta KnexIT",
   email: "Conecte sua conta",
@@ -53,6 +62,8 @@ const FALLBACK_PROFILE: UserProfile = {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_REGEX = /^\d{6}$/;
 const RECENT_ACCOUNTS_KEY = "knex_recent_accounts";
+const ACCOUNT_SESSIONS_KEY = "knex_account_sessions";
+const TRUSTED_ACCOUNTS_KEY = "knex_trusted_accounts";
 const normalizeAllowedDomain = (value: string) => {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return "";
@@ -106,21 +117,6 @@ const needsEmailVerification = (user: User | null) => {
   return !metadata?.email_verified_by_code_at;
 };
 
-const getOauthProvider = (user: User | null): "google" | "facebook" | null => {
-  if (!user) return null;
-  const appMeta = user.app_metadata as { provider?: string; providers?: string[] } | null;
-  const provider = appMeta?.provider ?? "";
-  if (provider === "google" || provider === "facebook") return provider;
-  const providers = appMeta?.providers ?? [];
-  if (providers.includes("google")) return "google";
-  if (providers.includes("facebook")) return "facebook";
-  const identityProviders =
-    (user.identities ?? []).map((identity) => identity.provider).filter(Boolean) ?? [];
-  if (identityProviders.includes("google")) return "google";
-  if (identityProviders.includes("facebook")) return "facebook";
-  return null;
-};
-
 const getAppBaseUrl = () => {
   const envBase = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (envBase) return normalizeBaseUrl(envBase);
@@ -165,7 +161,6 @@ function buildProfile(user: User | null): UserProfile {
 }
 
 export default function KnexitWorkspaceAccessPage({
-  oauthRedirectUrl = null,
   initialReturnTo = null,
   stayOnLogin = false,
 }: AccessPageClientProps) {
@@ -211,6 +206,7 @@ export default function KnexitWorkspaceAccessPage({
   const isWebView = useMemo(() => isWebViewEnvironment(), []);
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
   const [recentAccounts, setRecentAccounts] = useState<string[]>([]);
+  const [storedAccounts, setStoredAccounts] = useState<Record<string, StoredAccount>>({});
   const oauthVerifyRequested = useMemo(
     () => (searchParams?.get("verify") ?? "") === "oauth",
     [searchParams],
@@ -269,6 +265,95 @@ export default function KnexitWorkspaceAccessPage({
     [readRecentAccounts],
   );
 
+  const readStoredAccounts = useCallback(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = localStorage.getItem(ACCOUNT_SESSIONS_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, StoredAccount>;
+      if (!parsed || typeof parsed !== "object") return {};
+      return parsed;
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const readTrustedAccounts = useCallback(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(TRUSTED_ACCOUNTS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as string[];
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter((value) => EMAIL_REGEX.test(value));
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const markTrustedAccount = useCallback(
+    (email: string) => {
+      if (typeof window === "undefined") return;
+      const normalized = email.trim().toLowerCase();
+      if (!EMAIL_REGEX.test(normalized)) return;
+      const existing = readTrustedAccounts();
+      if (existing.includes(normalized)) return;
+      const next = [normalized, ...existing].slice(0, 10);
+      localStorage.setItem(TRUSTED_ACCOUNTS_KEY, JSON.stringify(next));
+    },
+    [readTrustedAccounts],
+  );
+
+  const isTrustedAccount = useCallback(
+    (email: string) => {
+      if (!email) return false;
+      const normalized = email.trim().toLowerCase();
+      if (!EMAIL_REGEX.test(normalized)) return false;
+      const existing = readTrustedAccounts();
+      return existing.includes(normalized);
+    },
+    [readTrustedAccounts],
+  );
+
+  const saveAccountSession = useCallback(
+    (session: Session) => {
+      if (typeof window === "undefined") return;
+      const email = session.user?.email?.trim().toLowerCase();
+      if (!email || !EMAIL_REGEX.test(email)) return;
+      const metadata = session.user?.user_metadata as {
+        full_name?: string;
+        name?: string;
+        avatar_url?: string;
+        picture?: string;
+        avatar?: string;
+      } | null;
+      const name = toTitleCase(
+        String(metadata?.full_name ?? metadata?.name ?? email.split("@")[0] ?? "").replace(/[._-]/g, " "),
+      );
+      const avatarUrl = String(metadata?.avatar_url ?? metadata?.picture ?? metadata?.avatar ?? "");
+      const current = readStoredAccounts();
+      const next: Record<string, StoredAccount> = {
+        ...current,
+        [email]: {
+          email,
+          name,
+          avatarUrl,
+          accessToken: session.access_token,
+          refreshToken: session.refresh_token,
+          expiresAt: session.expires_at ?? null,
+          lastUsed: new Date().toISOString(),
+        },
+      };
+      localStorage.setItem(ACCOUNT_SESSIONS_KEY, JSON.stringify(next));
+      setStoredAccounts(next);
+      saveRecentAccount(email);
+      markTrustedAccount(email);
+    },
+    [readStoredAccounts, saveRecentAccount, markTrustedAccount],
+  );
+
   const allowedDomain = normalizeAllowedDomain(process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "");
   const isAllowedEmail = useCallback(
     (email: string) => {
@@ -307,25 +392,6 @@ export default function KnexitWorkspaceAccessPage({
       return decoded;
     }
   }, [appBaseUrl, initialReturnTo]);
-
-  const oauthRedirect = useMemo(() => {
-    const base = appBaseUrl || "https://knexspace.com";
-    const safeBase = normalizeBaseUrl(base);
-    const fallback = `${safeBase}/auth/callback`;
-    if (oauthRedirectUrl) {
-      try {
-        const url = new URL(oauthRedirectUrl, safeBase);
-        if (url.origin === new URL(safeBase).origin) {
-          return url.toString();
-        }
-      } catch {
-        // ignore
-      }
-    }
-    const url = new URL(fallback);
-    url.searchParams.set("returnTo", returnTo);
-    return url.toString();
-  }, [appBaseUrl, oauthRedirectUrl, returnTo]);
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -425,6 +491,10 @@ export default function KnexitWorkspaceAccessPage({
   }, [readRecentAccounts]);
 
   useEffect(() => {
+    setStoredAccounts(readStoredAccounts());
+  }, [readStoredAccounts]);
+
+  useEffect(() => {
     if (!menuOpen) {
       setAccountSwitcherOpen(false);
     }
@@ -452,6 +522,23 @@ export default function KnexitWorkspaceAccessPage({
       sub.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const user = currentUser;
+    if (!user) return;
+    const email = user.email ?? "";
+    if (!email) return;
+    const metadata = user.user_metadata as { email_verified_by_code_at?: string } | null;
+    if (!metadata?.email_verified_by_code_at) return;
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) {
+        saveAccountSession(data.session);
+        return;
+      }
+      saveRecentAccount(email);
+    })();
+  }, [currentUser, saveAccountSession, saveRecentAccount]);
 
   // browser autocomplete already provides recent emails
 
@@ -483,27 +570,48 @@ export default function KnexitWorkspaceAccessPage({
     setAccountSwitcherOpen(false);
   }
 
-  const handleSwitchAccount = async (email: string) => {
-    const normalized = email.trim().toLowerCase();
+  const handleSwitchAccount = async (account: StoredAccount) => {
+    const normalized = account.email.trim().toLowerCase();
     if (!normalized) return;
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
+    if (account.accessToken && account.refreshToken) {
+      const { data, error } = await supabase.auth.setSession({
+        access_token: account.accessToken,
+        refresh_token: account.refreshToken,
+      });
+      if (!error && data?.session) {
+        saveAccountSession(data.session);
+        return;
+      }
+    }
     resetFlow();
     setLoginEmail(normalized);
     if (typeof window !== "undefined") {
       localStorage.setItem("loginEmailHint", normalized);
     }
     await supabase.auth.signOut();
+    router.push("/knexit-workspace/acesso?stay=1");
   };
 
-  async function handleSignOut() {
+  const clearStoredAccounts = () => {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(ACCOUNT_SESSIONS_KEY);
+    localStorage.removeItem(RECENT_ACCOUNTS_KEY);
+    localStorage.removeItem(TRUSTED_ACCOUNTS_KEY);
+    setRecentAccounts([]);
+    setStoredAccounts({});
+  };
+
+  async function handleSignOutAll() {
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
+    clearStoredAccounts();
     if (typeof window !== "undefined") {
       localStorage.removeItem("loginEmailHint");
     }
     await supabase.auth.signOut();
-    router.push("/knexit-workspace");
+    router.push("/knexit-workspace/acesso?stay=1");
   }
 
   const handleAvatarSelect = () => {
@@ -625,14 +733,16 @@ export default function KnexitWorkspaceAccessPage({
           await supabase.auth.signOut();
           return;
         }
-        if (email) {
-          saveRecentAccount(email);
-        }
-        logAuth("session_created", { source });
+      if (data.session) {
+        saveAccountSession(data.session);
+      } else if (email) {
+        saveRecentAccount(email);
+      }
+      logAuth("session_created", { source });
       const target = await resolvePostLoginRedirect();
       router.replace(target);
     },
-      [isAllowedEmail, logAuth, resolvePostLoginRedirect, router, saveRecentAccount],
+      [isAllowedEmail, logAuth, resolvePostLoginRedirect, router, saveAccountSession, saveRecentAccount],
     );
 
   useEffect(() => {
@@ -667,7 +777,11 @@ export default function KnexitWorkspaceAccessPage({
         localStorage.removeItem("oauthPendingEmail");
         setOauthPending(false);
       }
-      if (needsEmailVerification(sessionUser)) {
+      if (email && !needsOauthVerification(sessionUser, pendingResolved)) {
+        markTrustedAccount(email);
+      }
+      const trusted = isTrustedAccount(email);
+      if (!trusted && needsEmailVerification(sessionUser)) {
         if (needsOauthVerification(sessionUser, pendingResolved)) {
           if (!pendingResolved && typeof window !== "undefined") {
             localStorage.setItem("oauthPending", "1");
@@ -726,7 +840,11 @@ export default function KnexitWorkspaceAccessPage({
         localStorage.removeItem("oauthPendingEmail");
         setOauthPending(false);
       }
-      if (needsEmailVerification(session.user)) {
+      if (email && !needsOauthVerification(session.user, pendingResolved)) {
+        markTrustedAccount(email);
+      }
+      const trusted = isTrustedAccount(email);
+      if (!trusted && needsEmailVerification(session.user)) {
         if (needsOauthVerification(session.user, pendingResolved)) {
           if (!pendingResolved && typeof window !== "undefined") {
             localStorage.setItem("oauthPending", "1");
@@ -769,6 +887,8 @@ export default function KnexitWorkspaceAccessPage({
     otpVerifyRequested,
     emailVerifyActive,
     oauthPending,
+    isTrustedAccount,
+    markTrustedAccount,
     returnTo,
   ]);
 
@@ -1186,17 +1306,52 @@ export default function KnexitWorkspaceAccessPage({
 
   const showPasswordMethod = Boolean(availableMethods?.password);
   const showOtpMethod = Boolean(availableMethods?.otp);
-  const showGoogleMethod = availableMethods ? Boolean(availableMethods.google) : true;
-  const showFacebookMethod = availableMethods ? Boolean(availableMethods.facebook) : true;
   const methodGridClass = showPasswordMethod && showOtpMethod ? "grid-cols-2" : "grid-cols-1";
-  const oauthProvider = useMemo(() => getOauthProvider(currentUser), [currentUser]);
-  const showAddGoogleAccount = oauthProvider === "google";
-  const showAddFacebookAccount = oauthProvider === "facebook";
+  const handleAddExternalAccount = async () => {
+    handleAddAccount();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("loginEmailHint");
+    }
+    const { data } = await supabase.auth.getSession();
+    if (data?.session) {
+      saveAccountSession(data.session);
+    }
+    await supabase.auth.signOut();
+    router.push("/knexit-workspace/acesso?stay=1");
+  };
+  const accountCandidates = useMemo<StoredAccount[]>(() => {
+    const stored = Object.values(storedAccounts);
+    if (!stored.length) {
+      return recentAccounts.map((email) => ({ email }));
+    }
+    const ordered: StoredAccount[] = [];
+    recentAccounts.forEach((email) => {
+      const storedAccount = storedAccounts[email.toLowerCase()];
+      if (storedAccount) {
+        ordered.push(storedAccount);
+      } else {
+        ordered.push({ email });
+      }
+    });
+    stored.forEach((account) => {
+      if (!ordered.some((entry) => entry.email === account.email)) {
+        ordered.push(account);
+      }
+    });
+    return ordered;
+  }, [recentAccounts, storedAccounts]);
   const switcherAccounts = useMemo(() => {
     const raw = (currentUser?.email ?? profile.email ?? "").trim().toLowerCase();
     const currentEmail = EMAIL_REGEX.test(raw) ? raw : "";
-    return recentAccounts.filter((email) => email && email.toLowerCase() !== currentEmail).slice(0, 2);
-  }, [currentUser?.email, profile.email, recentAccounts]);
+    return accountCandidates
+      .filter((account) => account.email && account.email.toLowerCase() !== currentEmail)
+      .slice(0, 2);
+  }, [accountCandidates, currentUser?.email, profile.email]);
+  const formatAccountName = useCallback((email: string) => {
+    const localPart = email.split("@")[0] ?? "";
+    const cleaned = localPart.replace(/[._-]+/g, " ").trim();
+    return toTitleCase(cleaned) || email;
+  }, []);
 
   const handlePasswordToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -1241,63 +1396,6 @@ export default function KnexitWorkspaceAccessPage({
     const nextIndex = Math.min(digits.length, 5);
     otpInputsRef.current[nextIndex]?.focus();
   };
-
-  const handleOAuth = async (
-    provider: "google" | "facebook",
-    options?: { queryParams?: Record<string, string> },
-  ) => {
-    setError(null);
-    setNotice(null);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("postAuthRedirect", returnTo);
-      localStorage.setItem("oauthEntryPath", "/knexit-workspace/acesso");
-      localStorage.setItem("oauthReturnTo", returnTo);
-      localStorage.setItem("oauthPending", provider);
-      if (loginEmail) {
-        localStorage.setItem("oauthPendingEmail", loginEmail.trim().toLowerCase());
-      }
-      setOauthPending(true);
-    }
-    logAuth("oauth_start", { provider, webview: isWebView });
-    if (isWebView) {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo: oauthRedirect, skipBrowserRedirect: true, ...options },
-      });
-      if (error) {
-        setError(error.message);
-        logAuth("oauth_error", { provider, reason: error.message });
-        return;
-      }
-      if (data?.url && typeof window !== "undefined") {
-        logAuth("oauth_external_redirect", { provider });
-        const opened = window.open(data.url, "_blank", "noopener,noreferrer");
-        if (!opened) {
-          window.location.href = data.url;
-        }
-        return;
-      }
-      setError("Não foi possível iniciar o login.");
-      logAuth("oauth_error", { provider, reason: "missing_url" });
-      return;
-    }
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: oauthRedirect, ...options },
-    });
-    if (error) {
-      setError(error.message);
-      logAuth("oauth_error", { provider, reason: error.message });
-      return;
-    }
-    logAuth("oauth_redirect", { provider });
-  };
-
-  const handleAddGoogleAccount = () =>
-    handleOAuth("google", { queryParams: { prompt: "select_account" } });
-
-  const handleAddFacebookAccount = () =>
-    handleOAuth("facebook", { queryParams: { auth_type: "reauthenticate" } });
 
   return (
     <main
@@ -1448,83 +1546,74 @@ export default function KnexitWorkspaceAccessPage({
                       </div>
                       <p className="mt-3 text-lg font-semibold text-slate-900">Olá, {profile.name}!</p>
                     <Link
-                      href="/admin/login"
+                      href="/knexit-workspace/conta"
                       className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 no-underline hover:no-underline"
                     >
                       Gerenciar sua conta Knex
                     </Link>
                   </div>
 
-                  <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                      <button
-                        type="button"
-                        onClick={() => setAccountSwitcherOpen((prev) => !prev)}
-                        className="flex min-h-[44px] items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-blue-600 hover:bg-slate-50"
-                      >
-                        <SwitchIcon />
-                        Trocar conta
-                    </button>
+                  <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
                     <button
                       type="button"
-                      onClick={handleSignOut}
-                      className="flex min-h-[44px] items-center justify-center gap-2 border-l border-slate-200 px-3 py-3 text-xs font-semibold text-rose-600 hover:bg-rose-50/60"
+                      onClick={() => setAccountSwitcherOpen((prev) => !prev)}
+                      className="flex w-full items-center justify-between gap-2 bg-slate-100 px-4 py-3 text-xs font-semibold text-slate-600"
                     >
-                      <ExitIcon />
-                      Sair
+                      <span>{accountSwitcherOpen ? "Ocultar mais contas" : "Mostrar mais contas"}</span>
+                      <ChevronIcon className={`h-4 w-4 transition ${accountSwitcherOpen ? "rotate-180" : ""}`} />
                     </button>
-                  </div>
-
-                  {accountSwitcherOpen && (
-                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
-                      <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-semibold text-slate-600">
-                          {profile.initials}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-slate-800">{profile.name}</p>
-                          <p className="text-[11px] text-slate-500">{profile.email}</p>
-                        </div>
-                      </div>
-                      <div className="mt-3 grid gap-2">
-                        {switcherAccounts.map((email) => (
+                    {accountSwitcherOpen && (
+                      <div className="divide-y divide-slate-200 text-xs text-slate-700">
+                        {switcherAccounts.map((account) => (
                           <button
-                            key={email}
+                            key={account.email}
                             type="button"
-                            onClick={() => handleSwitchAccount(email)}
-                            className="flex min-h-[40px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            onClick={() => handleSwitchAccount(account)}
+                            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
                           >
-                            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
-                              {email.charAt(0).toUpperCase()}
+                            <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-blue-600 text-sm font-semibold text-white">
+                              {account.avatarUrl ? (
+                                <Image
+                                  src={account.avatarUrl}
+                                  alt={account.name ?? account.email}
+                                  width={36}
+                                  height={36}
+                                  className="h-full w-full object-cover"
+                                  unoptimized
+                                />
+                              ) : (
+                                account.email.charAt(0).toUpperCase()
+                              )}
                             </span>
-                            <span className="flex-1 text-left">
-                              <span className="block text-sm font-semibold text-slate-800">{email}</span>
-                              <span className="block text-[11px] text-slate-500">Desconectada</span>
+                            <span className="flex-1">
+                              <span className="block text-sm font-semibold text-slate-800">
+                                {account.name || formatAccountName(account.email)}
+                              </span>
+                              <span className="block text-[11px] text-slate-500">{account.email}</span>
                             </span>
                           </button>
                         ))}
-                        {showAddGoogleAccount && (
-                          <button
-                            type="button"
-                            onClick={handleAddGoogleAccount}
-                            className="flex min-h-[40px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            <GoogleIcon className="h-4 w-4" />
-                            Adicionar outra conta Google
-                          </button>
-                        )}
-                        {showAddFacebookAccount && (
-                          <button
-                            type="button"
-                            onClick={handleAddFacebookAccount}
-                            className="flex min-h-[40px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            <FacebookIcon className="h-4 w-4" />
-                            Adicionar outra conta Facebook
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={handleAddExternalAccount}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                        >
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                            <PlusIcon />
+                          </span>
+                          <span className="text-sm font-semibold text-slate-700">Adicionar outra conta</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSignOutAll}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left text-rose-600 hover:bg-rose-50/40"
+                        >
+                          <ExitIcon />
+                          <span className="text-sm font-semibold">Sair de todas as contas</span>
+                        </button>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {avatarError && (
                     <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
@@ -1638,31 +1727,6 @@ export default function KnexitWorkspaceAccessPage({
                     </div>
                   </form>
 
-                  <div className="mt-4 rounded-2xl bg-[#f1f6fb] p-4">
-                    <div className="flex items-center gap-3">
-                      <span className="h-px flex-1 bg-slate-200" />
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ou entre com</p>
-                      <span className="h-px flex-1 bg-slate-200" />
-                    </div>
-                    <div className="mt-4 grid justify-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleOAuth("google")}
-                        className="inline-flex items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        <GoogleIcon className="h-5 w-5" />
-                        Entrar com Google
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleOAuth("facebook")}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
-                      >
-                        <FacebookIcon className="h-6 w-6" />
-                        Entrar com Facebook
-                      </button>
-                    </div>
-                  </div>
                 </>
               ) : (
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
@@ -1720,40 +1784,6 @@ export default function KnexitWorkspaceAccessPage({
                       </button>
                     )}
                   </div>
-
-                  {(showGoogleMethod || showFacebookMethod) && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <div className="flex items-center gap-3">
-                        <span className="h-px flex-1 bg-slate-200" />
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                          Ou entre com
-                        </p>
-                        <span className="h-px flex-1 bg-slate-200" />
-                      </div>
-                      <div className="mt-3 grid gap-2">
-                        {showGoogleMethod && (
-                          <button
-                            type="button"
-                            onClick={() => handleOAuth("google")}
-                            className="inline-flex items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            <GoogleIcon className="h-5 w-5" />
-                            Entrar com Google
-                          </button>
-                        )}
-                        {showFacebookMethod && (
-                          <button
-                            type="button"
-                            onClick={() => handleOAuth("facebook")}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
-                          >
-                            <FacebookIcon className="h-6 w-6" />
-                            Entrar com Facebook
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
 
                   {selectedMethod === "password" && authIntent != "recovery" && (
                     <div className="rounded-2xl bg-[#f1f6fb] p-4">
@@ -2072,6 +2102,21 @@ function SwitchIcon() {
   );
 }
 
+function ChevronIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M6 9l6 6 6-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function MailIcon({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
@@ -2128,40 +2173,6 @@ function EyeOffIcon({ className = "" }: { className?: string }) {
         strokeLinecap="round"
       />
       <path d="M9.5 9.5a3 3 0 0 0 4.2 4.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function GoogleIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
-      <path
-        fill="#EA4335"
-        d="M24 9.5c3.54 0 6.72 1.22 9.22 3.22l6.9-6.9C35.64 1.97 30.13 0 24 0 14.64 0 6.55 5.38 2.58 13.22l8.03 6.23C12.5 13.09 17.77 9.5 24 9.5z"
-      />
-      <path
-        fill="#4285F4"
-        d="M46.12 24.5c0-1.64-.15-3.21-.43-4.73H24v9.02h12.43c-.54 2.91-2.14 5.37-4.57 7.03l7.4 5.74C43.09 37.09 46.12 31.29 46.12 24.5z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M10.61 28.45c-.49-1.48-.77-3.06-.77-4.7 0-1.64.28-3.22.77-4.7l-8.03-6.23C.92 16.36 0 20.11 0 23.75c0 3.64.92 7.39 2.58 10.93l8.03-6.23z"
-      />
-      <path
-        fill="#34A853"
-        d="M24 47.5c6.13 0 11.64-2.02 15.52-5.5l-7.4-5.74c-2.06 1.38-4.7 2.2-8.12 2.2-6.23 0-11.5-3.59-13.39-8.71l-8.03 6.23C6.55 42.62 14.64 47.5 24 47.5z"
-      />
-    </svg>
-  );
-}
-
-function FacebookIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M15.5 8.5h-2c-.35 0-.5.15-.5.5V11h2.5l-.35 2.5H13V20h-2.6v-6.5H8.5V11h1.9V8.7C10.4 6.9 11.5 6 13.4 6c.9 0 1.7.1 2.1.1v2.4z"
-      />
     </svg>
   );
 }

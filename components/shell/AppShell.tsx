@@ -35,7 +35,13 @@ const SHELL_PREFIXES = [
 
 const PRODUCT_PREFIXES = Object.values(PRODUCTS).map((product) => `/${product.slug}`);
 
-const HIDE_SHELL_PREFIXES = ["/knexit-workspace/acesso", "/login", "/admin", ...PRODUCT_PREFIXES];
+const HIDE_SHELL_PREFIXES = [
+  "/knexit-workspace/acesso",
+  "/knexit-workspace/conta",
+  "/login",
+  "/admin",
+  ...PRODUCT_PREFIXES,
+];
 
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
