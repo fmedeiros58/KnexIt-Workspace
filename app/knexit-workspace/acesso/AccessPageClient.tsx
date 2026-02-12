@@ -524,9 +524,11 @@ export default function KnexitWorkspaceAccessPage({
   }, []);
 
   useEffect(() => {
-    const email = currentUser?.email ?? "";
+    const user = currentUser;
+    if (!user) return;
+    const email = user.email ?? "";
     if (!email) return;
-    const metadata = currentUser.user_metadata as { email_verified_by_code_at?: string } | null;
+    const metadata = user.user_metadata as { email_verified_by_code_at?: string } | null;
     if (!metadata?.email_verified_by_code_at) return;
     void (async () => {
       const { data } = await supabase.auth.getSession();
