@@ -1319,9 +1319,11 @@ export default function KnexitWorkspaceAccessPage({
     await supabase.auth.signOut();
     router.push("/knexit-workspace/acesso?stay=1");
   };
-  const accountCandidates = useMemo(() => {
+  const accountCandidates = useMemo<StoredAccount[]>(() => {
     const stored = Object.values(storedAccounts);
-    if (!stored.length) return recentAccounts.map((email) => ({ email }));
+    if (!stored.length) {
+      return recentAccounts.map((email) => ({ email }));
+    }
     const ordered: StoredAccount[] = [];
     recentAccounts.forEach((email) => {
       const storedAccount = storedAccounts[email.toLowerCase()];
