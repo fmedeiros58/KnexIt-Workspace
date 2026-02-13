@@ -63,10 +63,96 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { Manrope, Space_Grotesk } from "next/font/google";
-import type { CSSProperties } from "react";
-import { identitySupabase } from "@/lib/identitySupabaseClient";
-import MasterDetail from "@/components/layout/MasterDetail";
-import Skeleton from "@/components/ui/Skeleton";
+import type { CSSProperties, ReactNode } from "react";
+
+type AuthStateListener = (event: string, session: Session | null) => void;
+
+type IdentitySupabaseClient = {
+  auth: {
+    getSession: () => Promise<{ data: { session: Session | null } }>;
+    onAuthStateChange: (
+      callback: AuthStateListener,
+    ) => { data: { subscription: { unsubscribe: () => void } } };
+    setSession: (tokens: { access_token: string; refresh_token: string }) => Promise<{ error: null }>;
+    signOut: () => Promise<{ error: null }>;
+  };
+};
+
+let cachedIdentitySupabase: IdentitySupabaseClient | null = null;
+
+function buildLocalSession(accessToken: string, refreshToken: string): Session {
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    token_type: "bearer",
+    expires_in: 3600,
+    user: { id: "local-user" } as Session["user"],
+  } as Session;
+}
+
+function identitySupabase(): IdentitySupabaseClient {
+  if (cachedIdentitySupabase) {
+    return cachedIdentitySupabase;
+  }
+
+  let currentSession: Session | null = null;
+  const listeners = new Set<AuthStateListener>();
+
+  cachedIdentitySupabase = {
+    auth: {
+      getSession: async () => ({ data: { session: currentSession } }),
+      onAuthStateChange: (callback) => {
+        listeners.add(callback);
+        return {
+          data: {
+            subscription: {
+              unsubscribe: () => {
+                listeners.delete(callback);
+              },
+            },
+          },
+        };
+      },
+      setSession: async ({ access_token, refresh_token }) => {
+        currentSession = buildLocalSession(access_token, refresh_token);
+        listeners.forEach((listener) => listener("SIGNED_IN", currentSession));
+        return { error: null };
+      },
+      signOut: async () => {
+        currentSession = null;
+        listeners.forEach((listener) => listener("SIGNED_OUT", null));
+        return { error: null };
+      },
+    },
+  };
+
+  return cachedIdentitySupabase;
+}
+
+type MasterDetailProps = {
+  showDetail: boolean;
+  master: ReactNode;
+  detail: ReactNode;
+};
+
+function MasterDetail({ showDetail, master, detail }: MasterDetailProps) {
+  return (
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className={`${showDetail ? "hidden md:flex" : "flex"} min-h-0 w-full flex-col md:w-auto md:min-w-0`}>
+        {master}
+      </div>
+      <div className={`${showDetail ? "flex" : "hidden md:flex"} min-h-0 flex-1 flex-col`}>{detail}</div>
+    </div>
+  );
+}
+
+type SkeletonProps = {
+  className?: string;
+};
+
+function Skeleton({ className = "" }: SkeletonProps) {
+  return <div className={`animate-pulse rounded-md bg-slate-200/80 ${className}`.trim()} />;
+}
 
 const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"] });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"] });
@@ -88,7 +174,7 @@ type BeforeInstallPromptEvent = Event & {
 
 function KnexChatMotionStyles() {
   return (
-    <style jsx global>{`
+    <style>{`
       @keyframes knex-dash {
         0% {
           stroke-dashoffset: 0;

@@ -928,19 +928,24 @@ export default function KnexitWorkspaceAccessPage({
       methods?: Partial<AuthMethodAvailability>;
     };
     const exists = Boolean(payload?.exists);
+    const trustedAccount = exists ? isTrustedAccount(email) : false;
     const passwordAllowed = exists ? Boolean(payload?.hasPassword) : true;
     const fallbackMethods: AuthMethodAvailability = {
-      otp: true,
+      otp: exists ? !trustedAccount : true,
       password: passwordAllowed,
       google: true,
       facebook: true,
     };
     const methods = { ...fallbackMethods, ...(payload?.methods ?? {}) };
+    if (exists && trustedAccount && passwordAllowed) {
+      methods.otp = false;
+      methods.password = true;
+    }
     setEmailExists(exists);
     setAvailableMethods(methods);
-    setSelectedMethod(null);
+    setSelectedMethod(exists && trustedAccount && passwordAllowed ? "password" : null);
     setLookupStatus("done");
-    logAuth("lookup_email", { exists, methods });
+    logAuth("lookup_email", { exists, trustedAccount, methods });
   };
 
   const handleForgotPassword = async () => {
@@ -1023,7 +1028,15 @@ export default function KnexitWorkspaceAccessPage({
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       setPasswordLoading(false);
       if (error) {
-        setError(error.message);
+        const isInvalidCredentials = /invalid login credentials/i.test(error.message ?? "");
+        if (isInvalidCredentials) {
+          setError("Senha inválida ou não cadastrada para este e-mail. Use Código por e-mail ou redefina sua senha.");
+          if (availableMethods?.otp) {
+            setSelectedMethod("otp");
+          }
+        } else {
+          setError(error.message);
+        }
         logAuth("login_password_error", { email });
         return;
       }
@@ -1442,7 +1455,7 @@ export default function KnexitWorkspaceAccessPage({
         <div className="pointer-events-none absolute bottom-[-80px] left-1/3 h-56 w-56 rounded-full bg-amber-200/50 blur-3xl" />
 
         <header
-          className="relative z-40 border-b border-white/20 backdrop-blur"
+          className="fixed inset-x-0 top-0 z-40 border-b border-white/20 backdrop-blur"
           style={{ backgroundColor: "rgba(62, 143, 163, 0.85)" }}
         >
           <div className="mx-auto grid w-full grid-cols-[1fr,auto,1fr] items-center px-4 py-4 sm:px-6 lg:px-8">
@@ -1632,49 +1645,51 @@ export default function KnexitWorkspaceAccessPage({
           </div>
         </header>
 
-        <div className="relative z-10 flex min-h-[calc(100dvh-88px)] items-center">
+        <div className="relative z-10 flex min-h-[100dvh] items-center pt-20 sm:pt-24">
           <div
-            className={`mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 ${isStepTwo ? "py-6 md:py-8" : "py-8 md:py-10"}`}
+            className={`mx-auto w-full max-w-6xl px-6 sm:px-6 lg:px-8 ${isStepTwo ? "py-6 md:py-8" : "py-8 md:py-10"}`}
           >
             <div
-              className={`grid items-center lg:grid-cols-[minmax(0,1fr),minmax(0,420px)] ${
-                isStepTwo ? "gap-6" : "gap-8"
-              }`}
-            >
-              <section className="space-y-4 fade-up text-center lg:text-left">
-              <div className="mx-auto w-full max-w-md text-center lg:text-left lg:ml-6">
-                <p className="text-xs uppercase tracking-[0.3em] text-[#0b4f5c]">Acesso Knexspace One</p>
-                <h1 className="text-[clamp(2rem,3.6vw,3.2rem)] font-semibold leading-tight text-slate-900">
-                  Vamos começar
-                </h1>
-                <p className="mt-2 text-[clamp(1rem,1.2vw,1.1rem)] text-slate-700">
-                  Centralize seus produtos, permissões e equipes em uma única conta. Escolha como você quer entrar no
-                  KnexIT Workspace.
-                </p>
-              </div>
-              <div className="mx-auto w-full max-w-md rounded-3xl border border-slate-200 bg-[#f3f6fb] p-4 text-center lg:text-left shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)] lg:mx-0 lg:ml-6">
-                <p className="text-sm text-slate-700">
-                  Comece do zero com uma nova conta para um e-mail personalizado, como voce@suaempresa.com
-                </p>
-                <Link
-                  href="/knexit-workspace/acesso/novo"
-                  className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-[#0f5bd6] px-4 py-2 text-sm font-semibold text-white hover:brightness-110 no-underline hover:no-underline"
-                >
-                  Crie uma nova conta
-                </Link>
-              </div>
-            </section>
-
-            <section
-              className={`fade-up flex flex-col justify-center ${
-                isStepTwo ? "space-y-3" : "space-y-4"
+              className={`rounded-3xl border border-[var(--kx-border)] bg-white shadow-[0_24px_50px_-30px_rgba(15,23,42,0.4)] ${
+                isStepTwo ? "p-4 sm:p-5 lg:p-6" : "p-5 sm:p-6 lg:p-7"
               }`}
             >
               <div
-                className={`rounded-3xl border border-[var(--kx-border)] bg-[#f1f6fb] shadow-[0_24px_50px_-30px_rgba(15,23,42,0.4)] ${
-                  isStepTwo ? "p-4 sm:p-5" : "p-5 sm:p-6"
-                } ${isStepTwo ? "scale-[0.98] origin-center" : ""}`}
+                className={`grid items-center lg:grid-cols-[minmax(0,1fr),minmax(0,420px)] ${
+                  isStepTwo ? "gap-6" : "gap-8"
+                }`}
               >
+                <section className="fade-up flex flex-col items-center justify-center space-y-4 text-center lg:border-r lg:border-slate-300/80 lg:pr-8">
+                  <div className="mx-auto w-full max-w-md text-center">
+                    <p className="self-start text-left text-[clamp(1.5rem,2.6vw,2.1rem)] font-semibold leading-tight text-[#0f5bd6] drop-shadow-[0_0_10px_rgba(15,91,214,0.35)] lg:relative lg:-left-6 lg:-top-3">
+                      Faça login
+                    </p>
+                    <h1 className="mt-2 text-[clamp(1.05rem,1.7vw,1.35rem)] font-semibold leading-tight text-slate-900">
+                      Novo por aqui?
+                    </h1>
+                    <p className="mt-2 text-[clamp(1rem,1.2vw,1.1rem)] text-slate-700">
+                      Centralize seus produtos, permissões e equipes em uma única conta. Escolha como você quer entrar no
+                      Knexspace One.
+                    </p>
+                  </div>
+                  <div className="mx-auto w-full max-w-md text-center">
+                    <p className="text-sm text-slate-700">
+                      Comece do zero com uma nova conta para um e-mail personalizado, como voce@knexmail.com
+                    </p>
+                    <Link
+                      href="/knexit-workspace/acesso/novo"
+                      className="mt-4 inline-flex min-h-[40px] items-center justify-center rounded-full bg-[#0f5bd6] px-5 py-2 text-xs font-semibold text-white hover:brightness-110 no-underline hover:no-underline sm:text-sm"
+                    >
+                      Crie uma conta Knex
+                    </Link>
+                  </div>
+                </section>
+
+                <section
+                  className={`fade-up flex flex-col justify-center lg:pl-8 ${
+                    isStepTwo ? "space-y-3" : "space-y-4"
+                  }`}
+                >
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="text-center w-full">
                     <h2 className="text-lg font-semibold text-slate-900">Entrar ou criar conta</h2>
@@ -1703,7 +1718,7 @@ export default function KnexitWorkspaceAccessPage({
                           onChange={(event) => setLoginEmail(event.target.value)}
                           autoComplete="email"
                           inputMode="email"
-                          className="w-full rounded-2xl border border-slate-300 bg-white pl-[96px] pr-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                          className="w-full rounded-xl border border-slate-300 bg-white pl-[96px] pr-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                           required
                         />
                       </div>
@@ -1711,7 +1726,7 @@ export default function KnexitWorkspaceAccessPage({
                     <button
                       type="submit"
                       disabled={lookupStatus === "loading" || !loginEmail}
-                      className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl bg-[var(--kx-primary)] px-4 py-3 text-center text-sm font-semibold leading-snug text-white shadow-lg shadow-blue-500/20 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-[#0f5bd6] px-4 py-3 text-center text-sm font-semibold leading-snug text-white shadow-lg shadow-blue-500/20 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {lookupStatus === "loading" ? "Verificando..." : "Continuar"}
                     </button>
@@ -1884,7 +1899,7 @@ export default function KnexitWorkspaceAccessPage({
                         <button
                           type="submit"
                           disabled={passwordLoading || !canSubmitPassword}
-                          className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--kx-primary)] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 hover:brightness-110 disabled:opacity-60"
+                          className="inline-flex w-full items-center justify-center rounded-xl bg-[#0f5bd6] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 hover:brightness-110 disabled:opacity-60"
                         >
                           {passwordLoading
                             ? "Processando..."
@@ -2004,8 +2019,8 @@ export default function KnexitWorkspaceAccessPage({
                   )}
                 </div>
               )}
-            </div>
-            </section>
+                </section>
+              </div>
             </div>
           </div>
         </div>

@@ -5,9 +5,9 @@ export default {
     "./app/**/*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
     "./supadrive/web/**/*.{js,ts,jsx,tsx}",
-    "./knexchat/**/*.{js,ts,jsx,tsx}",
+    "./knexchat/web/**/*.{js,ts,jsx,tsx}",
     "./violive/**/*.{js,ts,jsx,tsx}",
-    "./src/**/*.{js,ts,jsx,tsx}",         // âœ… opcional (bom se vocÃª usa src)
+    "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
