@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
 import type { Session, User } from "@supabase/supabase-js";
@@ -375,6 +376,8 @@ export default function AuthHeaderAvatar() {
 
   if (!activeAvatar) return null;
 
+  const greetingName = activeAvatar.name ? activeAvatar.name.split(" ")[0] : "amigo";
+
   return (
     <div className="relative flex items-center justify-end" ref={menuRef}>
       <button
@@ -405,106 +408,95 @@ export default function AuthHeaderAvatar() {
         className="hidden"
       />
       {menuOpen ? (
-        <div className="absolute right-0 top-full mt-3 w-64 rounded-2xl border border-white/15 bg-[var(--kx-header)] p-4 text-white shadow-xl">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-white/70">
-            {isLoggedIn ? "Conta ativa" : "Conta recente"}
-          </p>
-          <div className="mt-3 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-white/10 text-base font-semibold">
-              {activeAvatar.url ? (
-                <img
-                  src={activeAvatar.url}
-                  alt={activeAvatar.name || "Avatar"}
-                  className="h-full w-full rounded-full object-cover"
-                />
-              ) : (
-                <span>{activeAvatar.initials}</span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{activeAvatar.name || "Knexspace"}</p>
-              <p className="truncate text-xs text-white/70">{activeAvatar.email || "Conta sem sess\u00e3o ativa"}</p>
-              {isLoggedIn ? (
-                <p className="mt-1 text-[11px] font-semibold text-emerald-300">Logado</p>
-              ) : (
-                <p className="mt-1 text-[11px] text-white/70">Sess\u00e3o inativa</p>
-              )}
-            </div>
-          </div>
-          {isLoggedIn ? (
+        <div className="absolute right-0 top-full mt-3 w-[min(92vw,340px)] rounded-[28px] border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_30px_80px_-45px_rgba(15,23,42,0.6)]">
+          <div className="relative flex items-center justify-end">
+            <p className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center text-xs font-semibold text-slate-700">
+              {activeAvatar.email || "Conta"}
+            </p>
             <button
               type="button"
-              onClick={handleAvatarSelect}
-              disabled={avatarUploading}
-              className="mt-3 w-full rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+              onClick={() => {
+                setMenuOpen(false);
+                setAccountSwitcherOpen(false);
+              }}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-white"
+              aria-label="Fechar menu"
             >
-              Atualizar foto
+              ✕
             </button>
-          ) : null}
+          </div>
+
+          <div className="mt-4 flex flex-col items-center text-center">
+            <div className="relative">
+              <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-600 via-emerald-400 to-rose-500 p-[2px]">
+                <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-semibold text-slate-700">
+                  {activeAvatar.url ? (
+                    <img
+                      src={activeAvatar.url}
+                      alt={activeAvatar.name || "Avatar"}
+                      className="h-full w-full rounded-full object-cover"
+                    />
+                  ) : (
+                    activeAvatar.initials
+                  )}
+                </div>
+              </div>
+              {isLoggedIn ? (
+                <button
+                  type="button"
+                  onClick={handleAvatarSelect}
+                  disabled={avatarUploading}
+                  className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow disabled:opacity-60"
+                  aria-label="Atualizar foto"
+                >
+                  📷
+                </button>
+              ) : null}
+            </div>
+            <p className="mt-3 text-lg font-semibold text-slate-900">Olá, {greetingName}!</p>
+            {isLoggedIn ? (
+              <p className="mt-1 text-[11px] font-semibold text-emerald-600">Logado</p>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-500">Sessão inativa</p>
+            )}
+            <Link
+              href="/knexit-workspace/conta"
+              className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-blue-700 hover:bg-slate-50 no-underline hover:no-underline"
+            >
+              Gerenciar sua Conta do Google
+            </Link>
+          </div>
+
           {avatarError ? (
-            <div className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {avatarError}
             </div>
           ) : null}
-          {switcherAccounts.length ? (
-            <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white/5">
-              <button
-                type="button"
-                onClick={() => setAccountSwitcherOpen((prev) => !prev)}
-                className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold text-white/80"
-              >
-                <span>{accountSwitcherOpen ? "Ocultar contas" : "Mostrar mais contas"}</span>
-                <span className={`transition ${accountSwitcherOpen ? "rotate-180" : ""}`}>▾</span>
-              </button>
-              {accountSwitcherOpen ? (
-                <div className="divide-y divide-white/10 text-xs text-white/80">
-                  {switcherAccounts.map((account) => (
-                    <button
-                      key={account.email}
-                      type="button"
-                      onClick={() => handleSwitchAccount(account)}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/10"
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-white/15 text-[11px] font-semibold">
-                        {account.avatarUrl ? (
-                          <img
-                            src={account.avatarUrl}
-                            alt={account.name ?? account.email}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          account.email.charAt(0).toUpperCase()
-                        )}
-                      </span>
-                      <span className="min-w-0 text-left">
-                        <span className="block truncate text-[11px] font-semibold text-white">
-                          {account.name || account.email.split("@")[0]}
-                        </span>
-                        <span className="block truncate text-[10px] text-white/60">{account.email}</span>
-                      </span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={handleAddExternalAccount}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/10"
-                  >
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-[11px] font-semibold">
-                      +
-                    </span>
-                    <span className="text-[11px] font-semibold text-white">Adicionar outra conta</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSignOutAll}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left text-rose-200 hover:bg-rose-500/15"
-                  >
-                    <span className="text-[11px] font-semibold">Sair de todas as contas</span>
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={handleAddExternalAccount}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-50 text-blue-600">+</span>
+              Adicionar conta
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOutAll}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <span className="text-base">⎋</span>
+              Sair
+            </button>
+          </div>
+
+          <div className="mt-4 flex items-center justify-center gap-3 text-[10px] text-slate-500">
+            <span>Política de Privacidade</span>
+            <span className="h-1 w-1 rounded-full bg-slate-400" />
+            <span>Termos de Serviço</span>
+          </div>
         </div>
       ) : null}
     </div>

@@ -273,10 +273,6 @@ export default function CodigoStepClient() {
     await finalizeLogin("recovery");
   };
 
-  const backToMethod = () => {
-    router.push(buildAccessStepHref("metodo", searchParams, { email }));
-  };
-
   const backToPassword = () => {
     router.push(buildAccessStepHref("senha", searchParams, { email }));
   };
@@ -289,6 +285,14 @@ export default function CodigoStepClient() {
         : purpose === "oauth_verify"
           ? "Confirmar acesso"
           : "Entrar com codigo";
+  const actionLabel =
+    purpose === "signup"
+      ? "Autenticar"
+      : purpose === "recovery"
+        ? "Confirmar codigo"
+        : purpose === "oauth_verify"
+          ? "Autenticar"
+          : "Fazer login";
 
   return (
     <AuthScaffold>
@@ -336,7 +340,7 @@ export default function CodigoStepClient() {
             disabled={verifying || otpCode.length !== 6}
             className="inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-[#0f5bd6] px-4 py-3 text-center text-sm font-semibold leading-snug text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {verifying ? "Validando..." : "Confirmar codigo"}
+            {verifying ? "Validando..." : actionLabel}
           </button>
         ) : null}
 
@@ -382,11 +386,7 @@ export default function CodigoStepClient() {
             {resendCooldown > 0 ? `Reenviar em ${resendCooldown}s` : sending ? "Enviando..." : "Reenviar codigo"}
           </button>
 
-          <button
-            type="button"
-            onClick={purpose === "signup" ? backToPassword : backToMethod}
-            className="font-semibold text-blue-700 hover:underline"
-          >
+          <button type="button" onClick={backToPassword} className="font-semibold text-blue-700 hover:underline">
             Voltar
           </button>
         </div>

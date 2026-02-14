@@ -149,11 +149,6 @@ export default function SenhaStepClient() {
     }
 
     if (exists) {
-      if (!hasPassword) {
-        goToCode("login");
-        return;
-      }
-
       setSubmitting(true);
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
       setSubmitting(false);
@@ -362,7 +357,7 @@ export default function SenhaStepClient() {
 
           <button
             type="submit"
-            disabled={submitting || (exists && !hasPassword)}
+            disabled={submitting}
             className="inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-[#0f5bd6] px-4 py-3 text-center text-sm font-semibold leading-snug text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Processando..." : actionLabel}
