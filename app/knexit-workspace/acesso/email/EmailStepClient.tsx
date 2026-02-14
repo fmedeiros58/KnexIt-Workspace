@@ -40,9 +40,10 @@ export default function EmailStepClient() {
       exists?: boolean;
       hasPassword?: boolean;
       methods?: { otp?: boolean };
+      twoStepRequired?: boolean;
     };
     const exists = Boolean(payload.exists);
-    const twoStep = exists ? Boolean(payload.methods?.otp) : true;
+    const twoStep = Boolean(payload.twoStepRequired);
 
     router.push(
       buildAccessStepHref("senha", searchParams, {

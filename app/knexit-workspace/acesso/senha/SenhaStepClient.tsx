@@ -23,6 +23,7 @@ type LookupPayload = {
   methods?: {
     otp?: boolean;
   };
+  twoStepRequired?: boolean;
 };
 
 const LockIcon = () => (
@@ -98,7 +99,7 @@ export default function SenhaStepClient() {
     const existsFromLookup = Boolean(payload.exists);
     setExists(existsFromLookup);
     setHasPassword(Boolean(payload.hasPassword));
-    setTwoStepRequired(existsFromLookup ? Boolean(payload.methods?.otp) : true);
+    setTwoStepRequired(Boolean(payload.twoStepRequired));
   }, [email, router, searchParams]);
 
   useEffect(() => {
@@ -204,32 +205,57 @@ export default function SenhaStepClient() {
       return;
     }
 
-    setSubmitting(true);
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(getSignupPasswordKey(email), password);
-    }
+    if (twoStepRequired) {
+      setSubmitting(true);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(getSignupPasswordKey(email), password);
+      }
 
-    const res = await fetch("/api/auth/otp/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email,
-        purpose: "signup",
-        mode: buildModeFromPurpose("signup"),
-        password,
-      }),
-    });
+      const res = await fetch("/api/auth/otp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          purpose: "signup",
+          mode: buildModeFromPurpose("signup"),
+          password,
+        }),
+      });
 
-    setSubmitting(false);
+      setSubmitting(false);
 
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { message?: string };
-      setError(payload.message ?? "Falha ao enviar codigo.");
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { message?: string };
+        setError(payload.message ?? "Falha ao enviar codigo.");
+        return;
+      }
+
+      setNotice("Codigo enviado para seu e-mail.");
+      goToCode("signup", true);
       return;
     }
 
-    setNotice("Codigo enviado para seu e-mail.");
-    goToCode("signup", true);
+    setSubmitting(true);
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
+    if (signUpError) {
+      setSubmitting(false);
+      setError(signUpError.message ?? "Nao foi possivel criar sua conta.");
+      return;
+    }
+
+    if (!signUpData?.session) {
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      setSubmitting(false);
+      if (signInError) {
+        setNotice("Conta criada. Verifique seu e-mail para confirmar o acesso.");
+        return;
+      }
+      await finalizeLogin("password");
+      return;
+    }
+
+    setSubmitting(false);
+    await finalizeLogin("password");
   };
 
   const title = exists ? "Entrar com senha" : "Crie sua senha";

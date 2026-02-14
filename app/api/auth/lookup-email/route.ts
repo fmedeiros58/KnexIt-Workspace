@@ -85,6 +85,11 @@ export async function POST(req: NextRequest) {
     }
 
     const exists = Boolean(user) || profileExists;
+    const userMeta = (user?.user_metadata as { two_step_enabled?: boolean; twoStepEnabled?: boolean } | null) ?? null;
+    const appMeta = (user?.app_metadata as { two_step_enabled?: boolean; twoStepEnabled?: boolean } | null) ?? null;
+    const twoStepRequired = Boolean(
+      userMeta?.two_step_enabled || userMeta?.twoStepEnabled || appMeta?.two_step_enabled || appMeta?.twoStepEnabled,
+    );
     const providersKnown = providers.size > 0;
     const hasEmailProvider = providers.has("email");
     const hasPassword = exists ? (providersKnown ? hasEmailProvider : true) : false;
@@ -102,7 +107,10 @@ export async function POST(req: NextRequest) {
     const domain = email.split("@")[1] ?? "";
     console.info("[auth] lookup-email", { exists, providers: Array.from(providers), domain });
 
-    return Response.json({ exists, hasPassword, providers: providersFlags, methods }, { status: 200 });
+    return Response.json(
+      { exists, hasPassword, providers: providersFlags, methods, twoStepRequired },
+      { status: 200 },
+    );
   } catch (error) {
     console.error("lookup-email failed", error);
     return Response.json(
