@@ -59,9 +59,13 @@ export default function EmailStepClient() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="w-full text-center">
           <h2 className="text-lg font-semibold text-slate-900">Entrar ou criar conta</h2>
-          <p className="mt-2 text-sm text-slate-600">Digite seu e-mail. O Knexspace mostra as opcoes corretas para continuar.</p>
+          <p className="mt-2 text-sm text-[var(--kx-secondary)]">
+            Digite seu e-mail. O Knexspace mostra as opcoes corretas para continuar.
+          </p>
         </div>
-        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">Acesso</span>
+        <span className="rounded-full bg-[rgba(38,107,217,0.12)] px-3 py-1 text-xs font-semibold text-[var(--kx-primary)]">
+          Acesso
+        </span>
       </div>
 
       {error ? (
@@ -81,7 +85,7 @@ export default function EmailStepClient() {
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
               inputMode="email"
-              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-20 pr-4 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-20 pr-4 text-sm outline-none focus:border-[color:var(--kx-focus)] focus:ring-2 focus:ring-[rgba(42,93,172,0.2)]"
               required
             />
           </div>
@@ -90,7 +94,7 @@ export default function EmailStepClient() {
         <button
           type="submit"
           disabled={loading || !email}
-          className="inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-[#0f5bd6] px-4 py-3 text-center text-sm font-semibold leading-snug text-white shadow-lg shadow-blue-500/20 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-[var(--kx-primary)] px-4 py-3 text-center text-sm font-semibold leading-snug text-white shadow-lg shadow-blue-500/20 hover:bg-[var(--kx-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Verificando..." : "Continuar"}
         </button>
