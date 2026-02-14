@@ -373,7 +373,7 @@ export default function PlansSection() {
   const [activeHighlight, setActiveHighlight] = useState(0);
 
   return (
-    <section id="planos" className="bg-[#E5F3F4] pt-14 pb-0">
+    <section id="planos" className="bg-[var(--kx-bg)] pt-14 pb-0">
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-7">
         <div className="space-y-8 text-center">
           <h2 className="mx-auto max-w-5xl px-6 text-center text-[clamp(1.75rem,5.6vw,2.75rem)] leading-tight font-bold text-slate-900 font-[family:Arial,Helvetica,sans-serif] sm:px-10 md:px-16">

@@ -3,7 +3,7 @@ import Image from "next/image";
 
 export default function HeroSection() {
   return (
-    <section className="bg-[#E5F3F4]">
+    <section className="bg-[var(--kx-bg)]">
       <div className="mx-auto flex max-w-6xl flex-col gap-10 px-4 pb-16 pt-12 md:flex-row md:items-center md:justify-between md:px-6">
         <div className="space-y-4 md:w-[40%]">
           {/* Icons removed per request */}
@@ -21,7 +21,7 @@ export default function HeroSection() {
           <div className="flex flex-wrap justify-center gap-3 sm:justify-start">
             <Link
               href="/knexit-workspace/acesso?stay=1"
-              className="inline-flex min-h-[48px] min-w-[200px] items-center justify-center rounded-xl bg-[#3E8FA3] px-6 py-3 text-sm font-semibold text-white shadow-sm no-underline hover:bg-[#337E91] hover:no-underline"
+              className="inline-flex min-h-[48px] min-w-[200px] items-center justify-center rounded-xl bg-[var(--kx-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm no-underline hover:bg-[var(--kx-primary-hover)] hover:no-underline"
             >
               Iniciar agora
             </Link>

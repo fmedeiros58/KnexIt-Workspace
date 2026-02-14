@@ -35,7 +35,7 @@ export default function FaqSection() {
   const [toggleActive, setToggleActive] = useState(false);
 
   return (
-    <section id="faq" className="bg-[#E5F3F4] py-12">
+    <section id="faq" className="bg-[var(--kx-bg)] py-12">
       <div className="mx-auto max-w-6xl space-y-8 px-4 md:px-6">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-slate-900">Encontre as respostas que você procura</h2>

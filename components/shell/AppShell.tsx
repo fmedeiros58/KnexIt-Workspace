@@ -66,11 +66,11 @@ export default function AppShell({ children }: AppShellProps) {
   const closeProductsPanel = () => setProductsPanelOpen(false);
 
   if (!shouldUseShell) {
-    return <div className="h-screen overflow-y-auto bg-[#E5F3F4] text-slate-900">{children}</div>;
+    return <div className="h-screen overflow-y-auto bg-[var(--kx-bg)] text-slate-900">{children}</div>;
   }
 
   return (
-    <div className="flex h-screen min-w-0 flex-col bg-[#E5F3F4] text-slate-900 overflow-x-visible">
+    <div className="flex h-screen min-w-0 flex-col bg-[var(--kx-bg)] text-slate-900 overflow-x-visible">
       <div className="relative z-30">
         <Header
           title={activeItem?.label ?? "Knexspace One"}

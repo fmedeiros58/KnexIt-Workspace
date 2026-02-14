@@ -24,7 +24,7 @@ export default function StickyNav({ items }: StickyNavProps) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [activeHref, setActiveHref] = useState(items[0]?.href ?? "");
-  const stickyBackdropClassName = isStuck ? "before:bg-transparent" : "before:bg-[#E5F3F4]";
+  const stickyBackdropClassName = isStuck ? "before:bg-transparent" : "before:bg-[var(--kx-bg)]";
 
   const getScrollRoot = useCallback(() => {
     if (scrollRootRef.current) return scrollRootRef.current;
