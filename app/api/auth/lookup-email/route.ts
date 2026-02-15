@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const RATE_LIMIT_MAX = 6;
+const RATE_LIMIT_MAX = 100;
 
 type RateEntry = {
   count: number;
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const ip = getClientIp(req);
     if (hitRateLimit(`ip:${ip || "unknown"}`) || hitRateLimit(`email:${email}`)) {
       return Response.json(
-        { message: "Limite de tentativas atingido. Tente novamente em instantes." },
+        { message: "Limite de tentativas atingido nesta etapa. Aguarde 15 minutos para tentar novamente." },
         { status: 429 },
       );
     }

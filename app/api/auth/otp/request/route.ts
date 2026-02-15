@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REQUEST_WINDOW_MS = 15 * 60 * 1000;
-const REQUEST_LIMIT = 5;
+const REQUEST_LIMIT = 100;
 const HCAPTCHA_SECRET_KEY = process.env.HCAPTCHA_SECRET_KEY?.trim();
 
 type CaptchaResult = { ok: true } | { ok: false; message: string };
@@ -138,7 +138,10 @@ export async function POST(req: NextRequest) {
 
   const nextAttempt = (emailCount ?? 0) + 1;
   if (nextAttempt > REQUEST_LIMIT) {
-    return Response.json({ message: "Limite de envios atingido. Tente novamente em alguns minutos." }, { status: 429 });
+    return Response.json(
+      { message: "Limite de envios atingido nesta etapa. Aguarde 15 minutos para tentar novamente." },
+      { status: 429 },
+    );
   }
 
   // limite apenas por e-mail (não usar IP/IMEI)

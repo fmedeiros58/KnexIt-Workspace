@@ -161,7 +161,7 @@ export default function StickyNav({ items }: StickyNavProps) {
         <div className="relative z-10 mx-auto max-w-6xl px-4 md:px-6">
           <nav
             ref={navRef}
-            className="relative mx-auto w-fit max-w-[min(92vw,56rem)] overflow-hidden rounded-full border border-slate-200 bg-[#FAFBFA] px-2 py-1 shadow-md"
+            className="relative mx-auto w-fit max-w-[min(92vw,56rem)] overflow-hidden rounded-full border border-sky-100 bg-[#FBFDFF] px-2 py-1 shadow-md"
           >
             <button
               type="button"

@@ -247,6 +247,12 @@ export default function AuthHeaderAvatar() {
 
   const activeAvatar = useMemo(() => avatar ?? fallbackAvatar, [avatar, fallbackAvatar]);
   const currentEmail = (avatar?.email ?? fallbackAvatar?.email ?? "").trim().toLowerCase();
+  const currentDomain = currentEmail.includes("@") ? currentEmail.split("@")[1] : "";
+  const formatAccountName = (email: string) => {
+    const localPart = email.split("@")[0] ?? "";
+    const cleaned = localPart.replace(/[._-]+/g, " ").trim();
+    return toTitleCase(cleaned) || email;
+  };
   const accountCandidates = useMemo<StoredAccount[]>(() => {
     const storedList = Object.values(storedAccounts);
     if (!storedList.length) {
@@ -272,9 +278,23 @@ export default function AuthHeaderAvatar() {
     () =>
       accountCandidates
         .filter((account) => account.email && account.email.toLowerCase() !== currentEmail)
-        .slice(0, 2),
+        .slice(0, 6),
     [accountCandidates, currentEmail],
   );
+  const loggedOutPrimaryAccounts = useMemo(
+    () => accountCandidates.filter((account) => account.email).slice(0, 2),
+    [accountCandidates],
+  );
+  const loggedOutExtraAccounts = useMemo(
+    () => accountCandidates.filter((account) => account.email).slice(2),
+    [accountCandidates],
+  );
+
+  useEffect(() => {
+    if (!isLoggedIn && loggedOutExtraAccounts.length > 0) {
+      setAccountSwitcherOpen(true);
+    }
+  }, [isLoggedIn, loggedOutExtraAccounts.length]);
 
   const handleAvatarSelect = () => {
     avatarInputRef.current?.click();
@@ -284,11 +304,11 @@ export default function AuthHeaderAvatar() {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setAvatarError("Escolha uma imagem válida.");
+      setAvatarError("Escolha uma imagem valida.");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      setAvatarError("A imagem deve ter até 5MB.");
+      setAvatarError("A imagem deve ter ate 5MB.");
       return;
     }
     setAvatarUploading(true);
@@ -310,7 +330,7 @@ export default function AuthHeaderAvatar() {
       });
       const payload = (await res.json().catch(() => ({}))) as { url?: string; message?: string };
       if (!res.ok || !payload?.url) {
-        throw new Error(payload?.message ?? "Não foi possível atualizar a imagem.");
+        throw new Error(payload?.message ?? "Nao foi possivel atualizar a imagem.");
       }
       const avatarUrl = payload.url;
       await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } });
@@ -327,7 +347,7 @@ export default function AuthHeaderAvatar() {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Não foi possível atualizar a imagem.";
+      const message = err instanceof Error ? err.message : "Nao foi possivel atualizar a imagem.";
       setAvatarError(message);
     } finally {
       setAvatarUploading(false);
@@ -370,8 +390,15 @@ export default function AuthHeaderAvatar() {
       localStorage.removeItem(ACCOUNT_SESSIONS_KEY);
       localStorage.removeItem(RECENT_ACCOUNTS_KEY);
     }
-    await supabase.auth.signOut();
-    router.push(buildAccessEmailHref());
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      if (typeof window !== "undefined") {
+        window.location.assign("/knexit-workspace/acesso");
+      } else {
+        router.push("/knexit-workspace/acesso");
+      }
+    }
   };
 
   if (!activeAvatar) return null;
@@ -383,22 +410,28 @@ export default function AuthHeaderAvatar() {
       <button
         type="button"
         onClick={() => setMenuOpen((prev) => !prev)}
-        className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-white/10 text-xs font-semibold text-white"
+        className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-[3px]"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+        }}
         aria-label="Conta"
       >
-        {activeAvatar.url ? (
-          // Use img to avoid Next Image domain restrictions for dynamic avatars.
-          <img
-            src={activeAvatar.url}
-            alt={activeAvatar.name || "Avatar"}
-            className="h-full w-full rounded-full object-cover"
-          />
-        ) : (
-          <span>{activeAvatar.initials}</span>
-        )}
-        {isLoggedIn ? (
-          <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-[var(--kx-header)] bg-emerald-400" />
-        ) : null}
+        <span className="relative flex h-full w-full items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+          {activeAvatar.url ? (
+            // Use img to avoid Next Image domain restrictions for dynamic avatars.
+            <img
+              src={activeAvatar.url}
+              alt={activeAvatar.name || "Avatar"}
+              className="h-full w-full rounded-full object-cover"
+            />
+          ) : (
+            <span>{activeAvatar.initials}</span>
+          )}
+          {isLoggedIn ? (
+            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-[var(--kx-header)] bg-emerald-400" />
+          ) : null}
+        </span>
       </button>
       <input
         ref={avatarInputRef}
@@ -408,11 +441,14 @@ export default function AuthHeaderAvatar() {
         className="hidden"
       />
       {menuOpen ? (
-        <div className="absolute right-0 top-full mt-3 w-[min(92vw,340px)] rounded-[28px] border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_30px_80px_-45px_rgba(15,23,42,0.6)]">
+        <div className="absolute right-0 top-full mt-3 w-[min(92vw,340px)] rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_30px_80px_-45px_rgba(15,23,42,0.6)]">
           <div className="relative flex items-center justify-end">
-            <p className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center text-xs font-semibold text-slate-700">
-              {activeAvatar.email || "Conta"}
-            </p>
+            <div className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center">
+              <p className="text-xs font-semibold text-slate-700">{activeAvatar.email || "Conta"}</p>
+              {currentDomain ? (
+                <p className="text-[11px] text-slate-500">Gerenciado por {currentDomain}</p>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -422,13 +458,19 @@ export default function AuthHeaderAvatar() {
               className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-white"
               aria-label="Fechar menu"
             >
-              ✕
+              x
             </button>
           </div>
 
           <div className="mt-4 flex flex-col items-center text-center">
             <div className="relative">
-              <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-600 via-emerald-400 to-rose-500 p-[2px]">
+              <div
+                className="h-20 w-20 rounded-full p-[3px]"
+                style={{
+                  backgroundImage:
+                    "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+                }}
+              >
                 <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-semibold text-slate-700">
                   {activeAvatar.url ? (
                     <img
@@ -446,25 +488,33 @@ export default function AuthHeaderAvatar() {
                   type="button"
                   onClick={handleAvatarSelect}
                   disabled={avatarUploading}
-                  className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow disabled:opacity-60"
+                  className="absolute -bottom-1 -right-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
                   aria-label="Atualizar foto"
                 >
-                  📷
+                  <CameraIcon />
                 </button>
               ) : null}
             </div>
-            <p className="mt-3 text-lg font-semibold text-slate-900">Olá, {greetingName}!</p>
+            <p className="mt-3 text-lg font-semibold text-slate-900">Ola, {greetingName}!</p>
             {isLoggedIn ? (
               <p className="mt-1 text-[11px] font-semibold text-emerald-600">Logado</p>
             ) : (
-              <p className="mt-1 text-[11px] text-slate-500">Sessão inativa</p>
+              <p className="mt-1 text-[11px] text-slate-500">Sessao inativa</p>
             )}
-            <Link
-              href="/knexit-workspace/conta"
-              className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-blue-700 hover:bg-slate-50 no-underline hover:no-underline"
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                if (typeof window !== "undefined") {
+                  window.location.assign("/knexit-workspace/conta");
+                } else {
+                  router.push("/knexit-workspace/conta");
+                }
+              }}
+              className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-blue-700 hover:bg-slate-50"
             >
-              Gerenciar sua Conta do Google
-            </Link>
+              Gerenciar sua Conta Knex
+            </button>
           </div>
 
           {avatarError ? (
@@ -473,32 +523,250 @@ export default function AuthHeaderAvatar() {
             </div>
           ) : null}
 
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={handleAddExternalAccount}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-50 text-blue-600">+</span>
-              Adicionar conta
-            </button>
-            <button
-              type="button"
-              onClick={handleSignOutAll}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <span className="text-base">⎋</span>
-              Sair
-            </button>
+          <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50/80">
+            {((!isLoggedIn && loggedOutExtraAccounts.length > 0) || (isLoggedIn && switcherAccounts.length > 0)) && (
+              <button
+                type="button"
+                onClick={() => setAccountSwitcherOpen((prev) => !prev)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-xs font-semibold text-slate-700"
+              >
+                <span>{accountSwitcherOpen ? "Ocultar mais contas" : "Mostrar mais contas"}</span>
+                <ChevronIcon className={`h-4 w-4 transition ${accountSwitcherOpen ? "rotate-180" : ""}`} />
+              </button>
+            )}
+
+            <div className={`${accountSwitcherOpen ? "border-t border-slate-200 bg-white" : ""}`}>
+              {isLoggedIn ? (
+                <>
+                  {accountSwitcherOpen ? (
+                    <>
+                      <div className="flex w-full items-center gap-3 px-4 py-3 text-left">
+                        <span
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"
+                          style={{
+                            backgroundImage:
+                              "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+                          }}
+                        >
+                          <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white text-sm font-semibold text-slate-700">
+                            {activeAvatar.url ? (
+                              <img
+                                src={activeAvatar.url}
+                                alt={activeAvatar.name || "Avatar"}
+                                className="h-full w-full rounded-full object-cover"
+                              />
+                            ) : (
+                              activeAvatar.initials
+                            )}
+                          </span>
+                        </span>
+                        <span className="flex-1">
+                          <span className="block text-sm font-semibold text-slate-800">
+                            {activeAvatar.name || "Conta atual"}
+                          </span>
+                          <span className="block text-[11px] text-slate-500">{activeAvatar.email || "Conta"}</span>
+                        </span>
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                          Padrao
+                        </span>
+                      </div>
+
+                      {switcherAccounts.map((account) => (
+                        <button
+                          key={account.email}
+                          type="button"
+                          onClick={() => handleSwitchAccount(account)}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                        >
+                          <span
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"
+                            style={{
+                              backgroundImage:
+                                "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+                            }}
+                          >
+                            <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white text-sm font-semibold text-slate-700">
+                              {account.avatarUrl ? (
+                                <img
+                                  src={account.avatarUrl}
+                                  alt={account.name ?? account.email}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                account.email?.charAt(0).toUpperCase()
+                              )}
+                            </span>
+                          </span>
+                          <span className="flex-1">
+                            <span className="block text-sm font-semibold text-slate-800">
+                              {account.name || formatAccountName(account.email)}
+                            </span>
+                            <span className="block text-[11px] text-slate-500">{account.email}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <div className="bg-white">
+                    {loggedOutPrimaryAccounts.map((account) => (
+                      <button
+                        key={account.email}
+                        type="button"
+                        onClick={() => handleSwitchAccount(account)}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                      >
+                        <span
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"
+                          style={{
+                            backgroundImage:
+                              "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+                          }}
+                        >
+                          <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white text-sm font-semibold text-slate-700">
+                            {account.avatarUrl ? (
+                              <img
+                                src={account.avatarUrl}
+                                alt={account.name ?? account.email}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              account.email?.charAt(0).toUpperCase()
+                            )}
+                          </span>
+                        </span>
+                        <span className="flex-1">
+                          <span className="block text-sm font-semibold text-slate-800">
+                            {account.name || formatAccountName(account.email)}
+                          </span>
+                          <span className="block text-[11px] text-slate-500">{account.email}</span>
+                        </span>
+                      </button>
+                    ))}
+
+                    {accountSwitcherOpen &&
+                      loggedOutExtraAccounts.map((account) => (
+                        <button
+                          key={account.email}
+                          type="button"
+                          onClick={() => handleSwitchAccount(account)}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                        >
+                          <span
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"
+                            style={{
+                              backgroundImage:
+                                "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+                            }}
+                          >
+                            <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white text-sm font-semibold text-slate-700">
+                              {account.avatarUrl ? (
+                                <img
+                                  src={account.avatarUrl}
+                                  alt={account.name ?? account.email}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                account.email?.charAt(0).toUpperCase()
+                              )}
+                            </span>
+                          </span>
+                          <span className="flex-1">
+                            <span className="block text-sm font-semibold text-slate-800">
+                              {account.name || formatAccountName(account.email)}
+                            </span>
+                            <span className="block text-[11px] text-slate-500">{account.email}</span>
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                </>
+              )}
+
+              <button
+                type="button"
+                onClick={handleAddExternalAccount}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                  +
+                </span>
+                <span className="text-sm font-semibold text-slate-700">Adicionar outra conta</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSignOutAll}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left text-rose-600 hover:bg-rose-50/40"
+              >
+                <ExitIcon />
+                <span className="text-sm font-semibold">Sair de todas as contas</span>
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 flex items-center justify-center gap-3 text-[10px] text-slate-500">
-            <span>Política de Privacidade</span>
+            <span>Politica de Privacidade</span>
             <span className="h-1 w-1 rounded-full bg-slate-400" />
-            <span>Termos de Serviço</span>
+            <span>Termos de Servico</span>
           </div>
         </div>
       ) : null}
     </div>
   );
 }
+
+function CameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-slate-600" aria-hidden="true">
+      <path
+        d="M8.5 5.5h7l1.2 2H19a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2h2.3l1.2-2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function ExitIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path
+        d="M15 7h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M10 17l5-5-5-5M15 12H5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M6 9l6 6 6-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+

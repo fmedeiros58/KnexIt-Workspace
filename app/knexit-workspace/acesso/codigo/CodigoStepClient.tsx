@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthScaffold from "../_components/AuthScaffold";
+import AccessFlowGuide from "../_components/AccessFlowGuide";
 import {
   buildAccessStepHref,
   buildModeFromPurpose,
@@ -293,6 +294,9 @@ export default function CodigoStepClient() {
         : purpose === "oauth_verify"
           ? "Autenticar"
           : "Fazer login";
+  const nextStepDescription = purpose === "recovery"
+    ? "Após validar o código, defina sua nova senha para concluir a recuperação."
+    : "Digite o código de 6 dígitos enviado para este e-mail e conclua o acesso.";
 
   return (
     <AuthScaffold>
@@ -303,6 +307,8 @@ export default function CodigoStepClient() {
         </div>
         <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">OTP</span>
       </div>
+
+      <AccessFlowGuide step={3} nextStep={nextStepDescription} />
 
       {notice ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>

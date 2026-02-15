@@ -390,7 +390,7 @@ export default function AccountManagementPageClient() {
                     type="button"
                     onClick={handleAvatarSelect}
                     disabled={avatarUploading}
-                    className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow disabled:opacity-60"
+                    className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
                     aria-label="Atualizar foto"
                   >
                     <Icon.camera className="h-4 w-4 text-slate-500" />
@@ -467,7 +467,7 @@ export default function AccountManagementPageClient() {
                   type="button"
                   onClick={handleAvatarSelect}
                   disabled={avatarUploading}
-                  className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow disabled:opacity-60"
+                  className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
                   aria-label="Atualizar foto"
                 >
                   <Icon.camera className="h-4 w-4 text-slate-500" />
@@ -592,7 +592,7 @@ export default function AccountManagementPageClient() {
                       type="button"
                       onClick={handleAvatarSelect}
                       disabled={avatarUploading}
-                      className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow disabled:opacity-60"
+                      className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
                       aria-label="Atualizar foto"
                     >
                       <Icon.camera className="h-4 w-4 text-slate-500" />

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { CSSProperties, ReactNode } from "react";
 import AuthHeaderAvatar from "./AuthHeaderAvatar";
 
@@ -16,7 +17,7 @@ const theme = {
   "--kx-primary-hover": "#1C539B",
   "--kx-secondary": "#5F6B7A",
   "--kx-focus": "#2A5DAC",
-  "--kx-header": "#0A1630",
+  "--kx-header": "#418DC3",
 } as CSSProperties;
 
 export default function AuthScaffold({ children }: AuthScaffoldProps) {
@@ -42,11 +43,11 @@ export default function AuthScaffold({ children }: AuthScaffoldProps) {
       `}</style>
 
       <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[var(--kx-header)] backdrop-blur">
-        <div className="mx-auto grid w-full grid-cols-[1fr,auto,1fr] items-center px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto grid w-full grid-cols-[auto,1fr,auto] items-center px-4 py-4 sm:grid-cols-[1fr,auto,1fr] sm:px-6 lg:px-8">
           <div />
           <Link
             href="/knexit-workspace"
-            className="text-[clamp(1.4rem,2.6vw,1.85rem)] font-semibold tracking-tight text-white no-underline hover:no-underline"
+            className="justify-self-start text-[clamp(1.4rem,2.6vw,1.85rem)] font-semibold tracking-tight text-white no-underline hover:no-underline sm:justify-self-center"
           >
             Knexspace One
           </Link>
@@ -62,20 +63,25 @@ export default function AuthScaffold({ children }: AuthScaffoldProps) {
             <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,1fr),minmax(0,420px)]">
               <section className="fade-up flex flex-col items-center justify-center space-y-4 text-center lg:border-r lg:border-slate-300/80 lg:pr-8">
                 <div className="mx-auto w-full max-w-md text-center">
+                  <div className="mb-3 flex items-center justify-center lg:justify-start lg:-ml-6">
+                    <div className="flex h-14 w-14 items-center justify-center">
+                      <Image src="/brand/kx-symbol-burnt.png" alt="Knex" width={56} height={56} className="h-14 w-14" />
+                    </div>
+                  </div>
                   <p className="self-start text-left text-[clamp(1.5rem,2.6vw,2.1rem)] font-semibold leading-tight text-[var(--kx-primary)] drop-shadow-[0_0_10px_rgba(38,107,217,0.35)] lg:relative lg:-left-6 lg:-top-3">
-                    Faca login
+                    Faça login
                   </p>
                   <h1 className="mt-2 text-[clamp(1.05rem,1.7vw,1.35rem)] font-semibold leading-tight text-slate-900">
                     Novo por aqui?
                   </h1>
                   <p className="mt-2 text-[clamp(1rem,1.2vw,1.1rem)] text-[var(--kx-secondary)]">
-                    Centralize seus produtos, permissoes e equipes em uma unica conta. Escolha como voce quer entrar no
+                    Centralize seus produtos, permissões e equipes em uma única conta. Escolha como você quer entrar no
                     Knexspace One.
                   </p>
                 </div>
                 <div className="mx-auto w-full max-w-md text-center">
                   <p className="text-sm text-[var(--kx-secondary)]">
-                    Comece do zero com uma nova conta para um e-mail personalizado, como voce@knexmail.com
+                    Comece do zero com uma nova conta para um e-mail personalizado, como você@knexmail.com
                   </p>
                   <Link
                     href="/knexit-workspace/acesso/novo"

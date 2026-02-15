@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthScaffold from "../_components/AuthScaffold";
+import AccessFlowGuide from "../_components/AccessFlowGuide";
 import {
   buildAccessStepHref,
   buildModeFromPurpose,
@@ -255,6 +256,13 @@ export default function SenhaStepClient() {
 
   const title = exists ? "Entrar com senha" : "Crie sua senha";
   const actionLabel = exists ? "Fazer login" : "Criar conta";
+  const nextStepDescription = exists
+    ? twoStepRequired
+      ? "Depois da senha, enviaremos um código de 6 dígitos para confirmar o login."
+      : "Depois da senha validada, o acesso é liberado imediatamente."
+    : twoStepRequired
+      ? "Depois de criar a senha, enviaremos um código de 6 dígitos para concluir a criação da conta."
+      : "Depois de criar a senha, sua conta é criada e o acesso é liberado.";
 
   return (
     <AuthScaffold>
@@ -265,6 +273,8 @@ export default function SenhaStepClient() {
         </div>
         <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">Acesso</span>
       </div>
+
+      <AccessFlowGuide step={2} nextStep={nextStepDescription} />
 
       <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
         <span>Metodo por senha</span>

@@ -37,7 +37,7 @@ export default function Header({
           </button>
           <div className="min-w-0">
             {title === "Knexspace One" ? (
-              <Link href="/knexit-workspace" aria-label="Ir para a página principal">
+              <Link href="/knexit-workspace" aria-label="Ir para a p?gina principal">
                 <Image
                   src="/brand/knexspace-one.svg"
                   alt="Knexspace One"

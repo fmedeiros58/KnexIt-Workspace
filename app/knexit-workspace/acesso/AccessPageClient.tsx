@@ -11,7 +11,7 @@ import { identitySupabase } from "@/lib/identitySupabaseClient";
 const supabase = identitySupabase();
 
 const theme = {
-  "--kx-bg": "#E6F2F4",
+  "--kx-bg": "#C6E3F6",
   "--kx-ink": "#0b1220",
   "--kx-muted": "#51616E",
   "--kx-card": "#ffffff",
@@ -610,8 +610,15 @@ export default function KnexitWorkspaceAccessPage({
     if (typeof window !== "undefined") {
       localStorage.removeItem("loginEmailHint");
     }
-    await supabase.auth.signOut();
-    router.push("/knexit-workspace/acesso?stay=1");
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      if (typeof window !== "undefined") {
+        window.location.assign("/knexit-workspace/acesso");
+      } else {
+        router.push("/knexit-workspace/acesso");
+      }
+    }
   }
 
   const handleAvatarSelect = () => {
@@ -1358,7 +1365,7 @@ export default function KnexitWorkspaceAccessPage({
     const currentEmail = EMAIL_REGEX.test(raw) ? raw : "";
     return accountCandidates
       .filter((account) => account.email && account.email.toLowerCase() !== currentEmail)
-      .slice(0, 2);
+      .slice(0, 6);
   }, [accountCandidates, currentUser?.email, profile.email]);
   const formatAccountName = useCallback((email: string) => {
     const localPart = email.split("@")[0] ?? "";
@@ -1456,7 +1463,7 @@ export default function KnexitWorkspaceAccessPage({
 
         <header
           className="fixed inset-x-0 top-0 z-40 border-b border-white/20 backdrop-blur"
-          style={{ backgroundColor: "rgba(62, 143, 163, 0.85)" }}
+          style={{ backgroundColor: "var(--kx-header)" }}
         >
           <div className="mx-auto grid w-full grid-cols-[1fr,auto,1fr] items-center px-4 py-4 sm:px-6 lg:px-8">
             <div />
@@ -1473,7 +1480,11 @@ export default function KnexitWorkspaceAccessPage({
                   onClick={() => setMenuOpen((prev) => !prev)}
                   aria-expanded={menuOpen}
                   aria-haspopup="menu"
-                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 via-emerald-400 to-rose-500 p-[2px] shadow-sm"
+                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-full p-[3px] shadow-sm"
+                  style={{
+                    backgroundImage:
+                      "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+                  }}
                 >
                   <span className="flex h-full w-full items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700">
                     {profile.imageUrl ? (
@@ -1494,7 +1505,7 @@ export default function KnexitWorkspaceAccessPage({
                   type="button"
                   onClick={handleAvatarSelect}
                   disabled={avatarUploading}
-                  className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow disabled:opacity-60"
+                  className="absolute -bottom-1 -right-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
                   aria-label="Atualizar foto"
                 >
                   <CameraIcon />
@@ -1513,9 +1524,14 @@ export default function KnexitWorkspaceAccessPage({
                     className="absolute right-0 z-50 mt-3 w-[min(92vw,320px)] rounded-3xl border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.6)]"
                   >
                     <div className="relative flex items-center justify-end">
-                      <p className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center text-xs font-semibold text-blue-600">
-                        {profile.email}
-                      </p>
+                      <div className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center">
+                        <p className="text-xs font-semibold text-blue-600">{profile.email}</p>
+                        {profile.email.includes("@") ? (
+                          <p className="text-[11px] text-blue-500">
+                            Gerenciado por {profile.email.split("@")[1]}
+                          </p>
+                        ) : null}
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -1531,7 +1547,13 @@ export default function KnexitWorkspaceAccessPage({
 
                     <div className="mt-4 flex flex-col items-center text-center">
                       <div className="relative">
-                        <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-600 via-emerald-400 to-rose-500 p-[2px]">
+                        <div
+                          className="relative h-20 w-20 rounded-full p-[3px]"
+                          style={{
+                            backgroundImage:
+                              "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
+                          }}
+                        >
                           <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-semibold text-slate-700">
                             {profile.imageUrl ? (
                               <Image
@@ -1551,19 +1573,27 @@ export default function KnexitWorkspaceAccessPage({
                           type="button"
                           onClick={handleAvatarSelect}
                           disabled={avatarUploading}
-                          className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow disabled:opacity-60"
+                          className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
                           aria-label="Atualizar foto"
                         >
                           <CameraIcon />
                         </button>
                       </div>
                       <p className="mt-3 text-lg font-semibold text-slate-900">Olá, {profile.name}!</p>
-                    <Link
-                      href="/knexit-workspace/conta"
-                      className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 no-underline hover:no-underline"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (typeof window !== "undefined") {
+                          window.location.assign("/knexit-workspace/conta");
+                        } else {
+                          router.push("/knexit-workspace/conta");
+                        }
+                      }}
+                      className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
                       Gerenciar sua conta Knex
-                    </Link>
+                    </button>
                   </div>
 
                   <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -1577,6 +1607,29 @@ export default function KnexitWorkspaceAccessPage({
                     </button>
                     {accountSwitcherOpen && (
                       <div className="divide-y divide-slate-200 text-xs text-slate-700">
+                        <div className="flex w-full items-center gap-3 px-4 py-3 text-left">
+                          <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-blue-600 text-sm font-semibold text-white">
+                            {profile.imageUrl ? (
+                              <Image
+                                src={profile.imageUrl}
+                                alt={profile.name}
+                                width={36}
+                                height={36}
+                                className="h-full w-full object-cover"
+                                unoptimized
+                              />
+                            ) : (
+                              profile.initials
+                            )}
+                          </span>
+                          <span className="flex-1">
+                            <span className="block text-sm font-semibold text-slate-800">{profile.name}</span>
+                            <span className="block text-[11px] text-slate-500">{profile.email}</span>
+                          </span>
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                            Padrao
+                          </span>
+                        </div>
                         {switcherAccounts.map((account) => (
                           <button
                             key={account.email}
@@ -1674,7 +1727,7 @@ export default function KnexitWorkspaceAccessPage({
                   </div>
                   <div className="mx-auto w-full max-w-md text-center">
                     <p className="text-sm text-slate-700">
-                      Comece do zero com uma nova conta para um e-mail personalizado, como voce@knexmail.com
+                      Comece do zero com uma nova conta para um e-mail personalizado, como você@knexmail.com
                     </p>
                     <Link
                       href="/knexit-workspace/acesso/novo"
