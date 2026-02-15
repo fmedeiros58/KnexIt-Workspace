@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthScaffold from "../_components/AuthScaffold";
+import AccessFlowGuide from "../_components/AccessFlowGuide";
 import {
   buildAccessStepHref,
   buildModeFromPurpose,
@@ -273,10 +274,6 @@ export default function CodigoStepClient() {
     await finalizeLogin("recovery");
   };
 
-  const backToMethod = () => {
-    router.push(buildAccessStepHref("metodo", searchParams, { email }));
-  };
-
   const backToPassword = () => {
     router.push(buildAccessStepHref("senha", searchParams, { email }));
   };
@@ -289,6 +286,17 @@ export default function CodigoStepClient() {
         : purpose === "oauth_verify"
           ? "Confirmar acesso"
           : "Entrar com codigo";
+  const actionLabel =
+    purpose === "signup"
+      ? "Autenticar"
+      : purpose === "recovery"
+        ? "Confirmar codigo"
+        : purpose === "oauth_verify"
+          ? "Autenticar"
+          : "Fazer login";
+  const nextStepDescription = purpose === "recovery"
+    ? "Após validar o código, defina sua nova senha para concluir a recuperação."
+    : "Digite o código de 6 dígitos enviado para este e-mail e conclua o acesso.";
 
   return (
     <AuthScaffold>
@@ -299,6 +307,8 @@ export default function CodigoStepClient() {
         </div>
         <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">OTP</span>
       </div>
+
+      <AccessFlowGuide step={3} nextStep={nextStepDescription} />
 
       {notice ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>
@@ -336,7 +346,7 @@ export default function CodigoStepClient() {
             disabled={verifying || otpCode.length !== 6}
             className="inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-[#0f5bd6] px-4 py-3 text-center text-sm font-semibold leading-snug text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {verifying ? "Validando..." : "Confirmar codigo"}
+            {verifying ? "Validando..." : actionLabel}
           </button>
         ) : null}
 
@@ -382,11 +392,7 @@ export default function CodigoStepClient() {
             {resendCooldown > 0 ? `Reenviar em ${resendCooldown}s` : sending ? "Enviando..." : "Reenviar codigo"}
           </button>
 
-          <button
-            type="button"
-            onClick={purpose === "signup" ? backToPassword : backToMethod}
-            className="font-semibold text-blue-700 hover:underline"
-          >
+          <button type="button" onClick={backToPassword} className="font-semibold text-blue-700 hover:underline">
             Voltar
           </button>
         </div>

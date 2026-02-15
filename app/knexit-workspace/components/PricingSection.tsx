@@ -208,7 +208,7 @@ export default function PricingSection() {
   }, [updateActiveIndex]);
 
   return (
-    <section id="precos" className="bg-[#E5F3F4] py-14">
+    <section id="precos" className="bg-[var(--kx-bg)] py-14">
       <div className="mx-auto max-w-6xl space-y-10 px-4 md:px-6">
         <div className="space-y-3 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Planos e preços</h2>

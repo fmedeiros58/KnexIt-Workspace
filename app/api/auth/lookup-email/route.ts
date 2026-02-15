@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const RATE_LIMIT_MAX = 6;
+const RATE_LIMIT_MAX = 100;
 
 type RateEntry = {
   count: number;
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const ip = getClientIp(req);
     if (hitRateLimit(`ip:${ip || "unknown"}`) || hitRateLimit(`email:${email}`)) {
       return Response.json(
-        { message: "Limite de tentativas atingido. Tente novamente em instantes." },
+        { message: "Limite de tentativas atingido nesta etapa. Aguarde 15 minutos para tentar novamente." },
         { status: 429 },
       );
     }
@@ -85,6 +85,11 @@ export async function POST(req: NextRequest) {
     }
 
     const exists = Boolean(user) || profileExists;
+    const userMeta = (user?.user_metadata as { two_step_enabled?: boolean; twoStepEnabled?: boolean } | null) ?? null;
+    const appMeta = (user?.app_metadata as { two_step_enabled?: boolean; twoStepEnabled?: boolean } | null) ?? null;
+    const twoStepRequired = Boolean(
+      userMeta?.two_step_enabled || userMeta?.twoStepEnabled || appMeta?.two_step_enabled || appMeta?.twoStepEnabled,
+    );
     const providersKnown = providers.size > 0;
     const hasEmailProvider = providers.has("email");
     const hasPassword = exists ? (providersKnown ? hasEmailProvider : true) : false;
@@ -102,7 +107,10 @@ export async function POST(req: NextRequest) {
     const domain = email.split("@")[1] ?? "";
     console.info("[auth] lookup-email", { exists, providers: Array.from(providers), domain });
 
-    return Response.json({ exists, hasPassword, providers: providersFlags, methods }, { status: 200 });
+    return Response.json(
+      { exists, hasPassword, providers: providersFlags, methods, twoStepRequired },
+      { status: 200 },
+    );
   } catch (error) {
     console.error("lookup-email failed", error);
     return Response.json(

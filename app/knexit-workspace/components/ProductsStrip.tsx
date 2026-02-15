@@ -10,7 +10,7 @@ const CARD_COLORS = PRODUCT_CARD_COLORS;
 
 export default function ProductsStrip() {
   return (
-    <section id="produtos" className="bg-[#E5F3F4] py-14">
+    <section id="produtos" className="bg-[var(--kx-bg)] py-14">
       <div className="mx-auto max-w-6xl px-4 md:px-6 space-y-6">
         <div className="space-y-2 text-center">
           <h2 className="text-3xl font-bold text-slate-900">O Knexspace One inclui:</h2>

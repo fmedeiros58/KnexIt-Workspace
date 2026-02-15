@@ -101,7 +101,7 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
                       key={product.slug}
                       href={`/landing-produtos/${product.slug}`}
                       onClick={onClose}
-                      className="flex items-start gap-4 rounded-lg border border-transparent px-3 py-1.5 text-left no-underline transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
+                      className="flex items-start gap-4 rounded-lg border border-transparent px-3 py-1.5 text-left no-underline transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--kx-focus)] focus-visible:ring-offset-2"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center">
                         <Image
@@ -128,7 +128,7 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
                       key={product.slug}
                       href={`/landing-produtos/${product.slug}`}
                       onClick={onClose}
-                      className="group flex items-start gap-4 rounded-lg border border-transparent px-3 py-1 text-left no-underline transition hover:bg-slate-50 hover:ring-1 hover:ring-inset hover:ring-[#2F7E95] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2"
+                      className="group flex items-start gap-4 rounded-lg border border-transparent px-3 py-1 text-left no-underline transition hover:bg-slate-50 hover:ring-1 hover:ring-inset hover:ring-[color:var(--kx-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--kx-focus)] focus-visible:ring-offset-2"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center">
                         <Image
@@ -160,7 +160,7 @@ export default function ProductPanel({ onClose }: ProductPanelProps) {
                       key={item.label}
                       href={item.href}
                       onClick={onClose}
-                      className="block font-semibold text-slate-900 transition hover:text-indigo-600 no-underline"
+                      className="block font-semibold text-slate-900 transition hover:text-[var(--kx-primary)] no-underline"
                     >
                       {item.label}
                     </Link>

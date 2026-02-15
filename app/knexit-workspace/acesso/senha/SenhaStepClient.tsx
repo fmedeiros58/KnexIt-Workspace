@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthScaffold from "../_components/AuthScaffold";
+import AccessFlowGuide from "../_components/AccessFlowGuide";
 import {
   buildAccessStepHref,
   buildModeFromPurpose,
@@ -23,6 +24,7 @@ type LookupPayload = {
   methods?: {
     otp?: boolean;
   };
+  twoStepRequired?: boolean;
 };
 
 const LockIcon = () => (
@@ -98,7 +100,7 @@ export default function SenhaStepClient() {
     const existsFromLookup = Boolean(payload.exists);
     setExists(existsFromLookup);
     setHasPassword(Boolean(payload.hasPassword));
-    setTwoStepRequired(existsFromLookup ? Boolean(payload.methods?.otp) : true);
+    setTwoStepRequired(Boolean(payload.twoStepRequired));
   }, [email, router, searchParams]);
 
   useEffect(() => {
@@ -148,11 +150,6 @@ export default function SenhaStepClient() {
     }
 
     if (exists) {
-      if (!hasPassword) {
-        goToCode("login");
-        return;
-      }
-
       setSubmitting(true);
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
       setSubmitting(false);
@@ -204,36 +201,68 @@ export default function SenhaStepClient() {
       return;
     }
 
-    setSubmitting(true);
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(getSignupPasswordKey(email), password);
-    }
+    if (twoStepRequired) {
+      setSubmitting(true);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(getSignupPasswordKey(email), password);
+      }
 
-    const res = await fetch("/api/auth/otp/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email,
-        purpose: "signup",
-        mode: buildModeFromPurpose("signup"),
-        password,
-      }),
-    });
+      const res = await fetch("/api/auth/otp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          purpose: "signup",
+          mode: buildModeFromPurpose("signup"),
+          password,
+        }),
+      });
 
-    setSubmitting(false);
+      setSubmitting(false);
 
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { message?: string };
-      setError(payload.message ?? "Falha ao enviar codigo.");
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { message?: string };
+        setError(payload.message ?? "Falha ao enviar codigo.");
+        return;
+      }
+
+      setNotice("Codigo enviado para seu e-mail.");
+      goToCode("signup", true);
       return;
     }
 
-    setNotice("Codigo enviado para seu e-mail.");
-    goToCode("signup", true);
+    setSubmitting(true);
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
+    if (signUpError) {
+      setSubmitting(false);
+      setError(signUpError.message ?? "Nao foi possivel criar sua conta.");
+      return;
+    }
+
+    if (!signUpData?.session) {
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      setSubmitting(false);
+      if (signInError) {
+        setNotice("Conta criada. Verifique seu e-mail para confirmar o acesso.");
+        return;
+      }
+      await finalizeLogin("password");
+      return;
+    }
+
+    setSubmitting(false);
+    await finalizeLogin("password");
   };
 
   const title = exists ? "Entrar com senha" : "Crie sua senha";
   const actionLabel = exists ? "Fazer login" : "Criar conta";
+  const nextStepDescription = exists
+    ? twoStepRequired
+      ? "Depois da senha, enviaremos um código de 6 dígitos para confirmar o login."
+      : "Depois da senha validada, o acesso é liberado imediatamente."
+    : twoStepRequired
+      ? "Depois de criar a senha, enviaremos um código de 6 dígitos para concluir a criação da conta."
+      : "Depois de criar a senha, sua conta é criada e o acesso é liberado.";
 
   return (
     <AuthScaffold>
@@ -244,6 +273,8 @@ export default function SenhaStepClient() {
         </div>
         <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">Acesso</span>
       </div>
+
+      <AccessFlowGuide step={2} nextStep={nextStepDescription} />
 
       <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
         <span>Metodo por senha</span>
@@ -336,7 +367,7 @@ export default function SenhaStepClient() {
 
           <button
             type="submit"
-            disabled={submitting || (exists && !hasPassword)}
+            disabled={submitting}
             className="inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-[#0f5bd6] px-4 py-3 text-center text-sm font-semibold leading-snug text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Processando..." : actionLabel}

@@ -484,13 +484,13 @@ export default function KnexspaceMenu({
         <div className="hidden md:flex w-full items-center justify-end gap-6 text-[13px] font-semibold lg:gap-7 lg:text-[15px] xl:hidden">
           <Link
             href={secondaryCtaHref}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[#2F7E95] hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[var(--kx-primary)] hover:no-underline lg:text-[14px]"
           >
             {secondaryCtaLabel}
           </Link>
           <Link
             href={primaryCtaHref}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#2F7E95] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[var(--kx-primary)] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
           >
             {primaryCtaLabel}
           </Link>
@@ -556,13 +556,13 @@ export default function KnexspaceMenu({
           ) : null}
           <Link
             href={secondaryCtaHref}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[#2F7E95] hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/80 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white no-underline transition-colors hover:border-slate-300 hover:bg-white hover:text-[var(--kx-primary)] hover:no-underline lg:text-[14px]"
           >
             {secondaryCtaLabel}
           </Link>
           <Link
             href={primaryCtaHref}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#2F7E95] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[var(--kx-primary)] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
           >
             {primaryCtaLabel}
           </Link>

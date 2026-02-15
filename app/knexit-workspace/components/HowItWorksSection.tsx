@@ -24,7 +24,7 @@ export default function HowItWorksSection() {
   ];
 
   return (
-    <section className="bg-[#E5F3F4] pt-6 pb-12">
+    <section className="bg-[var(--kx-bg)] pt-6 pb-12">
       <div className="mx-auto max-w-6xl space-y-6 px-4 md:px-6">
         <div className="space-y-2 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Como o Knexspace One se encaixa no seu dia a dia</h2>
@@ -43,7 +43,7 @@ export default function HowItWorksSection() {
                 onClick={() => setActiveIndex(isActive ? null : index)}
                 className={`rounded-2xl border bg-white p-4 text-left shadow-sm transition ${
                   isActive
-                    ? "border-2 border-[#3E8FA3] ring-1 ring-[#3E8FA3]/30"
+                    ? "border-2 border-[color:var(--kx-primary)] ring-1 ring-[color:var(--kx-primary)] ring-opacity-30"
                     : "border-slate-200 hover:-translate-y-0.5 hover:shadow-md"
                 }`}
                 aria-expanded={isActive}

@@ -22,7 +22,7 @@ export default function Header({
 }: HeaderProps) {
   return (
     <header
-      className="sticky top-0 z-30 flex flex-col border-b border-slate-200/70 bg-[#3E8FA3] text-slate-900 backdrop-blur"
+      className="sticky top-0 z-30 flex flex-col border-b border-white/10 bg-[var(--kx-header)] text-white backdrop-blur"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <div className="flex min-h-[3.85rem] items-center justify-between gap-3 px-3">
@@ -37,7 +37,7 @@ export default function Header({
           </button>
           <div className="min-w-0">
             {title === "Knexspace One" ? (
-              <Link href="/knexit-workspace" aria-label="Ir para a página principal">
+              <Link href="/knexit-workspace" aria-label="Ir para a p?gina principal">
                 <Image
                   src="/brand/knexspace-one.svg"
                   alt="Knexspace One"
@@ -47,9 +47,9 @@ export default function Header({
                 />
               </Link>
             ) : (
-              <p className="truncate text-[26px] font-semibold">{title}</p>
+              <p className="truncate text-[26px] font-semibold text-white">{title}</p>
             )}
-            {subtitle ? <p className="truncate text-xs text-slate-500">{subtitle}</p> : null}
+            {subtitle ? <p className="truncate text-xs text-white/70">{subtitle}</p> : null}
           </div>
         </div>
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">{rightSlot}</div>

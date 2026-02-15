@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const tokenRegex = /^\d{6}$/;
 const VERIFY_WINDOW_MS = 15 * 60 * 1000;
-const VERIFY_LIMIT = 5;
+const VERIFY_LIMIT = 100;
 const WARNING_THRESHOLD = 2;
 
 const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
@@ -71,7 +71,10 @@ export async function POST(req: NextRequest) {
   }
 
   if ((failCount ?? 0) >= VERIFY_LIMIT) {
-    return Response.json({ message: "Muitas tentativas. Aguarde alguns minutos." }, { status: 429 });
+    return Response.json(
+      { message: "Limite de tentativas atingido nesta etapa. Aguarde 15 minutos para tentar novamente." },
+      { status: 429 },
+    );
   }
 
   const sendWarningIfNeeded = async (nextFailCount: number) => {
