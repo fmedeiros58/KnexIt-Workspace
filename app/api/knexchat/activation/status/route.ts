@@ -17,26 +17,22 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await admin
-    .from("knexchat_profiles")
-    .select("nickname, display_name, terms_accepted_at, activated_at")
+    .from("knexchat_memberships")
+    .select("status, knexchat_email, email_normalized, email_verified_at, activated_at, created_at, updated_at")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
-    return Response.json({ message: "Falha ao consultar perfil." }, { status: 500 });
+    return Response.json({ message: "Falha ao consultar ativacao." }, { status: 500 });
   }
 
-  const hasProfile = Boolean(data);
-  const hasNickname = Boolean(data?.nickname);
-  const activated = Boolean(data?.activated_at);
+  const activated = data?.status === "active";
 
   return Response.json(
     {
       authenticated: true,
-      has_profile: hasProfile,
-      has_nickname: hasNickname,
       activated,
-      profile: data ?? null,
+      membership: data ?? null,
     },
     { status: 200 },
   );

@@ -4,43 +4,39 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
-import {
-  getNicknameErrorMessage,
-  getNicknameRulesLabel,
-  validateNickname,
-} from "@/lib/knexchat/nickname";
 
 type ActivationStatus = {
   authenticated: boolean;
-  has_profile: boolean;
-  has_nickname: boolean;
   activated: boolean;
-  profile: {
-    nickname: string | null;
-    display_name: string | null;
-    terms_accepted_at: string | null;
-    activated_at: string | null;
+  membership?: {
+    status?: "pending" | "active" | "locked";
+    knexchat_email?: string | null;
+    email_verified_at?: string | null;
+    activated_at?: string | null;
   } | null;
 };
 
-type NicknameStatus = "idle" | "invalid" | "checking" | "available" | "taken" | "reserved";
+type Mode = "ecosystem" | "custom";
+type Phase = "email" | "code";
 
 const supabase = identitySupabase();
 
 export default function ActivationPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<ActivationStatus | null>(null);
-  const [nickname, setNickname] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [nicknameStatus, setNicknameStatus] = useState<NicknameStatus>("idle");
-  const [nicknameMessage, setNicknameMessage] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("ecosystem");
+  const [email, setEmail] = useState("");
+  const [phase, setPhase] = useState<Phase>("email");
+  const [code, setCode] = useState("");
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const safeReturnTo = useMemo(() => {
     const raw = searchParams?.get("returnTo") ?? "";
@@ -48,13 +44,16 @@ export default function ActivationPageClient() {
     if (!raw.startsWith("/") || raw.startsWith("//")) return "/knexchat/web";
     return raw;
   }, [searchParams]);
+
   const activationPath = useMemo(
     () => `/knexchat/activate?returnTo=${encodeURIComponent(safeReturnTo)}`,
     [safeReturnTo],
   );
-  const loginHref = useMemo(
-    () => `/login?next=${encodeURIComponent(activationPath)}`,
-    [activationPath],
+  const loginHref = useMemo(() => `/login?next=${encodeURIComponent(activationPath)}`, [activationPath]);
+
+  const ecosystemEmail = useMemo(
+    () => session?.user?.email?.trim().toLowerCase() ?? "",
+    [session?.user?.email],
   );
 
   useEffect(() => {
@@ -76,11 +75,25 @@ export default function ActivationPageClient() {
   }, []);
 
   useEffect(() => {
-    if (loading) return;
-    if (!session) {
+    if (!loading && !session) {
       router.replace(loginHref);
     }
   }, [loading, session, loginHref, router]);
+
+  useEffect(() => {
+    if (!ecosystemEmail) return;
+    if (mode === "ecosystem") {
+      setEmail(ecosystemEmail);
+    }
+  }, [ecosystemEmail, mode]);
+
+  useEffect(() => {
+    if (!cooldown) return;
+    const timer = window.setInterval(() => {
+      setCooldown((value) => (value > 0 ? value - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
 
   const authFetch = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -96,25 +109,19 @@ export default function ActivationPageClient() {
 
   const loadStatus = useCallback(async () => {
     if (!session) return;
-    const res = await authFetch("/api/knexchat/activation/status");
-    const payload = (await res.json().catch(() => null)) as ActivationStatus | null;
-    if (!res.ok || !payload) {
-      setFormError("Nao foi possivel carregar o status da ativacao.");
-      return;
-    }
-    setStatus(payload);
-    if (payload.profile?.display_name) {
-      setDisplayName(payload.profile.display_name);
-    } else if (session.user?.user_metadata) {
-      const metadata = session.user.user_metadata as { name?: string; full_name?: string } | null;
-      const fallbackName = metadata?.name || metadata?.full_name || "";
-      if (fallbackName) setDisplayName(fallbackName);
-    }
-    if (payload.profile?.terms_accepted_at) {
-      setTermsAccepted(true);
-    }
-    if (payload.activated) {
-      router.replace(safeReturnTo);
+    try {
+      const res = await authFetch("/api/knexchat/activation/status");
+      const payload = (await res.json().catch(() => null)) as ActivationStatus | null;
+      if (!res.ok || !payload) {
+        setError("Nao foi possivel carregar o status da ativacao.");
+        return;
+      }
+      setStatus(payload);
+      if (payload.activated) {
+        router.replace(safeReturnTo);
+      }
+    } catch {
+      setError("Nao foi possivel carregar o status da ativacao.");
     }
   }, [authFetch, router, safeReturnTo, session]);
 
@@ -123,129 +130,74 @@ export default function ActivationPageClient() {
     loadStatus();
   }, [loadStatus, session]);
 
-  const loadSuggestions = useCallback(
-    async (base?: string) => {
-      if (!session) return;
-      const res = await authFetch("/api/knexchat/nickname/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base }),
-      });
-      const payload = (await res.json().catch(() => null)) as { suggestions?: string[] } | null;
-      if (!res.ok || !payload?.suggestions) return;
-      setSuggestions(payload.suggestions);
-      if (!nickname && payload.suggestions[0]) {
-        setNickname(payload.suggestions[0]);
-      }
-    },
-    [authFetch, nickname, session],
-  );
-
-  useEffect(() => {
-    if (!session) return;
-    if (!status) return;
-    const base = displayName || session.user?.email?.split("@")[0] || "";
-    loadSuggestions(base);
-  }, [displayName, loadSuggestions, session, status]);
-
-  useEffect(() => {
-    if (!nickname) {
-      setNicknameStatus("idle");
-      setNicknameMessage(null);
+  const handleSendCode = async () => {
+    setError(null);
+    setNotice(null);
+    const targetEmail = (email || "").trim().toLowerCase();
+    if (!targetEmail) {
+      setError("Informe um e-mail valido.");
       return;
     }
-    const validation = validateNickname(nickname);
-    if (!validation.ok) {
-      setNicknameStatus("invalid");
-      setNicknameMessage(getNicknameErrorMessage(validation.error));
+    if (mode === "ecosystem" && targetEmail !== ecosystemEmail) {
+      setError("Use o e-mail do ecossistema neste modo.");
       return;
     }
-
-    setNicknameStatus("checking");
-    setNicknameMessage(null);
-    let active = true;
-    const timer = window.setTimeout(async () => {
-      try {
-        const res = await authFetch(
-          `/api/knexchat/nickname/check?value=${encodeURIComponent(nickname)}`,
-        );
-        const payload = (await res.json().catch(() => null)) as
-          | { ok: boolean; available?: boolean; error?: string }
-          | null;
-        if (!active) return;
-        if (!res.ok || !payload) {
-          setNicknameStatus("invalid");
-          setNicknameMessage("Nao foi possivel validar agora.");
-          return;
-        }
-        if (!payload.ok) {
-          const isReserved = payload.error === "reserved";
-          setNicknameStatus(isReserved ? "reserved" : "invalid");
-          setNicknameMessage(isReserved ? "Esse nickname esta reservado." : "Formato invalido.");
-          return;
-        }
-        setNicknameStatus(payload.available ? "available" : "taken");
-        setNicknameMessage(payload.available ? "Disponivel" : "Indisponivel");
-      } catch {
-        if (!active) return;
-        setNicknameStatus("invalid");
-        setNicknameMessage("Nao foi possivel validar agora.");
-      }
-    }, 400);
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-    };
-  }, [authFetch, nickname]);
-
-  const handleActivate = async () => {
-    setFormError(null);
-    const validation = validateNickname(nickname);
-    if (!validation.ok) {
-      setNicknameStatus("invalid");
-      setNicknameMessage(getNicknameErrorMessage(validation.error));
-      return;
-    }
-    if (!termsAccepted && !status?.profile?.terms_accepted_at) {
-      setFormError("Voce precisa aceitar os termos para continuar.");
-      return;
-    }
-    setSubmitting(true);
+    setSending(true);
     try {
-      const res = await authFetch("/api/knexchat/activate", {
+      const res = await authFetch("/api/knexchat/activation/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nickname,
-          display_name: displayName || undefined,
-          accept_terms: termsAccepted,
-        }),
+        body: JSON.stringify({ email: targetEmail, mode }),
       });
-      const payload = (await res.json().catch(() => null)) as { code?: string; message?: string } | null;
+      const payload = (await res.json().catch(() => null)) as { message?: string; cooldown?: number } | null;
       if (!res.ok) {
-        if (payload?.code === "nickname_taken") {
-          setNicknameStatus("taken");
-          setNicknameMessage("Esse nickname ja esta em uso.");
-          await loadSuggestions(nickname);
-          return;
-        }
-        if (payload?.code === "terms_required") {
-          setFormError("Voce precisa aceitar os termos para continuar.");
-          return;
-        }
-        setFormError(payload?.message ?? "Falha ao ativar.");
+        setError(payload?.message ?? "Falha ao enviar codigo.");
+        return;
+      }
+      setPhase("code");
+      setNotice("Codigo enviado para o e-mail informado.");
+      if (payload?.cooldown) {
+        setCooldown(payload.cooldown);
+      } else {
+        setCooldown(60);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    setError(null);
+    setNotice(null);
+    const targetEmail = (email || "").trim().toLowerCase();
+    if (!targetEmail) {
+      setError("Informe um e-mail valido.");
+      return;
+    }
+    if (!/^[0-9]{6}$/.test(code)) {
+      setError("Informe o codigo de 6 digitos.");
+      return;
+    }
+    setVerifying(true);
+    try {
+      const res = await authFetch("/api/knexchat/activation/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: targetEmail, code }),
+      });
+      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        setError(payload?.message ?? "Falha ao validar codigo.");
         return;
       }
       router.replace(safeReturnTo);
     } finally {
-      setSubmitting(false);
+      setVerifying(false);
     }
   };
 
-  const canSubmit =
-    nicknameStatus === "available" &&
-    !submitting &&
-    (termsAccepted || Boolean(status?.profile?.terms_accepted_at));
+  const canSend = !sending && Boolean(email) && (mode === "custom" || email === ecosystemEmail);
+  const canVerify = !verifying && /^[0-9]{6}$/.test(code);
 
   if (loading) {
     return (
@@ -263,80 +215,101 @@ export default function ActivationPageClient() {
         </div>
         <h1 className="text-2xl font-semibold">Ativar KnexChat</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Escolha um nickname publico para entrar no KnexChat.
+          Confirme seu e-mail para liberar o acesso ao KnexChat.
         </p>
 
+        {status?.membership?.status === "locked" ? (
+          <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            Sua ativacao foi bloqueada. Entre em contato com o suporte.
+          </p>
+        ) : null}
+
         <div className="mt-6 space-y-4">
-          <label className="block text-sm font-semibold text-slate-700">Nickname</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">@</span>
-            <input
-              value={nickname}
-              onChange={(event) => setNickname(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-8 py-3 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-              placeholder="seu.nick"
-            />
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-slate-700">Qual e-mail usar?</p>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === "ecosystem"}
+                onChange={() => setMode("ecosystem")}
+                className="h-4 w-4 text-blue-600"
+              />
+              Usar meu e-mail do ecossistema ({ecosystemEmail || "indisponivel"})
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === "custom"}
+                onChange={() => setMode("custom")}
+                className="h-4 w-4 text-blue-600"
+              />
+              Usar outro e-mail para o KnexChat
+            </label>
           </div>
-          <p className="text-xs text-slate-500">{getNicknameRulesLabel()}</p>
-          {nicknameMessage ? (
-            <p
-              className={`text-xs ${
-                nicknameStatus === "available"
-                  ? "text-emerald-600"
-                  : nicknameStatus === "checking"
-                    ? "text-slate-500"
-                    : "text-rose-600"
-              }`}
-            >
-              {nicknameStatus === "checking" ? "Verificando..." : nicknameMessage}
-            </p>
-          ) : null}
 
-          {suggestions.length ? (
-            <div className="flex flex-wrap gap-2">
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => setNickname(suggestion)}
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                >
-                  @{suggestion}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <label className="block text-sm font-semibold text-slate-700">Nome de exibicao (opcional)</label>
+          <label className="block text-sm font-semibold text-slate-700">E-mail</label>
           <input
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-            placeholder="Como voce quer ser chamado"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            disabled={mode === "ecosystem"}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-blue-500 focus:outline-none disabled:opacity-70"
+            placeholder="seu@email.com"
           />
 
-          {!status?.profile?.terms_accepted_at ? (
-            <label className="flex items-start gap-2 text-xs text-slate-600">
+          {phase === "email" ? (
+            <button
+              type="button"
+              disabled={!canSend}
+              onClick={handleSendCode}
+              className="mt-2 inline-flex w-full items-center justify-center rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:opacity-60"
+            >
+              {sending ? "Enviando..." : "Enviar codigo"}
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <label className="block text-sm font-semibold text-slate-700">Codigo de 6 digitos</label>
               <input
-                type="checkbox"
-                checked={termsAccepted}
-                onChange={(event) => setTermsAccepted(event.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600"
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center tracking-[0.4em] text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                placeholder="000000"
+                inputMode="numeric"
               />
-              <span>Concordo com os Termos de Servico e Politica de Privacidade.</span>
-            </label>
-          ) : null}
+              <button
+                type="button"
+                disabled={!canVerify}
+                onClick={handleVerify}
+                className="inline-flex w-full items-center justify-center rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {verifying ? "Validando..." : "Confirmar codigo"}
+              </button>
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <button
+                  type="button"
+                  disabled={sending || cooldown > 0}
+                  onClick={handleSendCode}
+                  className="font-semibold text-blue-700 hover:underline disabled:text-slate-400"
+                >
+                  {cooldown > 0 ? `Reenviar em ${cooldown}s` : "Reenviar codigo"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhase("email");
+                    setCode("");
+                  }}
+                  className="font-semibold text-slate-600 hover:underline"
+                >
+                  Trocar e-mail
+                </button>
+              </div>
+            </div>
+          )}
 
-          {formError ? <p className="text-sm text-rose-600">{formError}</p> : null}
-
-          <button
-            type="button"
-            disabled={!canSubmit}
-            onClick={handleActivate}
-            className="mt-2 inline-flex w-full items-center justify-center rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:opacity-60"
-          >
-            {submitting ? "Ativando..." : "Ativar"}
-          </button>
+          {notice ? <p className="text-sm text-emerald-600">{notice}</p> : null}
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
         </div>
       </div>
     </main>

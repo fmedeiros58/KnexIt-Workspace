@@ -27,6 +27,90 @@ export type Database = {
         };
         Relationships: [];
       };
+      knexchat_memberships: {
+        Row: {
+          user_id: string;
+          status: string;
+          knexchat_email: string | null;
+          email_normalized: string | null;
+          email_verified_at: string | null;
+          activated_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          status?: string;
+          knexchat_email?: string | null;
+          email_normalized?: string | null;
+          email_verified_at?: string | null;
+          activated_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          status?: string;
+          knexchat_email?: string | null;
+          email_normalized?: string | null;
+          email_verified_at?: string | null;
+          activated_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      knexchat_verification_tokens: {
+        Row: {
+          id: string;
+          user_id: string;
+          purpose: string;
+          destination_email: string;
+          token_hash: string;
+          expires_at: string;
+          attempts: number;
+          max_attempts: number;
+          sent_count: number;
+          last_sent_at: string | null;
+          consumed_at: string | null;
+          created_at: string;
+          ip_address: string | null;
+          user_agent: string | null;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          purpose: string;
+          destination_email: string;
+          token_hash: string;
+          expires_at: string;
+          attempts?: number;
+          max_attempts?: number;
+          sent_count?: number;
+          last_sent_at?: string | null;
+          consumed_at?: string | null;
+          created_at?: string;
+          ip_address?: string | null;
+          user_agent?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          purpose?: string;
+          destination_email?: string;
+          token_hash?: string;
+          expires_at?: string;
+          attempts?: number;
+          max_attempts?: number;
+          sent_count?: number;
+          last_sent_at?: string | null;
+          consumed_at?: string | null;
+          created_at?: string;
+          ip_address?: string | null;
+          user_agent?: string | null;
+        };
+        Relationships: [];
+      };
       knexchat_threads: {
         Row: {
           id: string;

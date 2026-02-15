@@ -59,6 +59,7 @@ export default function SenhaStepClient() {
 
   const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
   const returnTo = useMemo(() => resolveReturnTo(searchParams, appBaseUrl), [appBaseUrl, searchParams]);
+  const stayOnLogin = useMemo(() => searchParams.get("stay") === "1", [searchParams]);
 
   const [loading, setLoading] = useState(true);
   const [exists, setExists] = useState(searchParams.get("exists") === "1");
@@ -72,6 +73,30 @@ export default function SenhaStepClient() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (stayOnLogin) return;
+    let active = true;
+    const redirectIfLogged = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      if (!data?.session) return;
+      const target = await resolvePostLoginTarget(returnTo, data.session.access_token);
+      router.replace(target);
+    };
+
+    redirectIfLogged();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) return;
+      resolvePostLoginTarget(returnTo, session.access_token).then((target) => router.replace(target));
+    });
+
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [returnTo, router, stayOnLogin]);
 
   const refreshLookup = useCallback(async () => {
     if (!isEmail(email)) {

@@ -161,10 +161,6 @@ const STORAGE_KEY = "knexchat.identity";
 const CHAT_STATE_KEY = "knexchat.state.v1";
 const DIRECTORY_KEY = "knexchat.directory.v1";
 const INBOX_KEY = "knexchat.inbox.v1";
-const SHOW_OTP_PREVIEW = process.env.NEXT_PUBLIC_KNEXCHAT_SHOW_OTP === "1";
-const MOCK_RESEND_WARNING =
-  "The knexit.com domain is not verified. Please, add and verify your domain on https://resend.com/domains";
-const OTP_CODE_REGEX = /^\d{6}$/;
 const supabase = identitySupabase();
 
 type BeforeInstallPromptEvent = Event & {
@@ -1253,24 +1249,6 @@ export default function KnexChatPage() {
   const [serverSyncError, setServerSyncError] = useState<string | null>(null);
   const [realtimeKey, setRealtimeKey] = useState(0);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
-  const [registeringName, setRegisteringName] = useState("");
-  const [registeringEmail, setRegisteringEmail] = useState("");
-  const [activationStep, setActivationStep] = useState<"email" | "otp">("email");
-  const [otpGenerated, setOtpGenerated] = useState<string | null>(null);
-  const [otpInput, setOtpInput] = useState("");
-  const [activationError, setActivationError] = useState<string | null>(null);
-  const [activationNotice, setActivationNotice] = useState<string | null>(null);
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-
-  const workspaceEmail = useMemo(
-    () => normalizeEmail(authSession?.user?.email ?? ""),
-    [authSession?.user?.email],
-  );
-  const workspaceName = useMemo(() => {
-    const metadata = authSession?.user?.user_metadata as { name?: string; full_name?: string } | null;
-    return normalizeName(metadata?.name ?? metadata?.full_name ?? "");
-  }, [authSession?.user?.user_metadata]);
-  const isWorkspaceEmailLocked = Boolean(workspaceEmail);
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [activeThreadId, setActiveThreadId] = useState<string>(INITIAL_CONVERSATIONS[0]?.id ?? "");
@@ -3381,14 +3359,6 @@ export default function KnexChatPage() {
   }, [authFetch, authSession?.access_token, isAuthReady]);
 
   useEffect(() => {
-    if (!workspaceEmail) return;
-    setRegisteringEmail((prev) => (normalizeEmail(prev) === workspaceEmail ? prev : workspaceEmail));
-    if (workspaceName) {
-      setRegisteringName((prev) => prev || workspaceName);
-    }
-  }, [workspaceEmail, workspaceName]);
-
-  useEffect(() => {
     if (!isAuthReady) return;
     if (!authSession?.user?.email) {
       setIdentity(null);
@@ -3854,129 +3824,7 @@ export default function KnexChatPage() {
     router.replace(`/knexchat/activate?returnTo=${encodeURIComponent(returnTo)}`);
   }, [entitlementBlocked, pathname, router, searchQuery]);
 
-  const handleSendCode = async () => {
-    const normalizedName = normalizeName(registeringName);
-    if (!normalizedName) {
-      setActivationError("Informe seu nome.");
-      return;
-    }
-    const normalized = normalizeEmail(registeringEmail);
-    if (!normalized || !isValidEmail(normalized)) {
-      setActivationError("Informe um e-mail válido.");
-      return;
-    }
-    if (workspaceEmail && normalized !== workspaceEmail) {
-      setActivationError(`Use o e-mail da sua conta Knexit (${workspaceEmail}) para ativar o KnexChat.`);
-      return;
-    }
-    setIsSendingOtp(true);
-    setActivationError(null);
-    setActivationNotice(null);
-    try {
-      const res = await fetch("/api/auth/otp/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalized, name: normalizedName }),
-      });
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(payload?.message ?? "Falha ao enviar cÃ³digo.");
-      }
-      if (SHOW_OTP_PREVIEW) {
-        setOtpGenerated("000000");
-      } else {
-        setOtpGenerated(null);
-      }
-      setOtpInput("");
-      setActivationError(null);
-      setActivationNotice("Código de 6 dígitos enviado para seu e-mail.");
-      setActivationStep("otp");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Falha ao enviar código.";
-      setActivationError(message);
-      setActivationNotice(null);
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
 
-  const handleConfirmOtp = async () => {
-    const normalized = normalizeEmail(registeringEmail);
-    const token = otpInput.trim();
-    if (!normalized || !token) {
-      setActivationError("Código inválido.");
-      return;
-    }
-    if (workspaceEmail && normalized !== workspaceEmail) {
-      setActivationError(`Use o e-mail da sua conta Knexit (${workspaceEmail}) para ativar o KnexChat.`);
-      return;
-    }
-    if (!OTP_CODE_REGEX.test(token)) {
-      setActivationError("Informe o código de 6 dígitos.");
-      return;
-    }
-    setIsSendingOtp(true);
-    setActivationError(null);
-    try {
-      const res = await fetch("/api/auth/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalized, token }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as {
-        message?: string;
-        session?: { access_token?: string; refresh_token?: string };
-      };
-      if (!res.ok) {
-        throw new Error(payload?.message ?? "Falha ao validar cÃ³digo.");
-      }
-      if (payload?.session?.access_token && payload?.session?.refresh_token) {
-        await supabase.auth.setSession({
-          access_token: payload.session.access_token,
-          refresh_token: payload.session.refresh_token,
-        });
-      }
-      const accessToken =
-        payload?.session?.access_token ||
-        (await supabase.auth.getSession().then((result) => result.data.session?.access_token));
-      if (accessToken) {
-        try {
-          const normalizedName = normalizeName(registeringName);
-          const res = await fetch("/api/knexchat/directory", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              email: normalized,
-              name: normalizedName || undefined,
-            }),
-          });
-          if (res.status === 409) {
-            // Already registered, continue.
-          } else if (!res.ok) {
-            throw new Error("directory_registration_failed");
-          }
-        } catch {
-          setActivationError("Falha ao registrar sua conta KnexChat. Tente novamente.");
-          return;
-        }
-      }
-      setIsKnexchatActivated(true);
-      setActivationStep("email");
-      setOtpGenerated(null);
-      setOtpInput("");
-      setActivationError(null);
-      setActivationNotice(null);
-      router.replace(chatHref);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Falha ao validar o código.";
-      setActivationError(message);
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
 
   const handleLogout = async () => {
     try {
@@ -3991,14 +3839,6 @@ export default function KnexChatPage() {
     }
     setIdentity(null);
     setEntitlementBlocked(false);
-    setRegisteringName("");
-    setRegisteringEmail("");
-    setOtpGenerated(null);
-    setOtpInput("");
-    setActivationError(null);
-    setActivationNotice(null);
-    setIsSendingOtp(false);
-    setActivationStep("email");
     setHandledJoinToken(null);
     resetChatState();
     router.replace(activationHref);
@@ -10127,167 +9967,3 @@ export default function KnexChatPage() {
   );
 }
 
-type ActivationScreenProps = {
-  headingClassName: string;
-  registeringName: string;
-  registeringEmail: string;
-  onNameChange: (value: string) => void;
-  onEmailChange: (value: string) => void;
-  activationStep: "email" | "otp";
-  otpInput: string;
-  otpGenerated: string | null;
-  activationError: string | null;
-  activationNotice: string | null;
-  isSendingOtp: boolean;
-  showOtpPreview: boolean;
-  lockEmail?: boolean;
-  onSendCode: () => Promise<void> | void;
-  onOtpChange: (value: string) => void;
-  onConfirmOtp: () => void;
-  onEditEmail: () => void;
-};
-
-function ActivationScreen({
-  headingClassName,
-  registeringName,
-  registeringEmail,
-  onNameChange,
-  onEmailChange,
-  activationStep,
-  otpInput,
-  otpGenerated,
-  activationError,
-  activationNotice,
-  isSendingOtp,
-  showOtpPreview,
-  lockEmail = false,
-  onSendCode,
-  onOtpChange,
-  onConfirmOtp,
-  onEditEmail,
-}: ActivationScreenProps) {
-  return (
-    <div className="relative flex min-h-[100svh] w-full items-center justify-center px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
-      <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-6 lg:p-8">
-        <div className="text-center">
-          <h1 className={`${headingClassName} text-3xl font-semibold sm:text-4xl md:text-5xl`}>
-            <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
-              KnexChat
-            </span>
-          </h1>
-        </div>
-        <div className="mt-5 space-y-2 text-left sm:mt-6">
-          <p className={`${headingClassName} text-base font-semibold text-slate-900 sm:text-lg`}>Ativar KnexChat</p>
-          <p className="text-sm text-slate-700 sm:text-base">
-            Use seu e-mail para criar seu Knex ID (equivalente ao numero do WhatsApp).
-          </p>
-        </div>
-
-        {activationStep === "email" ? (
-          <form
-            className="mt-6 space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSendCode();
-            }}
-          >
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">NOME</label>
-              <input
-                type="text"
-                value={registeringName}
-                onChange={(event) => onNameChange(event.target.value)}
-                placeholder="Seu nome"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                disabled={isSendingOtp}
-                required
-              />
-            </div>
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.2em] text-slate-700">E-MAIL</label>
-                    <input
-                      type="email"
-                      value={registeringEmail}
-                      onChange={(event) => onEmailChange(event.target.value)}
-                      placeholder="voce@exemplo.com"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                      disabled={isSendingOtp || lockEmail}
-                      required
-                    />
-                  </div>
-                  {lockEmail ? (
-                    <p className="text-xs text-slate-500">Usaremos o e-mail da sua conta Knexit.</p>
-                  ) : null}
-            {showOtpPreview ? (
-              <p className="text-sm text-slate-700">{MOCK_RESEND_WARNING}</p>
-            ) : null}
-            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-            <button
-              type="submit"
-              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSendingOtp}
-            >
-              {isSendingOtp ? "Enviando..." : "Enviar codigo"}
-            </button>
-          </form>
-        ) : (
-          <form
-            className="mt-6 space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onConfirmOtp();
-            }}
-          >
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-                    <span>E-mail: {registeringEmail}</span>
-                    {lockEmail ? null : (
-                      <button
-                        type="button"
-                        onClick={onEditEmail}
-                        className="text-blue-600 transition hover:text-blue-500"
-                      >
-                        Editar e-mail
-                      </button>
-                    )}
-                  </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-[0.2em] text-slate-700">Codigo de 6 digitos</label>
-              <input
-                type="text"
-                value={otpInput}
-                onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 placeholder:text-slate-400 focus:border-blue-500/60 focus:outline-none"
-                disabled={isSendingOtp}
-              />
-            </div>
-            {activationNotice ? <p className="text-sm text-slate-700">{activationNotice}</p> : null}
-            {showOtpPreview && otpGenerated ? (
-              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-slate-700">
-                Codigo (debug): <span className="font-semibold text-slate-900">{otpGenerated}</span>
-              </div>
-            ) : null}
-            {activationError ? <p className="text-sm text-rose-600">{activationError}</p> : null}
-            <button
-              type="submit"
-              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSendingOtp}
-            >
-              Confirmar
-            </button>
-            <button
-              type="button"
-              onClick={onSendCode}
-              className="mx-auto flex w-fit items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-2 text-xs font-semibold text-slate-700 transition hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSendingOtp}
-            >
-              {isSendingOtp ? "Enviando..." : "Enviar novo codigo"}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}

@@ -32,6 +32,7 @@ export default function EmailStepClient() {
   const searchParams = useSearchParams();
   const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
   const returnTo = useMemo(() => resolveReturnTo(searchParams, appBaseUrl), [appBaseUrl, searchParams]);
+  const stayOnLogin = useMemo(() => searchParams.get("stay") === "1", [searchParams]);
 
   const [phase, setPhase] = useState<Phase>("email");
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
@@ -363,6 +364,30 @@ export default function EmailStepClient() {
   }, [requestOtp, searchParams]);
 
   const otpDigits = Array.from({ length: 6 }, (_, index) => otpCode[index] ?? "");
+
+  useEffect(() => {
+    if (stayOnLogin) return;
+    let active = true;
+    const redirectIfLogged = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      if (!data?.session) return;
+      const target = await resolvePostLoginTarget(returnTo, data.session.access_token);
+      router.replace(target);
+    };
+
+    redirectIfLogged();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) return;
+      resolvePostLoginTarget(returnTo, session.access_token).then((target) => router.replace(target));
+    });
+
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [returnTo, router, stayOnLogin]);
   const otpActionLabel =
     pendingPurpose === "signup" ? "Criar conta" : pendingPurpose === "oauth_verify" ? "Autenticar" : "Fazer login";
 

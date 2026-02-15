@@ -20,22 +20,6 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const [authorized, setAuthorized] = useState(false);
   const [checking, setChecking] = useState(true);
   const supabase = useMemo(() => identitySupabase(), []);
-  const trustedKey = "knex_trusted_accounts";
-
-  const isTrustedAccount = (email?: string | null) => {
-    if (!email || typeof window === "undefined") return false;
-    const normalized = email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return false;
-    try {
-      const raw = localStorage.getItem(trustedKey);
-      if (!raw) return false;
-      const parsed = JSON.parse(raw) as string[];
-      if (!Array.isArray(parsed)) return false;
-      return parsed.includes(normalized);
-    } catch {
-      return false;
-    }
-  };
 
   const normalizeRedirectPath = (path: string): string => {
     const parts = path.split("?")[0].split("/").filter(Boolean);
@@ -72,12 +56,6 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
         goLogin();
         return;
       }
-      const metadata = data.session.user?.user_metadata as { email_verified_by_code_at?: string } | null;
-      const email = data.session.user?.email ?? null;
-      if (!metadata?.email_verified_by_code_at && !isTrustedAccount(email)) {
-        goLogin("otp");
-        return;
-      }
       if (mounted) {
         setAuthorized(true);
       }
@@ -89,12 +67,6 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       if (!session) {
         goLogin();
       } else {
-        const metadata = session.user?.user_metadata as { email_verified_by_code_at?: string } | null;
-        const email = session.user?.email ?? null;
-        if (!metadata?.email_verified_by_code_at && !isTrustedAccount(email)) {
-          goLogin("otp");
-          return;
-        }
         setAuthorized(true);
       }
     });

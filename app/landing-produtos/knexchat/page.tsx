@@ -1,1 +1,5 @@
-export { default } from "@/landing-produtos/knexchat/page";
+import { redirect } from "next/navigation";
+
+export default function KnexchatLandingRedirect() {
+  redirect("/knexchat/web");
+}
