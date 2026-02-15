@@ -101,29 +101,36 @@ export default function EmailStepClient() {
       return false;
     }
     setLoading(true);
-    const res = await fetch("/api/auth/otp/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: requestEmail,
-        purpose,
-        mode: buildModeFromPurpose(purpose),
-        ...(purpose === "signup" ? { password } : {}),
-      }),
-    });
-    setLoading(false);
+    try {
+      const res = await fetch("/api/auth/otp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: requestEmail,
+          purpose,
+          mode: buildModeFromPurpose(purpose),
+          ...(purpose === "signup" ? { password } : {}),
+        }),
+      });
 
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { message?: string };
-      setError(payload.message ?? "Falha ao enviar código.");
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { message?: string };
+        setError(payload.message ?? "Falha ao enviar código.");
+        return false;
+      }
+      setEmail(requestEmail);
+      setPendingPurpose(purpose);
+      setPhase("otp");
+      setNotice("Código de 6 dígitos enviado para seu e-mail.");
+      setResendCooldown(30);
+      return true;
+    } catch (fetchError) {
+      console.error("[auth] otp_send_fetch_failed", fetchError);
+      setError("Nao foi possivel conectar ao servidor. Tente novamente.");
       return false;
+    } finally {
+      setLoading(false);
     }
-    setEmail(requestEmail);
-    setPendingPurpose(purpose);
-    setPhase("otp");
-    setNotice("Código de 6 dígitos enviado para seu e-mail.");
-    setResendCooldown(30);
-    return true;
   };
 
   const handleOAuth = async (provider: OAuthProvider) => {
@@ -179,28 +186,34 @@ export default function EmailStepClient() {
     }
 
     setLoading(true);
-    const res = await fetch("/api/auth/lookup-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: normalizedEmail }),
-    });
-    setLoading(false);
+    try {
+      const res = await fetch("/api/auth/lookup-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
 
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { message?: string };
-      setError(payload.message ?? "Falha ao validar o e-mail.");
-      return;
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { message?: string };
+        setError(payload.message ?? "Falha ao validar o e-mail.");
+        return;
+      }
+
+      const payload = (await res.json().catch(() => ({}))) as LookupPayload;
+      setExists(Boolean(payload.exists));
+      setHasPassword(Boolean(payload.hasPassword));
+      setTwoStepRequired(Boolean(payload.twoStepRequired));
+      setPassword("");
+      setConfirmPassword("");
+      setOtpCode("");
+      setPendingPurpose(null);
+      setPhase("password");
+    } catch (fetchError) {
+      console.error("[auth] lookup_email_fetch_failed", fetchError);
+      setError("Nao foi possivel conectar ao servidor. Tente novamente.");
+    } finally {
+      setLoading(false);
     }
-
-    const payload = (await res.json().catch(() => ({}))) as LookupPayload;
-    setExists(Boolean(payload.exists));
-    setHasPassword(Boolean(payload.hasPassword));
-    setTwoStepRequired(Boolean(payload.twoStepRequired));
-    setPassword("");
-    setConfirmPassword("");
-    setOtpCode("");
-    setPendingPurpose(null);
-    setPhase("password");
   };
 
   const handlePasswordStep = async (event: FormEvent) => {
@@ -279,42 +292,48 @@ export default function EmailStepClient() {
     }
 
     setLoading(true);
-    const res = await fetch("/api/auth/otp/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: normalizedEmail,
-        code: otpCode,
-        token: otpCode,
-        purpose: pendingPurpose,
-        mode: buildModeFromPurpose(pendingPurpose),
-        ...(pendingPurpose === "signup" ? { password } : {}),
-      }),
-    });
-    setLoading(false);
-
-    const payload = (await res.json().catch(() => ({}))) as {
-      message?: string;
-      session?: { access_token?: string; refresh_token?: string };
-    };
-
-    if (!res.ok) {
-      setError(payload.message ?? "Falha ao validar código.");
-      return;
-    }
-
-    if (payload.session?.access_token && payload.session?.refresh_token) {
-      const { error: setSessionError } = await supabase.auth.setSession({
-        access_token: payload.session.access_token,
-        refresh_token: payload.session.refresh_token,
+    try {
+      const res = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          code: otpCode,
+          token: otpCode,
+          purpose: pendingPurpose,
+          mode: buildModeFromPurpose(pendingPurpose),
+          ...(pendingPurpose === "signup" ? { password } : {}),
+        }),
       });
-      if (setSessionError) {
-        setError("Não foi possível abrir a sessão.");
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        session?: { access_token?: string; refresh_token?: string };
+      };
+
+      if (!res.ok) {
+        setError(payload.message ?? "Falha ao validar código.");
         return;
       }
-    }
 
-    await finalizeLogin("otp");
+      if (payload.session?.access_token && payload.session?.refresh_token) {
+        const { error: setSessionError } = await supabase.auth.setSession({
+          access_token: payload.session.access_token,
+          refresh_token: payload.session.refresh_token,
+        });
+        if (setSessionError) {
+          setError("Não foi possível abrir a sessão.");
+          return;
+        }
+      }
+
+      await finalizeLogin("otp");
+    } catch (fetchError) {
+      console.error("[auth] otp_verify_fetch_failed", fetchError);
+      setError("Nao foi possivel conectar ao servidor. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resendOtp = async () => {

@@ -50,6 +50,14 @@ const getClientIp = (req: NextRequest) => {
   return req.headers.get("x-real-ip") || "";
 };
 
+const maskEmail = (email: string) => {
+  const [local = "", domain = ""] = email.split("@");
+  if (!local || !domain) return "invalid";
+  const visible = local.slice(0, 2);
+  const masked = "*".repeat(Math.max(local.length - 2, 1));
+  return `${visible}${masked}@${domain}`;
+};
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const email = String(body?.email ?? "").trim().toLowerCase();
@@ -73,7 +81,7 @@ export async function POST(req: NextRequest) {
   }
 
   const domain = email.split("@")[1] ?? "";
-  console.info("[auth] otp_request", { flow, mode, domain });
+  console.info("[auth] otp_request", { flow, mode, domain, emailMasked: maskEmail(email) });
 
   const ip = getClientIp(req);
   if (flow === "signup" && HCAPTCHA_SECRET_KEY) {
@@ -153,6 +161,10 @@ export async function POST(req: NextRequest) {
   const resend = getResendClient();
   const resendFrom = process.env.RESEND_FROM?.trim();
   if (!resend || !resendFrom) {
+    console.error("[auth] otp_send_config_missing", {
+      resendConfigured: Boolean(resend),
+      resendFromConfigured: Boolean(resendFrom),
+    });
     return Response.json({ message: "Serviço de e-mail não configurado." }, { status: 500 });
   }
 
@@ -198,7 +210,7 @@ export async function POST(req: NextRequest) {
     `;
     const text = `Seu código de acesso: ${code}\n\nEste código expira em alguns minutos.`;
 
-    const { error: sendError } = await resend.emails.send({
+    const { data: sendData, error: sendError } = await resend.emails.send({
       from: resendFrom,
       to: [email],
       subject,
@@ -207,8 +219,20 @@ export async function POST(req: NextRequest) {
     });
 
     if (sendError) {
+      console.error("[auth] otp_send_failed", {
+        flow,
+        domain,
+        reason: sendError.message ?? "unknown",
+      });
       return Response.json({ message: sendError.message ?? "Erro ao enviar e-mail." }, { status: 500 });
     }
+
+    console.info("[auth] otp_send_ok", {
+      flow,
+      domain,
+      emailMasked: maskEmail(email),
+      messageId: sendData?.id ?? null,
+    });
 
     return Response.json({ ok: true }, { status: 200 });
   }
@@ -270,7 +294,7 @@ export async function POST(req: NextRequest) {
   `;
   const text = `Seu código de acesso: ${code}\n\nEste código expira em alguns minutos.`;
 
-  const { error: sendError } = await resend.emails.send({
+  const { data: sendData, error: sendError } = await resend.emails.send({
     from: resendFrom,
     to: [email],
     subject,
@@ -279,8 +303,20 @@ export async function POST(req: NextRequest) {
   });
 
   if (sendError) {
+    console.error("[auth] otp_send_failed", {
+      flow,
+      domain,
+      reason: sendError.message ?? "unknown",
+    });
     return Response.json({ message: sendError.message ?? "Erro ao enviar e-mail." }, { status: 500 });
   }
+
+  console.info("[auth] otp_send_ok", {
+    flow,
+    domain,
+    emailMasked: maskEmail(email),
+    messageId: sendData?.id ?? null,
+  });
 
   return Response.json({ ok: true }, { status: 200 });
 }
