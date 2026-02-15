@@ -4,7 +4,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { identitySupabase } from "../lib/identitySupabaseClient";
+
+const supabase = identitySupabase();
 
 /* ===== Tipos fortes p/ apps ===== */
 type AppSize = "sm" | "md" | "lg";
@@ -135,7 +137,7 @@ export default function Nav() {
 
           {!email && (
             <Link
-              href="/login"
+              href="/knexit-workspace/acesso?stay=1"
               className="ml-2 inline-flex items-center gap-3 no-underline rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 text-sm font-semibold"
               title="Entrar"
             >
@@ -290,7 +292,7 @@ export default function Nav() {
             </div>
           ) : (
             <Link
-              href="/login"
+              href="/knexit-workspace/acesso?stay=1"
               className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white border border-slate-300 shadow-md hover:bg-slate-50"
               title="Entrar"
               aria-label="Entrar"

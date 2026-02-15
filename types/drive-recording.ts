@@ -1,1 +1,1 @@
-export type { DriveRecordingMeta } from "../supadrive/types/drive-recording";
+export type { SupaDriveRecordingMeta } from "../supadrive/types/supadrive-recording";

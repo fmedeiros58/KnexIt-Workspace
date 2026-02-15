@@ -1,27 +1,27 @@
 const BENEFITS = [
   {
-    title: "Tudo em um so lugar",
-    body: "Aulas, lives, arquivos, documentos, tarefas e IA convivem na mesma suite para evitar dispersao e silos.",
+    title: "Tudo em um só lugar",
+    body: "Aulas, lives, arquivos, documentos, tarefas e IA convivem na mesma suíte para evitar dispersão e silos.",
   },
   {
-    title: "Foco em educacao e pesquisa",
-    body: "Pensado para escolas, universidades e laboratorios, com fluxos que respeitam o contexto academico.",
+    title: "Foco em educação e pesquisa",
+    body: "Pensado para escolas, universidades e laboratórios, com fluxos que respeitam o contexto acadêmico.",
   },
   {
-    title: "IA aplicada a pratica",
-    body: "Leitura de artigos com VioRead, revisao com KnexReview, busca inteligente com KnexSearch e assistentes via KnexAI.",
+    title: "IA aplicada à prática",
+    body: "Leitura de artigos com VioRead, revisão com KnexReview, busca inteligente com KnexSearch e assistentes via KnexAI.",
   },
   {
-    title: "Colaboracao em tempo real",
-    body: "KnexDocs, KnexChat e VioLive mantem o time em sincronia com edicao colaborativa e comunicacao direta.",
+    title: "Colaboração em tempo real",
+    body: "KnexDocs, KnexChat e VioLive mantêm o time em sincronia com edição colaborativa e comunicação direta.",
   },
   {
-    title: "Escalavel do professor a rede",
-    body: "Planos cobrem desde docentes individuais ate grandes redes, com controle de acesso e governanca.",
+    title: "Escalável do professor à rede",
+    body: "Planos cobrem desde docentes individuais até grandes redes, com controle de acesso e governança.",
   },
   {
     title: "Pronto para crescer",
-    body: "Integra KnexMail para notificacoes e KnexPay para cobranca futura, mantendo espaco para novas integracoes.",
+    body: "Integra KnexMail para notificações e KnexPay para cobrança futura, mantendo espaço para novas integrações.",
   },
 ];
 
@@ -32,7 +32,7 @@ export default function BenefitsSection() {
         <div className="space-y-2 text-center">
           <h2 className="text-3xl font-bold text-slate-900">Por que escolher o KnexIT Workspace?</h2>
           <p className="text-lg text-slate-600 max-w-3xl mx-auto">
-            Suite completa para ensino, pesquisa e colaboracao com IA conectada aos seus conteudos.
+            Suíte completa para ensino, pesquisa e colaboração com IA conectada aos seus conteúdos.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

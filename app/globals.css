@@ -2,13 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 :root {
   --bg: #0b0f1a;
   --card: #111827;
   --muted: #6b7280;
+  --kx-bg: #E2ECF7;
+  --kx-header: #418DC3;
+  --kx-primary: #266BD9;
+  --kx-primary-hover: #1C539B;
+  --kx-secondary: #5F6B7A;
+  --kx-focus: #2A5DAC;
 }
 
-body { @apply bg-slate-950 text-slate-100; }
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--kx-bg);
+  @apply text-slate-900;
+  overflow: hidden;
+}
+
+* {
+  min-width: 0;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
 a { @apply underline underline-offset-2; }
 .btn { @apply inline-flex items-center gap-2 rounded-2xl px-4 py-2 font-medium shadow; }
 .btn-primary { @apply bg-indigo-600 hover:bg-indigo-700 text-white; }

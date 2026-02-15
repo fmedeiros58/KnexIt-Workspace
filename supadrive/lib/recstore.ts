@@ -1,7 +1,7 @@
 "use client";
 
-import type { DriveRecordingMeta } from "../types/drive-recording";
-export type { DriveRecordingMeta } from "../types/drive-recording";
+import type { SupaDriveRecordingMeta } from "../types/supadrive-recording";
+export type { SupaDriveRecordingMeta } from "../types/supadrive-recording";
 
 const DB_NAME = "violive-drive";
 const DB_VERSION = 2;
@@ -53,7 +53,7 @@ const STORE = "recordings";
     });
   }
 
-  export async function listRecordings(): Promise<DriveRecordingMeta[]> {
+  export async function listRecordings(): Promise<SupaDriveRecordingMeta[]> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, "readonly");
@@ -120,7 +120,7 @@ const STORE = "recordings";
   // Atualiza campos arbitrários (patch) do item
   export async function patchRecording(
     id: number,
-    patch: Partial<Pick<DriveRecordingMeta, "name" | "owner" | "people" | "anyone" | "source" | "color" | "parentId">> &
+    patch: Partial<Pick<SupaDriveRecordingMeta, "name" | "owner" | "people" | "anyone" | "source" | "color" | "parentId">> &
       Partial<{ starred: boolean; trashed: boolean; spam: boolean }>
   ): Promise<void> {
     const db = await openDB();

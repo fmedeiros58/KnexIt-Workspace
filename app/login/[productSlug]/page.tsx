@@ -1,38 +1,19 @@
-import LoginPageClient from "../LoginPageClient";
-import { DEFAULT_PRODUCT_SLUG, getProduct } from "@/lib/products";
+import { redirect } from "next/navigation";
+import { getProduct } from "@/lib/products";
+
+type LoginProductPageProps = {
+  params: { productSlug: string };
+};
 
 export const dynamic = "force-dynamic";
 
-type ProductLoginPageProps = {
-  params: {
-    productSlug: string;
-  };
-  searchParams: {
-    from?: string;
-    product?: string;
-    redirect?: string;
-  };
-};
-
-export default function ProductLoginPage({ params, searchParams }: ProductLoginPageProps) {
-  const normalizedSlug = params.productSlug?.toLowerCase();
-  const product = getProduct(normalizedSlug) ?? getProduct(DEFAULT_PRODUCT_SLUG);
+export default function LoginProductPage({ params }: LoginProductPageProps) {
+  const fallback = "/knexit-workspace/acesso?stay=1";
+  const product = getProduct(params.productSlug);
   if (!product) {
-    return (
-      <LoginPageClient
-        productSlug={DEFAULT_PRODUCT_SLUG}
-        initialFrom={searchParams.from ?? null}
-        initialProduct={searchParams.product ?? null}
-        initialRedirect={searchParams.redirect ?? null}
-      />
-    );
+    redirect(fallback);
   }
-  return (
-    <LoginPageClient
-      productSlug={product.slug}
-      initialFrom={searchParams.from ?? null}
-      initialProduct={searchParams.product ?? null}
-      initialRedirect={searchParams.redirect ?? null}
-    />
-  );
+  const paramsQuery = new URLSearchParams();
+  paramsQuery.set("returnTo", product.homePath);
+  redirect(`/knexit-workspace/acesso?${paramsQuery.toString()}`);
 }
