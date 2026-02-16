@@ -89,6 +89,9 @@ export const resolvePostLoginTarget = async (returnTo: string, accessToken?: str
     const res = await fetch("/api/knexchat/activation/status", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (res.status === 401) {
+      return `/knexit-workspace/acesso/novo?returnTo=${encodeURIComponent(returnTo)}`;
+    }
     const payload = (await res.json().catch(() => null)) as { activated?: boolean; profile_completed?: boolean } | null;
     if (res.ok && payload && payload.activated === false) {
       return `/knexchat/activate?returnTo=${encodeURIComponent(returnTo)}`;

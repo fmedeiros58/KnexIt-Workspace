@@ -54,7 +54,32 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await query;
     if (error) throw error;
-    return Response.json({ entries: data ?? [], offset, limit }, { status: 200 });
+    const entries = (data ?? []) as { email: string; name?: string | null; created_at: string }[];
+    if (!entries.length) {
+      return Response.json({ entries: [], offset, limit }, { status: 200 });
+    }
+    const avatarByEmail = new Map<string, string | null>();
+    try {
+      const { data: profileRows, error: profileError } = await admin
+        .from("profiles")
+        .select("email, avatar_url")
+        .in(
+          "email",
+          entries.map((entry) => entry.email),
+        );
+      if (!profileError) {
+        (profileRows ?? []).forEach((row) => {
+          avatarByEmail.set(row.email, row.avatar_url ?? null);
+        });
+      }
+    } catch {
+      // Avatar enrichment is best-effort for directory listing.
+    }
+    const enriched = entries.map((entry) => ({
+      ...entry,
+      avatar_url: avatarByEmail.get(entry.email) ?? null,
+    }));
+    return Response.json({ entries: enriched, offset, limit }, { status: 200 });
   } catch (err) {
     return Response.json({ message: "Lookup failed" }, { status: 500 });
   }

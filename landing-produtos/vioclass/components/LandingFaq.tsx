@@ -1,18 +1,18 @@
 const faqs = [
   {
-    question: "Quais recursos est?o inclu?dos?",
+    question: "Quais recursos estão incluídos?",
     answer:
-      "A landing ? flex?vel: voc? escolhe quais m?dulos e integra??es ativar.",
+      "A landing é flexível: você escolhe quais módulos e integrações ativar.",
   },
   {
-    question: "Como funciona a implanta??o?",
+    question: "Como funciona a implantação?",
     answer:
-      "A equipe acompanha a ativa??o e define um plano de ado??o por ?rea.",
+      "A equipe acompanha a ativação e define um plano de adoção por área.",
   },
   {
     question: "Existe teste ou piloto?",
     answer:
-      "Sim, podemos liberar um piloto controlado com usu?rios-chave.",
+      "Sim, podemos liberar um piloto controlado com usuários-chave.",
   },
 ];
 

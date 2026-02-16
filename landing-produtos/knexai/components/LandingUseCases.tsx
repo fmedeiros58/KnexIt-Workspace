@@ -6,7 +6,7 @@ type LandingUseCasesProps = {
 const useCases = [
   {
     title: "Vendas",
-    body: "Automatize tarefas e entregue apresenta??es personalizadas com rapidez.",
+    body: "Automatize tarefas e entregue apresentações personalizadas com rapidez.",
   },
   {
     title: "Marketing",
@@ -14,15 +14,15 @@ const useCases = [
   },
   {
     title: "Atendimento",
-    body: "Respostas r?pidas com contexto e hist?rico de cada cliente.",
+    body: "Respostas rápidas com contexto e histórico de cada cliente.",
   },
   {
     title: "Recursos humanos",
-    body: "Onboarding ?gil, materiais escal?veis e comunica??o clara.",
+    body: "Onboarding ágil, materiais escaláveis e comunicação clara.",
   },
   {
     title: "Projetos",
-    body: "Planejamento, execu??o e acompanhamento em uma vis?o ?nica.",
+    body: "Planejamento, execução e acompanhamento em uma visão única.",
   },
 ];
 

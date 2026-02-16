@@ -58,11 +58,27 @@ async function attachParticipantNames(
     nameByEmail.set(row.email, row.name ?? null);
   });
 
-  const next: Record<string, { email: string; role: string; name?: string | null }[]> = {};
+  const avatarByEmail = new Map<string, string | null>();
+  try {
+    const { data: profileRows, error: profileError } = await admin
+      .from("profiles")
+      .select("email, avatar_url")
+      .in("email", Array.from(allEmails));
+    if (!profileError) {
+      (profileRows ?? []).forEach((row) => {
+        avatarByEmail.set(row.email, row.avatar_url ?? null);
+      });
+    }
+  } catch {
+    // Avatar enrichment is best-effort and should not block threads.
+  }
+
+  const next: Record<string, { email: string; role: string; name?: string | null; avatar_url?: string | null }[]> = {};
   threadIds.forEach((threadId) => {
     next[threadId] = (participantsByThread[threadId] ?? []).map((participant) => ({
       ...participant,
       name: nameByEmail.get(participant.email) ?? null,
+      avatar_url: avatarByEmail.get(participant.email) ?? null,
     }));
   });
 
@@ -112,7 +128,10 @@ export async function GET(req: NextRequest) {
 
     const includeParticipants = searchParams.get("includeParticipants") === "1";
     const includeLastMessage = searchParams.get("includeLastMessage") === "1";
-    let participantsByThread: Record<string, { email: string; role: string; name?: string | null }[]> = {};
+    let participantsByThread: Record<
+      string,
+      { email: string; role: string; name?: string | null; avatar_url?: string | null }[]
+    > = {};
     let lastMessageByThread: Record<string, unknown> = {};
 
     if (includeParticipants) {
