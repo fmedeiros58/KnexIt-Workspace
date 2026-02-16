@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { consumeRealtimeTicket, getSupabaseAdmin, requireKnexchatEntitlement } from "@/app/api/knexchat/_auth";
 
 export const runtime = "nodejs";
+const REALTIME_TICKET_COOKIE = "knexchat_rt";
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
@@ -12,20 +13,16 @@ export async function GET(req: NextRequest) {
     return new Response("Supabase service role not configured", { status: 500 });
   }
   const { searchParams } = new URL(req.url);
-  const ticket = searchParams.get("ticket") || "";
+  const ticketFromQuery = searchParams.get("ticket") || "";
+  const ticketFromCookie = req.cookies.get(REALTIME_TICKET_COOKIE)?.value || "";
+  const ticket = ticketFromQuery || ticketFromCookie;
   let email = "";
 
   if (ticket) {
     const ticketEmail = await consumeRealtimeTicket(ticket);
     email = ticketEmail ? normalizeEmail(ticketEmail) : "";
   } else {
-    const token = searchParams.get("token") || "";
-    if (!token) {
-      return new Response("Missing token", { status: 401 });
-    }
-    const entitlement = await requireKnexchatEntitlement(req, token);
-    if (entitlement.response) return entitlement.response;
-    email = entitlement.user?.email ? normalizeEmail(entitlement.user.email) : "";
+    return new Response("Missing realtime ticket", { status: 401 });
   }
 
   if (!isValidEmail(email)) {
@@ -109,11 +106,20 @@ export async function GET(req: NextRequest) {
     void cleanup();
   }
 
-  return new Response(stream.readable, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
+  const headers = new Headers({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
   });
+
+  if (ticketFromCookie) {
+    headers.append(
+      "Set-Cookie",
+      `${REALTIME_TICKET_COOKIE}=; Max-Age=0; Path=/api/knexchat/realtime; HttpOnly; SameSite=Lax${
+        process.env.NODE_ENV === "production" ? "; Secure" : ""
+      }`,
+    );
+  }
+
+  return new Response(stream.readable, { headers });
 }

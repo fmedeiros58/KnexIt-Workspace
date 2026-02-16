@@ -1,7 +1,7 @@
 import { Suspense } from "react";
-import ActivationStartStepClient from "./ActivationStartStepClient";
+import ActivationCodeStepClient from "./ActivationCodeStepClient";
 
-export default function KnexchatActivatePage() {
+export default function KnexchatActivateCodePage() {
   return (
     <Suspense
       fallback={
@@ -10,7 +10,7 @@ export default function KnexchatActivatePage() {
         </main>
       }
     >
-      <ActivationStartStepClient />
+      <ActivationCodeStepClient />
     </Suspense>
   );
 }

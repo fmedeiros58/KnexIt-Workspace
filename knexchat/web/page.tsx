@@ -64,70 +64,8 @@ import type { LucideIcon } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties, ReactNode } from "react";
-
-type AuthStateListener = (event: string, session: Session | null) => void;
-
-type IdentitySupabaseClient = {
-  auth: {
-    getSession: () => Promise<{ data: { session: Session | null } }>;
-    onAuthStateChange: (
-      callback: AuthStateListener,
-    ) => { data: { subscription: { unsubscribe: () => void } } };
-    setSession: (tokens: { access_token: string; refresh_token: string }) => Promise<{ error: null }>;
-    signOut: () => Promise<{ error: null }>;
-  };
-};
-
-let cachedIdentitySupabase: IdentitySupabaseClient | null = null;
-
-function buildLocalSession(accessToken: string, refreshToken: string): Session {
-  return {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    token_type: "bearer",
-    expires_in: 3600,
-    user: { id: "local-user" } as Session["user"],
-  } as Session;
-}
-
-function identitySupabase(): IdentitySupabaseClient {
-  if (cachedIdentitySupabase) {
-    return cachedIdentitySupabase;
-  }
-
-  let currentSession: Session | null = null;
-  const listeners = new Set<AuthStateListener>();
-
-  cachedIdentitySupabase = {
-    auth: {
-      getSession: async () => ({ data: { session: currentSession } }),
-      onAuthStateChange: (callback) => {
-        listeners.add(callback);
-        return {
-          data: {
-            subscription: {
-              unsubscribe: () => {
-                listeners.delete(callback);
-              },
-            },
-          },
-        };
-      },
-      setSession: async ({ access_token, refresh_token }) => {
-        currentSession = buildLocalSession(access_token, refresh_token);
-        listeners.forEach((listener) => listener("SIGNED_IN", currentSession));
-        return { error: null };
-      },
-      signOut: async () => {
-        currentSession = null;
-        listeners.forEach((listener) => listener("SIGNED_OUT", null));
-        return { error: null };
-      },
-    },
-  };
-
-  return cachedIdentitySupabase;
-}
+import { identitySupabase as createIdentitySupabase } from "@/lib/identitySupabaseClient";
+import { consumeKnexchatProfileSeed } from "@/lib/knexchat/profileSeed";
 
 type MasterDetailProps = {
   showDetail: boolean;
@@ -161,7 +99,7 @@ const STORAGE_KEY = "knexchat.identity";
 const CHAT_STATE_KEY = "knexchat.state.v1";
 const DIRECTORY_KEY = "knexchat.directory.v1";
 const INBOX_KEY = "knexchat.inbox.v1";
-const supabase = identitySupabase();
+const supabase = createIdentitySupabase();
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -462,7 +400,7 @@ function KnexChatScreen({ variant }: { variant: ScreenVariant }) {
         </div>
       </div>
       <div className={`mx-4 mb-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white ${textBase} text-slate-500 ${inputPadding}`}>
-        <span>Digitando: "Vamos alinhar?"</span>
+        <span>Digitando: &quot;Vamos alinhar?&quot;</span>
       </div>
       {showKeyboard ? (
         <div className="mt-auto border-t border-slate-200 bg-slate-100 px-4 pb-4 pt-3">
@@ -1204,8 +1142,7 @@ export default function KnexChatPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const isChatRoute =
-    pathname?.startsWith("/knexchat/web/chat") || pathname?.startsWith("/knexchat/t/");
+  const isChatRoute = pathname?.startsWith("/knexchat/web") || pathname?.startsWith("/knexchat/t/");
   const searchQuery = useMemo(() => searchParams?.toString() ?? "", [searchParams]);
   const chatHref = useMemo(
     () => (searchQuery ? `/knexchat/web/chat?${searchQuery}` : "/knexchat/web/chat"),
@@ -2405,11 +2342,27 @@ export default function KnexChatPage() {
   const requestRealtimeTicket = useCallback(async () => {
     try {
       const res = await authFetch("/api/knexchat/realtime-ticket", { method: "POST" });
-      if (!res.ok) return "";
-      const payload = (await res.json().catch(() => ({}))) as { ticket?: string };
-      return typeof payload.ticket === "string" ? payload.ticket : "";
+      if (res.status === 403) {
+        const payload = (await res.json().catch(() => null)) as { code?: string } | null;
+        if (payload?.code === "ENTITLEMENT_REQUIRED") {
+          setEntitlementBlocked(true);
+          return null;
+        }
+      }
+      if (!res.ok) return null;
+      const payload = (await res.json().catch(() => ({}))) as {
+        transport?: "query" | "cookie";
+        ticket?: string;
+      };
+      if (payload.transport === "cookie") {
+        return { mode: "cookie" as const };
+      }
+      if (typeof payload.ticket === "string" && payload.ticket) {
+        return { mode: "query" as const, ticket: payload.ticket };
+      }
+      return null;
     } catch {
-      return "";
+      return null;
     }
   }, [authFetch]);
   const checkEmailRegistered = useCallback(
@@ -3513,6 +3466,15 @@ export default function KnexChatPage() {
   }, [chatStateKey, resetChatState]);
 
   useEffect(() => {
+    if (!isChatStateHydrated) return;
+    if (!identity?.userId) return;
+    if (selfAvatarUrl) return;
+    const seed = consumeKnexchatProfileSeed(identity.userId);
+    if (!seed?.avatarUrl) return;
+    setSelfAvatarUrl(seed.avatarUrl);
+  }, [identity?.userId, isChatStateHydrated, selfAvatarUrl]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       setDirectoryEntries([]);
       return;
@@ -3549,11 +3511,13 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
+    if (isKnexchatActivated !== true || entitlementBlocked) return;
     void fetchThreadsFromServer();
-  }, [fetchThreadsFromServer, identity?.email, isChatStateHydrated, serverMessagingEnabled]);
+  }, [entitlementBlocked, fetchThreadsFromServer, identity?.email, isChatStateHydrated, isKnexchatActivated, serverMessagingEnabled]);
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
+    if (isKnexchatActivated !== true || entitlementBlocked) return;
     if (!authSession?.access_token) return;
     let source: EventSource | null = null;
     let cancelled = false;
@@ -3598,11 +3562,12 @@ export default function KnexChatPage() {
 
     const connect = async () => {
       setIsRealtimeConnected(false);
-      const ticket = await requestRealtimeTicket();
-      const url = ticket
-        ? `/api/knexchat/realtime?ticket=${encodeURIComponent(ticket)}&t=${realtimeKey}`
-        : `/api/knexchat/realtime?token=${encodeURIComponent(authSession.access_token)}&t=${realtimeKey}`;
-      if (cancelled) return;
+      const transport = await requestRealtimeTicket();
+      if (!transport || cancelled) return;
+      const url =
+        transport.mode === "query"
+          ? `/api/knexchat/realtime?ticket=${encodeURIComponent(transport.ticket)}`
+          : "/api/knexchat/realtime";
       source = new EventSource(url);
       source.addEventListener("ready", handleReady as EventListener);
       source.addEventListener("message", handleMessage as EventListener);
@@ -3624,10 +3589,12 @@ export default function KnexChatPage() {
       source.close();
     };
   }, [
+    entitlementBlocked,
     fetchThreadsFromServer,
     authSession?.access_token,
     identity?.email,
     isChatStateHydrated,
+    isKnexchatActivated,
     mapApiMessageToMessage,
     previewFromApiMessage,
     realtimeKey,
@@ -3639,6 +3606,7 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
+    if (isKnexchatActivated !== true || entitlementBlocked) return;
     if (!activeThreadId || !isUuid(activeThreadId)) return;
     let cancelled = false;
     const loadMessages = async () => {
@@ -3654,9 +3622,11 @@ export default function KnexChatPage() {
     };
   }, [
     activeThreadId,
+    entitlementBlocked,
     fetchMessagesForThread,
     identity?.email,
     isChatStateHydrated,
+    isKnexchatActivated,
     isRealtimeConnected,
     serverMessagingEnabled,
   ]);
@@ -3808,15 +3778,17 @@ export default function KnexChatPage() {
   }, [activeThreads, activeThreadId, allThreads]);
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !isAuthReady) return;
     if (identity) {
       if (!isChatRoute) {
         router.replace(chatHref);
       }
       return;
     }
-    router.replace(activationHref);
-  }, [activationHref, chatHref, identity, isChatRoute, isReady, router]);
+    if (isKnexchatActivated === false) {
+      router.replace(activationHref);
+    }
+  }, [activationHref, chatHref, identity, isAuthReady, isChatRoute, isKnexchatActivated, isReady, router]);
 
   useEffect(() => {
     if (!entitlementBlocked) return;

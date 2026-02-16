@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
 import { getKnexchatAdmin, requireActivationAuth } from "@/app/api/knexchat/_activation";
 import { isEmail, normalizeEmail, verifyOtp } from "@/lib/knexchat/activationOtp";
+import { ensureUserEntitlementActive } from "@/lib/entitlement";
 
 export const runtime = "nodejs";
 
 const PURPOSE = "knexchat_activation";
+const APP_KEY = "knexchat";
 
 export async function POST(req: NextRequest) {
   const auth = await requireActivationAuth(req);
@@ -111,6 +113,16 @@ export async function POST(req: NextRequest) {
 
   if (upsertError) {
     return Response.json({ message: "Falha ao ativar." }, { status: 500 });
+  }
+
+  const entitlementResult = await ensureUserEntitlementActive({
+    userId,
+    appKey: APP_KEY,
+    startsAt: now.toISOString(),
+  });
+
+  if (!entitlementResult.ok) {
+    return Response.json({ message: "Falha ao liberar acesso ao KnexChat." }, { status: 500 });
   }
 
   const { error: directoryError } = await admin
