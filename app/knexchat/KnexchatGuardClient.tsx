@@ -8,6 +8,7 @@ const supabase = identitySupabase();
 
 type ActivationStatus = {
   activated?: boolean;
+  profile_completed?: boolean;
 };
 
 export default function KnexchatGuardClient({ children }: { children: React.ReactNode }) {
@@ -26,8 +27,12 @@ export default function KnexchatGuardClient({ children }: { children: React.Reac
     () => `/knexchat/activate?returnTo=${encodeURIComponent(returnTo || "/knexchat/web")}`,
     [returnTo],
   );
+  const identityPath = useMemo(
+    () => `/knexchat/activate/identity?returnTo=${encodeURIComponent(returnTo || "/knexchat/web")}`,
+    [returnTo],
+  );
 
-  const loginPath = useMemo(() => `/login?next=${encodeURIComponent(activationPath)}`, [activationPath]);
+  const loginPath = useMemo(() => `/login?next=${encodeURIComponent(returnTo || "/knexchat/web")}`, [returnTo]);
 
   useEffect(() => {
     if (pathname.startsWith("/knexchat/activate")) {
@@ -39,17 +44,30 @@ export default function KnexchatGuardClient({ children }: { children: React.Reac
     let active = true;
 
     const checkActivation = async (token: string) => {
-      const res = await fetch("/api/knexchat/activation/status", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const payload = (await res.json().catch(() => null)) as ActivationStatus | null;
-      if (!active) return;
-      if (!res.ok || !payload?.activated) {
+      try {
+        const res = await fetch("/api/knexchat/activation/status", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const payload = (await res.json().catch(() => null)) as ActivationStatus | null;
+        if (!active) return;
+        if (res.status === 401) {
+          router.replace(loginPath);
+          return;
+        }
+        if (!res.ok || !payload?.activated) {
+          router.replace(activationPath);
+          return;
+        }
+        if (payload.profile_completed === false) {
+          router.replace(identityPath);
+          return;
+        }
+        setAuthorized(true);
+        setChecking(false);
+      } catch {
+        if (!active) return;
         router.replace(activationPath);
-        return;
       }
-      setAuthorized(true);
-      setChecking(false);
     };
 
     const checkSession = async () => {
@@ -77,7 +95,7 @@ export default function KnexchatGuardClient({ children }: { children: React.Reac
       active = false;
       sub.subscription.unsubscribe();
     };
-  }, [activationPath, loginPath, pathname, router]);
+  }, [activationPath, identityPath, loginPath, pathname, router]);
 
   if (checking) return null;
   if (!authorized) return null;

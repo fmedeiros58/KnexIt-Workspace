@@ -1,5 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import KnexChatPage from "../../web/page";
-
-export default KnexChatPage;
+export default function KnexchatThreadPage({ params }: { params: { id: string } }) {
+  const threadId = encodeURIComponent(params.id);
+  redirect(`/knexchat/web?thread=${threadId}`);
+}

@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 const PURPOSE = "knexchat_activation";
 const COOLDOWN_SECONDS = 60;
 const EXPIRY_MINUTES = 10;
-const MAX_PER_HOUR = 5;
+const REQUEST_WINDOW_MS = 15 * 60 * 1000;
+const REQUEST_LIMIT = 100;
 
 const buildEmailHtml = (code: string) => `
   <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #0f172a;">
@@ -83,17 +84,20 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+  const since = new Date(now.getTime() - REQUEST_WINDOW_MS).toISOString();
 
   const { count } = await admin
     .from("knexchat_verification_tokens")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("purpose", PURPOSE)
-    .gte("created_at", oneHourAgo);
+    .gte("created_at", since);
 
-  if ((count ?? 0) >= MAX_PER_HOUR) {
-    return Response.json({ message: "Limite de envios excedido. Tente novamente mais tarde." }, { status: 429 });
+  if ((count ?? 0) >= REQUEST_LIMIT) {
+    return Response.json(
+      { message: "Limite de envios atingido nesta etapa. Aguarde 15 minutos para tentar novamente." },
+      { status: 429 },
+    );
   }
 
   const { data: lastToken } = await admin

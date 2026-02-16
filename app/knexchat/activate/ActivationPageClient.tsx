@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
@@ -24,6 +24,7 @@ const supabase = identitySupabase();
 export default function ActivationPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const hasRedirectedRef = useRef(false);
 
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +77,8 @@ export default function ActivationPageClient() {
 
   useEffect(() => {
     if (!loading && !session) {
+      if (hasRedirectedRef.current) return;
+      hasRedirectedRef.current = true;
       router.replace(loginHref);
     }
   }, [loading, session, loginHref, router]);
@@ -118,6 +121,8 @@ export default function ActivationPageClient() {
       }
       setStatus(payload);
       if (payload.activated) {
+        if (hasRedirectedRef.current) return;
+        hasRedirectedRef.current = true;
         router.replace(safeReturnTo);
       }
     } catch {
@@ -190,6 +195,8 @@ export default function ActivationPageClient() {
         setError(payload?.message ?? "Falha ao validar codigo.");
         return;
       }
+      if (hasRedirectedRef.current) return;
+      hasRedirectedRef.current = true;
       router.replace(safeReturnTo);
     } finally {
       setVerifying(false);
