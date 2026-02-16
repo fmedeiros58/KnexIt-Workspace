@@ -32,6 +32,24 @@ export async function POST(req: NextRequest) {
   if (!userId || !userEmail) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
+
+  const { data: membership, error: membershipError } = await admin
+    .from("knexchat_memberships")
+    .select("status")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipError) {
+    return Response.json({ message: "Falha ao consultar status de ativacao." }, { status: 500 });
+  }
+
+  if (membership?.status !== "active") {
+    return Response.json(
+      { message: "Conclua a validacao do codigo de e-mail antes de finalizar o perfil." },
+      { status: 403 },
+    );
+  }
+
   const nicknameRaw = typeof body?.nickname === "string" ? body.nickname : "";
   const displayNameRaw = typeof body?.display_name === "string" ? body.display_name : "";
   const acceptTerms = Boolean(body?.accept_terms);

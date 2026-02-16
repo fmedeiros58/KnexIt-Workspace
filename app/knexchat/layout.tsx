@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
+import KnexchatGuardClient from "./KnexchatGuardClient";
 
 export const metadata: Metadata = {
   title: "Knexchat",
@@ -16,5 +18,9 @@ export const viewport: Viewport = {
 };
 
 export default function KnexchatLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <Suspense fallback={null}>
+      <KnexchatGuardClient>{children}</KnexchatGuardClient>
+    </Suspense>
+  );
 }

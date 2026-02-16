@@ -33,6 +33,7 @@ export default function CodigoStepClient() {
 
   const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
   const returnTo = useMemo(() => resolveReturnTo(searchParams, appBaseUrl), [appBaseUrl, searchParams]);
+  const stayOnLogin = useMemo(() => searchParams.get("stay") === "1", [searchParams]);
 
   const [otpCode, setOtpCode] = useState("");
   const [otpSent, setOtpSent] = useState(sentFromQuery);
@@ -51,6 +52,30 @@ export default function CodigoStepClient() {
 
   const sentOnceRef = useRef(false);
   const otpInputsRef = useRef<Array<HTMLInputElement | null>>([]);
+
+  useEffect(() => {
+    if (stayOnLogin) return;
+    let active = true;
+    const redirectIfLogged = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      if (!data?.session) return;
+      const target = await resolvePostLoginTarget(returnTo, data.session.access_token);
+      router.replace(target);
+    };
+
+    redirectIfLogged();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) return;
+      resolvePostLoginTarget(returnTo, session.access_token).then((target) => router.replace(target));
+    });
+
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [returnTo, router, stayOnLogin]);
 
   const readSignupPassword = useCallback(() => {
     if (typeof window === "undefined") return "";

@@ -29,6 +29,71 @@ const isWithinWindow = (row: { starts_at?: string | null; ends_at?: string | nul
 const cacheKey = (userId: string, appKey: string, tenantId?: string | null) =>
   `${userId}:${tenantId ?? "user"}:${appKey}`;
 
+export const clearEntitlementCache = ({ userId, appKey }: { userId: string; appKey: string }) => {
+  const suffix = `:${appKey}`;
+  const prefix = `${userId}:`;
+  for (const key of cacheStore.keys()) {
+    if (key.startsWith(prefix) && key.endsWith(suffix)) {
+      cacheStore.delete(key);
+    }
+  }
+};
+
+export async function ensureUserEntitlementActive({
+  userId,
+  appKey,
+  startsAt,
+}: {
+  userId: string;
+  appKey: string;
+  startsAt?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const admin = identitySupabaseAdmin();
+  const nowIso = new Date().toISOString();
+  const startsAtIso = startsAt ?? nowIso;
+
+  const { count, error: countError } = await admin
+    .from("app_entitlements")
+    .select("user_id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("app_key", appKey);
+
+  if (countError) {
+    return { ok: false, error: countError.message };
+  }
+
+  if ((count ?? 0) > 0) {
+    const { error: updateError } = await admin
+      .from("app_entitlements")
+      .update({
+        status: "active",
+        starts_at: startsAtIso,
+        updated_at: nowIso,
+      })
+      .eq("user_id", userId)
+      .eq("app_key", appKey);
+
+    if (updateError) {
+      return { ok: false, error: updateError.message };
+    }
+  } else {
+    const { error: insertError } = await admin.from("app_entitlements").insert({
+      user_id: userId,
+      app_key: appKey,
+      status: "active",
+      starts_at: startsAtIso,
+      updated_at: nowIso,
+    });
+
+    if (insertError) {
+      return { ok: false, error: insertError.message };
+    }
+  }
+
+  clearEntitlementCache({ userId, appKey });
+  return { ok: true };
+}
+
 export async function getEntitlementDecision({
   userId,
   appKey,
@@ -48,7 +113,7 @@ export async function getEntitlementDecision({
 
   const { data: userRows, error: userError } = await admin
     .from("app_entitlements")
-    .select("status, starts_at, ends_at, scope")
+    .select("status, starts_at, ends_at")
     .eq("app_key", appKey)
     .eq("user_id", userId);
 
@@ -70,7 +135,7 @@ export async function getEntitlementDecision({
   if (tenantId) {
     const { data: tenantRows, error: tenantError } = await admin
       .from("app_entitlements")
-      .select("status, starts_at, ends_at, scope")
+      .select("status, starts_at, ends_at")
       .eq("app_key", appKey)
       .eq("tenant_id", tenantId);
 

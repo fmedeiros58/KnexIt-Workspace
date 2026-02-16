@@ -89,9 +89,12 @@ export const resolvePostLoginTarget = async (returnTo: string, accessToken?: str
     const res = await fetch("/api/knexchat/activation/status", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    const payload = (await res.json().catch(() => null)) as { activated?: boolean } | null;
+    const payload = (await res.json().catch(() => null)) as { activated?: boolean; profile_completed?: boolean } | null;
     if (res.ok && payload && payload.activated === false) {
       return `/knexchat/activate?returnTo=${encodeURIComponent(returnTo)}`;
+    }
+    if (res.ok && payload?.activated && payload.profile_completed === false) {
+      return `/knexchat/activate/identity?returnTo=${encodeURIComponent(returnTo)}`;
     }
   } catch {
     // noop

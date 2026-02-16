@@ -1,11 +1,5 @@
-import { Suspense } from "react";
+import WebLanding from "../WebLanding";
 
-import KnexChatPage from "../../../../knexchat/web/page";
-
-export default function Page() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-white" />}>
-      <KnexChatPage />
-    </Suspense>
-  );
+export default function KnexchatWebChatPage() {
+  return <WebLanding />;
 }

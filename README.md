@@ -97,6 +97,7 @@ Exemplo em dev: `http://127.0.0.1:3000/auth/callback`.
 - Configure no `.env.local`:
   - `RESEND_API_KEY`
   - `RESEND_FROM`
+  - `KNEXCHAT_OTP_SALT` (segredo para hash do OTP de ativacao do KnexChat)
 - Endpoint de teste: `POST /api/email/test`
 
 ### Exemplo (PowerShell)

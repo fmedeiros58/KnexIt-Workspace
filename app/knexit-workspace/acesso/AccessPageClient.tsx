@@ -715,9 +715,12 @@ export default function KnexitWorkspaceAccessPage({
       const res = await fetch("/api/knexchat/activation/status", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const payload = (await res.json().catch(() => null)) as { activated?: boolean } | null;
+      const payload = (await res.json().catch(() => null)) as { activated?: boolean; profile_completed?: boolean } | null;
       if (res.ok && payload && payload.activated === false) {
         return `/knexchat/activate?returnTo=${encodeURIComponent(returnTo)}`;
+      }
+      if (res.ok && payload?.activated && payload.profile_completed === false) {
+        return `/knexchat/activate/identity?returnTo=${encodeURIComponent(returnTo)}`;
       }
     } catch {
       // ignore and fall back
