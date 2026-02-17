@@ -17,30 +17,59 @@ const NPX_BIN = process.platform === "win32" ? "npx.cmd" : "npx";
 
 export const normalizeEol = (value) => value.replace(/\r\n/g, "\n").trimEnd() + "\n";
 
+const PROJECT_REF_REGEX = /^[a-z0-9]{20}$/i;
+
+function extractProjectRef(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  if (PROJECT_REF_REGEX.test(raw)) {
+    return raw;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname;
+    if (host.endsWith(".supabase.co")) {
+      const ref = host.split(".")[0];
+      return PROJECT_REF_REGEX.test(ref) ? ref : "";
+    }
+  } catch {
+    // Ignore parse errors and keep trying.
+  }
+
+  const normalized = raw.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  if (normalized.endsWith(".supabase.co")) {
+    const ref = normalized.split(".")[0];
+    return PROJECT_REF_REGEX.test(ref) ? ref : "";
+  }
+
+  return "";
+}
+
 export function resolveProjectRef(supabaseUrl, explicitProjectRef) {
-  if (explicitProjectRef && explicitProjectRef.trim()) {
-    return explicitProjectRef.trim();
+  const explicit = extractProjectRef(explicitProjectRef);
+  if (explicit) {
+    return explicit;
+  }
+
+  const inferred = extractProjectRef(supabaseUrl);
+  if (inferred) {
+    return inferred;
+  }
+
+  const explicitRaw = String(explicitProjectRef || "").trim();
+  if (explicitRaw) {
+    throw new Error(
+      "Invalid project ref format. Must be like abcdefghijklmnopqrst.",
+    );
   }
 
   if (!supabaseUrl) {
     throw new Error("NEXT_PUBLIC_SUPABASE_URL is required.");
   }
 
-  let parsed;
-  try {
-    parsed = new URL(supabaseUrl);
-  } catch {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL is invalid.");
-  }
-
-  const host = parsed.hostname;
-  if (host.endsWith(".supabase.co")) {
-    return host.split(".")[0];
-  }
-
-  throw new Error(
-    "Could not infer project ref from NEXT_PUBLIC_SUPABASE_URL. Set SUPABASE_PROJECT_ID explicitly.",
-  );
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL is invalid.");
 }
 
 export function generateSupabaseTypes({ projectRef, accessToken }) {
