@@ -61,7 +61,8 @@ export async function GET(req: NextRequest) {
     const avatarByEmail = new Map<string, string | null>();
     try {
       const { data: profileRows, error: profileError } = await admin
-        .from("profiles")
+        .from("knexchat_profiles")
+
         .select("email, avatar_url")
         .in(
           "email",
