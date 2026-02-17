@@ -11,7 +11,6 @@ export async function GET(req: NextRequest) {
   }
   const entitlement = await requireKnexchatEntitlement(req);
   if (entitlement.response) return entitlement.response;
-  const authEmail = entitlement.user?.email ?? "";
   const { searchParams } = new URL(req.url);
   try {
     const admin = getSupabaseAdmin();
@@ -43,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     let query = admin
       .from("knexchat_directory")
-      .select("email, name, created_at")
+      .select("email, name, avatar_url, created_at")
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -54,34 +53,14 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await query;
     if (error) throw error;
-    const entries = (data ?? []) as { email: string; name?: string | null; created_at: string }[];
-    if (!entries.length) {
-      return Response.json({ entries: [], offset, limit }, { status: 200 });
-    }
-    const avatarByEmail = new Map<string, string | null>();
-    try {
-      const { data: profileRows, error: profileError } = await admin
-        .from("knexchat_profiles")
-
-        .select("email, avatar_url")
-        .in(
-          "email",
-          entries.map((entry) => entry.email),
-        );
-      if (!profileError) {
-        (profileRows ?? []).forEach((row) => {
-          avatarByEmail.set(row.email, row.avatar_url ?? null);
-        });
-      }
-    } catch {
-      // Avatar enrichment is best-effort for directory listing.
-    }
-    const enriched = entries.map((entry) => ({
-      ...entry,
-      avatar_url: avatarByEmail.get(entry.email) ?? null,
-    }));
-    return Response.json({ entries: enriched, offset, limit }, { status: 200 });
-  } catch (err) {
+    const entries = (data ?? []) as {
+      email: string;
+      name?: string | null;
+      avatar_url?: string | null;
+      created_at: string;
+    }[];
+    return Response.json({ entries, offset, limit }, { status: 200 });
+  } catch {
     return Response.json({ message: "Lookup failed" }, { status: 500 });
   }
 }
