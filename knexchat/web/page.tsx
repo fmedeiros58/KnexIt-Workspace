@@ -16,10 +16,13 @@ import {
   ChevronRight,
   CircleDot,
   Download,
+  CreditCard,
   Flag,
+  Globe,
   HelpCircle,
   Hash,
   Radio,
+  QrCode,
   Shapes,
   Grip,
   Image as ImageIcon,
@@ -75,11 +78,11 @@ type MasterDetailProps = {
 
 function MasterDetail({ showDetail, master, detail }: MasterDetailProps) {
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
-      <div className={`${showDetail ? "hidden md:flex" : "flex"} min-h-0 w-full flex-col md:w-auto md:min-w-0`}>
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
+      <div className={`${showDetail ? "hidden md:flex" : "flex"} h-full min-h-0 w-full flex-col md:w-auto md:min-w-0`}>
         {master}
       </div>
-      <div className={`${showDetail ? "flex" : "hidden md:flex"} min-h-0 flex-1 flex-col`}>{detail}</div>
+      <div className={`${showDetail ? "flex" : "hidden md:flex"} h-full min-h-0 flex-1 flex-col`}>{detail}</div>
     </div>
   );
 }
@@ -100,11 +103,6 @@ const CHAT_STATE_KEY = "knexchat.state.v1";
 const DIRECTORY_KEY = "knexchat.directory.v1";
 const INBOX_KEY = "knexchat.inbox.v1";
 const supabase = createIdentitySupabase();
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
-};
 
 function KnexChatMotionStyles() {
   return (
@@ -180,6 +178,19 @@ function KnexChatMotionStyles() {
       .knex-record-wave.is-paused .knex-record-bar {
         animation-play-state: paused;
         opacity: 0.35;
+      }
+      @keyframes knex-sheet-up {
+        0% {
+          transform: translate3d(0, 24px, 0);
+          opacity: 0;
+        }
+        100% {
+          transform: translate3d(0, 0, 0);
+          opacity: 1;
+        }
+      }
+      .knex-sheet-up {
+        animation: knex-sheet-up 180ms ease-out;
       }
       .knex-bubble {
         display: inline-flex;
@@ -633,11 +644,13 @@ type Identity = {
   createdAt: string;
   deviceId: string;
   name?: string;
+  knexId?: string;
 };
 
 type DirectoryEntry = {
   email: string;
   name?: string;
+  avatarUrl?: string;
   createdAt: string;
 };
 
@@ -677,6 +690,7 @@ type DirectoryPerson = {
   email: string;
   name: string;
   knexId: string;
+  avatarUrl?: string | null;
   isSelf?: boolean;
 };
 
@@ -691,7 +705,7 @@ type Thread = {
   avatarUrl?: string;
   onlineCount?: number;
   contactEmail?: string;
-  participantRoles?: { email: string; role: "admin" | "member"; name?: string | null }[];
+  participantRoles?: { email: string; role: "admin" | "member"; name?: string | null; avatarUrl?: string | null }[];
 };
 
 type ThreadMenuItem = {
@@ -701,7 +715,12 @@ type ThreadMenuItem = {
   tone?: "danger";
 };
 
-type ApiParticipant = { email: string; role: "admin" | "member"; name?: string | null };
+type ApiParticipant = {
+  email: string;
+  role: "admin" | "member";
+  name?: string | null;
+  avatar_url?: string | null;
+};
 
 type ApiThread = {
   id: string;
@@ -732,6 +751,8 @@ type Message = {
   body: string;
   time: string;
   senderName?: string;
+  senderEmail?: string;
+  senderAvatarUrl?: string;
   audioUrl?: string;
   audioDuration?: string;
   imageUrl?: string;
@@ -965,6 +986,17 @@ function getKnexIdFromEmail(email: string) {
   return `knex-${suffix}`;
 }
 
+function normalizeKnexId(raw: unknown) {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim().replace(/^@+/, "").toLowerCase();
+  if (!value) return null;
+  return /^[a-z0-9._-]+$/.test(value) ? value : null;
+}
+
+function formatKnexId(knexId: string) {
+  return `@${knexId.replace(/^@+/, "")}`;
+}
+
 function contactIdFromEmail(email: string) {
   const normalized = normalizeEmail(email);
   const slug = normalized.replace(/[^a-z0-9]+/g, "-");
@@ -1064,7 +1096,8 @@ function isIdentity(value: unknown): value is Identity {
     typeof record.emailVerified === "boolean" &&
     typeof record.createdAt === "string" &&
     typeof record.deviceId === "string" &&
-    (record.name === undefined || typeof record.name === "string")
+    (record.name === undefined || typeof record.name === "string") &&
+    (record.knexId === undefined || typeof record.knexId === "string")
   );
 }
 
@@ -1082,6 +1115,16 @@ function safeParseIdentity(raw: string): Identity | null {
   return parsed && isIdentity(parsed) ? parsed : null;
 }
 
+function normalizeAvatarUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^data:image\//i.test(value)) return value;
+  if (/^blob:/i.test(value)) return value;
+  return null;
+}
+
 function normalizeDirectoryEntries(raw: string | null): DirectoryEntry[] {
   const parsed = safeParseJson<unknown>(raw);
   if (!Array.isArray(parsed)) return [];
@@ -1096,9 +1139,21 @@ function normalizeDirectoryEntries(raw: string | null): DirectoryEntry[] {
     if (seen.has(email)) return;
     seen.add(email);
     const name = typeof record.name === "string" ? normalizeName(record.name) : undefined;
+    const avatarUrl = normalizeAvatarUrl(
+      typeof record.avatarUrl === "string"
+        ? record.avatarUrl
+        : typeof record.avatar_url === "string"
+          ? record.avatar_url
+          : null,
+    );
     const createdAt =
       typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString();
-    entries.push({ email, name: name || undefined, createdAt });
+    entries.push({
+      email,
+      name: name || undefined,
+      ...(avatarUrl ? { avatarUrl } : {}),
+      createdAt,
+    });
   });
   return entries;
 }
@@ -1169,6 +1224,10 @@ export default function KnexChatPage() {
   }, [params, searchParams]);
 
   const [identity, setIdentity] = useState<Identity | null>(null);
+  const [activationProfileIdentity, setActivationProfileIdentity] = useState<{
+    displayName?: string;
+    knexId?: string;
+  } | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isKnexchatActivated, setIsKnexchatActivated] = useState<boolean | null>(null);
@@ -1181,6 +1240,7 @@ export default function KnexChatPage() {
   );
   const [directoryEntries, setDirectoryEntries] = useState<DirectoryEntry[]>([]);
   const [directoryLookupCache, setDirectoryLookupCache] = useState<Record<string, boolean>>({});
+  const [isDirectoryCacheHydrated, setIsDirectoryCacheHydrated] = useState(false);
   const serverMessagingEnabled = true;
   const [isServerSyncing, setIsServerSyncing] = useState(false);
   const [serverSyncError, setServerSyncError] = useState<string | null>(null);
@@ -1212,8 +1272,6 @@ export default function KnexChatPage() {
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(MESSAGE_SEED);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
   const [activeNavKey, setActiveNavKey] = useState<
     "conversations" | "calls" | "status" | "channels" | "communities" | "contacts" | "images" | "settings"
   >("conversations");
@@ -1339,6 +1397,7 @@ export default function KnexChatPage() {
   const [selfAvatarUrl, setSelfAvatarUrl] = useState<string | null>(null);
   const [threadAvatarOverrides, setThreadAvatarOverrides] = useState<Record<string, string>>({});
   const [activeSettingKey, setActiveSettingKey] = useState<(typeof SETTINGS_MENU)[number]["key"] | null>(null);
+  const [isMobileProfileSheetOpen, setIsMobileProfileSheetOpen] = useState(false);
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
   const [wallpaperHoverKey, setWallpaperHoverKey] = useState<string | null>(null);
   const [headerInfoStep, setHeaderInfoStep] = useState(0);
@@ -1375,8 +1434,14 @@ export default function KnexChatPage() {
   const shareWaveLastUpdateRef = useRef(0);
   const shareAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const shareAudioPlaybackRafRef = useRef<number | null>(null);
+  const mobileDockButtonsRef = useRef<HTMLDivElement | null>(null);
+  const conversationFiltersRef = useRef<HTMLDivElement | null>(null);
+  const directoryFiltersRef = useRef<HTMLDivElement | null>(null);
   const [shareAudioPlayingId, setShareAudioPlayingId] = useState<string | null>(null);
   const [shareAudioIsPaused, setShareAudioIsPaused] = useState(false);
+  const [isMobileDockCarousel, setIsMobileDockCarousel] = useState(false);
+  const [isConversationFiltersCarousel, setIsConversationFiltersCarousel] = useState(false);
+  const [isDirectoryFiltersCarousel, setIsDirectoryFiltersCarousel] = useState(false);
   const incomingCountRef = useRef<Record<string, number>>({});
   const unreadInitializedRef = useRef(false);
   const chatListResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -1385,15 +1450,17 @@ export default function KnexChatPage() {
 
   const currentUser = useMemo(() => {
     if (!identity) return null;
-    const displayName = identity.name?.trim() ? identity.name : "Participante";
+    const displayName = identity.name?.trim() ? identity.name : formatNameFromEmail(identity.email);
     const avatarSource = identity.name?.trim()
       ? identity.name
       : identity.email.split("@")[0] ?? identity.email;
+    const knexIdLabel = identity.knexId ? formatKnexId(identity.knexId) : getKnexIdFromEmail(identity.email);
     return {
       id: "u1",
       name: displayName,
       role: "student",
       email: identity.email,
+      knexIdLabel,
       avatarUrl: selfAvatarUrl,
       avatarText: getAvatarText(avatarSource),
     };
@@ -1432,17 +1499,55 @@ export default function KnexChatPage() {
 
   const contactNameByEmail = useMemo(() => {
     const map = new Map<string, { name: string; avatarUrl?: string | null }>();
+    const merge = (emailRaw: string, nameRaw?: string | null, avatarRaw?: string | null) => {
+      const email = normalizeEmail(emailRaw);
+      if (!email) return;
+      const nameCandidate = normalizeName(nameRaw ?? "");
+      const avatarCandidate = normalizeAvatarUrl(avatarRaw);
+      const existing = map.get(email);
+      const nextName = nameCandidate || existing?.name || formatNameFromEmail(email);
+      const nextAvatar = avatarCandidate ?? existing?.avatarUrl ?? null;
+      map.set(email, { name: nextName, avatarUrl: nextAvatar });
+    };
+
+    directoryEntries.forEach((entry) => {
+      merge(entry.email, entry.name ?? null, entry.avatarUrl ?? null);
+    });
+
     contacts.forEach((contact) => {
       const email = contact.contactEmail
         ? normalizeEmail(contact.contactEmail)
         : extractEmail(contact.preview) ?? "";
       if (!email) return;
-      if (!map.has(email)) {
-        map.set(email, { name: contact.title, avatarUrl: contact.avatarUrl ?? null });
-      }
+      merge(email, contact.title, contact.avatarUrl ?? null);
     });
+
+    conversations.forEach((thread) => {
+      if (thread.tab === "groups") {
+        thread.participantRoles?.forEach((participant) => {
+          merge(participant.email, participant.name ?? null, participant.avatarUrl ?? null);
+        });
+        return;
+      }
+      const email = thread.contactEmail
+        ? normalizeEmail(thread.contactEmail)
+        : extractEmail(thread.preview) ?? "";
+      if (!email) return;
+      merge(email, thread.title, thread.avatarUrl ?? null);
+    });
+
+    groups.forEach((thread) => {
+      thread.participantRoles?.forEach((participant) => {
+        merge(participant.email, participant.name ?? null, participant.avatarUrl ?? null);
+      });
+    });
+
+    if (identity?.email) {
+      merge(identity.email, identity.name ?? null, selfAvatarUrl);
+    }
+
     return map;
-  }, [contacts]);
+  }, [contacts, conversations, directoryEntries, groups, identity?.email, identity?.name, selfAvatarUrl]);
 
   const allThreads = useMemo(() => [...conversations, ...groups, ...contacts], [conversations, groups, contacts]);
   const allThreadsRef = useRef<Thread[]>([]);
@@ -1516,13 +1621,19 @@ export default function KnexChatPage() {
   }, [contacts]);
   const directoryPeople = useMemo<DirectoryPerson[]>(() => {
     const byEmail = new Map<string, DirectoryPerson>();
-    const addPerson = (email: string, name?: string, isSelf?: boolean) => {
+    const addPerson = (email: string, name?: string, isSelf?: boolean, avatarRaw?: string | null) => {
       const normalized = normalizeEmail(email);
       if (!normalized) return;
-      const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
+      const fallbackInfo = contactNameByEmail.get(normalized);
+      const displayName =
+        (name?.trim() ? name.trim() : "") ||
+        fallbackInfo?.name ||
+        formatNameFromEmail(normalized);
+      const avatarUrl = normalizeAvatarUrl(avatarRaw) ?? fallbackInfo?.avatarUrl ?? null;
       const existing = byEmail.get(normalized);
       if (existing) {
         if (!existing.name && displayName) existing.name = displayName;
+        if (!existing.avatarUrl && avatarUrl) existing.avatarUrl = avatarUrl;
         if (isSelf) existing.isSelf = true;
         return;
       }
@@ -1530,19 +1641,25 @@ export default function KnexChatPage() {
         email: normalized,
         name: displayName,
         knexId: getKnexIdFromEmail(normalized),
+        avatarUrl,
         isSelf,
       });
     };
-    directoryEntries.forEach((entry) => addPerson(entry.email, entry.name));
+    directoryEntries.forEach((entry) => addPerson(entry.email, entry.name, false, entry.avatarUrl ?? null));
     contacts.forEach((contact) => {
       const email = contact.contactEmail
         ? normalizeEmail(contact.contactEmail)
         : extractEmail(contact.preview) ?? "";
       if (!email) return;
-      addPerson(email, contact.title);
+      addPerson(email, contact.title, false, contact.avatarUrl ?? null);
+    });
+    groups.forEach((group) => {
+      group.participantRoles?.forEach((participant) => {
+        addPerson(participant.email, participant.name ?? undefined, false, participant.avatarUrl ?? null);
+      });
     });
     if (identity?.email) {
-      addPerson(identity.email, identity.name ?? undefined, true);
+      addPerson(identity.email, identity.name ?? undefined, true, selfAvatarUrl);
     }
     const list = Array.from(byEmail.values());
     list.sort((a, b) => {
@@ -1551,7 +1668,7 @@ export default function KnexChatPage() {
       return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
     });
     return list;
-  }, [contacts, directoryEntries, identity?.email, identity?.name]);
+  }, [contactNameByEmail, contacts, directoryEntries, groups, identity?.email, identity?.name, selfAvatarUrl]);
   const filteredDirectoryPeople = useMemo(() => {
     const query = directorySearch.trim().toLowerCase();
     if (!query) return directoryPeople;
@@ -2240,13 +2357,21 @@ export default function KnexChatPage() {
     [contacts, conversations, openThreadById],
   );
   const addContactFromDirectory = useCallback(
-    (email: string, name?: string) => {
+    (email: string, name?: string, avatarUrl?: string | null) => {
       const normalized = normalizeEmail(email);
       if (!normalized || !isValidEmail(normalized)) return;
       const displayName = name?.trim() ? name.trim() : formatNameFromEmail(normalized);
       const contactId = contactIdFromEmail(normalized);
+      const normalizedAvatar = normalizeAvatarUrl(avatarUrl);
       setContacts((prev) => {
-        if (prev.some((contact) => getContactPrimaryKey(contact) === normalized)) return prev;
+        if (prev.some((contact) => getContactPrimaryKey(contact) === normalized)) {
+          if (!normalizedAvatar) return prev;
+          return prev.map((contact) =>
+            getContactPrimaryKey(contact) === normalized && !contact.avatarUrl
+              ? { ...contact, avatarUrl: normalizedAvatar }
+              : contact,
+          );
+        }
         return [
           {
             id: contactId,
@@ -2256,6 +2381,7 @@ export default function KnexChatPage() {
             lastActivityAt: Date.now(),
             tab: "contacts",
             contactEmail: normalized,
+            ...(normalizedAvatar ? { avatarUrl: normalizedAvatar } : {}),
           },
           ...prev,
         ];
@@ -2297,8 +2423,8 @@ export default function KnexChatPage() {
     [contactEmailSet],
   );
   const handleAcceptContactRequest = useCallback(
-    (email: string, name?: string) => {
-      addContactFromDirectory(email, name);
+    (email: string, name?: string, avatarUrl?: string | null) => {
+      addContactFromDirectory(email, name, avatarUrl);
       setContactRequests((prev) =>
         prev.map((request) =>
           normalizeEmail(request.email) === normalizeEmail(email)
@@ -2556,12 +2682,18 @@ export default function KnexChatPage() {
         const next = { ...prev };
         mine.forEach((message) => {
           const threadId = contactIdFromEmail(message.from);
+          const senderInfo = contactNameByEmail.get(message.from);
+          const senderName = message.fromName?.trim()
+            ? normalizeName(message.fromName)
+            : senderInfo?.name ?? formatNameFromEmail(message.from);
           const incomingMessage: Message = {
             id: message.id,
             author: "them",
             body: message.body || (message.imageUrl ? "Imagem recebida" : message.audioUrl ? "Mensagem de áudio" : "Mensagem recebida"),
             time: message.time,
-            senderName: message.fromName,
+            senderName,
+            senderEmail: message.from,
+            senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
             imageUrl: message.imageUrl,
             imageName: message.imageName,
             audioUrl: message.audioUrl,
@@ -2574,7 +2706,15 @@ export default function KnexChatPage() {
     } catch {
       // Ignore inbox errors.
     }
-  }, [contacts, identity?.email, serverMessagingEnabled, setContacts, setConversations, setMessagesByThread]);
+  }, [
+    contactNameByEmail,
+    contacts,
+    identity?.email,
+    serverMessagingEnabled,
+    setContacts,
+    setConversations,
+    setMessagesByThread,
+  ]);
 
   const previewFromApiMessage = useCallback((message?: ApiMessage | null) => {
     if (!message) return "Sem mensagens";
@@ -2587,7 +2727,12 @@ export default function KnexChatPage() {
   const mapApiThreadToThread = useCallback(
     (thread: ApiThread): Thread => {
       const identityEmail = identity?.email ? normalizeEmail(identity.email) : "";
-      const participants = thread.participants ?? [];
+      const participants = (thread.participants ?? []).map((participant) => ({
+        email: normalizeEmail(participant.email),
+        role: participant.role,
+        name: participant.name ?? null,
+        avatarUrl: normalizeAvatarUrl(participant.avatar_url ?? null),
+      }));
       const tab: TabKey = thread.kind === "group" || thread.kind === "forum" ? "groups" : "conversations";
       const lastTimestamp = thread.last_message_at ?? thread.updated_at ?? thread.created_at;
       const lastActivityAt = toTimestampMs(lastTimestamp) ?? undefined;
@@ -2605,7 +2750,7 @@ export default function KnexChatPage() {
         const contactInfo = otherEmail ? contactNameByEmail.get(otherEmail) : undefined;
         const displayName = contactInfo?.name ?? otherParticipant?.name ?? "";
         title = displayName || (otherEmail ? formatNameFromEmail(otherEmail) : "Conversa direta");
-        avatarUrl = contactInfo?.avatarUrl ?? undefined;
+        avatarUrl = contactInfo?.avatarUrl ?? otherParticipant?.avatarUrl ?? undefined;
       }
 
       if (tab === "groups") {
@@ -2631,6 +2776,7 @@ export default function KnexChatPage() {
   const mapApiMessageToMessage = useCallback(
     (message: ApiMessage): Message => {
       const senderEmail = normalizeEmail(message.sender_email);
+      const senderInfo = senderEmail ? contactNameByEmail.get(senderEmail) : undefined;
       const author: "me" | "them" =
         identity?.email && normalizeEmail(identity.email) === senderEmail ? "me" : "them";
       const timeLabel = formatTimestampLabel(message.created_at) || "Agora";
@@ -2640,6 +2786,9 @@ export default function KnexChatPage() {
           author,
           body: message.media_name ?? "Imagem enviada",
           time: timeLabel,
+          senderName: senderInfo?.name,
+          senderEmail: senderEmail || undefined,
+          senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
           imageUrl: message.media_url ?? undefined,
           imageName: message.media_name ?? undefined,
         };
@@ -2650,6 +2799,9 @@ export default function KnexChatPage() {
           author,
           body: "Mensagem de áudio",
           time: timeLabel,
+          senderName: senderInfo?.name,
+          senderEmail: senderEmail || undefined,
+          senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
           audioUrl: message.media_url ?? undefined,
           audioDuration: message.media_name ?? undefined,
         };
@@ -2660,6 +2812,9 @@ export default function KnexChatPage() {
           author,
           body: message.media_name ?? "Arquivo enviado",
           time: timeLabel,
+          senderName: senderInfo?.name,
+          senderEmail: senderEmail || undefined,
+          senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
         };
       }
       return {
@@ -2667,9 +2822,12 @@ export default function KnexChatPage() {
         author,
         body: message.body ?? "",
         time: timeLabel,
+        senderName: senderInfo?.name,
+        senderEmail: senderEmail || undefined,
+        senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
       };
     },
-    [identity?.email],
+    [contactNameByEmail, identity?.email],
   );
 
   const updateThreadActivity = useCallback((threadId: string, preview: string, activityAt: number) => {
@@ -3012,6 +3170,63 @@ export default function KnexChatPage() {
     setProfileTarget(null);
     setIsProfileAvatarPreviewOpen(false);
   };
+  const resetPanelsForMobileNavigation = () => {
+    setIsSettingsOpen(false);
+    setActiveSettingKey(null);
+    setIsProfileOpen(false);
+    setProfileTarget(null);
+    setIsProfileAvatarPreviewOpen(false);
+    setIsDirectoryOpen(false);
+    setDirectorySearch("");
+    setIsDirectoryFiltersOpen(false);
+    setIsNewChatOpen(false);
+    setIsNewChatEmailOpen(false);
+    setIsNewGroupOpen(false);
+    setIsNewGroupCreateOpen(false);
+    setIsCommunityListOpen(false);
+    setIsGroupsPanelOpen(false);
+    setIsGroupCreateOpen(false);
+    setIsNewContactOpen(false);
+    setIsGroupsExpanded(false);
+    setSelectedGroupMemberIds([]);
+    setIsThreadMenuOpen(false);
+    setIsContactInfoOpen(false);
+    setIsContactEditOpen(false);
+    setIsGroupInfoOpen(false);
+    setIsGroupPermissionsOpen(false);
+    setIsGroupAdminsModalOpen(false);
+    setIsMobileDetailOpen(false);
+  };
+  const openMobileFooterEnvironment = (
+    key: "conversations" | "calls" | "status" | "channels" | "communities" | "contacts",
+    options?: { directoryTab?: DirectoryTabKey },
+  ) => {
+    setIsMobileProfileSheetOpen(false);
+    resetPanelsForMobileNavigation();
+    setActiveNavKey(key);
+    if (key === "contacts") {
+      setIsDirectoryOpen(true);
+      setDirectoryTab(options?.directoryTab ?? "people");
+      return;
+    }
+    if (key === "communities") {
+      setIsNewChatOpen(true);
+      setIsCommunityListOpen(true);
+      return;
+    }
+    if (key === "channels") {
+      setActiveFilter("groups");
+      return;
+    }
+    setActiveFilter("all");
+  };
+  const openSettingsFromMobileSheet = (key: (typeof SETTINGS_MENU)[number]["key"] | null) => {
+    setIsMobileProfileSheetOpen(false);
+    resetPanelsForMobileNavigation();
+    setActiveNavKey("settings");
+    setIsSettingsOpen(true);
+    setActiveSettingKey(key);
+  };
   const commitProfileName = useCallback(() => {
     if (profileTarget !== "self" || !identity) return;
     const normalizedName = normalizeName(profileNameDraft);
@@ -3243,6 +3458,53 @@ export default function KnexChatPage() {
   }, []);
 
   useEffect(() => {
+    if (isMobileView) return;
+    setIsMobileProfileSheetOpen(false);
+  }, [isMobileView]);
+
+  useEffect(() => {
+    const hasHorizontalOverflow = (element: HTMLDivElement | null) => {
+      if (!element) return false;
+      return element.scrollWidth - element.clientWidth > 1;
+    };
+
+    const evaluateCarouselNeeds = () => {
+      if (!isMobileView) {
+        setIsMobileDockCarousel(false);
+        setIsConversationFiltersCarousel(false);
+        setIsDirectoryFiltersCarousel(false);
+        return;
+      }
+      setIsMobileDockCarousel(hasHorizontalOverflow(mobileDockButtonsRef.current));
+      setIsConversationFiltersCarousel(hasHorizontalOverflow(conversationFiltersRef.current));
+      setIsDirectoryFiltersCarousel(hasHorizontalOverflow(directoryFiltersRef.current));
+    };
+
+    evaluateCarouselNeeds();
+    const rafId = window.requestAnimationFrame(evaluateCarouselNeeds);
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => evaluateCarouselNeeds());
+      if (mobileDockButtonsRef.current) resizeObserver.observe(mobileDockButtonsRef.current);
+      if (conversationFiltersRef.current) resizeObserver.observe(conversationFiltersRef.current);
+      if (directoryFiltersRef.current) resizeObserver.observe(directoryFiltersRef.current);
+    }
+    window.addEventListener("resize", evaluateCarouselNeeds);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", evaluateCarouselNeeds);
+      resizeObserver?.disconnect();
+    };
+  }, [
+    activeFilter,
+    directoryFilter,
+    directoryTab,
+    isDirectoryFiltersOpen,
+    isMobileView,
+    isNewChatOpen,
+  ]);
+
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw || !raw.trim()) {
@@ -3289,6 +3551,7 @@ export default function KnexChatPage() {
     if (!isAuthReady) return;
     if (!authSession?.access_token) {
       setIsKnexchatActivated(false);
+      setActivationProfileIdentity(null);
       return;
     }
     let active = true;
@@ -3296,13 +3559,31 @@ export default function KnexChatPage() {
       try {
         const res = await authFetch("/api/knexchat/activation/status");
         if (!res.ok) throw new Error("status_failed");
-        const payload = (await res.json().catch(() => null)) as { activated?: boolean } | null;
+        const payload = (await res.json().catch(() => null)) as {
+          activated?: boolean;
+          profile?: {
+            display_name?: string | null;
+            nickname_normalized?: string | null;
+            nickname?: string | null;
+          } | null;
+        } | null;
         if (active) {
           setIsKnexchatActivated(Boolean(payload?.activated));
+          const profileDisplayName = normalizeName(payload?.profile?.display_name ?? "");
+          const profileKnexId = normalizeKnexId(payload?.profile?.nickname_normalized ?? payload?.profile?.nickname ?? "");
+          setActivationProfileIdentity(
+            profileDisplayName || profileKnexId
+              ? {
+                  ...(profileDisplayName ? { displayName: profileDisplayName } : {}),
+                  ...(profileKnexId ? { knexId: profileKnexId } : {}),
+                }
+              : null,
+          );
         }
       } catch {
         if (active) {
           setIsKnexchatActivated(false);
+          setActivationProfileIdentity(null);
         }
       }
     })();
@@ -3324,8 +3605,18 @@ export default function KnexChatPage() {
     if (isKnexchatActivated === null) return;
 
     const normalizedEmail = normalizeEmail(authSession.user.email);
-    const metadata = authSession.user.user_metadata as { name?: string; full_name?: string } | null;
-    const normalizedName = normalizeName(metadata?.name ?? metadata?.full_name ?? "");
+    const metadata = authSession.user.user_metadata as {
+      name?: string;
+      full_name?: string;
+      avatar_url?: string;
+      picture?: string;
+      avatar?: string;
+    } | null;
+    const normalizedName = normalizeName(
+      activationProfileIdentity?.displayName ?? metadata?.name ?? metadata?.full_name ?? "",
+    );
+    const normalizedKnexId = normalizeKnexId(activationProfileIdentity?.knexId ?? "");
+    const normalizedAvatar = normalizeAvatarUrl(metadata?.avatar_url ?? metadata?.picture ?? metadata?.avatar ?? null);
     const nextIdentity: Identity = {
       userId: authSession.user.id,
       email: normalizedEmail,
@@ -3333,6 +3624,7 @@ export default function KnexChatPage() {
       deviceId: `dev_${Math.random().toString(16).slice(2)}`,
       createdAt: authSession.user.created_at ?? new Date().toISOString(),
       name: normalizedName || undefined,
+      ...(normalizedKnexId ? { knexId: normalizedKnexId } : {}),
     };
     setIdentity(nextIdentity);
     try {
@@ -3343,14 +3635,29 @@ export default function KnexChatPage() {
     const directoryEntry: DirectoryEntry = {
       email: normalizedEmail,
       name: normalizedName || undefined,
+      ...(normalizedAvatar ? { avatarUrl: normalizedAvatar } : {}),
       createdAt: new Date().toISOString(),
     };
     setDirectoryEntries((prev) => {
-      if (prev.some((entry) => normalizeEmail(entry.email) === normalizedEmail)) return prev;
+      const existingIndex = prev.findIndex((entry) => normalizeEmail(entry.email) === normalizedEmail);
+      if (existingIndex >= 0) {
+        const existing = prev[existingIndex];
+        const shouldUpdate =
+          (!existing.name && normalizedName) ||
+          (!existing.avatarUrl && normalizedAvatar);
+        if (!shouldUpdate) return prev;
+        const next = [...prev];
+        next[existingIndex] = {
+          ...existing,
+          ...(normalizedName ? { name: normalizedName } : {}),
+          ...(normalizedAvatar ? { avatarUrl: normalizedAvatar } : {}),
+        };
+        return next;
+      }
       return [directoryEntry, ...prev];
     });
     setDirectoryLookupCache((prev) => ({ ...prev, [normalizedEmail]: true }));
-  }, [authSession, isAuthReady, isKnexchatActivated]);
+  }, [activationProfileIdentity?.displayName, activationProfileIdentity?.knexId, authSession, isAuthReady, isKnexchatActivated]);
 
   useEffect(() => {
     if (!isAuthReady || !authSession?.user?.email) return;
@@ -3358,22 +3665,35 @@ export default function KnexChatPage() {
     if (isKnexchatActivated === null) return;
 
     const normalizedEmail = normalizeEmail(authSession.user.email);
-    const metadata = authSession.user.user_metadata as { name?: string; full_name?: string } | null;
-    const normalizedName = normalizeName(metadata?.name ?? metadata?.full_name ?? "");
+    const metadata = authSession.user.user_metadata as {
+      name?: string;
+      full_name?: string;
+      avatar_url?: string;
+      picture?: string;
+      avatar?: string;
+    } | null;
+    const normalizedName = normalizeName(
+      activationProfileIdentity?.displayName ?? metadata?.name ?? metadata?.full_name ?? "",
+    );
+    const normalizedAvatar = normalizeAvatarUrl(metadata?.avatar_url ?? metadata?.picture ?? metadata?.avatar ?? null);
 
     void (async () => {
       try {
         const res = await authFetch("/api/knexchat/directory", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: normalizedEmail, name: normalizedName || undefined }),
+          body: JSON.stringify({
+            email: normalizedEmail,
+            name: normalizedName || undefined,
+            avatarUrl: normalizedAvatar || undefined,
+          }),
         });
         if (res.status === 409) return;
       } catch {
         // Ignore directory registration errors.
       }
     })();
-  }, [authFetch, authSession, isAuthReady, isKnexchatActivated]);
+  }, [activationProfileIdentity?.displayName, authFetch, authSession, isAuthReady, isKnexchatActivated]);
 
   useEffect(() => {
     if (!chatStateKey) {
@@ -3477,6 +3797,8 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (typeof window === "undefined") {
       setDirectoryEntries([]);
+      setDirectoryLookupCache({});
+      setIsDirectoryCacheHydrated(true);
       return;
     }
     try {
@@ -3490,11 +3812,106 @@ export default function KnexChatPage() {
         });
         return next;
       });
+      setIsDirectoryCacheHydrated(true);
     } catch {
       setDirectoryEntries([]);
       setDirectoryLookupCache({});
+      setIsDirectoryCacheHydrated(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isDirectoryCacheHydrated) return;
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(DIRECTORY_KEY, JSON.stringify(directoryEntries));
+    } catch {
+      // Ignore directory cache persistence errors.
+    }
+  }, [directoryEntries, isDirectoryCacheHydrated]);
+
+  useEffect(() => {
+    if (!isAuthReady || !authSession?.access_token) return;
+    if (!identity?.email) return;
+    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch("/api/knexchat/directory?limit=200");
+        if (!res.ok) return;
+        const payload = (await res.json().catch(() => ({}))) as {
+          entries?: Array<{
+            email?: string;
+            name?: string | null;
+            avatar_url?: string | null;
+            avatarUrl?: string | null;
+            created_at?: string;
+            createdAt?: string;
+          }>;
+        };
+        if (cancelled || !Array.isArray(payload.entries)) return;
+        const incoming = payload.entries
+          .map((entry) => {
+            const email = typeof entry.email === "string" ? normalizeEmail(entry.email) : "";
+            if (!email || !isValidEmail(email)) return null;
+            const name = typeof entry.name === "string" ? normalizeName(entry.name) : "";
+            const avatarUrl = normalizeAvatarUrl(entry.avatar_url ?? entry.avatarUrl ?? null);
+            const createdAt =
+              typeof entry.created_at === "string"
+                ? entry.created_at
+                : typeof entry.createdAt === "string"
+                  ? entry.createdAt
+                  : new Date().toISOString();
+            const mapped: DirectoryEntry = {
+              email,
+              ...(name ? { name } : {}),
+              ...(avatarUrl ? { avatarUrl } : {}),
+              createdAt,
+            };
+            return mapped;
+          })
+          .filter(Boolean) as DirectoryEntry[];
+        if (!incoming.length) return;
+        setDirectoryEntries((prev) => {
+          const byEmail = new Map<string, DirectoryEntry>();
+          prev.forEach((entry) => {
+            const normalized = normalizeEmail(entry.email);
+            if (!normalized) return;
+            byEmail.set(normalized, entry);
+          });
+          incoming.forEach((entry) => {
+            const normalized = normalizeEmail(entry.email);
+            if (!normalized) return;
+            const existing = byEmail.get(normalized);
+            if (!existing) {
+              byEmail.set(normalized, entry);
+              return;
+            }
+            byEmail.set(normalized, {
+              ...existing,
+              ...(entry.name ? { name: entry.name } : {}),
+              ...(entry.avatarUrl ? { avatarUrl: entry.avatarUrl } : {}),
+              createdAt: existing.createdAt || entry.createdAt,
+            });
+          });
+          return Array.from(byEmail.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        });
+        setDirectoryLookupCache((prev) => {
+          const next = { ...prev };
+          incoming.forEach((entry) => {
+            const normalized = normalizeEmail(entry.email);
+            if (normalized) next[normalized] = true;
+          });
+          return next;
+        });
+      } catch {
+        // Ignore directory sync failures.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, authSession?.access_token, entitlementBlocked, identity?.email, isAuthReady, isKnexchatActivated]);
 
   useEffect(() => {
     if (serverMessagingEnabled) return;
@@ -3682,28 +4099,6 @@ export default function KnexChatPage() {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker.register("/knexchat/sw.js", { scope: "/knexchat/" }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const displayMode = window.matchMedia("(display-mode: standalone)");
-    if (displayMode.matches) {
-      setIsInstalled(true);
-    }
-    const handlePrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
-    const handleInstalled = () => {
-      setIsInstalled(true);
-      setInstallPrompt(null);
-    };
-    window.addEventListener("beforeinstallprompt", handlePrompt);
-    window.addEventListener("appinstalled", handleInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handlePrompt);
-      window.removeEventListener("appinstalled", handleInstalled);
-    };
   }, []);
 
   useEffect(() => {
@@ -4494,22 +4889,23 @@ export default function KnexChatPage() {
     }
   };
 
-  const handleInstallApp = async () => {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    await installPrompt.userChoice.catch(() => null);
-    setInstallPrompt(null);
-  };
-
   const navButtonClass = (active: boolean) =>
     `grid h-11 w-11 place-items-center rounded-2xl transition ${
       active
         ? isDarkTheme
-          ? "bg-blue-600 text-white shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
+          ? "border border-white/25 bg-slate-300/35 text-white shadow-[0_12px_24px_rgba(0,0,0,0.38)]"
           : "bg-blue-600 text-white shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
         : isDarkTheme
-          ? "text-slate-300 hover:bg-blue-600 hover:text-white"
-          : "text-slate-900 hover:bg-blue-600 hover:text-white"
+          ? "text-slate-300 hover:bg-slate-300/25 hover:text-white"
+          : "text-white/90 hover:bg-white/15 hover:text-white"
+    }`;
+  const mobileDockButtonClass = (active: boolean) =>
+    `grid h-10 w-10 shrink-0 place-items-center rounded-xl transition max-[420px]:h-9 max-[420px]:w-9 max-[360px]:h-8 max-[360px]:w-8 ${
+      isMobileDockCarousel ? "snap-start" : ""
+    } ${
+      active
+        ? "bg-white text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.15)]"
+        : "text-white hover:bg-white/15 hover:text-white"
     }`;
   const avatarFrameLg = "rounded-[26px]";
   const avatarFrameMd = "rounded-[8.5px]";
@@ -4654,7 +5050,7 @@ export default function KnexChatPage() {
           subtitle: isSelf
             ? settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado
             : participant.email,
-          avatarUrl: contactInfo?.avatarUrl ?? null,
+          avatarUrl: isSelf ? currentUser?.avatarUrl ?? null : contactInfo?.avatarUrl ?? participant.avatarUrl ?? null,
           isAdmin: participant.role === "admin",
         });
       });
@@ -4729,7 +5125,7 @@ export default function KnexChatPage() {
           subtitle: isSelf
             ? settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado
             : participant.email,
-          avatarUrl: contactInfo?.avatarUrl ?? null,
+          avatarUrl: isSelf ? currentUser?.avatarUrl ?? null : contactInfo?.avatarUrl ?? participant.avatarUrl ?? null,
         });
       });
       return candidates;
@@ -4957,12 +5353,141 @@ export default function KnexChatPage() {
   const settingsField =
     isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100" : "border-slate-200 bg-white text-slate-900";
   const settingsHover = isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100";
-  const navRailBase = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[#F5F5F5]";
-  const navRailDivider = "bg-slate-200";
-  const shellSurface = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[#F5F5F5]";
+  const shellBrandSurface = isDarkTheme ? "bg-[var(--knex-850)]/85" : "bg-[var(--kx-header)]";
+  const navRailBase = shellBrandSurface;
+  const navRailDivider = isDarkTheme ? "bg-[#2a2a2a]" : "bg-white/20";
+  const shellSurface = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[var(--kx-bg)] lg:bg-[var(--kx-header)]";
+  const mobileDockSurface = shellBrandSurface;
+  const shellHeaderSurface = isDarkTheme
+    ? `border-b border-[#2a2a2a] ${shellBrandSurface} text-slate-100`
+    : `border-b border-white/10 ${shellBrandSurface} text-white`;
   const headerLineLeft = isSettingsOpen ? "calc(3.5rem + 340px)" : "calc(3.5rem + 24rem)";
   const messagePanelBg = isDarkTheme ? "bg-[#141414]" : "bg-slate-50";
   const messagePanelBodyStyle = wallpaperColor ? { backgroundColor: wallpaperColor } : undefined;
+  const mobileProfileSheetItems: {
+    id: string;
+    label: string;
+    description: string;
+    icon: LucideIcon;
+    onSelect: () => void;
+  }[] = [
+    {
+      id: "payments",
+      label: "Pagamentos",
+      description: "Gerenciar pagamentos e plano",
+      icon: CreditCard,
+      onSelect: () => openSettingsFromMobileSheet("account"),
+    },
+    {
+      id: "account",
+      label: "Conta",
+      description: "Notificações de segurança, mudança de número",
+      icon: User,
+      onSelect: () => openSettingsFromMobileSheet("account"),
+    },
+    {
+      id: "privacy",
+      label: "Privacidade",
+      description: "Bloqueio de contatos e mensagens temporárias",
+      icon: Shield,
+      onSelect: () => openSettingsFromMobileSheet("privacy"),
+    },
+    {
+      id: "avatar",
+      label: "Avatar",
+      description: "Criar, editar e foto do perfil",
+      icon: Camera,
+      onSelect: () => {
+        setIsMobileProfileSheetOpen(false);
+        resetPanelsForMobileNavigation();
+        handleOpenProfile("self");
+      },
+    },
+    {
+      id: "lists",
+      label: "Listas",
+      description: "Gerenciar pessoas e grupos",
+      icon: Users2,
+      onSelect: () => openMobileFooterEnvironment("contacts", { directoryTab: "contacts" }),
+    },
+    {
+      id: "chats",
+      label: "Conversas",
+      description: "Tema, papel de parede e histórico",
+      icon: MessageSquare,
+      onSelect: () => openSettingsFromMobileSheet("chats"),
+    },
+    {
+      id: "broadcast",
+      label: "Listas de transmissão",
+      description: "Gerencie listas e envie transmissões",
+      icon: SendHorizontal,
+      onSelect: () => openMobileFooterEnvironment("channels"),
+    },
+    {
+      id: "notifications",
+      label: "Notificações",
+      description: "Mensagens, grupos e ligações",
+      icon: Bell,
+      onSelect: () => openSettingsFromMobileSheet("notifications"),
+    },
+    {
+      id: "storage",
+      label: "Armazenamento e dados",
+      description: "Uso de rede e download automático",
+      icon: Smartphone,
+      onSelect: () => openSettingsFromMobileSheet("media"),
+    },
+    {
+      id: "accessibility",
+      label: "Acessibilidade",
+      description: "Aumentar contraste e animação",
+      icon: SlidersHorizontal,
+      onSelect: () => openSettingsFromMobileSheet("shortcuts"),
+    },
+    {
+      id: "language",
+      label: "Idioma do app",
+      description: "Português (Brasil)",
+      icon: Globe,
+      onSelect: () => openSettingsFromMobileSheet("general"),
+    },
+    {
+      id: "help",
+      label: "Ajuda",
+      description: "Central de Ajuda e Política de Privacidade",
+      icon: HelpCircle,
+      onSelect: () => openSettingsFromMobileSheet("help"),
+    },
+    {
+      id: "feedback",
+      label: "Enviar feedback",
+      description: "Relatar problemas técnicos",
+      icon: Flag,
+      onSelect: () => openSettingsFromMobileSheet("help"),
+    },
+    {
+      id: "invite",
+      label: "Convidar amigos",
+      description: "Compartilhar acesso ao KnexChat",
+      icon: UserPlus,
+      onSelect: () => openMobileFooterEnvironment("contacts", { directoryTab: "people" }),
+    },
+    {
+      id: "beta",
+      label: "Acesso antecipado a recursos",
+      description: "Participar do programa beta",
+      icon: Star,
+      onSelect: () => openSettingsFromMobileSheet("help"),
+    },
+    {
+      id: "updates",
+      label: "Atualizações do app",
+      description: "Ver novidades e versões",
+      icon: Download,
+      onSelect: () => openSettingsFromMobileSheet("help"),
+    },
+  ];
 
   const activationBackdrop = !isChatRoute ? (
     <>
@@ -4975,10 +5500,10 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
+        className={`${manrope.className} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}
       >
         {activationBackdrop}
-        <div className="relative z-10 flex min-h-screen items-center justify-center">
+        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
           <div className="text-sm text-slate-400">Carregando KnexChat...</div>
         </div>
       </main>
@@ -4989,10 +5514,10 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
+        className={`${manrope.className} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}
       >
         {activationBackdrop}
-        <div className="relative z-10 flex min-h-screen items-center justify-center">
+        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
           <div className="text-sm text-slate-400">Verificando sua conta KnexChat...</div>
         </div>
       </main>
@@ -5001,8 +5526,8 @@ export default function KnexChatPage() {
 
   if (!identity) {
     return (
-      <main className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}>
-        <div className="relative z-10 flex min-h-screen items-center justify-center">
+      <main className={`${manrope.className} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}>
+        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
           <div className="text-sm text-slate-400">Redirecionando para ativacao...</div>
         </div>
       </main>
@@ -5013,10 +5538,10 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${manrope.className} relative h-[100svh] bg-white overflow-hidden text-slate-900`}
+        className={`${manrope.className} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}
       >
         {activationBackdrop}
-        <div className="relative z-10 flex min-h-screen items-center justify-center">
+        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
           <div className="text-sm text-slate-400">Abrindo o KnexChat...</div>
         </div>
       </main>
@@ -5026,50 +5551,34 @@ export default function KnexChatPage() {
   return (
     <main
       style={THEME_STYLE}
-      className={`${manrope.className} relative h-screen overflow-hidden ${
-        isDarkTheme ? "bg-[#141414]" : "bg-white"
-      } text-slate-100`}
+      className={`${manrope.className} relative h-full min-h-0 overflow-hidden ${
+        isDarkTheme ? "bg-[#141414] text-slate-100" : "bg-[var(--kx-bg)] text-slate-900"
+      }`}
     >
       <KnexChatMotionStyles />
       <div className="relative z-10 flex h-full flex-col">
         <header
-          className={`relative flex flex-wrap items-center justify-between gap-3 ${shellSurface} px-4 py-2`}
+          className={`relative flex min-h-[3.25rem] flex-nowrap items-center justify-start px-2 py-1.5 lg:min-h-[3rem] lg:flex-wrap lg:justify-between lg:gap-3 lg:px-4 lg:py-1.5 lg:border-b-0 ${shellHeaderSurface}`}
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
-        <div className="flex items-center gap-3">
+        <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-3 lg:left-4">
           <div>
-            <p className={`${spaceGrotesk.className} text-lg font-semibold`}>
-              <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 bg-clip-text text-transparent">
-                KnexChat
-              </span>
+            <p className={`${spaceGrotesk.className} text-lg font-semibold leading-none lg:text-xl`}>
+              <span className="text-white">KnexChat</span>
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-full border border-blue-700/80 bg-blue-600 px-3 py-1 text-xs font-bold text-white">
-            Knex ID: {identity.email}
-          </span>
-          {!isInstalled ? (
-            <button
-              type="button"
-              onClick={handleInstallApp}
-              className="rounded-full border border-blue-700/80 bg-blue-600 px-3 py-1 text-xs font-bold text-slate-900 transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!installPrompt}
-              title={installPrompt ? "Instalar Knexchat" : "Instalação indisponível no momento"}
-            >
-              Instalar
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-full border border-rose-500/80 bg-rose-500 px-3 py-1 text-xs font-bold text-slate-900 transition hover:border-rose-600 hover:bg-rose-600"
-          >
-            Sair
-          </button>
-        </div>
+        <span
+          className={`absolute right-1 top-1/2 -translate-y-1/2 lg:hidden ${
+            isDarkTheme ? "text-slate-200" : "text-white"
+          }`}
+          aria-hidden="true"
+        >
+          <MoreVertical className="h-5 w-5" />
+        </span>
         </header>
 
-        <div className={`relative flex min-h-0 flex-1 flex-col lg:flex-row ${shellSurface}`}>
+        <div className={`relative flex min-h-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:flex-row lg:pb-0 ${shellSurface}`}>
         <nav
           className={`hidden w-14 flex-col items-center gap-4 ${navRailBase} py-5 lg:flex`}
         >
@@ -5208,7 +5717,13 @@ export default function KnexChatPage() {
           <div className="relative group">
             <button
               type="button"
-              className={navButtonClass(activeNavKey === "contacts")}
+              className={`${navButtonClass(activeNavKey === "contacts")} ${
+                isDarkTheme
+                  ? activeNavKey === "contacts"
+                    ? "bg-slate-300/45 border-white/30"
+                    : "hover:bg-slate-300/40"
+                  : ""
+              }`}
               aria-label="Novo contato ou conversa"
               title="Novo contato ou conversa"
               onClick={() => {
@@ -5231,7 +5746,11 @@ export default function KnexChatPage() {
             >
               <UserPlus
                 className={`h-5 w-5 ${
-                  activeNavKey === "contacts" ? "text-white" : "text-blue-600 group-hover:text-white"
+                  activeNavKey === "contacts"
+                    ? "text-white"
+                    : isDarkTheme
+                      ? "text-slate-300 group-hover:text-white"
+                      : "text-white/90 group-hover:text-white"
                 }`}
               />
             </button>
@@ -5320,7 +5839,7 @@ export default function KnexChatPage() {
           isSettingsOpen ? (
           <>
             <aside
-              className={`flex w-full flex-col border-b border-t ${settingsBorder} ${settingsPanelBase} md:w-[340px] md:border-b-0 md:border-l md:border-r md:rounded-tl-md`}
+              className={`flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${settingsPanelBase} md:w-[340px] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md`}
             >
               {activeSettingKey === "general" ? (
                 <div className="flex h-full flex-col">
@@ -5713,7 +6232,7 @@ export default function KnexChatPage() {
               )}
             </aside>
             <section
-              className={`flex min-h-0 flex-1 border-t ${settingsBorder} ${
+              className={`flex min-h-0 flex-1 border-t ${settingsBorder} md:border-t-0 ${
                 isDarkTheme ? "bg-[#141414]" : "bg-slate-50"
               }`}
             >
@@ -5796,9 +6315,9 @@ export default function KnexChatPage() {
         {isProfileOpen ? (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex w-full flex-col border-b border-t ${settingsBorder} ${
+            className={`relative flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
           >
             <div className="flex items-center justify-between px-4 py-3">
               <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Perfil</span>
@@ -5941,9 +6460,9 @@ export default function KnexChatPage() {
         ) : (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex w-full flex-col border-b border-t ${settingsBorder} ${
+            className={`relative flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
           >
             {isGroupsPanelOpen ? (
               <div className={`flex flex-col gap-4 border-b px-4 py-4 ${settingsBorder}`}>
@@ -6001,7 +6520,7 @@ export default function KnexChatPage() {
             ) : (
               isDirectoryOpen || isNewChatOpen ? null : (
                 <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
-                  <div className="flex items-center gap-3">
+                  <div className="hidden items-center gap-3 lg:flex">
                     {currentUser?.avatarUrl ? (
                       <img
                         src={currentUser.avatarUrl}
@@ -6065,11 +6584,11 @@ export default function KnexChatPage() {
                     <div
                       className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
                         isDarkTheme
-                          ? "border-blue-400/60 bg-slate-900/60 text-slate-200"
-                          : "border-blue-400 bg-slate-100 text-slate-600"
+                          ? "border-slate-300/40 bg-slate-700/30 text-slate-200"
+                          : "border-slate-300 bg-slate-100 text-slate-600"
                       }`}
                     >
-                      <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                      <Search className={`${isDarkTheme ? "text-slate-300" : "text-slate-500"} h-4 w-4`} />
                       <input
                         type="text"
                         placeholder="Pesquisar conversas"
@@ -6084,7 +6603,12 @@ export default function KnexChatPage() {
                     </div>
                   )}
                   {isNewChatOpen ? null : (
-                    <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+                    <div
+                      ref={conversationFiltersRef}
+                      className={`no-scrollbar flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap ${
+                        isConversationFiltersCarousel ? "scroll-smooth touch-pan-x snap-x snap-mandatory" : ""
+                      }`}
+                    >
                       {FILTERS.map((filter) => {
                         const isActive = filter.key === activeFilter;
                         return (
@@ -6092,13 +6616,15 @@ export default function KnexChatPage() {
                             key={filter.key}
                             type="button"
                             onClick={() => setActiveFilter(filter.key)}
-                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                            className={`shrink-0 rounded-full px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.24rem,1vw,0.34rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
+                              isConversationFiltersCarousel ? "snap-start" : ""
+                            } ${
                               isDarkTheme
                                 ? isActive
-                                  ? "bg-emerald-500/30 text-emerald-100"
-                                  : "border border-[var(--knex-700)] text-slate-300 hover:border-emerald-400/50 hover:text-emerald-100"
+                                  ? "border border-slate-300/50 bg-white/10 text-slate-100"
+                                  : "border border-slate-300/40 text-slate-300 hover:border-slate-300/50 hover:bg-white/5 hover:text-slate-100"
                                 : isActive
-                                  ? "border border-blue-200 bg-blue-100 text-blue-800"
+                                  ? "border border-slate-300 bg-blue-100 text-blue-800"
                                   : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
                             }`}
                           >
@@ -6106,6 +6632,32 @@ export default function KnexChatPage() {
                           </button>
                         );
                       })}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsDirectoryOpen(false);
+                          setIsNewChatOpen(true);
+                          setIsNewChatEmailOpen(false);
+                          setIsNewGroupOpen(false);
+                          setIsCommunityListOpen(false);
+                          setIsGroupsPanelOpen(false);
+                          setIsGroupCreateOpen(false);
+                          setIsGroupsExpanded(false);
+                          setIsNewContactOpen(false);
+                        }}
+                        className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.24rem,1vw,0.34rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
+                          isConversationFiltersCarousel ? "snap-start" : ""
+                        } ${
+                          isDarkTheme
+                            ? "border border-slate-300/40 text-slate-200 hover:border-slate-300/50 hover:bg-white/5 hover:text-slate-100"
+                            : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                        }`}
+                        aria-label="Incluir nova lista"
+                        title="Incluir nova lista"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Mais</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -6114,7 +6666,7 @@ export default function KnexChatPage() {
             <div
               className={`flex min-h-0 flex-1 ${
                 isNewChatOpen ? "overflow-visible" : isDirectoryOpen ? "overflow-hidden" : "overflow-y-auto"
-              } ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-3 py-4"}`}
+              } ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-2 py-2"}`}
             >
               {isGroupsPanelOpen ? (
                 isGroupCreateOpen ? (
@@ -6273,7 +6825,14 @@ export default function KnexChatPage() {
                       />
                     </div>
                     {isDirectoryFiltersOpen ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div
+                        ref={directoryFiltersRef}
+                        className={`mt-3 flex flex-wrap gap-2 ${
+                          isDirectoryFiltersCarousel
+                            ? "no-scrollbar flex-nowrap items-center overflow-x-auto scroll-smooth touch-pan-x snap-x snap-mandatory"
+                            : ""
+                        }`}
+                      >
                         {DIRECTORY_FILTERS.map((filter) => {
                           const isActive = filter.key === directoryFilter;
                           return (
@@ -6281,7 +6840,9 @@ export default function KnexChatPage() {
                               key={filter.key}
                               type="button"
                               onClick={() => setDirectoryFilter(filter.key)}
-                              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                              className={`shrink-0 rounded-full border px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.24rem,1vw,0.34rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
+                                isDirectoryFiltersCarousel ? "snap-start" : ""
+                              } ${
                                 isDarkTheme
                                   ? isActive
                                     ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
@@ -6343,13 +6904,21 @@ export default function KnexChatPage() {
                                 }`}
                               >
                                 <div className="flex min-w-0 items-center gap-3">
-                                  <div
-                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
-                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
-                                    }`}
-                                  >
-                                    {getAvatarText(person.name)}
-                                  </div>
+                                  {person.avatarUrl ? (
+                                    <img
+                                      src={person.avatarUrl}
+                                      alt={`Avatar de ${person.name}`}
+                                      className={`h-11 w-11 shrink-0 ${avatarFrameMd} object-cover`}
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                        isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                      }`}
+                                    >
+                                      {getAvatarText(person.name)}
+                                    </div>
+                                  )}
                                   <div className="min-w-0">
                                     <p
                                       className={`truncate text-sm font-semibold ${
@@ -6397,7 +6966,9 @@ export default function KnexChatPage() {
                                     <div className="flex items-center gap-1">
                                       <button
                                         type="button"
-                                        onClick={() => handleAcceptContactRequest(person.email, person.name)}
+                                        onClick={() =>
+                                          handleAcceptContactRequest(person.email, person.name, person.avatarUrl ?? null)
+                                        }
                                         className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
                                           isDarkTheme
                                             ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
@@ -6452,16 +7023,16 @@ export default function KnexChatPage() {
                                 isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
                               }`}
                             >
-                              <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex min-w-0 flex-1 items-center gap-3">
                                 {contact.avatarUrl ? (
                                   <img
                                     src={contact.avatarUrl}
                                     alt={`Avatar de ${contact.title}`}
-                                    className={`h-11 w-11 ${avatarFrameMd} object-cover`}
+                                    className={`h-11 w-11 shrink-0 ${avatarFrameMd} object-cover`}
                                   />
                                 ) : (
                                   <div
-                                    className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                    className={`grid h-11 w-11 shrink-0 place-items-center ${avatarFrameMd} text-xs font-semibold ${
                                       isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
                                     }`}
                                   >
@@ -6481,7 +7052,7 @@ export default function KnexChatPage() {
                                   </p>
                                 </div>
                               </div>
-                              <span className={`text-[11px] ${settingsMuted}`}>Conectado</span>
+                              <span className={`shrink-0 text-[11px] ${settingsMuted}`}>Conectado</span>
                             </button>
                           ))
                         ) : (
@@ -6516,7 +7087,13 @@ export default function KnexChatPage() {
                                   <div className="flex items-center gap-1">
                                     <button
                                       type="button"
-                                      onClick={() => handleAcceptContactRequest(request.email, request.name)}
+                                      onClick={() =>
+                                        handleAcceptContactRequest(
+                                          request.email,
+                                          request.name,
+                                          contactNameByEmail.get(normalizeEmail(request.email))?.avatarUrl ?? null,
+                                        )
+                                      }
                                       className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
                                         isDarkTheme
                                           ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
@@ -7392,9 +7969,9 @@ export default function KnexChatPage() {
                   )}
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div className="w-full space-y-1.5">
                   {isServerSyncing && !filteredActiveThreads.length ? (
-                    <div className="space-y-3 px-3 py-2">
+                    <div className="space-y-3 px-0 py-1">
                       {Array.from({ length: 6 }).map((_, index) => (
                         <Skeleton key={index} className="h-12 w-full" />
                       ))}
@@ -7415,16 +7992,16 @@ export default function KnexChatPage() {
                             openThreadById(thread.id);
                           }
                         }}
-                          className={`flex w-full items-center justify-between rounded-lg px-3 py-1 text-left transition ${
+                          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
                             isDarkTheme ? "" : "font-['Arial']"
                           } ${
                             isActive
                               ? isDarkTheme
-                                ? "ring-2 ring-emerald-500/40 ring-inset bg-emerald-500/10"
-                                : "ring-2 ring-blue-300 ring-inset bg-blue-100"
+                                ? "border-2 border-slate-300/50 bg-white/5"
+                                : "border-2 border-blue-300 bg-blue-100"
                               : isDarkTheme
-                                ? "hover:bg-emerald-500/10"
-                                : "hover:bg-blue-100"
+                                ? "border-white/10 hover:border-white/30 hover:bg-white/5"
+                                : "border-transparent hover:border-blue-100 hover:bg-blue-100"
                           }`}
                         >
                           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -7489,8 +8066,12 @@ export default function KnexChatPage() {
               <span
                 className={`pointer-events-none absolute left-0 top-0 h-full rounded-full transition-all ${
                   isChatListResizing
-                    ? "w-1 bg-blue-500/60"
-                    : "w-px bg-slate-300/70 group-hover:w-1 group-hover:bg-slate-400/80"
+                    ? isDarkTheme
+                      ? "w-1 bg-slate-400/45"
+                      : "w-1 bg-blue-500/60"
+                    : isDarkTheme
+                      ? "w-px bg-[#2a2a2a] group-hover:w-1 group-hover:bg-slate-500/50"
+                      : "w-px bg-slate-300/70 group-hover:w-1 group-hover:bg-slate-400/80"
                 }`}
               />
             </div>
@@ -7699,11 +8280,25 @@ export default function KnexChatPage() {
                       {activeMessages.map((message) => {
                         const isMe = message.author === "me";
                         const isGroupChat = activeThread?.tab === "groups";
+                        const senderInfo = message.senderEmail
+                          ? contactNameByEmail.get(normalizeEmail(message.senderEmail))
+                          : undefined;
+                        const senderLabel =
+                          message.senderName?.trim() ||
+                          senderInfo?.name ||
+                          "Participante";
                         const showSender = !isMe && isGroupChat;
-                        const senderLabel = message.senderName ?? "Participante";
                         const senderColorClass = getSenderColorClass(senderLabel);
                         const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
                         const isMediaMessage = Boolean(message.imageUrl);
+                        const incomingAvatarUrl = isGroupChat
+                          ? normalizeAvatarUrl(
+                              message.senderAvatarUrl ??
+                                senderInfo?.avatarUrl ??
+                                activeThreadAvatarUrl ??
+                                null,
+                            )
+                          : null;
                         const bubble = (
                           <div className={`knex-bubble ${bubbleVariant} ${isMediaMessage ? "knex-bubble--media" : ""}`}>
                             {showSender ? (
@@ -7724,19 +8319,19 @@ export default function KnexChatPage() {
                             <p className="knex-bubble__time">{message.time}</p>
                           </div>
                         );
-                    const incomingAvatar = isGroupChat && activeThreadAvatarUrl ? (
-                      <img
-                        src={activeThreadAvatarUrl}
-                        alt={`Avatar de ${activeThread.title}`}
-                        className={`h-9 w-9 ${avatarFrameXs} object-cover`}
-                      />
-                    ) : (
-                      <div
-                        className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
-                      >
-                        {getAvatarText(activeThread?.title ?? "KN")}
-                      </div>
-                    );
+                        const incomingAvatar = incomingAvatarUrl ? (
+                          <img
+                            src={incomingAvatarUrl}
+                            alt={`Avatar de ${senderLabel}`}
+                            className={`h-9 w-9 ${avatarFrameXs} object-cover`}
+                          />
+                        ) : (
+                          <div
+                            className={`grid h-9 w-9 place-items-center ${avatarFrameXs} bg-slate-900 text-xs font-semibold text-slate-200`}
+                          >
+                            {getAvatarText(senderLabel)}
+                          </div>
+                        );
                         const showIncomingAvatar = !isMe && isGroupChat;
                         const showOutgoingAvatar = isMe && isGroupChat;
                       return (
@@ -9086,6 +9681,202 @@ export default function KnexChatPage() {
             </button>
           </div>
         </div>
+      ) : null}
+      <div
+        className={`fixed inset-x-0 bottom-0 z-40 px-3 pt-0 lg:hidden ${mobileDockSurface}`}
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)" }}
+      >
+        <div className="flex w-full items-center gap-1.5 pt-2">
+          <div
+            ref={mobileDockButtonsRef}
+            className={`no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto ${
+              isMobileDockCarousel ? "scroll-smooth touch-pan-x snap-x snap-mandatory" : ""
+            }`}
+          >
+            <button
+              type="button"
+              className={mobileDockButtonClass(activeNavKey === "conversations")}
+              onClick={() => openMobileFooterEnvironment("conversations")}
+              aria-label="Conversas"
+              title="Conversas"
+            >
+              <MessageCircle className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className={mobileDockButtonClass(activeNavKey === "calls")}
+              onClick={() => openMobileFooterEnvironment("calls")}
+              aria-label="Ligações"
+              title="Ligações"
+            >
+              <Phone className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className={mobileDockButtonClass(activeNavKey === "status")}
+              onClick={() => openMobileFooterEnvironment("status")}
+              aria-label="Status"
+              title="Status"
+            >
+              <CircleDot className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className={mobileDockButtonClass(activeNavKey === "channels")}
+              onClick={() => openMobileFooterEnvironment("channels")}
+              aria-label="Canais"
+              title="Canais"
+            >
+              <Radio className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className={mobileDockButtonClass(activeNavKey === "communities")}
+              onClick={() => openMobileFooterEnvironment("communities")}
+              aria-label="Comunidades"
+              title="Comunidades"
+            >
+              <Shapes className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className={mobileDockButtonClass(activeNavKey === "contacts")}
+              onClick={() => openMobileFooterEnvironment("contacts", { directoryTab: "people" })}
+              aria-label="Novo contato ou conversa"
+              title="Novo contato ou conversa"
+            >
+              <UserPlus className="h-5 w-5" />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsProfileOpen(false);
+              setProfileTarget(null);
+              setIsSettingsOpen(false);
+              setActiveSettingKey(null);
+              setIsDirectoryOpen(false);
+              setIsMobileProfileSheetOpen((prev) => !prev);
+            }}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.25px] transition max-[420px]:h-9 max-[420px]:w-9 max-[360px]:h-8 max-[360px]:w-8 ${
+              isMobileProfileSheetOpen
+                ? "border-slate-200 bg-transparent"
+                : isDarkTheme
+                  ? "border-slate-200/45 bg-transparent hover:border-slate-200/60"
+                  : "border-slate-200/80 bg-transparent hover:border-slate-300"
+            }`}
+            aria-label="Meu perfil"
+            title="Meu perfil"
+          >
+            {currentUser?.avatarUrl ? (
+              <img
+                src={currentUser.avatarUrl}
+                alt={`Avatar de ${currentUser?.name ?? "Perfil"}`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span
+                className={`grid h-full w-full place-items-center text-[10px] font-semibold ${
+                  isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-200 text-slate-700"
+                }`}
+              >
+                {getAvatarText(currentUser?.name ?? "KN")}
+              </span>
+            )}
+            </button>
+        </div>
+      </div>
+      {isMobileProfileSheetOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="Fechar opções do perfil"
+            className="fixed inset-0 z-50 bg-black/35 lg:hidden"
+            onClick={() => setIsMobileProfileSheetOpen(false)}
+          />
+          <div className="fixed inset-x-0 top-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-[55] lg:hidden">
+            <div
+              className={`knex-sheet-up flex h-full flex-col overflow-hidden rounded-none border shadow-2xl ${settingsBorder} ${
+                isDarkTheme ? "bg-[#0f141f] text-slate-100" : "bg-white text-slate-900"
+              }`}
+            >
+              <div
+                className={`relative flex flex-col items-center border-b px-4 pb-4 text-center ${settingsBorder}`}
+                style={{ paddingTop: "calc(env(safe-area-inset-top) + 7.29rem)" }}
+              >
+                <div
+                  className="absolute right-4 flex items-center gap-2"
+                  style={{ top: "calc(env(safe-area-inset-top) + 0.75rem)" }}
+                >
+                  <button
+                    type="button"
+                    aria-label="Pesquisar"
+                    title="Pesquisar"
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Leitor de QR Code"
+                    title="Leitor de QR Code"
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <QrCode className="h-4 w-4" />
+                  </button>
+                </div>
+                {currentUser?.avatarUrl ? (
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                    className={`h-[4.6rem] w-[4.6rem] ${avatarFrameMd} object-cover`}
+                  />
+                ) : (
+                  <div
+                    className={`grid h-[4.6rem] w-[4.6rem] place-items-center ${avatarFrameMd} text-sm font-semibold ${
+                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {getAvatarText(currentUser?.name ?? "KN")}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="mt-2 truncate text-base font-semibold">{currentUser?.name ?? "Perfil"}</p>
+                  <p className={`mt-1 truncate text-xs ${settingsMuted}`}>{currentUser?.knexIdLabel}</p>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto px-0 py-2">
+                {mobileProfileSheetItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={item.onSelect}
+                      className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition ${settingsHover}`}
+                    >
+                      <span
+                        className={`mt-0.5 grid h-8 w-8 place-items-center rounded-xl ${
+                          isDarkTheme ? "bg-white/10 text-slate-100" : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold">{item.label}</span>
+                        <span className={`block truncate text-[11px] ${settingsMuted}`}>{item.description}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>
       ) : null}
       {isProfileOpen && isProfileAvatarPreviewOpen ? (
         <div

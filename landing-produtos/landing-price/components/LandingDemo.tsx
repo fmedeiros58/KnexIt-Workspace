@@ -13,9 +13,9 @@ export default function LandingDemo({ title, description }: LandingDemoProps) {
             <p className="mt-3 text-sm text-slate-600">{description}</p>
           </div>
           <div className="rounded-2xl bg-[#f7f9fc] p-6 text-sm text-slate-600">
-            <p className="font-semibold text-slate-800">Demonstra??o r?pida</p>
+            <p className="font-semibold text-slate-800">Demonstração rápida</p>
             <p className="mt-2">
-              Inclua aqui capturas reais, fluxos do produto e um v?deo curto de
+              Inclua aqui capturas reais, fluxos do produto e um vídeo curto de
               como a equipe trabalha no dia a dia.
             </p>
           </div>

@@ -23,6 +23,13 @@ function resolveReturnTo(searchParams: ReturnType<typeof useSearchParams>) {
   return raw;
 }
 
+const sanitizeAvatarUrl = (value: string) => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return "";
+};
+
 export default function ActivationCodeStepClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -44,7 +51,7 @@ export default function ActivationCodeStepClient() {
     () => (session?.user?.user_metadata as IdentityMetadata) ?? null,
     [session?.user?.user_metadata],
   );
-  const ecosystemAvatarUrl = useMemo(() => resolveIdentityAvatarUrl(metadata), [metadata]);
+  const [ecosystemAvatarUrl, setEcosystemAvatarUrl] = useState("");
   const ecosystemDisplayName = useMemo(
     () => resolveIdentityDisplayName(metadata, session?.user?.email ?? ""),
     [metadata, session?.user?.email],
@@ -113,6 +120,48 @@ export default function ActivationCodeStepClient() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [cooldown]);
+
+  useEffect(() => {
+    setEcosystemAvatarUrl(resolveIdentityAvatarUrl(metadata));
+  }, [metadata]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    let active = true;
+    (async () => {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError || !active) return;
+        const freshFromAuth = resolveIdentityAvatarUrl((authData?.user?.user_metadata as IdentityMetadata) ?? null);
+        if (freshFromAuth) {
+          setEcosystemAvatarUrl(freshFromAuth);
+          return;
+        }
+      } catch {
+        // Ignore auth metadata refresh failures.
+      }
+
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("avatar_url")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        if (profileError || !active) return;
+        const avatarFromProfile = sanitizeAvatarUrl(
+          String((profileData as { avatar_url?: string | null } | null)?.avatar_url ?? ""),
+        );
+        if (avatarFromProfile) {
+          setEcosystemAvatarUrl(avatarFromProfile);
+        }
+      } catch {
+        // Ignore profile fallback lookup failures.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [session?.user?.id]);
 
   const authFetch = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -189,9 +238,37 @@ export default function ActivationCodeStepClient() {
         setError(payload?.message ?? "Falha ao validar codigo.");
         return;
       }
-      if (mode === "ecosystem" && session?.user?.id && (ecosystemAvatarUrl || ecosystemDisplayName)) {
+      let finalAvatarToImport = ecosystemAvatarUrl;
+      if (mode === "ecosystem" && session?.user?.id && !finalAvatarToImport) {
+        try {
+          const { data: authData, error: authError } = await supabase.auth.getUser();
+          if (!authError) {
+            finalAvatarToImport = resolveIdentityAvatarUrl((authData?.user?.user_metadata as IdentityMetadata) ?? null);
+          }
+        } catch {
+          // Ignore auth metadata refresh failures.
+        }
+      }
+      if (mode === "ecosystem" && session?.user?.id && !finalAvatarToImport) {
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from("profiles")
+            .select("avatar_url")
+            .eq("id", session.user.id)
+            .maybeSingle();
+          if (!profileError) {
+            finalAvatarToImport = sanitizeAvatarUrl(
+              String((profileData as { avatar_url?: string | null } | null)?.avatar_url ?? ""),
+            );
+          }
+        } catch {
+          // Ignore profile fallback lookup failures.
+        }
+      }
+
+      if (mode === "ecosystem" && session?.user?.id && (finalAvatarToImport || ecosystemDisplayName)) {
         writeKnexchatProfileSeed(session.user.id, {
-          ...(ecosystemAvatarUrl ? { avatarUrl: ecosystemAvatarUrl } : {}),
+          ...(finalAvatarToImport ? { avatarUrl: finalAvatarToImport } : {}),
           ...(ecosystemDisplayName ? { displayName: ecosystemDisplayName } : {}),
           source: "ecosystem",
           createdAt: new Date().toISOString(),

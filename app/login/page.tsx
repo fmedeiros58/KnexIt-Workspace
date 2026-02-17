@@ -9,6 +9,7 @@ type LoginPageRouteProps = {
     product?: string;
     redirect?: string;
     next?: string;
+    intent?: string;
   };
 };
 
@@ -18,9 +19,16 @@ export default function LoginPage({ searchParams }: LoginPageRouteProps) {
   const productSlug = searchParams.product ?? null;
   const product = productSlug ? getProduct(productSlug) : null;
   const target = returnTo || product?.homePath || null;
+  const intent = searchParams.intent ?? "";
 
   if (!target) {
     redirect(fallback);
+  }
+
+  if (intent === "signup" && target.startsWith("/knexchat")) {
+    const params = new URLSearchParams();
+    params.set("returnTo", target);
+    redirect(`/knexit-workspace/acesso/novo?${params.toString()}`);
   }
 
   const params = new URLSearchParams();

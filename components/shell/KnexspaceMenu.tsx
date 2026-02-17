@@ -130,11 +130,7 @@ export default function KnexspaceMenu({
   const landingProduct = resolvedSlug ? getProduct(resolvedSlug) : null;
   const isLanding = Boolean(landingMatch);
   const showAdmin = !isLanding;
-  const landingReturnTo = landingProduct
-    ? landingProduct.slug === "knexchat"
-      ? `/knexchat/activate?returnTo=${landingProduct.homePath}`
-      : landingProduct.homePath
-    : null;
+  const landingReturnTo = landingProduct ? landingProduct.homePath : null;
   const landingLoginHref = landingReturnTo
     ? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(landingReturnTo)}`
     : "/knexit-workspace/acesso?stay=1";
@@ -147,6 +143,9 @@ export default function KnexspaceMenu({
   const primaryCtaLabel = isLanding ? "Fazer login" : "Iniciar agora";
   const primaryCtaHref =
     isLanding ? landingLoginHref : "/knexit-workspace/acesso?stay=1";
+  const primaryCtaClass = isLanding
+    ? "inline-flex items-center justify-center whitespace-nowrap rounded-full !bg-blue-600 px-4 py-2 text-[12px] font-semibold !text-white shadow-sm no-underline hover:!bg-blue-700 hover:no-underline lg:text-[14px]"
+    : "inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[var(--kx-primary)] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]";
   const [desktopOpen, setDesktopOpen] = useState<"solucoes" | "setores" | "recursos" | null>(null);
   const [mobileSection, setMobileSection] = useState<
     "solucoes" | "produtos" | "setores" | "recursos" | null
@@ -490,7 +489,7 @@ export default function KnexspaceMenu({
           </Link>
           <Link
             href={primaryCtaHref}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[var(--kx-primary)] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
+            className={primaryCtaClass}
           >
             {primaryCtaLabel}
           </Link>
@@ -562,7 +561,7 @@ export default function KnexspaceMenu({
           </Link>
           <Link
             href={primaryCtaHref}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[var(--kx-primary)] shadow-sm no-underline hover:bg-white/90 hover:no-underline lg:text-[14px]"
+            className={primaryCtaClass}
           >
             {primaryCtaLabel}
           </Link>

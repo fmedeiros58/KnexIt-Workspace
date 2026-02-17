@@ -11,7 +11,7 @@ export default function LandingIncluded({
 }: LandingIncludedProps) {
   return (
     <section className="mx-auto w-full max-w-6xl px-6 pb-16">
-      <div className="max-w-3xl">
+      <div className="mx-auto max-w-3xl text-center md:mx-0 md:text-left">
         <h2 className="text-2xl font-semibold text-slate-900">{title}</h2>
         <p className="mt-3 text-sm text-slate-600">{description}</p>
       </div>
@@ -23,7 +23,7 @@ export default function LandingIncluded({
           >
             <h3 className="text-base font-semibold text-slate-900">{item}</h3>
             <p className="mt-2 text-sm text-slate-600">
-              Construa uma experi?ncia consistente dentro do ecossistema KnexIT,
+              Construa uma experiência consistente dentro do ecossistema KnexIT,
               com foco no que realmente importa.
             </p>
           </div>

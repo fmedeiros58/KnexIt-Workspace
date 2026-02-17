@@ -8,6 +8,13 @@ const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type AttachmentPayload = {
+  media_id: string;
+  kind?: "image" | "video" | "audio" | "file";
+  caption?: string;
+  sort_order?: number;
+};
+
 export async function GET(req: NextRequest) {
   if (!getSupabaseAdmin()) {
     return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
@@ -51,7 +58,55 @@ export async function GET(req: NextRequest) {
 
     if (error) throw error;
 
-    return Response.json({ messages: data ?? [] }, { status: 200 });
+    const messages = data ?? [];
+    const messageIds = messages.map((message) => message.id);
+    if (!messageIds.length) {
+      return Response.json({ messages }, { status: 200 });
+    }
+
+    const { data: attachmentRows, error: attachmentsError } = await admin
+      .from("knexchat_message_attachments")
+      .select(
+        "id, message_id, media_id, kind, caption, sort_order, created_at, media:knexchat_media_objects(bucket, object_path, mime_type, size_bytes, width, height, duration_ms)",
+      )
+      .in("message_id", messageIds)
+      .order("sort_order", { ascending: true });
+    if (attachmentsError) throw attachmentsError;
+
+    const attachmentsByMessage = new Map<string, unknown[]>();
+    (attachmentRows ?? []).forEach((row) => {
+      const media = Array.isArray(row.media) ? row.media[0] : row.media;
+      const bucket = media?.bucket ?? null;
+      const objectPath = media?.object_path ?? null;
+      const isPublic = bucket === "knexchat-public";
+      const publicUrl =
+        isPublic && bucket && objectPath ? admin.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl : null;
+      const current = attachmentsByMessage.get(row.message_id) ?? [];
+      current.push({
+        id: row.id,
+        media_id: row.media_id,
+        kind: row.kind,
+        caption: row.caption ?? null,
+        sort_order: row.sort_order ?? 0,
+        created_at: row.created_at,
+        bucket,
+        object_path: objectPath,
+        url: publicUrl,
+        mime_type: media?.mime_type ?? null,
+        size_bytes: media?.size_bytes ?? null,
+        width: media?.width ?? null,
+        height: media?.height ?? null,
+        duration_ms: media?.duration_ms ?? null,
+      });
+      attachmentsByMessage.set(row.message_id, current);
+    });
+
+    const enrichedMessages = messages.map((message) => ({
+      ...message,
+      attachments: attachmentsByMessage.get(message.id) ?? [],
+    }));
+
+    return Response.json({ messages: enrichedMessages }, { status: 200 });
   } catch (err) {
     return Response.json({ message: "Lookup failed" }, { status: 500 });
   }
@@ -73,6 +128,31 @@ export async function POST(req: NextRequest) {
     const messageBody = typeof body?.body === "string" ? body.body.trim() : "";
     const mediaUrl = typeof body?.mediaUrl === "string" ? body.mediaUrl.trim() : "";
     const mediaName = typeof body?.mediaName === "string" ? body.mediaName.trim() : "";
+    const attachmentsRaw = Array.isArray(body?.attachments) ? body.attachments : [];
+    const attachments: AttachmentPayload[] = [];
+
+    for (let index = 0; index < attachmentsRaw.length; index += 1) {
+      const item = attachmentsRaw[index];
+      if (!item || typeof item !== "object") {
+        return Response.json({ message: "Invalid attachment payload" }, { status: 400 });
+      }
+      const mediaId = typeof item.media_id === "string" ? item.media_id : "";
+      const attachmentKind = typeof item.kind === "string" ? item.kind : undefined;
+      const caption = typeof item.caption === "string" ? item.caption.trim() : undefined;
+      const sortOrderRaw = Number((item as { sort_order?: number | string }).sort_order ?? index);
+      if (!uuidRegex.test(mediaId)) {
+        return Response.json({ message: "Invalid attachment media_id" }, { status: 400 });
+      }
+      if (attachmentKind && !["image", "video", "audio", "file"].includes(attachmentKind)) {
+        return Response.json({ message: "Invalid attachment kind" }, { status: 400 });
+      }
+      attachments.push({
+        media_id: mediaId,
+        kind: attachmentKind as AttachmentPayload["kind"],
+        caption: caption || undefined,
+        sort_order: Number.isFinite(sortOrderRaw) ? Math.max(0, Math.trunc(sortOrderRaw)) : index,
+      });
+    }
 
     if (!uuidRegex.test(threadId)) {
       return Response.json({ message: "Invalid threadId" }, { status: 400 });
@@ -89,11 +169,11 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "Invalid kind" }, { status: 400 });
     }
 
-    if (kindRaw === "text" && !messageBody) {
+    if (kindRaw === "text" && !messageBody && !attachments.length) {
       return Response.json({ message: "Message body required" }, { status: 400 });
     }
 
-    if (kindRaw !== "text" && !mediaUrl) {
+    if (kindRaw !== "text" && !mediaUrl && !attachments.length) {
       return Response.json({ message: "Media URL required" }, { status: 400 });
     }
 
@@ -128,7 +208,59 @@ export async function POST(req: NextRequest) {
 
     if (insertError) throw insertError;
 
-    return Response.json({ message }, { status: 201 });
+    if (attachments.length) {
+      const attachmentRows = attachments.map((attachment, index) => ({
+        message_id: message.id,
+        media_id: attachment.media_id,
+        kind: attachment.kind ?? (kindRaw === "text" ? "file" : (kindRaw as "image" | "audio" | "file")),
+        caption: attachment.caption ?? null,
+        sort_order: attachment.sort_order ?? index,
+      }));
+
+      const { error: attachmentsInsertError } = await admin
+        .from("knexchat_message_attachments")
+        .insert(attachmentRows);
+      if (attachmentsInsertError) {
+        await admin.from("knexchat_messages").delete().eq("id", message.id);
+        throw attachmentsInsertError;
+      }
+    }
+
+    const { data: insertedAttachmentRows, error: insertedAttachmentsError } = await admin
+      .from("knexchat_message_attachments")
+      .select(
+        "id, message_id, media_id, kind, caption, sort_order, created_at, media:knexchat_media_objects(bucket, object_path, mime_type, size_bytes, width, height, duration_ms)",
+      )
+      .eq("message_id", message.id)
+      .order("sort_order", { ascending: true });
+    if (insertedAttachmentsError) throw insertedAttachmentsError;
+
+    const structuredAttachments = (insertedAttachmentRows ?? []).map((row) => {
+      const media = Array.isArray(row.media) ? row.media[0] : row.media;
+      const bucket = media?.bucket ?? null;
+      const objectPath = media?.object_path ?? null;
+      const isPublic = bucket === "knexchat-public";
+      const publicUrl =
+        isPublic && bucket && objectPath ? admin.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl : null;
+      return {
+        id: row.id,
+        media_id: row.media_id,
+        kind: row.kind,
+        caption: row.caption ?? null,
+        sort_order: row.sort_order ?? 0,
+        created_at: row.created_at,
+        bucket,
+        object_path: objectPath,
+        url: publicUrl,
+        mime_type: media?.mime_type ?? null,
+        size_bytes: media?.size_bytes ?? null,
+        width: media?.width ?? null,
+        height: media?.height ?? null,
+        duration_ms: media?.duration_ms ?? null,
+      };
+    });
+
+    return Response.json({ message: { ...message, attachments: structuredAttachments } }, { status: 201 });
   } catch (err) {
     return Response.json({ message: "Insert failed" }, { status: 500 });
   }

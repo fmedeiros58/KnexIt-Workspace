@@ -1,11 +1,19 @@
 import { NextRequest } from "next/server";
 import { getSupabaseAdmin, requireKnexchatEntitlement } from "@/app/api/knexchat/_auth";
+import { getUserAvatarUrl, getUserIdByEmail } from "@/lib/knexchat/avatar";
 
 export const runtime = "nodejs";
 
 const allowedKinds = new Set(["direct", "group", "forum"]);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
+
+type ThreadParticipant = {
+  email: string;
+  role: string;
+  name?: string | null;
+  avatar_url?: string | null;
+};
 
 function uniqueEmails(values: string[]) {
   const seen = new Set<string>();
@@ -48,25 +56,128 @@ async function attachParticipantNames(
   }
   const { data: directoryRows, error } = await admin
     .from("knexchat_directory")
-    .select("email, name")
+    .select("email, name, avatar_url")
     .in("email", Array.from(allEmails));
 
   if (error) throw error;
 
   const nameByEmail = new Map<string, string | null>();
+  const directoryAvatarByEmail = new Map<string, string | null>();
   (directoryRows ?? []).forEach((row) => {
     nameByEmail.set(row.email, row.name ?? null);
+    directoryAvatarByEmail.set(row.email, row.avatar_url ?? null);
   });
 
-  const next: Record<string, { email: string; role: string; name?: string | null }[]> = {};
+  const userIdByEmail = new Map<string, string>();
+  try {
+    const { data: profileRows, error: profileError } = await admin
+      .from("profiles")
+      .select("id, email")
+      .in("email", Array.from(allEmails));
+    if (!profileError) {
+      (profileRows ?? []).forEach((row) => {
+        if (!row.email || !row.id) return;
+        userIdByEmail.set(row.email, row.id);
+      });
+    }
+  } catch {
+    // Best-effort only; legacy fallback remains available.
+  }
+
+  const avatarByEmail = new Map<string, string | null>();
+  const avatarByUserId = new Map<string, string | null>();
+  await Promise.all(
+    Array.from(allEmails).map(async (email) => {
+      const fallbackAvatar = directoryAvatarByEmail.get(email) ?? null;
+      let userId = userIdByEmail.get(email) ?? null;
+      if (!userId) {
+        userId = await getUserIdByEmail(admin, email);
+      }
+      if (!userId) {
+        avatarByEmail.set(email, fallbackAvatar);
+        return;
+      }
+      if (!avatarByUserId.has(userId)) {
+        try {
+          const resolved = await getUserAvatarUrl(admin, userId, fallbackAvatar);
+          avatarByUserId.set(userId, resolved ?? fallbackAvatar);
+        } catch {
+          avatarByUserId.set(userId, fallbackAvatar);
+        }
+      }
+      avatarByEmail.set(email, avatarByUserId.get(userId) ?? fallbackAvatar);
+    }),
+  );
+
+  const next: Record<string, ThreadParticipant[]> = {};
   threadIds.forEach((threadId) => {
     next[threadId] = (participantsByThread[threadId] ?? []).map((participant) => ({
       ...participant,
       name: nameByEmail.get(participant.email) ?? null,
+      avatar_url: avatarByEmail.get(participant.email) ?? null,
     }));
   });
 
   return next;
+}
+
+async function loadThreadWithParticipants(admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>, threadId: string) {
+  const { data: existing, error: existingError } = await admin
+    .from("knexchat_threads")
+    .select("id, kind, title, created_by, created_at, updated_at, last_message_at")
+    .eq("id", threadId)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (!existing) return null;
+
+  const { data: participantData, error: participantError } = await admin
+    .from("knexchat_thread_participants")
+    .select("email, role")
+    .eq("thread_id", existing.id);
+  if (participantError) throw participantError;
+
+  const participantsByThread = await attachParticipantNames(
+    { [existing.id]: participantData ?? [] },
+    [existing.id],
+  );
+  return {
+    ...existing,
+    participants: participantsByThread[existing.id] ?? [],
+  };
+}
+
+async function findLegacyDirectThreadId(
+  admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  firstEmail: string,
+  secondEmail: string,
+) {
+  const { data: firstRows, error: firstError } = await admin
+    .from("knexchat_thread_participants")
+    .select("thread_id")
+    .eq("email", firstEmail);
+  if (firstError) throw firstError;
+
+  const { data: secondRows, error: secondError } = await admin
+    .from("knexchat_thread_participants")
+    .select("thread_id")
+    .eq("email", secondEmail);
+  if (secondError) throw secondError;
+
+  const firstIds = new Set((firstRows ?? []).map((row) => row.thread_id));
+  const sharedIds = Array.from(new Set((secondRows ?? []).map((row) => row.thread_id))).filter((id) =>
+    firstIds.has(id),
+  );
+  if (!sharedIds.length) return null;
+
+  const { data: existingThreads, error: existingError } = await admin
+    .from("knexchat_threads")
+    .select("id")
+    .in("id", sharedIds)
+    .eq("kind", "direct")
+    .limit(1);
+  if (existingError) throw existingError;
+
+  return existingThreads?.[0]?.id ?? null;
 }
 
 export async function GET(req: NextRequest) {
@@ -112,7 +223,7 @@ export async function GET(req: NextRequest) {
 
     const includeParticipants = searchParams.get("includeParticipants") === "1";
     const includeLastMessage = searchParams.get("includeLastMessage") === "1";
-    let participantsByThread: Record<string, { email: string; role: string; name?: string | null }[]> = {};
+    let participantsByThread: Record<string, ThreadParticipant[]> = {};
     let lastMessageByThread: Record<string, unknown> = {};
 
     if (includeParticipants) {
@@ -223,57 +334,57 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "Participants not registered", missing }, { status: 422 });
     }
 
+    let directPair: { userA: string; userB: string } | null = null;
     if (kindRaw === "direct" && participants.length === 2) {
       const [first, second] = participants;
-      const { data: firstRows, error: firstError } = await admin
-        .from("knexchat_thread_participants")
-        .select("thread_id")
-        .eq("email", first);
-      if (firstError) throw firstError;
+      const [firstUserId, secondUserId] = await Promise.all([
+        getUserIdByEmail(admin, first),
+        getUserIdByEmail(admin, second),
+      ]);
 
-      const { data: secondRows, error: secondError } = await admin
-        .from("knexchat_thread_participants")
-        .select("thread_id")
-        .eq("email", second);
-      if (secondError) throw secondError;
+      if (firstUserId && secondUserId && firstUserId !== secondUserId) {
+        const [userA, userB] =
+          firstUserId < secondUserId ? [firstUserId, secondUserId] : [secondUserId, firstUserId];
+        directPair = { userA, userB };
 
-      const firstIds = new Set((firstRows ?? []).map((row) => row.thread_id));
-      const sharedIds = Array.from(new Set((secondRows ?? []).map((row) => row.thread_id))).filter((id) =>
-        firstIds.has(id),
-      );
+        const { data: mappedDirectThread, error: mappedDirectThreadError } = await admin
+          .from("knexchat_direct_threads")
+          .select("thread_id")
+          .eq("user_a", userA)
+          .eq("user_b", userB)
+          .maybeSingle();
+        if (mappedDirectThreadError) throw mappedDirectThreadError;
 
-      if (sharedIds.length) {
-        const { data: existingThreads, error: existingError } = await admin
-          .from("knexchat_threads")
-          .select("id, kind, title, created_by, created_at, updated_at, last_message_at")
-          .in("id", sharedIds)
-          .eq("kind", "direct")
-          .limit(1);
+        if (mappedDirectThread?.thread_id) {
+          const existing = await loadThreadWithParticipants(admin, mappedDirectThread.thread_id);
+          if (existing) {
+            return Response.json({ thread: existing }, { status: 200 });
+          }
+        }
 
-        if (existingError) throw existingError;
-
-        const existing = existingThreads?.[0];
-        if (existing) {
-          const { data: participantData, error: participantError } = await admin
-            .from("knexchat_thread_participants")
-            .select("email, role")
-            .eq("thread_id", existing.id);
-          if (participantError) throw participantError;
-
-          const participantsByThread = await attachParticipantNames(
-            { [existing.id]: participantData ?? [] },
-            [existing.id],
-          );
-
-          return Response.json(
+        const legacyDirectThreadId = await findLegacyDirectThreadId(admin, first, second);
+        if (legacyDirectThreadId) {
+          await admin.from("knexchat_direct_threads").upsert(
             {
-              thread: {
-                ...existing,
-                participants: participantsByThread[existing.id] ?? [],
-              },
+              user_a: userA,
+              user_b: userB,
+              thread_id: legacyDirectThreadId,
             },
-            { status: 200 },
+            { onConflict: "user_a,user_b" },
           );
+
+          const existing = await loadThreadWithParticipants(admin, legacyDirectThreadId);
+          if (existing) {
+            return Response.json({ thread: existing }, { status: 200 });
+          }
+        }
+      } else {
+        const legacyDirectThreadId = await findLegacyDirectThreadId(admin, first, second);
+        if (legacyDirectThreadId) {
+          const existing = await loadThreadWithParticipants(admin, legacyDirectThreadId);
+          if (existing) {
+            return Response.json({ thread: existing }, { status: 200 });
+          }
         }
       }
     }
@@ -311,11 +422,46 @@ export async function POST(req: NextRequest) {
       throw participantsInsertError;
     }
 
+    if (directPair) {
+      const { error: directPairInsertError } = await admin.from("knexchat_direct_threads").insert({
+        user_a: directPair.userA,
+        user_b: directPair.userB,
+        thread_id: thread.id,
+      });
+
+      if (directPairInsertError) {
+        const { data: mappedDirectThread, error: mappedDirectThreadError } = await admin
+          .from("knexchat_direct_threads")
+          .select("thread_id")
+          .eq("user_a", directPair.userA)
+          .eq("user_b", directPair.userB)
+          .maybeSingle();
+        if (mappedDirectThreadError) throw mappedDirectThreadError;
+
+        if (mappedDirectThread?.thread_id && mappedDirectThread.thread_id !== thread.id) {
+          await admin.from("knexchat_threads").delete().eq("id", thread.id);
+          const existing = await loadThreadWithParticipants(admin, mappedDirectThread.thread_id);
+          if (existing) {
+            return Response.json({ thread: existing }, { status: 200 });
+          }
+        } else if (!mappedDirectThread?.thread_id) {
+          throw directPairInsertError;
+        }
+      }
+    }
+
+    const participantsByThread = await attachParticipantNames(
+      {
+        [thread.id]: participantRows.map((row) => ({ email: row.email, role: row.role })),
+      },
+      [thread.id],
+    );
+
     return Response.json(
       {
         thread: {
           ...thread,
-          participants: participantRows.map((row) => ({ email: row.email, role: row.role })),
+          participants: participantsByThread[thread.id] ?? participantRows.map((row) => ({ email: row.email, role: row.role })),
         },
       },
       { status: 201 }

@@ -1,17 +1,17 @@
 const resources = [
   {
     tag: "Evento",
-    title: "IA em a??o: pr?ticas para times de alta performance",
+    title: "IA em ação: práticas para times de alta performance",
     cta: "Saiba mais",
   },
   {
     tag: "Guia",
-    title: "Introdu??o a prompts eficientes para equipes",
+    title: "Introdução a prompts eficientes para equipes",
     cta: "Baixar guia",
   },
   {
     tag: "E-book",
-    title: "Como estruturar uma opera??o com IA no dia a dia",
+    title: "Como estruturar uma operação com IA no dia a dia",
     cta: "Ver agora",
   },
 ];
@@ -22,7 +22,7 @@ export default function LandingResources() {
       <div className="max-w-3xl">
         <h2 className="text-2xl font-semibold text-slate-900">Recursos</h2>
         <p className="mt-3 text-sm text-slate-600">
-          Conte?dos para ajudar sua equipe a aplicar IA com consist?ncia.
+          Conteúdos para ajudar sua equipe a aplicar IA com consistência.
         </p>
       </div>
       <div className="mt-8 grid gap-6 md:grid-cols-3">

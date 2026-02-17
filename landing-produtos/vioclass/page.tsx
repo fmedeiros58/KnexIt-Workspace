@@ -13,22 +13,22 @@ import LandingFaq from "./components/LandingFaq";
 const PRODUCT_SLUG = "vioclass";
 
 const highlightsBySlug: Record<string, string[]> = {
-  vioclass: ["Cursos sob demanda", "Biblioteca organizada", "Entrega cont?nua"],
-  violive: ["Aulas ao vivo", "Mentorias s?ncronas", "Intera??o em tempo real"],
-  viorecord: ["Captura de tela", "Webcam e ?udio", "Edi??o r?pida"],
+  vioclass: ["Cursos sob demanda", "Biblioteca organizada", "Entrega contínua"],
+  violive: ["Aulas ao vivo", "Mentorias síncronas", "Interação em tempo real"],
+  viorecord: ["Captura de tela", "Webcam e áudio", "Edição rápida"],
   viostudio: ["Editor online", "Legendas inteligentes", "Fluxo simples"],
-  vioanalytics: ["M?tricas de engajamento", "Relat?rios claros", "Insights acion?veis"],
-  viohub: ["Produ??o integrada", "Entrega centralizada", "Opera??o escal?vel"],
-  supadrive: ["Arquivos em nuvem", "Controle de acesso", "Compartilhamento r?pido"],
-  knexdocs: ["Documentos colaborativos", "Coment?rios em tempo real", "Hist?rico seguro"],
-  knexflow: ["Quadros e tarefas", "Automa??o de fluxos", "Vis?o do time"],
-  knexchat: ["Conversas organizadas", "Canais por equipe", "Mensagens r?pidas"],
+  vioanalytics: ["Métricas de engajamento", "Relatórios claros", "Insights acionáveis"],
+  viohub: ["Produção integrada", "Entrega centralizada", "Operação escalável"],
+  supadrive: ["Arquivos em nuvem", "Controle de acesso", "Compartilhamento rápido"],
+  knexdocs: ["Documentos colaborativos", "Comentários em tempo real", "Histórico seguro"],
+  knexflow: ["Quadros e tarefas", "Automação de fluxos", "Visão do time"],
+  knexchat: ["Conversas organizadas", "Canais por equipe", "Mensagens rápidas"],
   knexsearch: ["Busca inteligente", "Resultados unificados", "Contexto por IA"],
-  vioread: ["Leitura guiada", "Anota??es f?ceis", "Foco no estudo"],
-  knexreview: ["Revis?es estruturadas", "Rastreio de evid?ncias", "Padroniza??o"],
-  knexai: ["Assistentes dedicados", "Automa??o com IA", "Produtividade ampliada"],
-  knexmail: ["Envios seguros", "Campanhas e transa??es", "Entregabilidade"],
-  knexpay: ["Planos e billing", "Cobran?a recorrente", "Concilia??o simples"],
+  vioread: ["Leitura guiada", "Anotações fáceis", "Foco no estudo"],
+  knexreview: ["Revisões estruturadas", "Rastreio de evidências", "Padronização"],
+  knexai: ["Assistentes dedicados", "Automação com IA", "Produtividade ampliada"],
+  knexmail: ["Envios seguros", "Campanhas e transações", "Entregabilidade"],
+  knexpay: ["Planos e billing", "Cobrança recorrente", "Conciliação simples"],
 };
 
 export default function ProductLandingPage() {
@@ -36,9 +36,9 @@ export default function ProductLandingPage() {
   if (!product) return notFound();
 
   const highlights = highlightsBySlug[product.slug] ?? [
-    "Implementa??o r?pida",
-    "Integra??o com o ecossistema",
-    "Opera??o confi?vel",
+    "Implementação rápida",
+    "Integração com o ecossistema",
+    "Operação confiável",
   ];
 
   return (
@@ -47,22 +47,22 @@ export default function ProductLandingPage() {
         badge={CATEGORY_LABEL[product.category]}
         title={product.name}
         subtitle={product.description}
-        primaryCta={{ label: "Ver planos e pre?os", href: "/knexit-workspace/precos" }}
-        secondaryCta={{ label: "Solicitar demonstra??o", href: "/knexit-workspace/acesso" }}
+        primaryCta={{ label: "Ver planos e preços", href: "/knexit-workspace/precos" }}
+        secondaryCta={{ label: "Solicitar demonstração", href: "/knexit-workspace/acesso" }}
       />
       <LandingIncluded
-        title="A IA premium est? inclu?da nos planos"
-        description="A assist?ncia de IA est? dispon?vel onde voc? mais precisa, ajudando equipes a trabalhar com mais rapidez e intelig?ncia."
+        title="A IA premium está incluída nos planos"
+        description="A assistência de IA está disponível onde você mais precisa, ajudando equipes a trabalhar com mais rapidez e inteligência."
         highlights={highlights}
       />
       <LandingDemo
-        title="Veja na pr?tica"
-        description="Mostre fluxos reais de uso, integra??es e exemplos prontos para a equipe adotar imediatamente."
+        title="Veja na prática"
+        description="Mostre fluxos reais de uso, integrações e exemplos prontos para a equipe adotar imediatamente."
       />
       <LandingSecurity />
       <LandingUseCases
         title="Exemplos de uso"
-        description="Casos pr?ticos para diferentes ?reas, com processos claros e resultados mensur?veis."
+        description="Casos práticos para diferentes áreas, com processos claros e resultados mensuráveis."
       />
       <LandingCustomers />
       <LandingResources />
