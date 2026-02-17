@@ -3463,8 +3463,10 @@ export default function KnexChatPage() {
   }, [isMobileView]);
 
   useEffect(() => {
-    const hasHorizontalOverflow = (element: HTMLDivElement | null) =>
-      Boolean(element) && element.scrollWidth - element.clientWidth > 1;
+    const hasHorizontalOverflow = (element: HTMLDivElement | null) => {
+      if (!element) return false;
+      return element.scrollWidth - element.clientWidth > 1;
+    };
 
     const evaluateCarouselNeeds = () => {
       if (!isMobileView) {
