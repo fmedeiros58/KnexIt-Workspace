@@ -7,8 +7,60 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "13.0.5"
+  }
   public: {
     Tables: {
+      app_entitlements: {
+        Row: {
+          app_key: string
+          created_at: string
+          ends_at: string | null
+          id: string
+          plan: string | null
+          starts_at: string | null
+          status: string
+          tenant_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          app_key: string
+          created_at?: string
+          ends_at?: string | null
+          id?: string
+          plan?: string | null
+          starts_at?: string | null
+          status?: string
+          tenant_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          app_key?: string
+          created_at?: string
+          ends_at?: string | null
+          id?: string
+          plan?: string | null
+          starts_at?: string | null
+          status?: string
+          tenant_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_entitlements_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       auth_email_otps: {
         Row: {
           created_at: string
@@ -481,7 +533,7 @@ export type Database = {
           created_at?: string
           destination_email: string
           expires_at: string
-          id: string
+          id?: string
           ip_address?: string | null
           last_sent_at?: string | null
           max_attempts?: number
@@ -508,6 +560,44 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      memberships: {
+        Row: {
+          created_at: string
+          id: string
+          role: string
+          status: string
+          tenant_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: string
+          status?: string
+          tenant_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: string
+          status?: string
+          tenant_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "memberships_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -542,11 +632,40 @@ export type Database = {
         }
         Relationships: []
       }
+      tenants: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          slug: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          slug?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          slug?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      is_tenant_member: { Args: { tid: string }; Returns: boolean }
+      is_tenant_owner: { Args: { tid: string }; Returns: boolean }
       knexchat_auth_can_access_message: {
         Args: { target_message_id: string }
         Returns: boolean
@@ -715,4 +834,3 @@ export const Constants = {
     },
   },
 } as const
-

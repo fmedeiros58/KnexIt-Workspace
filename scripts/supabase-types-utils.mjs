@@ -1,19 +1,40 @@
 import { execFileSync } from "node:child_process";
 
 export const SUPABASE_TYPE_SANITY_MARKERS = [
-  '"knexchat_directory"',
-  '"knexchat_profiles"',
-  '"knexchat_threads"',
-  '"knexchat_messages"',
-  '"knexchat_media_objects"',
-  '"knexchat_profile_photos"',
-  '"knexchat_message_attachments"',
-  '"knexchat_direct_threads"',
-  '"knexchat_message_receipts"',
-  '"knexchat_message_reactions"',
+  "knexchat_directory",
+  "knexchat_profiles",
+  "knexchat_threads",
+  "knexchat_messages",
+  "knexchat_media_objects",
+  "knexchat_profile_photos",
+  "knexchat_message_attachments",
+  "knexchat_direct_threads",
+  "knexchat_message_receipts",
+  "knexchat_message_reactions",
 ];
 
-const NPX_BIN = process.platform === "win32" ? "npx.cmd" : "npx";
+function getSupabaseGenCommand(projectRef) {
+  const args = [
+    "supabase",
+    "gen",
+    "types",
+    "typescript",
+    "--project-id",
+    projectRef,
+    "--schema",
+    "public",
+  ];
+
+  // `execFileSync("npx.cmd", ...)` fails with EINVAL on recent Node/Windows.
+  if (process.platform === "win32") {
+    return {
+      bin: "cmd.exe",
+      args: ["/d", "/s", "/c", "npx", ...args],
+    };
+  }
+
+  return { bin: "npx", args };
+}
 
 export const normalizeEol = (value) => value.replace(/\r\n/g, "\n").trimEnd() + "\n";
 
@@ -78,19 +99,11 @@ export function generateSupabaseTypes({ projectRef, accessToken }) {
 
   if (!normalizedProjectRef) throw new Error("Supabase project ref is required.");
   if (!normalizedAccessToken) throw new Error("SUPABASE_ACCESS_TOKEN is required.");
+  const command = getSupabaseGenCommand(normalizedProjectRef);
 
   return execFileSync(
-    NPX_BIN,
-    [
-      "supabase",
-      "gen",
-      "types",
-      "typescript",
-      "--project-id",
-      normalizedProjectRef,
-      "--schema",
-      "public",
-    ],
+    command.bin,
+    command.args,
     {
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,
@@ -103,7 +116,11 @@ export function generateSupabaseTypes({ projectRef, accessToken }) {
 }
 
 export function assertSupabaseTypeSanity(typesSource) {
-  const missing = SUPABASE_TYPE_SANITY_MARKERS.filter((marker) => !typesSource.includes(marker));
+  const missing = SUPABASE_TYPE_SANITY_MARKERS.filter((marker) => {
+    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const markerPattern = new RegExp(`(?:\"${escaped}\"|${escaped})\\s*:\\s*\\{`);
+    return !markerPattern.test(typesSource);
+  });
   if (missing.length) {
     throw new Error(`Supabase types sanity-check failed. Missing markers: ${missing.join(", ")}`);
   }
