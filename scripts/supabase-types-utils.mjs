@@ -44,8 +44,11 @@ export function resolveProjectRef(supabaseUrl, explicitProjectRef) {
 }
 
 export function generateSupabaseTypes({ projectRef, accessToken }) {
-  if (!projectRef) throw new Error("Supabase project ref is required.");
-  if (!accessToken) throw new Error("SUPABASE_ACCESS_TOKEN is required.");
+  const normalizedProjectRef = String(projectRef || "").trim();
+  const normalizedAccessToken = String(accessToken || "").trim();
+
+  if (!normalizedProjectRef) throw new Error("Supabase project ref is required.");
+  if (!normalizedAccessToken) throw new Error("SUPABASE_ACCESS_TOKEN is required.");
 
   return execFileSync(
     NPX_BIN,
@@ -55,7 +58,7 @@ export function generateSupabaseTypes({ projectRef, accessToken }) {
       "types",
       "typescript",
       "--project-id",
-      projectRef,
+      normalizedProjectRef,
       "--schema",
       "public",
     ],
@@ -64,7 +67,7 @@ export function generateSupabaseTypes({ projectRef, accessToken }) {
       maxBuffer: 32 * 1024 * 1024,
       env: {
         ...process.env,
-        SUPABASE_ACCESS_TOKEN: accessToken,
+        SUPABASE_ACCESS_TOKEN: normalizedAccessToken,
       },
     },
   );
