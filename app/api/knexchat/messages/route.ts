@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   }
   const entitlement = await requireKnexchatEntitlement(req);
   if (entitlement.response) return entitlement.response;
-  const authEmail = entitlement.user?.email ?? "";
+  const authEmail = normalizeEmail(entitlement.user?.email ?? "");
   const { searchParams } = new URL(req.url);
   const threadId = searchParams.get("threadId") || "";
   const limitRaw = searchParams.get("limit");
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
   }
   const entitlement = await requireKnexchatEntitlement(req);
   if (entitlement.response) return entitlement.response;
-  const authEmail = entitlement.user?.email ?? "";
+  const authEmail = normalizeEmail(entitlement.user?.email ?? "");
   try {
     const body = await req.json().catch(() => ({}));
     const threadId = typeof body?.threadId === "string" ? body.threadId : "";

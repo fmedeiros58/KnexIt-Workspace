@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
   }
   const entitlement = await requireKnexchatEntitlement(req);
   if (entitlement.response) return entitlement.response;
-  const authEmail = entitlement.user?.email ?? "";
+  const authEmail = normalizeEmail(entitlement.user?.email ?? "");
   try {
     const body = await req.json().catch(() => ({}));
     const emailRaw = typeof body?.email === "string" ? body.email : "";
