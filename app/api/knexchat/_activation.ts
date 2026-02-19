@@ -6,6 +6,15 @@ export type ActivationAuthUser = {
   userId: string;
   email: string;
   name?: string;
+  avatarUrl?: string;
+};
+
+const sanitizeAvatarUrl = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!/^https?:\/\//i.test(trimmed)) return undefined;
+  return trimmed;
 };
 
 export const requireActivationAuth = async (req: Request) => {
@@ -27,11 +36,35 @@ export const requireActivationAuth = async (req: Request) => {
   if (!email) {
     return { user: null, token: null, response: Response.json({ message: "Unauthorized" }, { status: 401 }) };
   }
-  const metadata = data.user.user_metadata as { name?: string; full_name?: string } | null;
+  const metadata = data.user.user_metadata as {
+    name?: string;
+    full_name?: string;
+    avatar_url?: string;
+    picture?: string;
+    avatar?: string;
+  } | null;
   const nameRaw = metadata?.name || metadata?.full_name || "";
   const name = typeof nameRaw === "string" && nameRaw.trim() ? nameRaw.trim() : undefined;
+  let avatarUrl = sanitizeAvatarUrl(metadata?.avatar_url ?? metadata?.picture ?? metadata?.avatar ?? "");
+  if (!avatarUrl) {
+    try {
+      const knexchatAdmin = getSupabaseAdmin();
+      if (knexchatAdmin) {
+        const { data: profileRow, error: profileError } = await knexchatAdmin
+          .from("profiles")
+          .select("avatar_url")
+          .eq("id", data.user.id)
+          .maybeSingle();
+        if (!profileError) {
+          avatarUrl = sanitizeAvatarUrl((profileRow as { avatar_url?: string | null } | null)?.avatar_url ?? "");
+        }
+      }
+    } catch {
+      // Ignore fallback avatar lookup failures.
+    }
+  }
   return {
-    user: { userId: data.user.id, email: email.toLowerCase(), name },
+    user: { userId: data.user.id, email: email.toLowerCase(), name, avatarUrl },
     token,
     response: null,
   };

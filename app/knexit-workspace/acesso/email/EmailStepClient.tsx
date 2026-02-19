@@ -17,6 +17,7 @@ import { identitySupabase } from "@/lib/identitySupabaseClient";
 
 const supabase = identitySupabase();
 const OTP_REGEX = /^\d{6}$/;
+const ACCOUNT_SESSIONS_KEY = "knex_account_sessions";
 
 type LookupPayload = {
   exists?: boolean;
@@ -26,6 +27,45 @@ type LookupPayload = {
 
 type Phase = "email" | "password" | "otp";
 type OAuthProvider = "google" | "azure" | "facebook";
+type StoredAccountSession = {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number | null;
+};
+
+const readStoredSessionForEmail = (email: string): StoredAccountSession | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_SESSIONS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, StoredAccountSession> | null;
+    if (!parsed || typeof parsed !== "object") return null;
+    const account = parsed[email];
+    if (!account) return null;
+    return account;
+  } catch {
+    return null;
+  }
+};
+
+const clearStoredSessionTokensForEmail = (email: string) => {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_SESSIONS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, StoredAccountSession> | null;
+    if (!parsed || typeof parsed !== "object" || !parsed[email]) return;
+    parsed[email] = {
+      ...parsed[email],
+      accessToken: undefined,
+      refreshToken: undefined,
+      expiresAt: undefined,
+    };
+    window.localStorage.setItem(ACCOUNT_SESSIONS_KEY, JSON.stringify(parsed));
+  } catch {
+    // ignore storage cleanup failures
+  }
+};
 
 export default function EmailStepClient() {
   const router = useRouter();
@@ -33,6 +73,7 @@ export default function EmailStepClient() {
   const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
   const returnTo = useMemo(() => resolveReturnTo(searchParams, appBaseUrl), [appBaseUrl, searchParams]);
   const stayOnLogin = useMemo(() => searchParams.get("stay") === "1", [searchParams]);
+  const hintedEmail = useMemo(() => normalizeEmail(searchParams.get("email") ?? ""), [searchParams]);
 
   const [phase, setPhase] = useState<Phase>("email");
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
@@ -58,6 +99,7 @@ export default function EmailStepClient() {
 
   const otpInputsRef = useRef<Array<HTMLInputElement | null>>([]);
   const oauthBootstrapRef = useRef(false);
+  const hintedSessionBootstrapRef = useRef("");
 
   const normalizedEmail = normalizeEmail(email);
   const emailFormatValid = isEmail(normalizedEmail);
@@ -383,6 +425,48 @@ export default function EmailStepClient() {
   }, [requestOtp, searchParams]);
 
   const otpDigits = Array.from({ length: 6 }, (_, index) => otpCode[index] ?? "");
+
+  useEffect(() => {
+    if (!isEmail(hintedEmail)) return;
+    setEmail(hintedEmail);
+  }, [hintedEmail]);
+
+  useEffect(() => {
+    if (!isEmail(hintedEmail)) return;
+    if (hintedSessionBootstrapRef.current === hintedEmail) return;
+    hintedSessionBootstrapRef.current = hintedEmail;
+    const stored = readStoredSessionForEmail(hintedEmail);
+    if (!stored?.accessToken || !stored?.refreshToken) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    const tryRestoreSession = async () => {
+      const { data, error: setSessionError } = await supabase.auth.setSession({
+        access_token: stored.accessToken ?? "",
+        refresh_token: stored.refreshToken ?? "",
+      });
+      if (cancelled) return;
+      if (setSessionError || !data?.session) {
+        clearStoredSessionTokensForEmail(hintedEmail);
+        setLoading(false);
+        return;
+      }
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("loginEmailHint");
+      }
+      const target = await resolvePostLoginTarget(returnTo, data.session.access_token);
+      if (cancelled) return;
+      router.replace(target);
+    };
+
+    void tryRestoreSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hintedEmail, returnTo, router]);
 
   useEffect(() => {
     if (stayOnLogin) return;

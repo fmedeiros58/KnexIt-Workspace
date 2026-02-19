@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
 import type { User } from "@supabase/supabase-js";
+import { writeKnexchatProfileSeed } from "@/lib/knexchat/profileSeed";
 
 const supabase = identitySupabase();
 
@@ -282,8 +283,14 @@ export default function AccountManagementPageClient() {
         throw new Error(payload?.message ?? "Não foi possível atualizar a imagem.");
       }
       const avatarUrl = payload.url;
-      await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } });
+      await supabase.auth.updateUser({ data: { avatar_url: avatarUrl, picture: avatarUrl, avatar: avatarUrl } });
       await supabase.from("profiles").update({ avatar_url: avatarUrl }).eq("id", session.user.id);
+      writeKnexchatProfileSeed(session.user.id, {
+        avatarUrl,
+        ...(profile.name ? { displayName: profile.name } : {}),
+        source: "ecosystem",
+        createdAt: new Date().toISOString(),
+      });
       setProfile((prev) => ({ ...prev, avatarUrl }));
       setNotice("Imagem atualizada com sucesso.");
     } catch (err) {
