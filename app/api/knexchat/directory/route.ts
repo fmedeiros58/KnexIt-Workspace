@@ -4,6 +4,13 @@ import { getSupabaseAdmin, requireKnexchatEntitlement } from "@/app/api/knexchat
 export const runtime = "nodejs";
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const sanitizeAvatarUrl = (value: unknown) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!/^https?:\/\//i.test(trimmed)) return undefined;
+  return trimmed;
+};
 
 export async function GET(req: NextRequest) {
   if (!getSupabaseAdmin()) {
@@ -76,6 +83,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const emailRaw = typeof body?.email === "string" ? body.email : "";
     const nameRaw = typeof body?.name === "string" ? body.name : null;
+    const avatarRaw =
+      typeof body?.avatarUrl === "string"
+        ? body.avatarUrl
+        : typeof body?.avatar_url === "string"
+          ? body.avatar_url
+          : null;
     const email = normalizeEmail(emailRaw);
     if (!email || !email.includes("@")) {
       return Response.json({ message: "Invalid email" }, { status: 400 });
@@ -89,12 +102,14 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
     }
     const normalizedName = nameRaw && nameRaw.trim() ? nameRaw.trim() : undefined;
+    const avatarUrl = sanitizeAvatarUrl(avatarRaw);
     const { error } = await admin
       .from("knexchat_directory")
       .upsert(
         {
           email,
           ...(normalizedName ? { name: normalizedName } : {}),
+          ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
         },
         { onConflict: "email" },
       );

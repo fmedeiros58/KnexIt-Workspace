@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
   const code = String(body?.code ?? "").trim();
   const userId = auth.user?.userId ?? "";
   const name = auth.user?.name;
+  const avatarUrl = auth.user?.avatarUrl;
 
   if (!userId) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
       {
         email,
         ...(name ? { name } : {}),
+        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
       },
       { onConflict: "email" },
     );

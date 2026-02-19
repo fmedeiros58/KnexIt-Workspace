@@ -1,9 +1,18 @@
 import { NextRequest } from "next/server";
 import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
+import { getSupabaseAdmin } from "@/app/api/knexchat/_auth";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
 const BUCKET_NAME = "avatars";
+const identityUrl = process.env.NEXT_PUBLIC_IDENTITY_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const knexchatUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const identityServiceRole = process.env.IDENTITY_SUPABASE_SERVICE_ROLE_KEY || "";
+const knexchatServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const shouldMirrorToKnexchatProject =
+  Boolean(knexchatUrl && knexchatServiceRole) &&
+  (identityUrl !== knexchatUrl || identityServiceRole !== knexchatServiceRole);
 
 type TokenPayload = {
   sub?: string;
@@ -37,6 +46,58 @@ async function ensureBucket(admin: ReturnType<typeof identitySupabaseAdmin>) {
   }
 }
 
+type AvatarSyncClient = SupabaseClient;
+
+const syncAvatarAcrossClients = async ({
+  clients,
+  userId,
+  userEmail,
+  avatarUrl,
+}: {
+  clients: AvatarSyncClient[];
+  userId: string;
+  userEmail: string | null;
+  avatarUrl: string;
+}) => {
+  const metadataPatch = {
+    avatar_url: avatarUrl,
+    picture: avatarUrl,
+    avatar: avatarUrl,
+  };
+
+  await Promise.all(
+    clients.map(async (client) => {
+      try {
+        await client.from("profiles").update({ avatar_url: avatarUrl }).eq("id", userId);
+      } catch {
+        // Ignore profile sync failures.
+      }
+
+      if (userEmail) {
+        try {
+          await client.from("knexchat_directory").upsert({ email: userEmail, avatar_url: avatarUrl }, { onConflict: "email" });
+        } catch {
+          // Ignore KnexChat directory sync failures.
+        }
+      }
+
+      try {
+        const { data: authUserData, error: authUserError } = await client.auth.admin.getUserById(userId);
+        if (authUserError) return;
+        const existingMetadata =
+          ((authUserData?.user?.user_metadata as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
+        const nextMetadata = {
+          ...existingMetadata,
+          ...metadataPatch,
+        };
+        await client.auth.admin.updateUserById(userId, { user_metadata: nextMetadata });
+      } catch {
+        // Ignore auth metadata sync failures.
+      }
+    }),
+  );
+};
+
 export async function POST(req: NextRequest) {
   try {
     const auth = req.headers.get("authorization") || "";
@@ -53,9 +114,11 @@ export async function POST(req: NextRequest) {
     }
 
     let userId: string | null = null;
+    let userEmail: string | null = null;
     const { data: userData, error: userError } = await admin.auth.getUser(token);
     if (!userError && userData?.user) {
       userId = userData.user.id;
+      userEmail = userData.user.email?.toLowerCase() ?? null;
     } else {
       const payload = decodeJwtPayload(token);
       const sub = payload?.sub;
@@ -67,6 +130,7 @@ export async function POST(req: NextRequest) {
         return Response.json({ message: "Sessão inválida." }, { status: 401 });
       }
       userId = byId.user.id;
+      userEmail = byId.user.email?.toLowerCase() ?? null;
     }
 
     await ensureBucket(admin);
@@ -75,6 +139,10 @@ export async function POST(req: NextRequest) {
     const file = formData.get("file");
     if (!file || !(file instanceof File)) {
       return Response.json({ message: "Arquivo inválido." }, { status: 400 });
+    }
+
+    if (!userId) {
+      return Response.json({ message: "Sessão inválida." }, { status: 401 });
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
@@ -92,6 +160,19 @@ export async function POST(req: NextRequest) {
 
     const { data: publicData } = admin.storage.from(BUCKET_NAME).getPublicUrl(filePath);
     const avatarUrl = `${publicData.publicUrl}?t=${Date.now()}`;
+
+    const syncClients: AvatarSyncClient[] = [admin];
+    const knexchatAdmin = shouldMirrorToKnexchatProject ? getSupabaseAdmin() : null;
+    if (knexchatAdmin) {
+      syncClients.push(knexchatAdmin as AvatarSyncClient);
+    }
+
+    await syncAvatarAcrossClients({
+      clients: syncClients,
+      userId,
+      userEmail,
+      avatarUrl,
+    });
 
     return Response.json({ url: avatarUrl }, { status: 200 });
   } catch (error) {

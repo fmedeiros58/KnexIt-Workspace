@@ -6,9 +6,11 @@ import {
   Bell,
   BellOff,
   ArrowRight,
+  BarChart3,
   Copy,
   X,
   XCircle,
+  CalendarDays,
   Camera,
   Check,
   CheckSquare,
@@ -19,8 +21,10 @@ import {
   Download,
   CreditCard,
   Flag,
+  FileText,
   Globe,
   HelpCircle,
+  Headphones,
   Hash,
   Radio,
   ScanLine,
@@ -48,8 +52,9 @@ import {
   Pin,
   Reply,
   SendHorizontal,
+  Share2,
+  Paperclip,
   UserPlus,
-  ZoomIn,
   Mic,
   Square,
   Search,
@@ -71,17 +76,22 @@ import type { Session } from "@supabase/supabase-js";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import type { CSSProperties, ReactNode } from "react";
 import { identitySupabase as createIdentitySupabase } from "@/lib/identitySupabaseClient";
-import { consumeKnexchatProfileSeed } from "@/lib/knexchat/profileSeed";
+import {
+  consumeKnexchatProfileSeed,
+  getKnexchatProfileSeedKey,
+  writeKnexchatProfileSeed,
+} from "@/lib/knexchat/profileSeed";
 
 type MasterDetailProps = {
   showDetail: boolean;
   master: ReactNode;
   detail: ReactNode;
+  className?: string;
 };
 
-function MasterDetail({ showDetail, master, detail }: MasterDetailProps) {
+function MasterDetail({ showDetail, master, detail, className = "" }: MasterDetailProps) {
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
+    <div className={`flex h-full min-h-0 flex-1 overflow-hidden ${className}`.trim()}>
       <div className={`${showDetail ? "hidden md:flex" : "flex"} h-full min-h-0 w-full flex-col md:w-auto md:min-w-0`}>
         {master}
       </div>
@@ -107,6 +117,17 @@ const CHAT_UI_STATE_KEY = "knexchat.ui.v1";
 const DIRECTORY_KEY = "knexchat.directory.v1";
 const INBOX_KEY = "knexchat.inbox.v1";
 const supabase = createIdentitySupabase();
+
+function buildKnexchatWebHref(searchQuery: string, threadId: string | null): string {
+  const params = new URLSearchParams(searchQuery);
+  if (threadId && threadId.trim()) {
+    params.set("thread", threadId);
+  } else {
+    params.delete("thread");
+  }
+  const nextQuery = params.toString();
+  return nextQuery ? `/knexchat/web?${nextQuery}` : "/knexchat/web";
+}
 
 function KnexChatMotionStyles() {
   return (
@@ -221,6 +242,7 @@ function KnexChatMotionStyles() {
         margin-left: auto;
         background: #0b5ed7;
         color: #ffffff;
+        text-shadow: 0 0 0.55px rgba(8, 33, 78, 0.88);
         border-radius: 18px 4px 18px 18px;
       }
       .knex-bubble__text {
@@ -771,6 +793,12 @@ type ApiMessage = {
   kind: "text" | "image" | "audio" | "file";
   media_url?: string | null;
   media_name?: string | null;
+  attachments?: Array<{
+    id?: string;
+    media_id?: string;
+    kind?: "image" | "video" | "audio" | "file";
+    url?: string | null;
+  }>;
   created_at: string;
 };
 
@@ -1326,6 +1354,17 @@ function normalizeAvatarUrl(raw: unknown): string | null {
   return null;
 }
 
+function resolveApiMessageMediaUrl(message: ApiMessage): string | null {
+  const direct = typeof message.media_url === "string" ? message.media_url.trim() : "";
+  if (direct) return direct;
+  if (!Array.isArray(message.attachments)) return null;
+  const attachmentWithUrl = message.attachments.find(
+    (attachment) => attachment && typeof attachment.url === "string" && attachment.url.trim(),
+  );
+  if (!attachmentWithUrl || typeof attachmentWithUrl.url !== "string") return null;
+  return attachmentWithUrl.url.trim();
+}
+
 function normalizeDirectoryEntries(raw: string | null): DirectoryEntry[] {
   const parsed = safeParseJson<unknown>(raw);
   if (!Array.isArray(parsed)) return [];
@@ -1471,6 +1510,12 @@ export default function KnexChatPage() {
   });
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSendNotice, setMessageSendNotice] = useState<string | null>(null);
+  const [isComposerAttachmentMenuOpen, setIsComposerAttachmentMenuOpen] = useState(false);
+  const [isComposerCameraOpen, setIsComposerCameraOpen] = useState(false);
+  const [composerCameraError, setComposerCameraError] = useState<string | null>(null);
+  const [isComposerCameraBusy, setIsComposerCameraBusy] = useState(false);
+  const [composerCameraCapturedFile, setComposerCameraCapturedFile] = useState<File | null>(null);
+  const [composerCameraCapturedPreview, setComposerCameraCapturedPreview] = useState<string | null>(null);
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(MESSAGE_SEED);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -1481,8 +1526,14 @@ export default function KnexChatPage() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<"thread" | "self" | null>(null);
   const [isProfileAvatarPreviewOpen, setIsProfileAvatarPreviewOpen] = useState(false);
+  const [isProfileAvatarActionMenuOpen, setIsProfileAvatarActionMenuOpen] = useState(false);
+  const [isProfileAvatarDesktopCameraOpen, setIsProfileAvatarDesktopCameraOpen] = useState(false);
+  const [profileAvatarDesktopCameraCapturedFile, setProfileAvatarDesktopCameraCapturedFile] = useState<File | null>(null);
+  const [profileAvatarDesktopCameraCapturedPreview, setProfileAvatarDesktopCameraCapturedPreview] = useState<string | null>(null);
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [profileRecadoDraft, setProfileRecadoDraft] = useState("");
+  const [profileAvatarUploading, setProfileAvatarUploading] = useState(false);
+  const [profileAvatarNotice, setProfileAvatarNotice] = useState<string | null>(null);
   const [chatListWidth, setChatListWidth] = useState(384);
   const [isChatListResizing, setIsChatListResizing] = useState(false);
   const [isThreadMenuOpen, setIsThreadMenuOpen] = useState(false);
@@ -1537,10 +1588,10 @@ export default function KnexChatPage() {
 
   const handleMobileBack = useCallback(() => {
     setIsMobileDetailOpen(false);
-    if (pathname?.startsWith("/knexchat/t/")) {
-      router.push("/knexchat/web");
-    }
-  }, [pathname, router]);
+    if (!isMobileView) return;
+    if (!threadParam && !pathname?.startsWith("/knexchat/t/")) return;
+    router.replace(buildKnexchatWebHref(searchQuery, null), { scroll: false });
+  }, [isMobileView, pathname, router, searchQuery, threadParam]);
 
   const [isDirectoryFiltersOpen, setIsDirectoryFiltersOpen] = useState(false);
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
@@ -1648,6 +1699,7 @@ export default function KnexChatPage() {
   const recordingDurationRef = useRef(0);
   const audioChunksRef = useRef<Blob[]>([]);
   const messageImageInputRef = useRef<HTMLInputElement | null>(null);
+  const messageCameraInputRef = useRef<HTMLInputElement | null>(null);
   const shareThumbsRef = useRef<HTMLDivElement | null>(null);
   const shareAudioInputRef = useRef<HTMLInputElement | null>(null);
   const shareRecorderRef = useRef<MediaRecorder | null>(null);
@@ -1684,6 +1736,59 @@ export default function KnexChatPage() {
   const conversationMediaViewerVideoRef = useRef<HTMLVideoElement | null>(null);
   const composerDragDepthRef = useRef(0);
   const messageMediaContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const composerAttachmentButtonRef = useRef<HTMLButtonElement | null>(null);
+  const composerAttachmentMenuRef = useRef<HTMLDivElement | null>(null);
+  const composerCameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const composerCameraStreamRef = useRef<MediaStream | null>(null);
+  const messageListScrollRef = useRef<HTMLDivElement | null>(null);
+  const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
+  const profileAvatarCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const profileAvatarDesktopCameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const profileAvatarDesktopCameraStreamRef = useRef<MediaStream | null>(null);
+
+  const scrollMessageListToBottom = useCallback(() => {
+    const container = messageListScrollRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, []);
+
+  useEffect(() => {
+    if (isProfileAvatarPreviewOpen) return;
+    setIsProfileAvatarActionMenuOpen(false);
+    setIsProfileAvatarDesktopCameraOpen(false);
+  }, [isProfileAvatarPreviewOpen]);
+  useEffect(() => {
+    if (isProfileAvatarDesktopCameraOpen) return;
+    const stream = profileAvatarDesktopCameraStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      profileAvatarDesktopCameraStreamRef.current = null;
+    }
+    if (profileAvatarDesktopCameraVideoRef.current) {
+      profileAvatarDesktopCameraVideoRef.current.srcObject = null;
+    }
+    setProfileAvatarDesktopCameraCapturedFile(null);
+    setProfileAvatarDesktopCameraCapturedPreview(null);
+  }, [isProfileAvatarDesktopCameraOpen]);
+  useEffect(() => {
+    if (!isProfileAvatarDesktopCameraOpen) return;
+    const video = profileAvatarDesktopCameraVideoRef.current;
+    const stream = profileAvatarDesktopCameraStreamRef.current;
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    void video.play().catch(() => {
+      // Ignore autoplay restrictions; user can interact to retry.
+    });
+  }, [isProfileAvatarDesktopCameraOpen]);
+  useEffect(
+    () => () => {
+      const stream = profileAvatarDesktopCameraStreamRef.current;
+      if (!stream) return;
+      stream.getTracks().forEach((track) => track.stop());
+      profileAvatarDesktopCameraStreamRef.current = null;
+    },
+    [],
+  );
 
   const currentUser = useMemo(() => {
     if (!identity) return null;
@@ -1794,6 +1899,7 @@ export default function KnexChatPage() {
   }, [contacts, conversations, directoryEntries, groups, identity?.email, identity?.name, selfAvatarUrl]);
   const contactNameByEmailRef = useRef(contactNameByEmail);
   const identityEmailRef = useRef(identity?.email ? normalizeEmail(identity.email) : "");
+  const selfAvatarUrlRef = useRef<string | null>(selfAvatarUrl);
   const isFetchingThreadsRef = useRef(false);
   useEffect(() => {
     contactNameByEmailRef.current = contactNameByEmail;
@@ -1801,6 +1907,182 @@ export default function KnexChatPage() {
   useEffect(() => {
     identityEmailRef.current = identity?.email ? normalizeEmail(identity.email) : "";
   }, [identity?.email]);
+  useEffect(() => {
+    selfAvatarUrlRef.current = selfAvatarUrl;
+  }, [selfAvatarUrl]);
+
+  const applySelfAvatarSync = useCallback(
+    (avatarCandidate: string | null | undefined, emailCandidate?: string | null) => {
+      const normalizedAvatar = normalizeAvatarUrl(avatarCandidate ?? null);
+      if (!normalizedAvatar) return;
+      if (normalizedAvatar === selfAvatarUrlRef.current) return;
+      selfAvatarUrlRef.current = normalizedAvatar;
+      setSelfAvatarUrl(normalizedAvatar);
+
+      const normalizedEmail = normalizeEmail(emailCandidate ?? identityEmailRef.current ?? identity?.email ?? "");
+      if (!normalizedEmail || !isValidEmail(normalizedEmail)) return;
+
+      const now = new Date().toISOString();
+      setDirectoryEntries((prev) => {
+        const index = prev.findIndex((entry) => normalizeEmail(entry.email) === normalizedEmail);
+        if (index < 0) {
+          return [
+            {
+              email: normalizedEmail,
+              ...(identity?.name ? { name: identity.name } : {}),
+              avatarUrl: normalizedAvatar,
+              createdAt: now,
+            },
+            ...prev,
+          ];
+        }
+        const existing = prev[index];
+        if (existing.avatarUrl === normalizedAvatar) return prev;
+        const next = [...prev];
+        next[index] = { ...existing, avatarUrl: normalizedAvatar };
+        return next;
+      });
+    },
+    [identity?.email, identity?.name],
+  );
+
+  const applyRealtimeProfileSync = useCallback(
+    (entry: {
+      email?: string | null;
+      name?: string | null;
+      avatar_url?: string | null;
+      avatarUrl?: string | null;
+      created_at?: string | null;
+      createdAt?: string | null;
+    }) => {
+      const normalizedEmail = normalizeEmail(entry?.email ?? "");
+      if (!normalizedEmail || !isValidEmail(normalizedEmail)) return;
+      const normalizedAvatar = normalizeAvatarUrl(entry?.avatar_url ?? entry?.avatarUrl ?? null);
+      const normalizedName = normalizeName(entry?.name ?? "");
+      const createdAt =
+        typeof entry?.created_at === "string"
+          ? entry.created_at
+          : typeof entry?.createdAt === "string"
+            ? entry.createdAt
+            : new Date().toISOString();
+
+      setDirectoryEntries((prev) => {
+        const index = prev.findIndex((item) => normalizeEmail(item.email) === normalizedEmail);
+        if (index < 0) {
+          return [
+            {
+              email: normalizedEmail,
+              ...(normalizedName ? { name: normalizedName } : {}),
+              ...(normalizedAvatar ? { avatarUrl: normalizedAvatar } : {}),
+              createdAt,
+            },
+            ...prev,
+          ];
+        }
+        const existing = prev[index];
+        const nextAvatar = normalizedAvatar ?? existing.avatarUrl;
+        const nextName = normalizedName || existing.name;
+        if (existing.avatarUrl === nextAvatar && existing.name === nextName) return prev;
+        const next = [...prev];
+        next[index] = {
+          ...existing,
+          ...(nextName ? { name: nextName } : {}),
+          ...(nextAvatar ? { avatarUrl: nextAvatar } : {}),
+        };
+        return next;
+      });
+      setDirectoryLookupCache((prev) => ({ ...prev, [normalizedEmail]: true }));
+
+      const updateThreadList = (threads: Thread[]) => {
+        let changed = false;
+        const next = threads.map((thread) => {
+          let threadChanged = false;
+          let nextThread = thread;
+          const contactMatch =
+            (thread.tab === "contacts" || thread.tab === "conversations") &&
+            getContactPrimaryKey(thread) === normalizedEmail;
+
+          if (contactMatch) {
+            const updatedThread: Thread = {
+              ...nextThread,
+              ...(normalizedAvatar ? { avatarUrl: normalizedAvatar } : {}),
+              ...(normalizedName ? { title: normalizedName } : {}),
+            };
+            if (!areThreadsEqual(nextThread, updatedThread)) {
+              nextThread = updatedThread;
+              threadChanged = true;
+            }
+          }
+
+          if (nextThread.participantRoles?.length) {
+            let participantChanged = false;
+            const nextParticipants = nextThread.participantRoles.map((participant) => {
+              if (normalizeEmail(participant.email) !== normalizedEmail) return participant;
+              const updatedParticipant = {
+                ...participant,
+                ...(normalizedName ? { name: normalizedName } : {}),
+                ...(normalizedAvatar ? { avatarUrl: normalizedAvatar } : {}),
+              };
+              if (
+                updatedParticipant.name !== participant.name ||
+                updatedParticipant.avatarUrl !== participant.avatarUrl
+              ) {
+                participantChanged = true;
+              }
+              return updatedParticipant;
+            });
+            if (participantChanged) {
+              nextThread = {
+                ...nextThread,
+                participantRoles: nextParticipants,
+              };
+              threadChanged = true;
+            }
+          }
+
+          if (threadChanged) {
+            changed = true;
+            return nextThread;
+          }
+          return thread;
+        });
+        return changed ? next : threads;
+      };
+
+      setConversations((prev) => updateThreadList(prev));
+      setContacts((prev) => updateThreadList(prev));
+      setGroups((prev) => updateThreadList(prev));
+      setMessagesByThread((prev) => {
+        let changed = false;
+        const next: Record<string, Message[]> = {};
+        Object.entries(prev).forEach(([threadId, messages]) => {
+          const mappedMessages = messages.map((message) => {
+            const senderEmail = normalizeEmail(message.senderEmail ?? "");
+            if (!senderEmail || senderEmail !== normalizedEmail) return message;
+            const updatedMessage: Message = {
+              ...message,
+              ...(normalizedName ? { senderName: normalizedName } : {}),
+              ...(normalizedAvatar ? { senderAvatarUrl: normalizedAvatar } : {}),
+            };
+            if (
+              updatedMessage.senderName !== message.senderName ||
+              updatedMessage.senderAvatarUrl !== message.senderAvatarUrl
+            ) {
+              changed = true;
+            }
+            return updatedMessage;
+          });
+          next[threadId] = mappedMessages;
+        });
+        return changed ? next : prev;
+      });
+
+      if (normalizedAvatar && normalizedEmail === identityEmailRef.current) {
+        applySelfAvatarSync(normalizedAvatar, normalizedEmail);
+      }
+    },
+    [applySelfAvatarSync],
+  );
 
   const allThreads = useMemo(() => [...conversations, ...groups, ...contacts], [conversations, groups, contacts]);
   const allThreadsRef = useRef<Thread[]>([]);
@@ -2689,14 +2971,10 @@ export default function KnexChatPage() {
       if (isGroupPermissionsOpen) setIsGroupPermissionsOpen(false);
       if (isGroupAdminsModalOpen) setIsGroupAdminsModalOpen(false);
       if (isMobileView) {
-        const isThreadRoute = pathname?.startsWith("/knexchat/t/");
-        if (!isThreadRoute || threadParam !== threadId) {
-          const nextRoute = `/knexchat/t/${threadId}`;
-          if (typeof window !== "undefined") {
-            window.requestAnimationFrame(() => router.replace(nextRoute));
-          } else {
-            router.replace(nextRoute);
-          }
+        const isWebRoute = pathname?.startsWith("/knexchat/web");
+        if (!isWebRoute || threadParam !== threadId) {
+          const nextRoute = buildKnexchatWebHref(searchQuery, threadId);
+          router.replace(nextRoute, { scroll: false });
         }
       }
     },
@@ -2728,6 +3006,7 @@ export default function KnexChatPage() {
       pathname,
       profileTarget,
       router,
+      searchQuery,
       selectedGroupMemberIds.length,
       threadParam,
     ],
@@ -2989,11 +3268,13 @@ export default function KnexChatPage() {
     [addContactFromDirectory],
   );
   const handleRejectContactRequest = useCallback((email: string, status: ContactRequestStatus) => {
-    setContactRequests((prev) =>
-      prev.map((request) =>
-        normalizeEmail(request.email) === normalizeEmail(email) ? { ...request, status } : request,
-      ),
-    );
+    const normalized = normalizeEmail(email);
+    setContactRequests((prev) => {
+      if (status === "rejected") {
+        return prev.filter((request) => normalizeEmail(request.email) !== normalized);
+      }
+      return prev.map((request) => (normalizeEmail(request.email) === normalized ? { ...request, status } : request));
+    });
   }, []);
   const authTokenRef = useRef<string | null>(null);
   useEffect(() => {
@@ -3292,8 +3573,9 @@ export default function KnexChatPage() {
 
   const previewFromApiMessage = useCallback((message?: ApiMessage | null) => {
     if (!message) return "Sem mensagens";
+    const mediaSource = resolveApiMessageMediaUrl(message);
     if (message.kind === "image") {
-      return detectMediaTypeFromSource(message.media_url) === "video" ? "Vídeo enviado" : "Imagem enviada";
+      return detectMediaTypeFromSource(mediaSource) === "video" ? "Vídeo enviado" : "Imagem enviada";
     }
     if (message.kind === "audio") return "Mensagem de áudio";
     if (message.kind === "file") return message.media_name ?? "Arquivo enviado";
@@ -3356,6 +3638,7 @@ export default function KnexChatPage() {
       const author: "me" | "them" = identityEmailRef.current && identityEmailRef.current === senderEmail ? "me" : "them";
       const deliveryStatus: MessageDeliveryState | undefined = author === "me" ? "delivered" : undefined;
       const timeLabel = formatTimestampLabel(message.created_at) || "Agora";
+      const mediaSource = resolveApiMessageMediaUrl(message) ?? undefined;
       if (message.kind === "image") {
         return {
           id: message.id,
@@ -3365,7 +3648,7 @@ export default function KnexChatPage() {
           senderName: senderInfo?.name,
           senderEmail: senderEmail || undefined,
           senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
-          imageUrl: message.media_url ?? undefined,
+          imageUrl: mediaSource,
           imageName: message.media_name ?? undefined,
           deliveryStatus,
         };
@@ -3379,7 +3662,7 @@ export default function KnexChatPage() {
           senderName: senderInfo?.name,
           senderEmail: senderEmail || undefined,
           senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
-          audioUrl: message.media_url ?? undefined,
+          audioUrl: mediaSource,
           audioDuration: message.media_name ?? undefined,
           deliveryStatus,
         };
@@ -3393,7 +3676,7 @@ export default function KnexChatPage() {
           senderName: senderInfo?.name,
           senderEmail: senderEmail || undefined,
           senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
-          fileUrl: message.media_url ?? undefined,
+          fileUrl: mediaSource,
           fileName: message.media_name ?? undefined,
           deliveryStatus,
         };
@@ -3461,6 +3744,28 @@ export default function KnexChatPage() {
         if (diff !== 0) return diff;
         return a.id.localeCompare(b.id);
       });
+      const selfEmail = identityEmailRef.current;
+      if (selfEmail) {
+        let selfAvatarFromThreads: string | null = null;
+        for (const thread of mapped) {
+          if (!thread.participantRoles?.length) continue;
+          for (const participant of thread.participantRoles) {
+            if (normalizeEmail(participant.email) !== selfEmail) continue;
+            const candidate = normalizeAvatarUrl(participant.avatarUrl ?? null);
+            if (candidate) {
+              selfAvatarFromThreads = candidate;
+              break;
+            }
+          }
+          if (selfAvatarFromThreads) break;
+        }
+        if (selfAvatarFromThreads) {
+          applyRealtimeProfileSync({
+            email: selfEmail,
+            avatarUrl: selfAvatarFromThreads,
+          });
+        }
+      }
       const nextConversations = mapped.filter((thread) => thread.tab === "conversations");
       const nextGroups = mapped.filter((thread) => thread.tab === "groups");
       setConversations((prev) => {
@@ -3523,7 +3828,7 @@ export default function KnexChatPage() {
       isFetchingThreadsRef.current = false;
       setIsServerSyncing(false);
     }
-  }, [authFetch, identity?.email, mapApiThreadToThread, serverMessagingEnabled]);
+  }, [applyRealtimeProfileSync, authFetch, identity?.email, mapApiThreadToThread, serverMessagingEnabled]);
 
   const fetchMessagesForThread = useCallback(
     async (threadId: string) => {
@@ -3786,21 +4091,19 @@ export default function KnexChatPage() {
     settingsState.profileRecado,
   ]);
   const canEditProfile = profileTarget === "self";
-  const profileAvatarCta = canEditProfile
-    ? profileData?.avatarUrl
-      ? "Mudar foto de perfil"
-      : "Adicionar foto de perfil"
-    : null;
   useEffect(() => {
     if (!isProfileOpen || profileTarget !== "self") return;
     setProfileNameDraft(identity?.name ?? "");
     setProfileRecadoDraft(settingsState.profileRecado ?? DEFAULT_SETTINGS_STATE.profileRecado);
+    setProfileAvatarNotice(null);
   }, [identity?.name, isProfileOpen, profileTarget, settingsState.profileRecado]);
 
   const handleOpenProfile = (target: "thread" | "self") => {
     setIsProfileOpen(true);
     setProfileTarget(target);
     setIsProfileAvatarPreviewOpen(false);
+    setIsProfileAvatarActionMenuOpen(false);
+    setIsProfileAvatarDesktopCameraOpen(false);
     setIsNewChatOpen(false);
     setIsCustomListOpen(false);
     setIsNewChatEmailOpen(false);
@@ -3823,6 +4126,8 @@ export default function KnexChatPage() {
     setIsProfileOpen(false);
     setProfileTarget(null);
     setIsProfileAvatarPreviewOpen(false);
+    setIsProfileAvatarActionMenuOpen(false);
+    setIsProfileAvatarDesktopCameraOpen(false);
   };
   const resetPanelsForMobileNavigation = () => {
     setIsSettingsOpen(false);
@@ -3910,30 +4215,241 @@ export default function KnexChatPage() {
       return { ...prev, profileRecado: profileRecadoDraft };
     });
   }, [profileRecadoDraft, profileTarget]);
+  const handleShareProfileAvatar = useCallback(async () => {
+    const avatarUrl = profileData?.avatarUrl ?? "";
+    if (!avatarUrl) {
+      setProfileAvatarNotice("Adicione uma foto para compartilhar.");
+      return;
+    }
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        await navigator.share({
+          title: "Foto do perfil",
+          text: "Foto do perfil",
+          url: avatarUrl,
+        });
+        return;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(avatarUrl);
+        setProfileAvatarNotice("Link da foto copiado.");
+        return;
+      }
+    } catch {
+      // Ignore clipboard share errors.
+    }
+    setProfileAvatarNotice("Não foi possível compartilhar agora.");
+  }, [profileData?.avatarUrl]);
+  const handleInlineProfileNameEdit = useCallback(() => {
+    if (profileTarget !== "self" || !identity) return;
+    const currentName = profileNameDraft || identity.name || "";
+    const nextName = window.prompt("Atualizar nome", currentName);
+    if (nextName === null) return;
+    const normalizedName = normalizeName(nextName);
+    setProfileNameDraft(normalizedName);
+    if ((identity.name ?? "") === normalizedName) return;
+    const updated = { ...identity, name: normalizedName || undefined };
+    setIdentity(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      // Ignore profile persistence errors.
+    }
+  }, [identity, profileNameDraft, profileTarget]);
+  const handleInlineProfileRecadoEdit = useCallback(() => {
+    if (profileTarget !== "self") return;
+    const currentRecado = profileRecadoDraft || settingsState.profileRecado || DEFAULT_SETTINGS_STATE.profileRecado;
+    const nextRecado = window.prompt("Atualizar recado", currentRecado);
+    if (nextRecado === null) return;
+    setProfileRecadoDraft(nextRecado);
+    setSettingsState((prev) => {
+      if (prev.profileRecado === nextRecado) return prev;
+      return { ...prev, profileRecado: nextRecado };
+    });
+  }, [profileRecadoDraft, profileTarget, settingsState.profileRecado]);
   const handleCloseProfileAndCommit = useCallback(() => {
     commitProfileName();
     commitProfileRecado();
     setIsProfileOpen(false);
     setProfileTarget(null);
     setIsProfileAvatarPreviewOpen(false);
+    setIsProfileAvatarActionMenuOpen(false);
+    setIsProfileAvatarDesktopCameraOpen(false);
   }, [commitProfileName, commitProfileRecado]);
+  const closeProfileAvatarPreview = useCallback(() => {
+    setIsProfileAvatarActionMenuOpen(false);
+    setIsProfileAvatarDesktopCameraOpen(false);
+    setIsProfileAvatarPreviewOpen(false);
+  }, []);
 
-  const handleProfileAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadProfileAvatarFile = useCallback(
+    async (file: File): Promise<boolean> => {
+      if (!file.type.startsWith("image/")) {
+        setProfileAvatarNotice("Escolha uma imagem válida.");
+        return false;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setProfileAvatarNotice("A imagem deve ter até 5MB.");
+        return false;
+      }
+
+      setProfileAvatarUploading(true);
+      setProfileAvatarNotice(null);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await authFetch("/api/knexchat/avatar", {
+          method: "POST",
+          body: formData,
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | {
+              avatar_url?: string;
+              message?: string;
+            }
+          | null;
+        if (!res.ok || !payload?.avatar_url) {
+          throw new Error(payload?.message ?? "Não foi possível atualizar o avatar.");
+        }
+
+        const normalizedAvatar = normalizeAvatarUrl(payload.avatar_url);
+        if (!normalizedAvatar) {
+          throw new Error("Resposta de avatar inválida.");
+        }
+
+        const syncedAt = new Date().toISOString();
+        if (identity?.email) {
+          applyRealtimeProfileSync({
+            email: identity.email,
+            ...(identity.name ? { name: identity.name } : {}),
+            avatarUrl: normalizedAvatar,
+            createdAt: syncedAt,
+          });
+        } else {
+          setSelfAvatarUrl(normalizedAvatar);
+        }
+        if (identity?.userId) {
+          writeKnexchatProfileSeed(identity.userId, {
+            avatarUrl: normalizedAvatar,
+            ...(identity.name ? { displayName: identity.name } : {}),
+            createdAt: syncedAt,
+          });
+        }
+        setProfileAvatarNotice("Foto de perfil atualizada.");
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Não foi possível atualizar o avatar.";
+        setProfileAvatarNotice(message);
+        return false;
+      } finally {
+        setProfileAvatarUploading(false);
+      }
+    },
+    [applyRealtimeProfileSync, authFetch, identity?.email, identity?.name, identity?.userId],
+  );
+
+  const handleProfileAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (profileTarget !== "self") {
       event.target.value = "";
       return;
     }
     const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : null;
-      if (!result) return;
-      setSelfAvatarUrl(result);
-    };
-    reader.readAsDataURL(file);
     event.target.value = "";
+    if (!file) return;
+    await uploadProfileAvatarFile(file);
   };
+
+  const handleOpenProfileAvatarCamera = useCallback(async () => {
+    if (profileTarget !== "self") return;
+    setIsProfileAvatarActionMenuOpen(false);
+    setProfileAvatarDesktopCameraCapturedFile(null);
+    setProfileAvatarDesktopCameraCapturedPreview(null);
+    const isMobileDevice =
+      isMobileView ||
+      (typeof navigator !== "undefined" &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+    if (isMobileDevice) {
+      profileAvatarCameraInputRef.current?.click();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setProfileAvatarNotice("A câmera do navegador não está disponível. Abrindo seletor do sistema.");
+      profileAvatarCameraInputRef.current?.click();
+      return;
+    }
+    try {
+      const previousStream = profileAvatarDesktopCameraStreamRef.current;
+      if (previousStream) {
+        previousStream.getTracks().forEach((track) => track.stop());
+        profileAvatarDesktopCameraStreamRef.current = null;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false,
+      });
+      profileAvatarDesktopCameraStreamRef.current = stream;
+      const video = profileAvatarDesktopCameraVideoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        void video.play().catch(() => {
+          // Ignore autoplay restrictions; user can interact to retry.
+        });
+      }
+      setIsProfileAvatarDesktopCameraOpen(true);
+    } catch {
+      setProfileAvatarNotice("Não foi possível acessar a câmera. Use Galeria para continuar.");
+    }
+  }, [isMobileView, profileTarget]);
+
+  const handleCaptureProfileAvatarFromDesktopCamera = useCallback(async () => {
+    const video = profileAvatarDesktopCameraVideoRef.current;
+    if (!video) return;
+    const sourceWidth = video.videoWidth || 0;
+    const sourceHeight = video.videoHeight || 0;
+    if (!sourceWidth || !sourceHeight) {
+      setProfileAvatarNotice("A câmera ainda não está pronta. Tente novamente.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setProfileAvatarNotice("Não foi possível capturar a imagem da câmera.");
+      return;
+    }
+    context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.92);
+    });
+    if (!blob) {
+      setProfileAvatarNotice("Não foi possível gerar a foto da câmera.");
+      return;
+    }
+    const capturedFile = new File([blob], `avatar-camera-${Date.now()}.jpg`, { type: "image/jpeg" });
+    const previewData = canvas.toDataURL("image/jpeg", 0.92);
+    setProfileAvatarDesktopCameraCapturedFile(capturedFile);
+    setProfileAvatarDesktopCameraCapturedPreview(previewData);
+    const stream = profileAvatarDesktopCameraStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      profileAvatarDesktopCameraStreamRef.current = null;
+    }
+    if (profileAvatarDesktopCameraVideoRef.current) {
+      profileAvatarDesktopCameraVideoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const handleApplyProfileAvatarFromDesktopCamera = useCallback(async () => {
+    if (!profileAvatarDesktopCameraCapturedFile) return;
+    const uploaded = await uploadProfileAvatarFile(profileAvatarDesktopCameraCapturedFile);
+    if (!uploaded) return;
+    setIsProfileAvatarDesktopCameraOpen(false);
+  }, [profileAvatarDesktopCameraCapturedFile, uploadProfileAvatarFile]);
 
   const handleCreateGroup = async () => {
     if (!identity?.email) return;
@@ -4037,7 +4553,59 @@ export default function KnexChatPage() {
     reader.readAsDataURL(file);
     event.target.value = "";
   };
-
+  const stopComposerCameraStream = useCallback(() => {
+    const stream = composerCameraStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      composerCameraStreamRef.current = null;
+    }
+    const video = composerCameraVideoRef.current;
+    if (video) {
+      video.srcObject = null;
+    }
+  }, []);
+  const closeComposerCamera = useCallback(() => {
+    setIsComposerCameraOpen(false);
+    setComposerCameraError(null);
+    setIsComposerCameraBusy(false);
+    setComposerCameraCapturedFile(null);
+    setComposerCameraCapturedPreview(null);
+    stopComposerCameraStream();
+  }, [stopComposerCameraStream]);
+  const openComposerCamera = useCallback(() => {
+    setIsComposerAttachmentMenuOpen(false);
+    if (isMobileView) {
+      messageCameraInputRef.current?.click();
+      return;
+    }
+    setComposerCameraError(null);
+    setIsComposerCameraBusy(false);
+    setComposerCameraCapturedFile(null);
+    setComposerCameraCapturedPreview(null);
+    setIsComposerCameraOpen(true);
+  }, [isMobileView]);
+  const handleComposerAttachmentMenuAction = useCallback(
+    (action: "document" | "gallery" | "camera" | "audio" | "contact" | "poll" | "event" | "sticker") => {
+      setIsComposerAttachmentMenuOpen(false);
+      if (action === "document" || action === "gallery") {
+        messageImageInputRef.current?.click();
+        return;
+      }
+      if (action === "camera") {
+        openComposerCamera();
+        return;
+      }
+      const labels: Record<string, string> = {
+        audio: "Áudio",
+        contact: "Contato",
+        poll: "Enquete",
+        event: "Evento",
+        sticker: "Nova figurinha",
+      };
+      setMessageSendNotice(`${labels[action]} ficará disponível em breve.`);
+    },
+    [openComposerCamera],
+  );
   useEffect(() => {
     setHeaderInfoStep(0);
     if (headerInfoItems.length <= 1) return;
@@ -4070,6 +4638,76 @@ export default function KnexChatPage() {
       window.removeEventListener("keydown", handleKey);
     };
   }, [isThreadMenuOpen]);
+  useEffect(() => {
+    if (!isComposerAttachmentMenuOpen || isMobileView) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (composerAttachmentMenuRef.current?.contains(target)) return;
+      if (composerAttachmentButtonRef.current?.contains(target)) return;
+      setIsComposerAttachmentMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsComposerAttachmentMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [isComposerAttachmentMenuOpen, isMobileView]);
+  useEffect(() => {
+    if (!isComposerCameraOpen || isMobileView || composerCameraCapturedPreview) return;
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setComposerCameraError("A câmera não está disponível neste navegador.");
+      return;
+    }
+    let cancelled = false;
+    setComposerCameraError(null);
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        composerCameraStreamRef.current = stream;
+        const video = composerCameraVideoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play().catch(() => undefined);
+        }
+      } catch {
+        if (!cancelled) {
+          setComposerCameraError("Não foi possível acessar a câmera.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      stopComposerCameraStream();
+    };
+  }, [composerCameraCapturedPreview, isComposerCameraOpen, isMobileView, stopComposerCameraStream]);
+  useEffect(() => {
+    if (!isComposerCameraOpen) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeComposerCamera();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [closeComposerCamera, isComposerCameraOpen]);
+  useEffect(() => {
+    if (!isComposerCameraOpen) return;
+    setIsComposerAttachmentMenuOpen(false);
+  }, [isComposerCameraOpen]);
 
   useEffect(() => {
     return () => {
@@ -4082,8 +4720,9 @@ export default function KnexChatPage() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      stopComposerCameraStream();
     };
-  }, []);
+  }, [stopComposerCameraStream]);
 
   const activeMessages = useMemo(() => {
     if (!activeThread) return [];
@@ -4097,6 +4736,19 @@ export default function KnexChatPage() {
       { id: "m2", author: "me", body: "Oi! Vamos conversar por aqui.", time: "Agora" },
     ];
   }, [activeThread, messagesByThread]);
+  useEffect(() => {
+    if (!activeThreadId) return;
+    const frameId = window.requestAnimationFrame(() => {
+      scrollMessageListToBottom();
+    });
+    const timeoutId = window.setTimeout(() => {
+      scrollMessageListToBottom();
+    }, 120);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeMessages.length, activeThreadId, scrollMessageListToBottom]);
   const conversationMediaItems = useMemo<ConversationMediaViewerItem[]>(() => {
     return activeMessages
       .filter((message) => Boolean(message.imageUrl))
@@ -4687,14 +5339,11 @@ export default function KnexChatPage() {
     const metadata = authSession.user.user_metadata as {
       name?: string;
       full_name?: string;
-      avatar_url?: string;
-      picture?: string;
-      avatar?: string;
     } | null;
     const normalizedName = normalizeName(
       activationProfileIdentity?.displayName ?? metadata?.name ?? metadata?.full_name ?? "",
     );
-    const normalizedAvatar = normalizeAvatarUrl(metadata?.avatar_url ?? metadata?.picture ?? metadata?.avatar ?? null);
+    const normalizedAvatar = normalizeAvatarUrl(selfAvatarUrl ?? null);
 
     void (async () => {
       try {
@@ -4712,7 +5361,7 @@ export default function KnexChatPage() {
         // Ignore directory registration errors.
       }
     })();
-  }, [activationProfileIdentity?.displayName, authFetch, authSession, isAuthReady, isKnexchatActivated]);
+  }, [activationProfileIdentity?.displayName, authFetch, authSession, isAuthReady, isKnexchatActivated, selfAvatarUrl]);
 
   useEffect(() => {
     if (!chatStateKey) {
@@ -4842,11 +5491,39 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (!isChatStateHydrated) return;
     if (!identity?.userId) return;
-    if (selfAvatarUrl) return;
-    const seed = consumeKnexchatProfileSeed(identity.userId);
-    if (!seed?.avatarUrl) return;
-    setSelfAvatarUrl(seed.avatarUrl);
-  }, [identity?.userId, isChatStateHydrated, selfAvatarUrl]);
+    if (!identity?.email) return;
+
+    const applySeed = (seed: { avatarUrl?: string; createdAt?: string; displayName?: string } | null | undefined) => {
+      if (!seed?.avatarUrl) return;
+      const normalizedAvatar = normalizeAvatarUrl(seed.avatarUrl);
+      if (!normalizedAvatar || normalizedAvatar === selfAvatarUrlRef.current) return;
+      applyRealtimeProfileSync({
+        email: identity.email,
+        ...(identity.name ? { name: identity.name } : {}),
+        avatarUrl: normalizedAvatar,
+        ...(seed.createdAt ? { createdAt: seed.createdAt } : {}),
+      });
+    };
+
+    applySeed(consumeKnexchatProfileSeed(identity.userId));
+    const profileSeedStorageKey = getKnexchatProfileSeedKey(identity.userId);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== profileSeedStorageKey || !event.newValue) return;
+      const seed = safeParseJson<{ avatarUrl?: string; createdAt?: string; displayName?: string }>(event.newValue);
+      applySeed(seed);
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [applyRealtimeProfileSync, identity?.email, identity?.name, identity?.userId, isChatStateHydrated]);
+
+  useEffect(() => {
+    if (!identity?.email) return;
+    const selfEmail = normalizeEmail(identity.email);
+    const selfEntry = directoryEntries.find((entry) => normalizeEmail(entry.email) === selfEmail);
+    const normalizedAvatar = normalizeAvatarUrl(selfEntry?.avatarUrl ?? null);
+    if (!normalizedAvatar || normalizedAvatar === selfAvatarUrl) return;
+    setSelfAvatarUrl(normalizedAvatar);
+  }, [directoryEntries, identity?.email, selfAvatarUrl]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -5040,6 +5717,26 @@ export default function KnexChatPage() {
       }
     };
 
+    const handleProfile = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          entry?: {
+            email?: string;
+            name?: string | null;
+            avatar_url?: string | null;
+            avatarUrl?: string | null;
+            created_at?: string | null;
+            createdAt?: string | null;
+          };
+        };
+        const entry = payload?.entry;
+        if (!entry) return;
+        applyRealtimeProfileSync(entry);
+      } catch {
+        // ignore profile payload errors
+      }
+    };
+
     const handleError = () => {
       setIsRealtimeConnected(false);
       if (reconnectTimer !== null) return;
@@ -5062,6 +5759,7 @@ export default function KnexChatPage() {
       source = new EventSource(url);
       source.addEventListener("ready", handleReady as EventListener);
       source.addEventListener("message", handleMessage as EventListener);
+      source.addEventListener("profile", handleProfile as EventListener);
       source.addEventListener("error", handleError as EventListener);
     };
 
@@ -5076,10 +5774,12 @@ export default function KnexChatPage() {
       if (!source) return;
       source.removeEventListener("ready", handleReady as EventListener);
       source.removeEventListener("message", handleMessage as EventListener);
+      source.removeEventListener("profile", handleProfile as EventListener);
       source.removeEventListener("error", handleError as EventListener);
       source.close();
     };
   }, [
+    applyRealtimeProfileSync,
     entitlementBlocked,
     fetchThreadsFromServer,
     authSession?.access_token,
@@ -5412,6 +6112,7 @@ export default function KnexChatPage() {
     const messageKind: "image" | "file" = isVisualMedia ? "image" : "file";
     const previewLabel = isVisualMedia ? (isVideo ? "Vídeo enviado" : "Imagem enviada") : "Arquivo enviado";
     const mediaName = file.name?.trim() || (isVisualMedia ? (isVideo ? "Vídeo enviado" : "Imagem enviada") : "Arquivo enviado");
+    let persistedVisualMediaUrl: string | null = null;
     let mediaUrl = "";
     try {
       mediaUrl = await readFileAsDataUrl(file);
@@ -5439,6 +6140,7 @@ export default function KnexChatPage() {
         const payload = (await res.json().catch(() => ({}))) as { message?: ApiMessage };
         if (!payload.message) throw new Error("missing_message");
         const mapped = mapApiMessageToMessage(payload.message);
+        persistedVisualMediaUrl = mapped.imageUrl ?? null;
         setMessagesByThread((prev) => ({
           ...prev,
           [threadId]: [...(prev[threadId] ?? []), mapped],
@@ -5487,7 +6189,7 @@ export default function KnexChatPage() {
         threadId,
         label: mediaName,
         caption: `Enviado por ${currentUser?.name ?? "Você"}`,
-        src: mediaUrl,
+        src: persistedVisualMediaUrl ?? mediaUrl,
         sizeKb: file.size ? Math.max(1, Math.round(file.size / 1024)) : undefined,
         isFavorite: false,
         mediaType: isVideo ? "video" : "image",
@@ -5778,6 +6480,55 @@ export default function KnexChatPage() {
     },
     [extractAttachmentFromTransfer, handleSendAttachment, hasClipboardMediaPayload],
   );
+  const handleCaptureComposerCamera = useCallback(async () => {
+    const video = composerCameraVideoRef.current;
+    if (!video || video.readyState < 2) {
+      setComposerCameraError("A câmera ainda não está pronta.");
+      return;
+    }
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setComposerCameraError("Não foi possível capturar a foto.");
+      return;
+    }
+    context.drawImage(video, 0, 0, width, height);
+    setIsComposerCameraBusy(true);
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.92);
+    });
+    if (!blob) {
+      setIsComposerCameraBusy(false);
+      setComposerCameraError("Não foi possível capturar a foto.");
+      return;
+    }
+    const file = new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" });
+    const previewData = canvas.toDataURL("image/jpeg", 0.92);
+    setComposerCameraCapturedFile(file);
+    setComposerCameraCapturedPreview(previewData);
+    setIsComposerCameraBusy(false);
+    stopComposerCameraStream();
+  }, [stopComposerCameraStream]);
+  const handleRetakeComposerCameraCapture = useCallback(() => {
+    if (isComposerCameraBusy) return;
+    setComposerCameraError(null);
+    setComposerCameraCapturedFile(null);
+    setComposerCameraCapturedPreview(null);
+  }, [isComposerCameraBusy]);
+  const handleApplyComposerCameraCapture = useCallback(async () => {
+    if (!composerCameraCapturedFile || isComposerCameraBusy) return;
+    setIsComposerCameraBusy(true);
+    try {
+      await handleSendAttachment(composerCameraCapturedFile);
+      closeComposerCamera();
+    } finally {
+      setIsComposerCameraBusy(false);
+    }
+  }, [closeComposerCamera, composerCameraCapturedFile, handleSendAttachment, isComposerCameraBusy]);
 
   const toggleMediaSelectMode = useCallback(() => {
     setIsMediaSelectMode((prev) => {
@@ -6317,20 +7068,19 @@ export default function KnexChatPage() {
           : "text-white/90 hover:bg-white/15 hover:text-white"
     }`;
   const mobileDockButtonClass = (active: boolean) =>
-    `flex h-10 w-full items-center justify-center rounded-xl transition max-[420px]:h-9 max-[360px]:h-8 ${
+    `flex h-11 w-full items-center justify-center rounded-xl transition max-[420px]:h-10 max-[360px]:h-9 ${
       active
         ? isDarkTheme
-          ? "bg-white/20 text-white shadow-[0_8px_18px_rgba(15,23,42,0.35)]"
+          ? "bg-white/24 text-white shadow-[0_8px_18px_rgba(15,23,42,0.35)] [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
           : "bg-white text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.15)]"
-        : "text-white hover:bg-white/20 hover:text-white"
+        : "text-white hover:bg-white/18 hover:text-white [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
     }`;
+  const mobileDockIconClass = "h-[1.5rem] w-[1.5rem]";
   const mobileDockAvatarButtonClass = (active: boolean) =>
-    `relative flex h-10 w-full items-center justify-center overflow-hidden rounded-xl border-[1.25px] transition max-[420px]:h-9 max-[360px]:h-8 ${
+    `relative flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border-[1.25px] transition max-[420px]:h-10 max-[360px]:h-9 ${
       active
         ? "border-white bg-white shadow-[0_8px_18px_rgba(15,23,42,0.15)]"
-        : isDarkTheme
-          ? "border-white/60 bg-transparent hover:border-white/85 hover:bg-white/10"
-          : "border-slate-200/80 bg-transparent hover:border-slate-300"
+        : "border-white/70 bg-transparent hover:border-white hover:bg-white/14"
     }`;
   const avatarFrameLg = "rounded-[26px]";
   const avatarFrameMd = "rounded-[8.5px]";
@@ -6778,17 +7528,25 @@ export default function KnexChatPage() {
   const settingsField =
     isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100" : "border-slate-200 bg-white text-slate-900";
   const settingsHover = isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100";
+  const settingsCrispClass = "subpixel-antialiased [text-rendering:geometricPrecision]";
+  const settingsCrispContrastClass = isDarkTheme
+    ? "[&_.text-slate-400]:text-slate-300 [&_.text-slate-500]:text-slate-300 [&_.text-slate-100]:text-white"
+    : "";
+  const settingsCrispTextStyle: CSSProperties | undefined = isDarkTheme
+    ? { textShadow: "0 0 0.45px rgba(8,33,78,0.82)" }
+    : undefined;
   const shellBrandSurface = isDarkTheme ? "bg-[var(--knex-850)]/85" : "bg-[var(--kx-header)]";
   const navRailBase = shellBrandSurface;
   const navRailDivider = isDarkTheme ? "bg-[#2a2a2a]" : "bg-white/20";
   const shellSurface = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[var(--kx-bg)] lg:bg-[var(--kx-header)]";
   const mobileDockSurface = isDarkTheme ? "bg-[var(--knex-850)]" : "bg-[var(--kx-header)]";
+  const whiteHeaderTextStyle: CSSProperties = { textShadow: "0 0 0.6px rgba(8,33,78,0.92)" };
   const shellHeaderSurface = isDarkTheme
-    ? `border-b border-[#2a2a2a] ${shellBrandSurface} text-white`
+    ? `border-b border-[#2a2a2a] md:border-b-0 ${shellBrandSurface} text-white`
     : `${shellBrandSurface} text-white`;
   const headerLineLeft = isSettingsOpen ? "calc(3.5rem + 340px)" : "calc(3.5rem + 24rem)";
   const messagePanelBg = isDarkTheme ? "bg-[#141414]" : "bg-slate-50";
-  const useDetachedMobileMic = isMobileView && isDarkTheme;
+  const useDetachedMobileMic = isMobileView;
   const hasComposerText = messageDraft.trim().length > 0;
   const hasPreviousConversationMedia = conversationMediaViewerIndex > 0;
   const hasNextConversationMedia = conversationMediaViewerIndex < conversationMediaItems.length - 1;
@@ -6816,6 +7574,12 @@ export default function KnexChatPage() {
   const mediaContextMenuDivider = isDarkTheme ? "bg-white/10" : "bg-slate-300/80";
   const mediaContextMenuOption = isDarkTheme ? "hover:bg-white/5" : "hover:bg-black/5";
   const mediaContextMenuReaction = isDarkTheme ? "hover:bg-white/10" : "hover:bg-black/5";
+  const profileFieldRowClass =
+    "flex w-full items-center gap-2 px-0 py-0.5 max-[640px]:gap-1.5 max-[420px]:gap-1 [@media(max-height:820px)]:gap-1.5 [@media(max-height:820px)]:py-0.5 [@media(max-height:700px)]:gap-1 [@media(max-height:700px)]:py-0";
+  const profileFieldLabelClass = `block text-[10px] uppercase tracking-[0.14em] ${settingsMuted} max-[640px]:text-[9px] [@media(max-height:760px)]:text-[9px] [@media(max-height:680px)]:text-[8px]`;
+  const profileFieldValueClass =
+    "block truncate text-[13px] leading-tight max-[640px]:text-[12px] max-[420px]:text-[11px] [@media(max-height:760px)]:text-[12px] [@media(max-height:680px)]:text-[11px]";
+  const profileFieldIconClass = `h-3.5 w-3.5 shrink-0 ${settingsMuted} max-[420px]:h-3 max-[420px]:w-3 [@media(max-height:760px)]:h-3 [@media(max-height:760px)]:w-3`;
   const messagePanelBodyStyle = wallpaperColor ? { backgroundColor: wallpaperColor } : undefined;
   const mobileProfileSheetItems: {
     id: string;
@@ -7035,18 +7799,21 @@ export default function KnexChatPage() {
       <KnexChatMotionStyles />
       <div className="relative z-10 flex h-full flex-col">
         <header
-          className={`relative flex min-h-[3.25rem] flex-nowrap items-center justify-start px-2 py-1.5 lg:min-h-[3rem] lg:flex-wrap lg:justify-between lg:gap-3 lg:px-4 lg:py-1.5 lg:border-b-0 ${shellHeaderSurface}`}
+          className={`relative flex min-h-[3.25rem] flex-nowrap items-center justify-start px-2 py-1.5 lg:min-h-[3rem] lg:flex-wrap lg:justify-between lg:gap-3 lg:px-4 lg:py-1.5 ${shellHeaderSurface}`}
           style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.375rem)" }}
         >
           {showMobileConversationShellHeader ? (
-            <div className="relative flex w-full items-center gap-2 md:hidden">
+            <div className="relative flex w-full items-center gap-0.5 md:hidden">
               <button
                 type="button"
                 onClick={handleMobileBack}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/15"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/15"
                 aria-label="Voltar"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft
+                  className="h-3.5 w-3.5 [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
+                  strokeWidth={2.45}
+                />
               </button>
               <button
                 type="button"
@@ -7068,10 +7835,13 @@ export default function KnexChatPage() {
                   )
                 ) : null}
                 <div className="min-w-0 flex-1">
-                  <p className={`${spaceGrotesk.className} truncate text-base font-semibold text-white`}>
+                  <p
+                    className={`${spaceGrotesk.className} truncate text-base font-semibold text-white`}
+                    style={whiteHeaderTextStyle}
+                  >
                     {activeThread?.title ?? "Conversa"}
                   </p>
-                  <p className="min-h-[1rem] truncate text-[11px] leading-4 text-white">
+                  <p className="min-h-[1rem] truncate text-[11px] leading-4 text-white" style={whiteHeaderTextStyle}>
                     {headerInfoItems[headerInfoStep] ?? ""}
                   </p>
                 </div>
@@ -7082,14 +7852,20 @@ export default function KnexChatPage() {
                   aria-label="Iniciar videochamada"
                   className="rounded-full p-2 text-white transition hover:bg-white/15 hover:text-white"
                 >
-                  <Video className="h-5 w-5" />
+                  <Video
+                    className="h-5 w-5 [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
+                    strokeWidth={2.45}
+                  />
                 </button>
                 <button
                   type="button"
                   aria-label="Iniciar chamada"
                   className="rounded-full p-2 text-white transition hover:bg-white/15 hover:text-white"
                 >
-                  <Phone className="h-5 w-5" />
+                  <Phone
+                    className="h-5 w-5 [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
+                    strokeWidth={2.45}
+                  />
                 </button>
                 <button
                   type="button"
@@ -7101,7 +7877,10 @@ export default function KnexChatPage() {
                   }}
                   className="rounded-full p-2 text-white transition hover:bg-white/15 hover:text-white"
                 >
-                  <MoreVertical className="h-5 w-5" />
+                  <MoreVertical
+                    className="h-5 w-5 [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
+                    strokeWidth={2.45}
+                  />
                 </button>
               </div>
               {isThreadMenuOpen && threadMenuSections.length ? (
@@ -7159,7 +7938,7 @@ export default function KnexChatPage() {
               <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-3 lg:left-4">
                 <div>
                   <p className={`${spaceGrotesk.className} text-lg font-semibold leading-none lg:text-xl`}>
-                    <span className="text-white">KnexChat</span>
+                    <span className="text-white" style={whiteHeaderTextStyle}>KnexChat</span>
                   </p>
                 </div>
               </div>
@@ -7167,7 +7946,10 @@ export default function KnexChatPage() {
                 className="absolute right-1 top-1/2 -translate-y-1/2 text-white lg:hidden"
                 aria-hidden="true"
               >
-                <MoreVertical className="h-5 w-5" />
+                <MoreVertical
+                  className="h-5 w-5 [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
+                  strokeWidth={2.45}
+                />
               </span>
             </>
           )}
@@ -7176,9 +7958,9 @@ export default function KnexChatPage() {
         <div
           className={`relative flex min-h-0 flex-1 flex-col ${
             showMobileFooterDock
-              ? "pb-[calc(env(safe-area-inset-bottom)+5rem)]"
+              ? "pb-[3.5rem]"
               : "pb-[env(safe-area-inset-bottom)]"
-          } lg:flex-row lg:pb-0 ${shellSurface}`}
+          } ${isDarkTheme ? "" : "md:-mt-px"} lg:flex-row lg:pb-0 ${shellSurface}`}
         >
         <nav
           className={`hidden w-14 flex-col items-center gap-4 ${navRailBase} py-5 lg:flex`}
@@ -7448,8 +8230,8 @@ export default function KnexChatPage() {
           isSettingsOpen ? (
           <>
             <aside
-              style={chatListWidthStyle}
-              className={`relative flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${settingsPanelBase} md:w-[var(--chat-list-width)] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
+              style={{ ...(chatListWidthStyle ?? {}), ...(settingsCrispTextStyle ?? {}) }}
+              className={`relative flex h-full min-h-0 w-full flex-col border-b ${settingsBorder} ${settingsPanelBase} ${settingsCrispClass} ${settingsCrispContrastClass} md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
             >
               {activeSettingKey === "general" ? (
                 <div className="flex h-full min-h-0 flex-col">
@@ -7874,9 +8656,10 @@ export default function KnexChatPage() {
               </div>
             </aside>
             <section
-              className={`flex min-h-0 flex-1 border-t ${settingsBorder} md:border-t-0 ${
+              className={`flex min-h-0 flex-1 md:border-t overflow-hidden ${settingsBorder} ${settingsCrispClass} ${settingsCrispContrastClass} ${
                 isDarkTheme ? "bg-[#141414]" : "bg-slate-50"
               }`}
+              style={settingsCrispTextStyle}
             >
               {activeSettingKey === "chats" && isWallpaperModalOpen ? (
                 <div className="flex h-full w-full flex-col p-6">
@@ -7972,9 +8755,9 @@ export default function KnexChatPage() {
         {isProfileOpen ? (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex h-full min-h-0 w-full flex-col border-t ${settingsBorder} ${
+            className={`relative flex h-full min-h-0 w-full flex-col ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } md:w-[var(--chat-list-width)] md:border-b-0 ${isDarkTheme ? "md:border-t" : "md:border-t-0"} md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
           >
             <div className="flex items-center justify-between px-4 py-3">
               <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Perfil</span>
@@ -7989,23 +8772,25 @@ export default function KnexChatPage() {
                 <ChevronLeft className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex flex-col items-center gap-3 px-4 py-6">
-              <div className="flex items-center gap-3">
-                {canEditProfile ? (
-                  <label
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="flex flex-col items-center gap-3 px-4 py-6 max-[420px]:gap-2.5 max-[420px]:py-4 [@media(max-height:760px)]:py-4 [@media(max-height:700px)]:py-3">
+                <div className="flex w-full items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileAvatarPreviewOpen(true)}
                     className="group relative cursor-pointer"
-                    aria-label={profileAvatarCta ?? "Adicionar foto de perfil"}
-                    title={profileAvatarCta ?? undefined}
+                    aria-label="Ver foto do perfil"
+                    title="Ver foto do perfil"
                   >
                     {profileData?.avatarUrl ? (
                       <img
                         src={profileData.avatarUrl}
                         alt={`Avatar de ${profileData.title}`}
-                        className={`h-32 w-32 ${avatarFrameLg} object-cover`}
+                        className={`h-32 w-32 ${avatarFrameLg} object-cover max-[640px]:h-28 max-[640px]:w-28 [@media(max-height:760px)]:h-24 [@media(max-height:760px)]:w-24`}
                       />
                     ) : (
                       <div
-                        className={`grid h-32 w-32 place-items-center ${avatarFrameLg} text-lg font-semibold ${
+                        className={`grid h-32 w-32 place-items-center ${avatarFrameLg} text-lg font-semibold max-[640px]:h-28 max-[640px]:w-28 max-[640px]:text-base [@media(max-height:760px)]:h-24 [@media(max-height:760px)]:w-24 [@media(max-height:760px)]:text-sm ${
                           isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
                         }`}
                       >
@@ -8013,113 +8798,96 @@ export default function KnexChatPage() {
                       </div>
                     )}
                     <span
-                      className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${avatarFrameLg} bg-black/55 px-3 text-center text-[11px] font-semibold text-white opacity-0 transition group-hover:opacity-100 ${
+                      className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 ${avatarFrameLg} bg-black/55 px-3 text-center text-[11px] font-semibold text-white opacity-0 transition group-hover:opacity-100 ${
                         isDarkTheme ? "bg-black/60" : "bg-slate-900/65"
                       }`}
                     >
                       <ImageIcon className="h-5 w-5" />
-                      <span>{profileAvatarCta}</span>
+                      <span>Ver foto do perfil</span>
                     </span>
-                    <input type="file" accept="image/*" className="sr-only" onChange={handleProfileAvatarChange} />
-                  </label>
-                ) : (
-                  <div className="relative">
-                    {profileData?.avatarUrl ? (
-                      <img
-                        src={profileData.avatarUrl}
-                        alt={`Avatar de ${profileData.title}`}
-                        className={`h-32 w-32 ${avatarFrameLg} object-cover`}
-                      />
-                    ) : (
-                      <div
-                        className={`grid h-32 w-32 place-items-center ${avatarFrameLg} text-lg font-semibold ${
-                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        {profileData?.avatarText ?? "KN"}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setIsProfileAvatarPreviewOpen(true)}
-                  className={`flex h-11 w-11 items-center justify-center rounded-full border transition ${
-                    isDarkTheme
-                      ? "border-white/10 text-slate-200 hover:bg-white/10"
-                      : "border-slate-200 text-slate-600 hover:bg-slate-100"
-                  }`}
-                  aria-label="Ampliar foto de perfil"
-                  title="Ampliar foto de perfil"
-                >
-                  <ZoomIn className="h-5 w-5" />
-                </button>
-              </div>
-              <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                {profileData?.title ?? "Perfil"}
-              </p>
-            </div>
-            <div className="space-y-5 px-4 pb-6 text-sm">
-              <div className="space-y-1">
-                <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Nome</p>
-                {canEditProfile ? (
-                  <input
-                    type="text"
-                    value={profileNameDraft}
-                    onChange={(event) => setProfileNameDraft(event.target.value)}
-                    onBlur={commitProfileName}
-                    placeholder="Seu nome"
-                    className={`w-full rounded-xl border px-3 py-2 text-sm ${settingsField}`}
-                  />
-                ) : (
-                  <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                    {profileData?.title ?? "Perfil"}
+                  </button>
+                </div>
+                <p className={`text-base font-semibold max-[640px]:text-sm [@media(max-height:760px)]:text-sm ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                  {profileData?.title ?? "Perfil"}
+                </p>
+                {canEditProfile && profileAvatarNotice ? (
+                  <p
+                    className={`text-xs ${
+                      profileAvatarNotice.toLowerCase().includes("atualizada")
+                        ? isDarkTheme
+                          ? "text-emerald-300"
+                          : "text-emerald-700"
+                        : isDarkTheme
+                          ? "text-rose-300"
+                          : "text-rose-600"
+                    }`}
+                  >
+                    {profileAvatarNotice}
                   </p>
-                )}
+                ) : null}
               </div>
+              <div className="space-y-1 px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] text-sm max-[420px]:space-y-0.5 [@media(max-height:760px)]:space-y-0.5 [@media(max-height:700px)]:space-y-0">
+              <button
+                type="button"
+                disabled={!canEditProfile}
+                onClick={canEditProfile ? handleInlineProfileNameEdit : undefined}
+                className={`${profileFieldRowClass} text-left ${isDarkTheme ? "text-slate-100" : "text-slate-900"} disabled:cursor-default`}
+              >
+                <Pencil className={profileFieldIconClass} />
+                <span className="min-w-0 flex-1">
+                  <span className={profileFieldLabelClass}>Nome</span>
+                  <span className={`${profileFieldValueClass} font-semibold`}>
+                    {canEditProfile ? profileNameDraft || profileData?.title || "Perfil" : profileData?.title ?? "Perfil"}
+                  </span>
+                </span>
+              </button>
               {canEditProfile ? (
-                <div className="space-y-1">
-                  <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>E-mail</p>
-                  <input
-                    type="email"
-                    value={currentUser?.email ?? ""}
-                    readOnly
-                    aria-readonly="true"
-                    className={`w-full cursor-not-allowed rounded-xl border px-3 py-2 text-sm opacity-70 ${settingsField}`}
-                  />
+                <div
+                  className={`${profileFieldRowClass} ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+                >
+                  <Mail className={profileFieldIconClass} />
+                  <span className="min-w-0 flex-1">
+                    <span className={profileFieldLabelClass}>E-mail</span>
+                    <span className={profileFieldValueClass}>{currentUser?.email ?? "Não informado"}</span>
+                  </span>
                 </div>
               ) : null}
-              <div className="space-y-1">
-                <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Recado</p>
-                {canEditProfile ? (
-                  <textarea
-                    value={profileRecadoDraft}
-                    onChange={(event) => setProfileRecadoDraft(event.target.value)}
-                    onBlur={commitProfileRecado}
-                    rows={3}
-                    placeholder="Escreva um recado"
-                    className={`w-full resize-none rounded-xl border px-3 py-2 text-sm ${settingsField}`}
-                  />
-                ) : (
-                  <p className={`${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
-                    {profileData?.recado ?? "Sem recado"}
-                  </p>
-                )}
+              <button
+                type="button"
+                disabled={!canEditProfile}
+                onClick={canEditProfile ? handleInlineProfileRecadoEdit : undefined}
+                className={`${profileFieldRowClass} text-left ${isDarkTheme ? "text-slate-100" : "text-slate-900"} disabled:cursor-default`}
+              >
+                <Pencil className={profileFieldIconClass} />
+                <span className="min-w-0 flex-1">
+                  <span className={profileFieldLabelClass}>Recado</span>
+                  <span className={`${profileFieldValueClass} ${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
+                    {canEditProfile
+                      ? profileRecadoDraft || profileData?.recado || "Sem recado"
+                      : profileData?.recado ?? "Sem recado"}
+                  </span>
+                </span>
+              </button>
+              <div
+                className={`${profileFieldRowClass} ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+              >
+                <Phone className={profileFieldIconClass} />
+                <span className="min-w-0 flex-1">
+                  <span className={profileFieldLabelClass}>Telefone</span>
+                  <span className={`${profileFieldValueClass} ${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
+                    {profileData?.phone ?? "Não informado"}
+                  </span>
+                </span>
               </div>
-              <div className="space-y-1">
-                <p className={`text-[11px] uppercase tracking-[0.2em] ${settingsMuted}`}>Telefone</p>
-                <p className={`${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>
-                  {profileData?.phone ?? "Não informado"}
-                </p>
               </div>
             </div>
           </aside>
         ) : (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex h-full min-h-0 w-full flex-col border-t ${settingsBorder} ${
+            className={`relative flex h-full min-h-0 w-full flex-col ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } md:w-[var(--chat-list-width)] md:border-b-0 ${isDarkTheme ? "md:border-t" : "md:border-t-0"} md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
           >
             {isGroupsPanelOpen ? (
               <div className={`flex flex-col gap-4 border-b px-4 py-4 ${settingsBorder}`}>
@@ -8281,7 +9049,7 @@ export default function KnexChatPage() {
                             key={filter.key}
                             type="button"
                             onClick={() => setActiveFilter(filter.key)}
-                            className={`shrink-0 rounded-full px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.24rem,1vw,0.34rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
+                            className={`shrink-0 rounded-full px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.23rem,1vw,0.33rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
                               isConversationFiltersCarousel ? "snap-start" : ""
                             } ${
                               isDarkTheme
@@ -8300,7 +9068,7 @@ export default function KnexChatPage() {
                       <button
                         type="button"
                         onClick={handleOpenCustomListPanel}
-                        className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.24rem,1vw,0.34rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
+                        className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.23rem,1vw,0.33rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
                           isConversationFiltersCarousel ? "snap-start" : ""
                         } ${
                           isDarkTheme
@@ -8746,20 +9514,21 @@ export default function KnexChatPage() {
                                   <div className="flex items-center gap-1">
                                     <button
                                       type="button"
-                                      onClick={() =>
+                                      onClick={() => {
                                         handleAcceptContactRequest(
                                           request.email,
                                           request.name,
                                           contactNameByEmail.get(normalizeEmail(request.email))?.avatarUrl ?? null,
-                                        )
-                                      }
+                                        );
+                                        setDirectoryTab("contacts");
+                                      }}
                                       className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
                                         isDarkTheme
-                                          ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
-                                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                          ? "bg-blue-500/30 text-blue-100 hover:bg-blue-500/40"
+                                          : "bg-blue-600 text-white hover:bg-blue-700"
                                       }`}
                                     >
-                                      Aceitar
+                                      Confirmar
                                     </button>
                                     <button
                                       type="button"
@@ -8770,18 +9539,7 @@ export default function KnexChatPage() {
                                           : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                                       }`}
                                     >
-                                      Recusar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRejectContactRequest(request.email, "blocked")}
-                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
-                                        isDarkTheme
-                                          ? "bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                          : "bg-rose-50 text-rose-700 hover:bg-rose-100"
-                                      }`}
-                                    >
-                                      Bloquear
+                                      Excluir
                                     </button>
                                   </div>
                                 ) : (
@@ -8840,7 +9598,7 @@ export default function KnexChatPage() {
                 </div>
               ) : isCustomListOpen ? (
                 <div
-                  className={`absolute inset-0 z-20 flex h-full flex-col ${
+                  className={`absolute inset-0 z-20 flex h-full min-h-0 flex-col overflow-hidden ${
                     isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"
                   } lg:rounded-tl-md`}
                 >
@@ -9081,7 +9839,7 @@ export default function KnexChatPage() {
                 </div>
               ) : isNewChatOpen ? (
                 <div
-                  className={`absolute inset-0 z-20 flex h-full flex-col ${
+                  className={`absolute inset-0 z-20 flex h-full min-h-0 flex-col overflow-hidden ${
                     isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"
                   } lg:rounded-tl-md`}
                 >
@@ -9747,7 +10505,7 @@ export default function KnexChatPage() {
                       </div>
                     </div>
                   ) : (
-                    <>
+                    <div className="flex min-h-0 flex-1 flex-col">
                       <div className="border-b px-4 py-3">
                         <div
                           className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
@@ -9770,107 +10528,109 @@ export default function KnexChatPage() {
                           />
                         </div>
                       </div>
-                      <div className="flex flex-col gap-3 border-b px-4 py-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsNewGroupOpen(true);
-                            setIsNewChatEmailOpen(false);
-                            setIsNewGroupCreateOpen(false);
-                            setSelectedGroupMemberIds([]);
-                          }}
-                          className="flex items-center gap-3 text-left"
-                        >
-                          <span className="flex h-11 w-11 items-center justify-center gap-[1px] rounded-2xl bg-blue-600 text-white">
-                            <Users2 className="h-5 w-5" />
-                            <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
-                          </span>
-                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                            Novo grupo
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsNewContactOpen(true);
-                            setNewContactError(null);
-                            setNewContactInviteNotice(null);
-                            setIsNewChatEmailOpen(false);
-                            setIsNewGroupOpen(false);
-                          }}
-                          className="flex items-center gap-3 text-left"
-                        >
-                          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
-                            <UserPlus className="h-5 w-5" />
-                          </span>
-                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                            Novo contato
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsCommunityListOpen(true);
-                            setIsNewChatEmailOpen(false);
-                            setIsNewGroupOpen(false);
-                            setIsNewContactOpen(false);
-                          }}
-                          className="flex items-center gap-3 text-left"
-                        >
-                          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
-                            <Shapes className="h-5 w-5" />
-                          </span>
-                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                            Nova comunidade
-                          </span>
-                        </button>
-                        <button type="button" className="flex items-center gap-3 text-left">
-                          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
-                            <MessageSquare className="h-5 w-5" />
-                          </span>
-                          <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-                            Novo Fórum
-                          </span>
-                        </button>
-                      </div>
-                      <div className="flex-1 overflow-y-auto px-4 py-4">
-                        <p className={`text-xs font-semibold ${settingsMuted}`}>Contatos no KnexChat</p>
-                        <div className="mt-3 space-y-3">
-                          {filteredNewChatContacts.map((contact) => (
-                            <button
-                              key={contact.id}
-                              type="button"
-                              onClick={() => openContactThread(contact.id)}
-                              className="flex w-full items-center gap-3 text-left"
-                            >
-                              {contact.avatarUrl ? (
-                                <img
-                                  src={contact.avatarUrl}
-                                  alt={`Avatar de ${contact.title}`}
-                                  className={`h-10 w-10 ${avatarFrameSm} object-cover`}
-                                />
-                              ) : (
-                                <div
-                                  className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
-                                    isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
-                                  }`}
-                                >
-                                  {getAvatarText(contact.title)}
+                      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
+                        <div className="flex flex-col gap-3 border-b px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsNewGroupOpen(true);
+                              setIsNewChatEmailOpen(false);
+                              setIsNewGroupCreateOpen(false);
+                              setSelectedGroupMemberIds([]);
+                            }}
+                            className="flex items-center gap-3 text-left"
+                          >
+                            <span className="flex h-11 w-11 items-center justify-center gap-[1px] rounded-2xl bg-blue-600 text-white">
+                              <Users2 className="h-5 w-5" />
+                              <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
+                            </span>
+                            <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                              Novo grupo
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsNewContactOpen(true);
+                              setNewContactError(null);
+                              setNewContactInviteNotice(null);
+                              setIsNewChatEmailOpen(false);
+                              setIsNewGroupOpen(false);
+                            }}
+                            className="flex items-center gap-3 text-left"
+                          >
+                            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                              <UserPlus className="h-5 w-5" />
+                            </span>
+                            <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                              Novo contato
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCommunityListOpen(true);
+                              setIsNewChatEmailOpen(false);
+                              setIsNewGroupOpen(false);
+                              setIsNewContactOpen(false);
+                            }}
+                            className="flex items-center gap-3 text-left"
+                          >
+                            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                              <Shapes className="h-5 w-5" />
+                            </span>
+                            <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                              Nova comunidade
+                            </span>
+                          </button>
+                          <button type="button" className="flex items-center gap-3 text-left">
+                            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white">
+                              <MessageSquare className="h-5 w-5" />
+                            </span>
+                            <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                              Novo Fórum
+                            </span>
+                          </button>
+                        </div>
+                        <div className="px-4 py-4">
+                          <p className={`text-xs font-semibold ${settingsMuted}`}>Contatos no KnexChat</p>
+                          <div className="mt-3 space-y-3">
+                            {filteredNewChatContacts.map((contact) => (
+                              <button
+                                key={contact.id}
+                                type="button"
+                                onClick={() => openContactThread(contact.id)}
+                                className="flex w-full items-center gap-3 text-left"
+                              >
+                                {contact.avatarUrl ? (
+                                  <img
+                                    src={contact.avatarUrl}
+                                    alt={`Avatar de ${contact.title}`}
+                                    className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                                  />
+                                ) : (
+                                  <div
+                                    className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {getAvatarText(contact.title)}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p
+                                    className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
+                                  >
+                                    {contact.title}
+                                  </p>
+                                  <p className={`truncate text-xs ${settingsMuted}`}>{contact.preview}</p>
                                 </div>
-                              )}
-                              <div className="min-w-0">
-                                <p
-                                  className={`truncate text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}
-                                >
-                                  {contact.title}
-                                </p>
-                                <p className={`truncate text-xs ${settingsMuted}`}>{contact.preview}</p>
-                              </div>
-                            </button>
-                          ))}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -9878,7 +10638,7 @@ export default function KnexChatPage() {
                   {isServerSyncing && !filteredActiveThreads.length ? (
                     <div className="space-y-3 px-0 py-1">
                       {Array.from({ length: 6 }).map((_, index) => (
-                        <Skeleton key={index} className="h-12 w-full" />
+                        <Skeleton key={index} className="h-10 w-full" />
                       ))}
                     </div>
                   ) : (
@@ -9897,7 +10657,7 @@ export default function KnexChatPage() {
                             openThreadById(thread.id);
                           }
                         }}
-                          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
+                          className={`flex w-full items-center justify-between rounded-lg border px-3 py-1 text-left transition ${
                             isDarkTheme ? "" : "font-['Arial']"
                           } ${
                             isActive
@@ -9914,11 +10674,11 @@ export default function KnexChatPage() {
                               <img
                                 src={threadAvatarUrl}
                                 alt={`Avatar de ${thread.title}`}
-                                className={`h-12 w-12 ${avatarFrameMd} object-cover`}
+                                className={`h-10 w-10 ${avatarFrameMd} object-cover`}
                               />
                             ) : (
                               <div
-                                className={`grid h-12 w-12 place-items-center ${avatarFrameMd} text-xs font-semibold ${
+                                className={`grid h-10 w-10 place-items-center ${avatarFrameMd} text-xs font-semibold ${
                                   isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
                                 }`}
                               >
@@ -9986,10 +10746,10 @@ export default function KnexChatPage() {
       )
       }
       detail={
-        <section className={`flex min-h-0 flex-1 flex-col overflow-hidden ${messagePanelBg}`}>
+        <section className={`flex min-h-0 flex-1 flex-col overflow-hidden ${settingsBorder} md:border-t ${messagePanelBg}`}>
           {isProfileOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className={`border-b ${isDarkTheme ? "border-t" : "border-t-0"} ${settingsBorder} px-6 py-4`}>
+              <div className={`border-b ${isDarkTheme ? "border-t" : "border-t-0"} md:border-t-0 ${settingsBorder} px-6 py-4`}>
                 <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Publicações</p>
                 <p className={`text-xs ${isDarkTheme ? "text-slate-400" : "text-slate-500"}`}>
                   Feed de {profileData?.title ?? "participante"}
@@ -10012,7 +10772,7 @@ export default function KnexChatPage() {
                 <div
                   className={`relative flex flex-nowrap items-center justify-between gap-3 border-b ${
                     isDarkTheme ? "border-t" : "border-t-0"
-                  } ${settingsBorder} ${
+                  } md:border-t-0 ${settingsBorder} ${
                     isDarkTheme ? "bg-[var(--knex-850)]/40 text-white" : "bg-slate-50"
                   } px-4 py-0`}
                 >
@@ -10169,7 +10929,7 @@ export default function KnexChatPage() {
                 style={messagePanelBodyStyle}
               >
                 <div className="flex h-full min-h-0 flex-col">
-                  <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-2">
+                  <div ref={messageListScrollRef} className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-2">
                     {pendingJoinToken ? (
                       <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -10249,15 +11009,17 @@ export default function KnexChatPage() {
                                         muted
                                         playsInline
                                         preload="metadata"
-                                        onLoadedMetadata={(event) =>
-                                          updateMessageVideoDuration(message.id, event.currentTarget.duration)
-                                        }
+                                        onLoadedMetadata={(event) => {
+                                          updateMessageVideoDuration(message.id, event.currentTarget.duration);
+                                          scrollMessageListToBottom();
+                                        }}
                                       />
                                     ) : (
                                       <img
                                         src={message.imageUrl}
                                         alt={message.imageName ?? "Imagem enviada"}
                                         className="knex-bubble__image"
+                                        onLoad={scrollMessageListToBottom}
                                       />
                                     )}
                                     {mediaType === "video" ? (
@@ -10440,20 +11202,124 @@ export default function KnexChatPage() {
                       <div
                         className={`flex min-w-[200px] flex-1 items-center border text-sm focus-within:border-blue-600 ${
                           useDetachedMobileMic
-                            ? "h-[40px] rounded-xl border-slate-600 bg-[#3a3a3a] text-white gap-3 pl-1.5 pr-2"
+                            ? isDarkTheme
+                              ? "h-[40px] rounded-xl border-slate-600 bg-[#3a3a3a] text-white gap-3 pl-1.5 pr-2"
+                              : "h-[40px] rounded-xl border-slate-300 bg-white text-slate-900 gap-3 pl-1.5 pr-2"
                             : "rounded-2xl border-slate-300 bg-white text-slate-900 gap-4 px-3 py-2"
                         }`}
                       >
-                        <button
-                          type="button"
-                          aria-label="Adicionar"
-                          onClick={() => messageImageInputRef.current?.click()}
-                          className={`text-3xl leading-none transition ${
-                            useDetachedMobileMic ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-900"
-                          }`}
-                        >
-                          +
-                        </button>
+                        <div className="relative shrink-0">
+                          <button
+                            ref={composerAttachmentButtonRef}
+                            type="button"
+                            aria-label="Adicionar"
+                            onClick={() => {
+                              if (isMobileView) {
+                                messageImageInputRef.current?.click();
+                                return;
+                              }
+                              setIsComposerAttachmentMenuOpen((prev) => !prev);
+                            }}
+                            className={`text-3xl leading-none transition ${
+                              useDetachedMobileMic
+                                ? isDarkTheme
+                                  ? "text-slate-200 hover:text-white"
+                                  : "text-slate-600 hover:text-slate-900"
+                                : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            +
+                          </button>
+                          {!isMobileView && isComposerAttachmentMenuOpen ? (
+                            <div
+                              ref={composerAttachmentMenuRef}
+                              className={`absolute bottom-full left-0 z-50 mb-2 w-[194px] overflow-hidden rounded-[18px] border py-1.5 shadow-xl ${
+                                isDarkTheme ? "border-[#2f2f2f] bg-[#1f1f1f] text-slate-100" : "border-slate-200 bg-[#ececec] text-slate-900"
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("document")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <FileText className="h-4 w-4 text-violet-500" />
+                                <span>Documento</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("gallery")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <ImageIcon className="h-4 w-4 text-blue-500" />
+                                <span>Fotos e vídeos</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("camera")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <Camera className="h-4 w-4 text-pink-500" />
+                                <span>Câmera</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("audio")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <Headphones className="h-4 w-4 text-orange-500" />
+                                <span>Áudio</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("contact")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <User className="h-4 w-4 text-sky-500" />
+                                <span>Contato</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("poll")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <BarChart3 className="h-4 w-4 text-amber-500" />
+                                <span>Enquete</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("event")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <CalendarDays className="h-4 w-4 text-pink-500" />
+                                <span>Evento</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleComposerAttachmentMenuAction("sticker")}
+                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition ${
+                                  isDarkTheme ? "hover:bg-white/10" : "hover:bg-white/70"
+                                }`}
+                              >
+                                <Smile className="h-4 w-4 text-emerald-500" />
+                                <span>Nova figurinha</span>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                         <input
                           ref={messageImageInputRef}
                           type="file"
@@ -10461,11 +11327,23 @@ export default function KnexChatPage() {
                           className="sr-only"
                           onChange={handleMessageAttachmentChange}
                         />
+                        <input
+                          ref={messageCameraInputRef}
+                          type="file"
+                          accept="image/*,video/*"
+                          capture="environment"
+                          className="sr-only"
+                          onChange={handleMessageAttachmentChange}
+                        />
                         <button
                           type="button"
                           aria-label="Emojis"
                           className={`transition ${
-                            useDetachedMobileMic ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                            useDetachedMobileMic
+                              ? isDarkTheme
+                                ? "text-slate-200 hover:text-white"
+                                : "text-slate-600 hover:text-slate-900"
+                              : "text-slate-600 hover:text-slate-900"
                           }`}
                         >
                           <Smile className="h-5 w-5" />
@@ -10492,9 +11370,47 @@ export default function KnexChatPage() {
                           enterKeyHint={settingsState.enterToSend ? "send" : "done"}
                           placeholder="Digite uma mensagem"
                           className={`w-full bg-transparent text-sm focus:outline-none ${
-                            useDetachedMobileMic ? "text-white placeholder:text-slate-300" : "text-slate-900 placeholder:text-slate-500"
+                            useDetachedMobileMic
+                              ? isDarkTheme
+                                ? "text-white placeholder:text-slate-300"
+                                : "text-slate-900 placeholder:text-slate-500"
+                              : "text-slate-900 placeholder:text-slate-500"
                           }`}
                         />
+                        {recordingState === "idle" ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              aria-label="Anexar arquivo"
+                              title="Anexar arquivo"
+                              onClick={() => messageImageInputRef.current?.click()}
+                              className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${
+                                useDetachedMobileMic
+                                  ? isDarkTheme
+                                    ? "text-slate-200 hover:bg-white/10 hover:text-white"
+                                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                              }`}
+                            >
+                              <Paperclip className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Abrir câmera"
+                              title="Abrir câmera"
+                              onClick={() => openComposerCamera()}
+                              className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${
+                                useDetachedMobileMic
+                                  ? isDarkTheme
+                                    ? "text-slate-200 hover:bg-white/10 hover:text-white"
+                                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                              }`}
+                            >
+                              <Camera className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : null}
                         {recordingState !== "idle" ? (
                           <div className="ml-auto flex items-center gap-2">
                             <button
@@ -10546,7 +11462,7 @@ export default function KnexChatPage() {
                             type="button"
                             aria-label="Gravar áudio"
                             onClick={startRecording}
-                            className="ml-auto text-blue-600 transition hover:text-blue-700"
+                            className="text-blue-600 transition hover:text-blue-700"
                           >
                             <Mic className="h-5 w-5" />
                           </button>
@@ -10596,6 +11512,79 @@ export default function KnexChatPage() {
                     </div>
                   </div>
                 </div>
+                {isComposerCameraOpen && !isMobileView ? (
+                  <div className="absolute inset-0 z-[118] flex flex-col bg-[#dedfe3]">
+                    <header className="flex items-center gap-2 px-4 py-3 text-slate-900">
+                      <button
+                        type="button"
+                        onClick={closeComposerCamera}
+                        className="flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-black/5"
+                        aria-label="Fechar câmera"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                      <p className="text-base font-medium">Tirar foto</p>
+                    </header>
+                    <div className="flex min-h-0 flex-1 items-center justify-center px-6 pb-[5.5rem]">
+                      <div className="h-full max-h-[78vh] w-full max-w-[1080px] overflow-hidden bg-black">
+                        {composerCameraError ? (
+                          <div className="grid h-full place-items-center px-6 text-center text-sm text-white">
+                            <p>{composerCameraError}</p>
+                          </div>
+                        ) : composerCameraCapturedPreview ? (
+                          <img
+                            src={composerCameraCapturedPreview}
+                            alt="Pré-visualização da foto capturada"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <video
+                            ref={composerCameraVideoRef}
+                            className="h-full w-full object-cover"
+                            autoPlay
+                            muted
+                            playsInline
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="absolute inset-x-0 bottom-0 flex h-[5.25rem] items-center justify-center bg-[#cfd2d7] px-4">
+                      {composerCameraCapturedPreview ? (
+                        <div className="flex w-full max-w-[1080px] items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={handleRetakeComposerCameraCapture}
+                            disabled={isComposerCameraBusy}
+                            className="inline-flex min-h-[40px] items-center gap-2 rounded-full px-3 text-sm font-semibold text-slate-700 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Camera className="h-4 w-4" />
+                            Tirar outra
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Usar foto"
+                            onClick={() => void handleApplyComposerCameraCapture()}
+                            disabled={isComposerCameraBusy}
+                            className="inline-flex min-h-[40px] items-center gap-2 rounded-full bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Check className="h-4 w-4" />
+                            Usar foto
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          aria-label="Capturar foto"
+                          onClick={() => void handleCaptureComposerCamera()}
+                          disabled={Boolean(composerCameraError) || isComposerCameraBusy}
+                          className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500 text-white shadow-lg transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-400"
+                        >
+                          <Camera className="h-6 w-6" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </>
           )}
@@ -11790,13 +12779,12 @@ export default function KnexChatPage() {
       ) : null}
       {showMobileFooterDock ? (
         <div
-          className={`fixed inset-x-0 bottom-0 z-40 px-3 pt-0 lg:hidden ${mobileDockSurface}`}
+          className={`fixed inset-x-0 bottom-0 z-40 flex items-center px-3 pt-0 lg:hidden ${mobileDockSurface}`}
           style={{
-            height: "calc(env(safe-area-inset-bottom) + 5rem)",
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)",
+            height: "3.5rem",
           }}
         >
-          <div className="pt-1.5">
+          <div className="w-full">
             <div
               ref={mobileDockButtonsRef}
               data-overflow={isMobileDockCarousel ? "1" : "0"}
@@ -11812,7 +12800,7 @@ export default function KnexChatPage() {
               aria-label="Conversas"
               title="Conversas"
             >
-              <MessageCircle className="h-5 w-5" />
+              <MessageCircle className={mobileDockIconClass} strokeWidth={2.45} />
             </button>
             <button
               type="button"
@@ -11821,7 +12809,7 @@ export default function KnexChatPage() {
               aria-label="Ligações"
               title="Ligações"
             >
-              <Phone className="h-5 w-5" />
+              <Phone className={mobileDockIconClass} strokeWidth={2.45} />
             </button>
             <button
               type="button"
@@ -11830,7 +12818,7 @@ export default function KnexChatPage() {
               aria-label="Status"
               title="Status"
             >
-              <CircleDot className="h-5 w-5" />
+              <CircleDot className={mobileDockIconClass} strokeWidth={2.45} />
             </button>
             <button
               type="button"
@@ -11839,7 +12827,7 @@ export default function KnexChatPage() {
               aria-label="Canais"
               title="Canais"
             >
-              <Radio className="h-5 w-5" />
+              <Radio className={mobileDockIconClass} strokeWidth={2.45} />
             </button>
             <button
               type="button"
@@ -11848,7 +12836,7 @@ export default function KnexChatPage() {
               aria-label="Comunidades"
               title="Comunidades"
             >
-              <Shapes className="h-5 w-5" />
+              <Shapes className={mobileDockIconClass} strokeWidth={2.45} />
             </button>
             <button
               type="button"
@@ -11857,7 +12845,7 @@ export default function KnexChatPage() {
               aria-label="Novo contato ou conversa"
               title="Novo contato ou conversa"
             >
-              <UserPlus className="h-5 w-5" />
+              <UserPlus className={mobileDockIconClass} strokeWidth={2.45} />
             </button>
             <button
               type="button"
@@ -11873,7 +12861,7 @@ export default function KnexChatPage() {
               aria-label="Meu perfil"
               title="Meu perfil"
             >
-              <span className="relative z-10 flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg max-[420px]:h-7 max-[420px]:w-7 max-[360px]:h-6 max-[360px]:w-6">
+              <span className="relative z-10 flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg max-[420px]:h-9 max-[420px]:w-9 max-[360px]:h-8 max-[360px]:w-8">
                 {currentUser?.avatarUrl ? (
                   <img
                     src={currentUser.avatarUrl}
@@ -11900,10 +12888,10 @@ export default function KnexChatPage() {
           <button
             type="button"
             aria-label="Fechar opções do perfil"
-            className="fixed inset-x-0 top-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-50 bg-black/35 lg:hidden"
+            className="fixed inset-x-0 top-0 bottom-[3.5rem] z-50 bg-black/35 lg:hidden"
             onClick={() => setIsMobileProfileSheetOpen(false)}
           />
-          <div className="fixed inset-x-0 top-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-[55] lg:hidden">
+          <div className="fixed inset-x-0 top-0 bottom-[3.5rem] z-[55] lg:hidden">
             <div
               className={`knex-sheet-up flex h-full flex-col overflow-hidden rounded-none border shadow-2xl ${settingsBorder} ${
                 isDarkTheme ? "bg-[#0f141f] text-slate-100" : "bg-white text-slate-900"
@@ -12000,21 +12988,36 @@ export default function KnexChatPage() {
                       transformOrigin: "top center",
                     }}
                   >
-                    {currentUser?.avatarUrl ? (
-                      <img
-                        src={currentUser.avatarUrl}
-                        alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                        className={`h-[4.6rem] w-[4.6rem] ${avatarFrameMd} object-cover`}
-                      />
-                    ) : (
-                      <div
-                        className={`grid h-[4.6rem] w-[4.6rem] place-items-center ${avatarFrameMd} text-sm font-semibold ${
-                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        {getAvatarText(currentUser?.name ?? "KN")}
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileProfileSheetOpen(false);
+                        resetPanelsForMobileNavigation();
+                        handleOpenProfile("self");
+                      }}
+                      className="group relative rounded-xl"
+                      aria-label="Editar avatar"
+                      title="Editar avatar"
+                    >
+                      {currentUser?.avatarUrl ? (
+                        <img
+                          src={currentUser.avatarUrl}
+                          alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                          className={`h-[4.6rem] w-[4.6rem] ${avatarFrameMd} object-cover`}
+                        />
+                      ) : (
+                        <div
+                          className={`grid h-[4.6rem] w-[4.6rem] place-items-center ${avatarFrameMd} text-sm font-semibold ${
+                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {getAvatarText(currentUser?.name ?? "KN")}
+                        </div>
+                      )}
+                      <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-xl bg-black/0 text-[10px] font-semibold text-white opacity-0 transition group-hover:bg-black/45 group-hover:opacity-100">
+                        Editar
+                      </span>
+                    </button>
                     <div className="min-w-0">
                       <p className="mt-2 truncate text-base font-semibold">{currentUser?.name ?? "Perfil"}</p>
                       <p className={`mt-1 truncate text-xs ${settingsMuted}`}>{currentUser?.knexIdLabel}</p>
@@ -12027,7 +13030,7 @@ export default function KnexChatPage() {
                   </p>
                   {filteredMobileProfileSheetItems.map((item) => {
                     const Icon = item.icon;
-                    const isMobileSettingEnabled = item.id === "chats";
+                    const isMobileSettingEnabled = item.id === "chats" || item.id === "avatar";
                     return (
                       <button
                         key={item.id}
@@ -12165,46 +13168,287 @@ export default function KnexChatPage() {
         </div>
       ) : null}
       {isProfileOpen && isProfileAvatarPreviewOpen ? (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-          onClick={() => setIsProfileAvatarPreviewOpen(false)}
-          role="presentation"
-        >
-          <div
-            className={`relative flex w-[92vw] max-w-none flex-col items-center gap-6 rounded-3xl p-8 shadow-2xl ${
-              isDarkTheme ? "bg-[#1b1b1b]" : "bg-white"
+        <div className={`fixed inset-0 z-[120] flex flex-col ${isDarkTheme ? "bg-[#0b0f17]" : "bg-white"}`}>
+          <header
+            className={`flex items-center justify-between border-b px-3 py-2.5 ${
+              isDarkTheme ? "border-[#2a2a2a] bg-[#111827] text-slate-100" : "border-slate-200 bg-white text-slate-900"
             }`}
-            onClick={(event) => event.stopPropagation()}
           >
-            <button
-              type="button"
-              onClick={() => setIsProfileAvatarPreviewOpen(false)}
-              className={`absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full transition ${
-                isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-              }`}
-              aria-label="Fechar pré-visualização"
-            >
-              <ChevronDown className="h-5 w-5" />
-            </button>
+            <div className="min-w-0 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={closeProfileAvatarPreview}
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                aria-label="Voltar"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <p className="truncate text-sm font-semibold">Foto do perfil</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setIsProfileAvatarActionMenuOpen(true)}
+                disabled={!canEditProfile || profileAvatarUploading}
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                } disabled:cursor-not-allowed disabled:opacity-45`}
+                aria-label="Editar foto do perfil"
+                title="Editar foto do perfil"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleShareProfileAvatar}
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                  isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                aria-label="Compartilhar foto do perfil"
+                title="Compartilhar foto do perfil"
+              >
+                <Share2 className="h-4 w-4" />
+              </button>
+              {canEditProfile ? (
+                <input
+                  ref={profileAvatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleProfileAvatarChange}
+                  disabled={profileAvatarUploading}
+                />
+              ) : null}
+              {canEditProfile ? (
+                <input
+                  ref={profileAvatarCameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="sr-only"
+                  onChange={handleProfileAvatarChange}
+                  disabled={profileAvatarUploading}
+                />
+              ) : null}
+            </div>
+          </header>
+          {profileAvatarNotice ? (
+            <div className={`border-b px-4 py-2 text-xs ${isDarkTheme ? "border-[#2a2a2a]" : "border-slate-200"}`}>
+              <p
+                className={`${
+                  profileAvatarNotice.toLowerCase().includes("atualizada") || profileAvatarNotice.toLowerCase().includes("copiado")
+                    ? isDarkTheme
+                      ? "text-emerald-300"
+                      : "text-emerald-700"
+                    : isDarkTheme
+                      ? "text-rose-300"
+                      : "text-rose-600"
+                }`}
+              >
+                {profileAvatarNotice}
+              </p>
+            </div>
+          ) : null}
+          <div className="flex flex-1 items-center justify-center px-4 py-4">
             {profileData?.avatarUrl ? (
               <img
                 src={profileData.avatarUrl}
                 alt={`Avatar ampliado de ${profileData.title}`}
-                className={`h-[min(78vh,78vw)] w-[min(78vh,78vw)] ${avatarFrameLg} object-cover`}
+                className={`h-[min(82vh,88vw)] w-[min(82vh,88vw)] ${avatarFrameLg} object-cover`}
               />
             ) : (
               <div
-                className={`grid h-[min(78vh,78vw)] w-[min(78vh,78vw)] place-items-center ${avatarFrameLg} text-2xl font-semibold ${
+                className={`grid h-[min(82vh,88vw)] w-[min(82vh,88vw)] place-items-center ${avatarFrameLg} text-2xl font-semibold ${
                   isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
                 }`}
               >
                 {profileData?.avatarText ?? "KN"}
               </div>
             )}
-            <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
-              Foto de perfil
-            </p>
           </div>
+          {isProfileAvatarActionMenuOpen ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsProfileAvatarActionMenuOpen(false)}
+                className="absolute inset-0 bg-black/35"
+                aria-label="Fechar menu de foto do perfil"
+              />
+              <section
+                className={`knex-sheet-up absolute inset-x-0 bottom-0 z-10 h-auto max-h-[70vh] overflow-hidden border-t ${
+                  isDarkTheme ? "border-[#2a2a2a] bg-[#111827] text-slate-100" : "border-slate-200 bg-white text-slate-900"
+                }`}
+              >
+                <header className={`flex items-center justify-between border-b px-3 py-2.5 ${isDarkTheme ? "border-[#2a2a2a]" : "border-slate-200"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileAvatarActionMenuOpen(false)}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                    aria-label="Fechar menu"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                  <p className="text-sm font-semibold">Foto do perfil</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileAvatarActionMenuOpen(false);
+                      setProfileAvatarNotice("Remoção de foto ficará disponível em breve.");
+                    }}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                      isDarkTheme ? "text-rose-200 hover:bg-rose-500/20" : "text-rose-600 hover:bg-rose-50"
+                    }`}
+                    aria-label="Remover foto do perfil"
+                    title="Remover foto do perfil"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </header>
+                <div className="max-h-[calc(70vh-3.5rem)] space-y-1 overflow-y-auto px-3 py-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleOpenProfileAvatarCamera();
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold transition ${
+                      isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    }`}
+                  >
+                    <Camera className={`h-4 w-4 ${settingsMuted}`} />
+                    <span>Câmera</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileAvatarActionMenuOpen(false);
+                      profileAvatarInputRef.current?.click();
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold transition ${
+                      isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    }`}
+                  >
+                    <ImageIcon className={`h-4 w-4 ${settingsMuted}`} />
+                    <span>Galeria</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileAvatarActionMenuOpen(false);
+                      setProfileAvatarNotice("Biblioteca de avatar ficará disponível em breve.");
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold transition ${
+                      isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    }`}
+                  >
+                    <User className={`h-4 w-4 ${settingsMuted}`} />
+                    <span>Avatar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileAvatarActionMenuOpen(false);
+                      setProfileAvatarNotice("Importação do Instagram ficará disponível em breve.");
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold transition ${
+                      isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    }`}
+                  >
+                    <Link2 className={`h-4 w-4 ${settingsMuted}`} />
+                    <span>Importar do Instagram</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileAvatarActionMenuOpen(false);
+                      setProfileAvatarNotice("Imagens de IA ficarão disponíveis em breve.");
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold transition ${
+                      isDarkTheme ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    }`}
+                  >
+                    <Shapes className={`h-4 w-4 ${settingsMuted}`} />
+                    <span>imagens de IA</span>
+                  </button>
+                </div>
+              </section>
+            </>
+          ) : null}
+          {isProfileAvatarDesktopCameraOpen ? (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 px-4 py-4">
+              <div
+                className={`w-full max-w-md overflow-hidden rounded-3xl border ${
+                  isDarkTheme ? "border-[#2a2a2a] bg-[#111827]" : "border-slate-200 bg-white"
+                }`}
+              >
+                <div className="aspect-[3/4] w-full bg-black">
+                  {profileAvatarDesktopCameraCapturedPreview ? (
+                    <img
+                      src={profileAvatarDesktopCameraCapturedPreview}
+                      alt="Pré-visualização da foto capturada"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <video
+                      ref={profileAvatarDesktopCameraVideoRef}
+                      className="h-full w-full object-cover"
+                      autoPlay
+                      muted
+                      playsInline
+                    />
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-3 px-3 py-3">
+                  {profileAvatarDesktopCameraCapturedPreview ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenProfileAvatarCamera()}
+                      disabled={profileAvatarUploading}
+                      className={`flex min-h-[40px] items-center gap-2 rounded-full px-3 text-sm font-semibold transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100"
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      <Camera className="h-4 w-4" />
+                      Tirar outra
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsProfileAvatarDesktopCameraOpen(false)}
+                      className={`flex min-h-[40px] items-center gap-2 rounded-full px-3 text-sm font-semibold transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <X className="h-4 w-4" />
+                      Cancelar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      profileAvatarDesktopCameraCapturedPreview
+                        ? void handleApplyProfileAvatarFromDesktopCamera()
+                        : void handleCaptureProfileAvatarFromDesktopCamera()
+                    }
+                    disabled={profileAvatarUploading}
+                    className={`flex min-h-[40px] items-center gap-2 rounded-full px-4 text-sm font-semibold transition ${
+                      isDarkTheme ? "bg-blue-500/30 text-blue-100 hover:bg-blue-500/40" : "bg-blue-600 text-white hover:bg-blue-700"
+                    } disabled:cursor-not-allowed disabled:opacity-60`}
+                  >
+                    {profileAvatarDesktopCameraCapturedPreview ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Camera className="h-4 w-4" />
+                    )}
+                    {profileAvatarDesktopCameraCapturedPreview ? "Usar foto" : "Capturar"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {isConversationMediaViewerOpen && activeConversationMediaItem ? (

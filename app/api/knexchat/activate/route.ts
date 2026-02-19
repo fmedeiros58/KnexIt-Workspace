@@ -103,12 +103,14 @@ export async function POST(req: NextRequest) {
   }
 
   const directoryName = displayName || auth.user?.name || undefined;
+  const directoryAvatarUrl = auth.user?.avatarUrl;
   const { error: directoryError } = await admin
     .from("knexchat_directory")
     .upsert(
       {
         email: userEmail,
         ...(directoryName ? { name: directoryName } : {}),
+        ...(directoryAvatarUrl ? { avatar_url: directoryAvatarUrl } : {}),
       },
       { onConflict: "email" },
     );

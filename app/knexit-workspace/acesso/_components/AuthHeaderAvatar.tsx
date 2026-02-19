@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
 import type { Session, User } from "@supabase/supabase-js";
+import { getAppBaseUrl, resolvePostLoginTarget, resolveReturnTo } from "../_lib/authFlow";
+import { writeKnexchatProfileSeed } from "@/lib/knexchat/profileSeed";
 
 const supabase = identitySupabase();
 
@@ -18,6 +20,7 @@ type AvatarState = {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RECENT_ACCOUNTS_KEY = "knex_recent_accounts";
 const ACCOUNT_SESSIONS_KEY = "knex_account_sessions";
+const SWITCH_SESSION_TIMEOUT_MS = 1800;
 
 const getInitials = (name: string, email: string) => {
   const source = name || email || "Knex";
@@ -42,6 +45,35 @@ type StoredAccount = {
   accessToken?: string;
   refreshToken?: string;
   expiresAt?: number | null;
+};
+
+type SessionResult = {
+  data: { session: Session | null };
+  error: Error | null;
+};
+
+const setSessionWithTimeout = async (accessToken: string, refreshToken: string): Promise<SessionResult> => {
+  let timer: number | null = null;
+  const timeoutResult = new Promise<SessionResult>((resolve) => {
+    timer = window.setTimeout(() => {
+      resolve({ data: { session: null }, error: new Error("session_timeout") });
+    }, SWITCH_SESSION_TIMEOUT_MS);
+  });
+  const setSessionResult = supabase.auth
+    .setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    })
+    .then((result) => ({ data: result.data, error: result.error as Error | null }))
+    .catch((error) => ({ data: { session: null }, error: error instanceof Error ? error : new Error("session_failed") }));
+
+  try {
+    return await Promise.race([setSessionResult, timeoutResult]);
+  } finally {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+    }
+  }
 };
 
 const readRecentAccounts = (): string[] => {
@@ -107,6 +139,8 @@ const resolveAvatarState = (user: User | null): AvatarState | null => {
 export default function AuthHeaderAvatar() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
+  const returnTo = useMemo(() => resolveReturnTo(searchParams, appBaseUrl), [appBaseUrl, searchParams]);
   const [avatar, setAvatar] = useState<AvatarState | null>(null);
   const [fallbackAvatar, setFallbackAvatar] = useState<AvatarState | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -116,11 +150,16 @@ export default function AuthHeaderAvatar() {
   const [recentAccounts, setRecentAccounts] = useState<string[]>([]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [switchingAccountEmail, setSwitchingAccountEmail] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const buildAccessEmailHref = (email?: string) => {
-    const params = new URLSearchParams(searchParams?.toString());
+    const params = new URLSearchParams();
+    (["returnTo", "redirect", "from", "stay"] as const).forEach((key) => {
+      const value = searchParams?.get(key);
+      if (value) params.set(key, value);
+    });
     if (email) {
       params.set("email", email);
     } else {
@@ -333,10 +372,18 @@ export default function AuthHeaderAvatar() {
         throw new Error(payload?.message ?? "Nao foi possivel atualizar a imagem.");
       }
       const avatarUrl = payload.url;
-      await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } });
+      await supabase.auth.updateUser({ data: { avatar_url: avatarUrl, picture: avatarUrl, avatar: avatarUrl } });
       await supabase.from("profiles").update({ avatar_url: avatarUrl }).eq("id", userId);
       setAvatar((prev) => (prev ? { ...prev, url: avatarUrl } : prev));
       setFallbackAvatar((prev) => (prev ? { ...prev, url: avatarUrl } : prev));
+      const metadata = (session.user.user_metadata as { full_name?: string; name?: string } | null) ?? null;
+      const displayName = String(metadata?.full_name ?? metadata?.name ?? avatar?.name ?? fallbackAvatar?.name ?? "").trim();
+      writeKnexchatProfileSeed(session.user.id, {
+        avatarUrl,
+        ...(displayName ? { displayName } : {}),
+        source: "ecosystem",
+        createdAt: new Date().toISOString(),
+      });
       if (session.user?.email) {
         const current = readStoredAccounts();
         const email = session.user.email.trim().toLowerCase();
@@ -360,20 +407,30 @@ export default function AuthHeaderAvatar() {
   const handleSwitchAccount = async (account: StoredAccount) => {
     const normalized = account.email?.trim().toLowerCase();
     if (!normalized) return;
+    if (switchingAccountEmail) return;
+    setSwitchingAccountEmail(normalized);
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
-    if (account.accessToken && account.refreshToken) {
-      const { data, error } = await supabase.auth.setSession({
-        access_token: account.accessToken,
-        refresh_token: account.refreshToken,
-      });
-      if (!error && data?.session) {
-        saveAccountSession(data.session);
-        router.push(buildAccessEmailHref(normalized));
-        return;
+    try {
+      if (account.accessToken && account.refreshToken && typeof window !== "undefined") {
+        const { data, error } = await setSessionWithTimeout(account.accessToken, account.refreshToken);
+        if (!error && data?.session) {
+          saveAccountSession(data.session);
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("loginEmailHint");
+          }
+          const target = await resolvePostLoginTarget(returnTo, data.session.access_token);
+          router.replace(target);
+          return;
+        }
       }
+      if (typeof window !== "undefined") {
+        localStorage.setItem("loginEmailHint", normalized);
+      }
+      router.push(buildAccessEmailHref(normalized));
+    } finally {
+      setSwitchingAccountEmail(null);
     }
-    router.push(buildAccessEmailHref(normalized));
   };
 
   const handleAddExternalAccount = async () => {
@@ -522,6 +579,11 @@ export default function AuthHeaderAvatar() {
               {avatarError}
             </div>
           ) : null}
+          {switchingAccountEmail ? (
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+              Acessando {switchingAccountEmail}...
+            </div>
+          ) : null}
 
           <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50/80">
             {((!isLoggedIn && loggedOutExtraAccounts.length > 0) || (isLoggedIn && switcherAccounts.length > 0)) && (
@@ -576,7 +638,8 @@ export default function AuthHeaderAvatar() {
                           key={account.email}
                           type="button"
                           onClick={() => handleSwitchAccount(account)}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                          disabled={Boolean(switchingAccountEmail)}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
                         >
                           <span
                             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"
@@ -616,7 +679,8 @@ export default function AuthHeaderAvatar() {
                         key={account.email}
                         type="button"
                         onClick={() => handleSwitchAccount(account)}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                        disabled={Boolean(switchingAccountEmail)}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
                       >
                         <span
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"
@@ -652,7 +716,8 @@ export default function AuthHeaderAvatar() {
                           key={account.email}
                           type="button"
                           onClick={() => handleSwitchAccount(account)}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                          disabled={Boolean(switchingAccountEmail)}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
                         >
                           <span
                             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"

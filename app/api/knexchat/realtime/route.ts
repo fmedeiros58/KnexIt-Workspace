@@ -6,6 +6,23 @@ const REALTIME_TICKET_COOKIE = "knexchat_rt";
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
+const MAX_PROFILE_EMAIL_SUBSCRIPTIONS = 300;
+
+const toDirectoryRealtimeEntry = (raw: unknown) => {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const email = normalizeEmail(String(record.email ?? ""));
+  if (!isValidEmail(email)) return null;
+  const name = typeof record.name === "string" ? record.name : null;
+  const avatarUrl = typeof record.avatar_url === "string" ? record.avatar_url : null;
+  const createdAt = typeof record.created_at === "string" ? record.created_at : null;
+  return {
+    email,
+    ...(name ? { name } : {}),
+    ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
+    ...(createdAt ? { created_at: createdAt } : {}),
+  };
+};
 
 export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
@@ -81,6 +98,19 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     const threadIds = Array.from(new Set((participantRows ?? []).map((row) => row.thread_id)));
+    const profileEmails = new Set<string>([email]);
+    if (threadIds.length) {
+      const { data: threadParticipantRows, error: threadParticipantError } = await admin
+        .from("knexchat_thread_participants")
+        .select("email")
+        .in("thread_id", threadIds);
+      if (threadParticipantError) throw threadParticipantError;
+      (threadParticipantRows ?? []).forEach((row) => {
+        const candidate = normalizeEmail(row.email);
+        if (!isValidEmail(candidate)) return;
+        profileEmails.add(candidate);
+      });
+    }
 
     channel = admin.channel(`knexchat:${email}:${Date.now()}`);
 
@@ -94,9 +124,32 @@ export async function GET(req: NextRequest) {
       ) as typeof channel;
     });
 
+    const profileEmailList = Array.from(profileEmails).slice(0, MAX_PROFILE_EMAIL_SUBSCRIPTIONS);
+    profileEmailList.forEach((profileEmail) => {
+      channel = channel?.on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "knexchat_directory", filter: `email=eq.${profileEmail}` },
+        (payload) => {
+          const entry = toDirectoryRealtimeEntry(payload.new);
+          if (!entry) return;
+          send("profile", { entry });
+        },
+      ) as typeof channel;
+
+      channel = channel?.on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "knexchat_directory", filter: `email=eq.${profileEmail}` },
+        (payload) => {
+          const entry = toDirectoryRealtimeEntry(payload.new);
+          if (!entry) return;
+          send("profile", { entry });
+        },
+      ) as typeof channel;
+    });
+
     channel?.subscribe();
 
-    send("ready", { threads: threadIds.length });
+    send("ready", { threads: threadIds.length, profile_emails: profileEmailList.length });
 
     keepAliveTimer = setInterval(() => {
       send("ping", { t: Date.now() });
