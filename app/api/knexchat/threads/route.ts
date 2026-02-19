@@ -186,7 +186,7 @@ export async function GET(req: NextRequest) {
   }
   const entitlement = await requireKnexchatEntitlement(req);
   if (entitlement.response) return entitlement.response;
-  const authEmail = entitlement.user?.email ?? "";
+  const authEmail = normalizeEmail(entitlement.user?.email ?? "");
   const { searchParams } = new URL(req.url);
   const emailParam = searchParams.get("email");
   const email = emailParam ? normalizeEmail(emailParam) : normalizeEmail(authEmail);
@@ -284,7 +284,7 @@ export async function POST(req: NextRequest) {
   }
   const entitlement = await requireKnexchatEntitlement(req);
   if (entitlement.response) return entitlement.response;
-  const authEmail = entitlement.user?.email ?? "";
+  const authEmail = normalizeEmail(entitlement.user?.email ?? "");
   try {
     const body = await req.json().catch(() => ({}));
     const createdByRaw = typeof body?.createdBy === "string" ? body.createdBy : "";

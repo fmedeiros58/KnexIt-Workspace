@@ -6,6 +6,7 @@ import {
   Bell,
   BellOff,
   ArrowRight,
+  Copy,
   X,
   XCircle,
   Camera,
@@ -22,7 +23,7 @@ import {
   HelpCircle,
   Hash,
   Radio,
-  QrCode,
+  ScanLine,
   Shapes,
   Grip,
   Image as ImageIcon,
@@ -44,6 +45,8 @@ import {
   Pause,
   Phone,
   Play,
+  Pin,
+  Reply,
   SendHorizontal,
   UserPlus,
   ZoomIn,
@@ -100,6 +103,7 @@ const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", 
 
 const STORAGE_KEY = "knexchat.identity";
 const CHAT_STATE_KEY = "knexchat.state.v1";
+const CHAT_UI_STATE_KEY = "knexchat.ui.v1";
 const DIRECTORY_KEY = "knexchat.directory.v1";
 const INBOX_KEY = "knexchat.inbox.v1";
 const supabase = createIdentitySupabase();
@@ -223,18 +227,31 @@ function KnexChatMotionStyles() {
         font-size: 14px;
       }
       .knex-bubble--media {
-        padding: 8px;
+        --knex-media-outer-radius: 10px;
+        --knex-media-inset: 3px;
+        --knex-media-inner-radius: calc(var(--knex-media-outer-radius) - var(--knex-media-inset));
+        padding: var(--knex-media-inset);
+      }
+      .knex-bubble--out.knex-bubble--media {
+        border-radius: var(--knex-media-outer-radius);
+      }
+      .knex-bubble--in.knex-bubble--media {
+        border-radius: var(--knex-media-outer-radius);
       }
       .knex-bubble__media {
-        width: clamp(180px, 22vw, 240px);
+        width: clamp(140px, 55vw, 240px);
+        max-width: 100%;
         display: flex;
         flex-direction: column;
         gap: 6px;
       }
+      .knex-bubble__media-trigger {
+        border-radius: var(--knex-media-inner-radius);
+      }
       .knex-bubble__image {
         width: 100%;
         aspect-ratio: 9 / 16;
-        border-radius: 12px;
+        border-radius: var(--knex-media-inner-radius);
         display: block;
         object-fit: cover;
       }
@@ -242,6 +259,9 @@ function KnexChatMotionStyles() {
         font-size: 11px;
         margin-top: 4px;
         align-self: flex-end;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         white-space: nowrap;
       }
       .knex-bubble--in .knex-bubble__time {
@@ -670,7 +690,9 @@ type InboxMessage = {
 };
 
 type TabKey = "conversations" | "groups" | "contacts";
-type FilterKey = "all" | "unread" | "groups" | "contacts";
+type BaseFilterKey = "all" | "unread" | "groups" | "contacts";
+type CustomFilterKey = `custom:${string}`;
+type FilterKey = BaseFilterKey | CustomFilterKey;
 type MediaTabKey = "media" | "docs" | "links";
 type DirectoryTabKey = "people" | "contacts" | "requests";
 type DirectoryFilterKey = "all" | "identity" | "context" | "relationship";
@@ -706,6 +728,13 @@ type Thread = {
   onlineCount?: number;
   contactEmail?: string;
   participantRoles?: { email: string; role: "admin" | "member"; name?: string | null; avatarUrl?: string | null }[];
+};
+
+type CustomConversationList = {
+  id: string;
+  name: string;
+  threadIds: string[];
+  createdAt: number;
 };
 
 type ThreadMenuItem = {
@@ -745,6 +774,8 @@ type ApiMessage = {
   created_at: string;
 };
 
+type MessageDeliveryState = "sent" | "delivered" | "seen";
+
 type Message = {
   id: string;
   author: "me" | "them";
@@ -757,6 +788,9 @@ type Message = {
   audioDuration?: string;
   imageUrl?: string;
   imageName?: string;
+  fileUrl?: string;
+  fileName?: string;
+  deliveryStatus?: MessageDeliveryState;
 };
 
 type MediaItem = {
@@ -769,6 +803,25 @@ type MediaItem = {
   isFavorite?: boolean;
   mediaType?: "image" | "video";
   duration?: string;
+};
+
+type ConversationMediaViewerItem = {
+  id: string;
+  src: string;
+  label: string;
+  time: string;
+  senderName: string;
+  senderAvatarUrl?: string;
+  mediaType: "image" | "video";
+};
+
+type MessageMediaContextMenuState = {
+  messageId: string;
+  src: string;
+  label: string;
+  mediaType: "image" | "video";
+  x: number;
+  y: number;
 };
 
 type WallpaperOption = {
@@ -785,12 +838,16 @@ type GroupPermissions = {
   approveNewMembers: boolean;
 };
 
-const FILTERS: { key: FilterKey; label: string }[] = [
+const CUSTOM_FILTER_PREFIX = "custom:";
+
+const FILTERS: { key: BaseFilterKey; label: string }[] = [
   { key: "all", label: "Tudo" },
   { key: "unread", label: "Não lidas" },
   { key: "groups", label: "Grupos" },
   { key: "contacts", label: "Contatos" },
 ];
+
+const MEDIA_CONTEXT_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 
 const DIRECTORY_TABS: { key: DirectoryTabKey; label: string }[] = [
   { key: "people", label: "Pessoas" },
@@ -1043,11 +1100,131 @@ function getThreadActivityTimestamp(thread: Thread) {
   return typeof thread.lastActivityAt === "number" ? thread.lastActivityAt : 0;
 }
 
+function areStringArraysEqual(previous: string[] = [], next: string[] = []) {
+  if (previous.length !== next.length) return false;
+  return previous.every((value, index) => value === next[index]);
+}
+
+function areParticipantRolesEqual(
+  previous: Thread["participantRoles"],
+  next: Thread["participantRoles"],
+) {
+  const previousList = previous ?? [];
+  const nextList = next ?? [];
+  if (previousList.length !== nextList.length) return false;
+  return previousList.every((participant, index) => {
+    const candidate = nextList[index];
+    if (!candidate) return false;
+    return (
+      participant.email === candidate.email &&
+      participant.role === candidate.role &&
+      (participant.name ?? null) === (candidate.name ?? null) &&
+      (participant.avatarUrl ?? null) === (candidate.avatarUrl ?? null)
+    );
+  });
+}
+
+function areThreadsEqual(previous: Thread, next: Thread) {
+  return (
+    previous.id === next.id &&
+    previous.title === next.title &&
+    previous.preview === next.preview &&
+    previous.lastActivity === next.lastActivity &&
+    (previous.lastActivityAt ?? undefined) === (next.lastActivityAt ?? undefined) &&
+    (previous.unread ?? undefined) === (next.unread ?? undefined) &&
+    previous.tab === next.tab &&
+    (previous.avatarUrl ?? undefined) === (next.avatarUrl ?? undefined) &&
+    (previous.onlineCount ?? undefined) === (next.onlineCount ?? undefined) &&
+    (previous.contactEmail ?? undefined) === (next.contactEmail ?? undefined) &&
+    areParticipantRolesEqual(previous.participantRoles, next.participantRoles)
+  );
+}
+
+function areThreadListsEqual(previous: Thread[], next: Thread[]) {
+  if (previous.length !== next.length) return false;
+  return previous.every((thread, index) => {
+    const candidate = next[index];
+    if (!candidate) return false;
+    return areThreadsEqual(thread, candidate);
+  });
+}
+
+function areMessagesEqual(previous: Message[] = [], next: Message[] = []) {
+  if (previous.length !== next.length) return false;
+  return previous.every((message, index) => {
+    const candidate = next[index];
+    if (!candidate) return false;
+    return (
+      message.id === candidate.id &&
+      message.author === candidate.author &&
+      message.body === candidate.body &&
+      message.time === candidate.time &&
+      (message.senderName ?? undefined) === (candidate.senderName ?? undefined) &&
+      (message.senderEmail ?? undefined) === (candidate.senderEmail ?? undefined) &&
+      (message.senderAvatarUrl ?? undefined) === (candidate.senderAvatarUrl ?? undefined) &&
+      (message.imageUrl ?? undefined) === (candidate.imageUrl ?? undefined) &&
+      (message.imageName ?? undefined) === (candidate.imageName ?? undefined) &&
+      (message.fileUrl ?? undefined) === (candidate.fileUrl ?? undefined) &&
+      (message.fileName ?? undefined) === (candidate.fileName ?? undefined) &&
+      (message.audioUrl ?? undefined) === (candidate.audioUrl ?? undefined) &&
+      (message.audioDuration ?? undefined) === (candidate.audioDuration ?? undefined) &&
+      (message.deliveryStatus ?? undefined) === (candidate.deliveryStatus ?? undefined)
+    );
+  });
+}
+
+function resolveMessageDeliveryState(
+  message: Message,
+  messageIndex: number,
+  allMessages: Message[],
+): MessageDeliveryState | null {
+  if (message.author !== "me") return null;
+  if (message.deliveryStatus === "seen") return "seen";
+  const hasIncomingAfter = allMessages.slice(messageIndex + 1).some((candidate) => candidate.author !== "me");
+  if (hasIncomingAfter) return "seen";
+  const hasOutgoingAfter = allMessages.slice(messageIndex + 1).some((candidate) => candidate.author === "me");
+  if (message.deliveryStatus === "delivered") return "delivered";
+  if (message.deliveryStatus === "sent") {
+    return hasOutgoingAfter ? "delivered" : "sent";
+  }
+  if (hasOutgoingAfter) return "delivered";
+  return message.id.startsWith("m_") ? "sent" : "delivered";
+}
+
+type DeliveryStatusIndicatorProps = {
+  state: MessageDeliveryState;
+  className?: string;
+};
+
+function DeliveryStatusIndicator({ state, className = "" }: DeliveryStatusIndicatorProps) {
+  if (state === "sent") {
+    return <Check className={`h-3.5 w-3.5 ${className}`.trim()} strokeWidth={2.4} />;
+  }
+  return (
+    <span className={`relative inline-flex h-3.5 w-5 ${className}`.trim()}>
+      <Check className="absolute left-0 top-0 h-3.5 w-3.5" strokeWidth={2.4} />
+      <Check className="absolute left-[6px] top-0 h-3.5 w-3.5" strokeWidth={2.4} />
+    </span>
+  );
+}
+
 function getContactPrimaryKey(thread: Thread) {
   if (thread.contactEmail) return normalizeEmail(thread.contactEmail);
   const previewEmail = extractEmail(thread.preview);
   if (previewEmail) return previewEmail;
   return thread.id;
+}
+
+function isCustomFilterKey(value: FilterKey): value is CustomFilterKey {
+  return value.startsWith(CUSTOM_FILTER_PREFIX);
+}
+
+function toCustomFilterKey(listId: string): CustomFilterKey {
+  return `${CUSTOM_FILTER_PREFIX}${listId}`;
+}
+
+function getCustomFilterIdFromKey(value: CustomFilterKey) {
+  return value.slice(CUSTOM_FILTER_PREFIX.length);
 }
 
 function getAvatarText(label: string) {
@@ -1085,6 +1262,30 @@ function formatDuration(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+const PLAYBACK_SPEED_OPTIONS = [1, 1.5, 2] as const;
+type PlaybackSpeed = (typeof PLAYBACK_SPEED_OPTIONS)[number];
+
+function formatPlaybackSpeedLabel(speed: PlaybackSpeed) {
+  return `${Number.isInteger(speed) ? speed.toFixed(0) : speed}x`;
+}
+
+function getNextPlaybackSpeed(speed: PlaybackSpeed): PlaybackSpeed {
+  const currentIndex = PLAYBACK_SPEED_OPTIONS.findIndex((value) => value === speed);
+  const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % PLAYBACK_SPEED_OPTIONS.length;
+  return PLAYBACK_SPEED_OPTIONS[nextIndex];
+}
+
+function detectMediaTypeFromSource(src: string | undefined | null): "image" | "video" {
+  if (!src) return "image";
+  const value = src.trim();
+  if (!value) return "image";
+  if (/^data:video\//i.test(value)) return "video";
+  if (/^data:image\//i.test(value)) return "image";
+  const normalized = value.split("#")[0].split("?")[0].toLowerCase();
+  if (/\.(mp4|webm|ogg|mov|m4v|mkv)$/i.test(normalized)) return "video";
+  return "image";
 }
 
 function isIdentity(value: unknown): value is Identity {
@@ -1248,6 +1449,7 @@ export default function KnexChatPage() {
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
+  const [customConversationLists, setCustomConversationLists] = useState<CustomConversationList[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string>(INITIAL_CONVERSATIONS[0]?.id ?? "");
   const [pendingJoinToken, setPendingJoinToken] = useState<string | null>(null);
   const [handledJoinToken, setHandledJoinToken] = useState<string | null>(null);
@@ -1308,6 +1510,7 @@ export default function KnexChatPage() {
   const [editContactPhone, setEditContactPhone] = useState("");
   const [editContactSync, setEditContactSync] = useState(false);
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [isCustomListOpen, setIsCustomListOpen] = useState(false);
   const [isNewChatEmailOpen, setIsNewChatEmailOpen] = useState(false);
   const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
   const [isNewGroupCreateOpen, setIsNewGroupCreateOpen] = useState(false);
@@ -1327,7 +1530,10 @@ export default function KnexChatPage() {
     !isSettingsOpen &&
     !isDirectoryOpen &&
     !isNewChatOpen &&
+    !isCustomListOpen &&
     !isProfileOpen;
+  const showMobileConversationShellHeader = isMobileView && showDetailOnMobile && Boolean(activeThreadId);
+  const showMobileFooterDock = !showMobileConversationShellHeader;
 
   const handleMobileBack = useCallback(() => {
     setIsMobileDetailOpen(false);
@@ -1341,6 +1547,16 @@ export default function KnexChatPage() {
   const [isGroupEmojiOpen, setIsGroupEmojiOpen] = useState(false);
   const [isGroupMembersExpanded, setIsGroupMembersExpanded] = useState(false);
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
+  const [isConversationMediaViewerOpen, setIsConversationMediaViewerOpen] = useState(false);
+  const [conversationMediaViewerIndex, setConversationMediaViewerIndex] = useState(0);
+  const [isConversationMediaViewerUiVisible, setIsConversationMediaViewerUiVisible] = useState(false);
+  const [messageMediaContextMenu, setMessageMediaContextMenu] = useState<MessageMediaContextMenuState | null>(null);
+  const [messageVideoDurationById, setMessageVideoDurationById] = useState<Record<string, string>>({});
+  const [isConversationMediaViewerVideoPlaying, setIsConversationMediaViewerVideoPlaying] = useState(false);
+  const [conversationMediaViewerVideoCurrentTime, setConversationMediaViewerVideoCurrentTime] = useState(0);
+  const [conversationMediaViewerVideoDuration, setConversationMediaViewerVideoDuration] = useState(0);
+  const [conversationMediaViewerVideoPlaybackSpeed, setConversationMediaViewerVideoPlaybackSpeed] =
+    useState<PlaybackSpeed>(1);
   const [activeMediaTab, setActiveMediaTab] = useState<MediaTabKey>("media");
   const [mediaLibrary, setMediaLibrary] = useState<MediaItem[]>(MEDIA_LIBRARY_SEED);
   const [isMediaSelectMode, setIsMediaSelectMode] = useState(false);
@@ -1364,9 +1580,16 @@ export default function KnexChatPage() {
     () => Array.from({ length: shareWaveBarCount }, () => 0.15),
   );
   const [shareAudioPlaybackSeconds, setShareAudioPlaybackSeconds] = useState(0);
+  const [shareAudioPlaybackSpeed, setShareAudioPlaybackSpeed] = useState<PlaybackSpeed>(1);
+  const [isComposerDragActive, setIsComposerDragActive] = useState(false);
   const [isGroupsExpanded, setIsGroupsExpanded] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
+  const [customListSearch, setCustomListSearch] = useState("");
   const [newChatSearch, setNewChatSearch] = useState("");
+  const [newCustomListName, setNewCustomListName] = useState("");
+  const [customListStep, setCustomListStep] = useState<"name" | "members">("name");
+  const [customListError, setCustomListError] = useState<string | null>(null);
+  const [selectedCustomListThreadIds, setSelectedCustomListThreadIds] = useState<string[]>([]);
   const [newGroupSearch, setNewGroupSearch] = useState("");
   const [newChatEmail, setNewChatEmail] = useState("");
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
@@ -1398,12 +1621,19 @@ export default function KnexChatPage() {
   const [threadAvatarOverrides, setThreadAvatarOverrides] = useState<Record<string, string>>({});
   const [activeSettingKey, setActiveSettingKey] = useState<(typeof SETTINGS_MENU)[number]["key"] | null>(null);
   const [isMobileProfileSheetOpen, setIsMobileProfileSheetOpen] = useState(false);
+  const [mobileProfileSheetScrollY, setMobileProfileSheetScrollY] = useState(0);
+  const [isMobileProfileSearchOpen, setIsMobileProfileSearchOpen] = useState(false);
+  const [mobileProfileSearchQuery, setMobileProfileSearchQuery] = useState("");
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
   const [wallpaperHoverKey, setWallpaperHoverKey] = useState<string | null>(null);
   const [headerInfoStep, setHeaderInfoStep] = useState(0);
   const chatStateKey = useMemo(() => {
     if (!identity?.email) return null;
     return `${CHAT_STATE_KEY}:${normalizeEmail(identity.email)}`;
+  }, [identity?.email]);
+  const chatUiStateKey = useMemo(() => {
+    if (!identity?.email) return null;
+    return `${CHAT_UI_STATE_KEY}:${normalizeEmail(identity.email)}`;
   }, [identity?.email]);
   const [settingsState, setSettingsState] = useState(DEFAULT_SETTINGS_STATE);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -1435,6 +1665,8 @@ export default function KnexChatPage() {
   const shareAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const shareAudioPlaybackRafRef = useRef<number | null>(null);
   const mobileDockButtonsRef = useRef<HTMLDivElement | null>(null);
+  const mobileProfileSheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const mobileProfileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const conversationFiltersRef = useRef<HTMLDivElement | null>(null);
   const directoryFiltersRef = useRef<HTMLDivElement | null>(null);
   const [shareAudioPlayingId, setShareAudioPlayingId] = useState<string | null>(null);
@@ -1447,6 +1679,11 @@ export default function KnexChatPage() {
   const chatListResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const threadMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const threadMenuRef = useRef<HTMLDivElement | null>(null);
+  const conversationMediaViewerTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const conversationMediaViewerDidSwipeRef = useRef(false);
+  const conversationMediaViewerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const composerDragDepthRef = useRef(0);
+  const messageMediaContextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const currentUser = useMemo(() => {
     if (!identity) return null;
@@ -1490,11 +1727,18 @@ export default function KnexChatPage() {
     setGroupDescriptions({});
     setGroupPermissionsById({});
     setGroupAdminIdsByGroup({});
+    setCustomConversationLists([]);
     setSelfAvatarUrl(null);
     setThreadAvatarOverrides({});
     setMediaLibrary(MEDIA_LIBRARY_SEED);
     setActiveFilter("all");
     setActiveThreadId(INITIAL_CONVERSATIONS[0]?.id ?? "");
+    setIsCustomListOpen(false);
+    setCustomListSearch("");
+    setNewCustomListName("");
+    setCustomListStep("name");
+    setCustomListError(null);
+    setSelectedCustomListThreadIds([]);
   }, []);
 
   const contactNameByEmail = useMemo(() => {
@@ -1548,6 +1792,15 @@ export default function KnexChatPage() {
 
     return map;
   }, [contacts, conversations, directoryEntries, groups, identity?.email, identity?.name, selfAvatarUrl]);
+  const contactNameByEmailRef = useRef(contactNameByEmail);
+  const identityEmailRef = useRef(identity?.email ? normalizeEmail(identity.email) : "");
+  const isFetchingThreadsRef = useRef(false);
+  useEffect(() => {
+    contactNameByEmailRef.current = contactNameByEmail;
+  }, [contactNameByEmail]);
+  useEffect(() => {
+    identityEmailRef.current = identity?.email ? normalizeEmail(identity.email) : "";
+  }, [identity?.email]);
 
   const allThreads = useMemo(() => [...conversations, ...groups, ...contacts], [conversations, groups, contacts]);
   const allThreadsRef = useRef<Thread[]>([]);
@@ -1563,10 +1816,58 @@ export default function KnexChatPage() {
     () => [...conversations, ...groups, ...contactsWithMessages],
     [conversations, groups, contactsWithMessages],
   );
+  const customConversationListById = useMemo(() => {
+    const map = new Map<string, CustomConversationList>();
+    customConversationLists.forEach((list) => map.set(list.id, list));
+    return map;
+  }, [customConversationLists]);
+  const conversationFilterOptions = useMemo<{ key: FilterKey; label: string }[]>(
+    () => [
+      ...FILTERS,
+      ...customConversationLists.map((list) => ({
+        key: toCustomFilterKey(list.id),
+        label: list.name,
+      })),
+    ],
+    [customConversationLists],
+  );
+  const customListThreadCandidates = useMemo(() => {
+    const directConversationKeys = new Set(conversations.map((thread) => getContactPrimaryKey(thread)));
+    const sorted = [...allThreads].sort((a, b) => {
+      const diff = getThreadActivityTimestamp(b) - getThreadActivityTimestamp(a);
+      if (diff !== 0) return diff;
+      return a.id.localeCompare(b.id);
+    });
+    const seenContactKeys = new Set<string>();
+    return sorted.filter((thread) => {
+      if (thread.tab !== "contacts") return true;
+      const key = getContactPrimaryKey(thread);
+      if (directConversationKeys.has(key)) return false;
+      if (seenContactKeys.has(key)) return false;
+      seenContactKeys.add(key);
+      return true;
+    });
+  }, [allThreads, conversations]);
+  const filteredCustomListCandidates = useMemo(() => {
+    const query = customListSearch.trim().toLowerCase();
+    if (!query) return customListThreadCandidates;
+    return customListThreadCandidates.filter((thread) => {
+      const haystack = `${thread.title} ${thread.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [customListSearch, customListThreadCandidates]);
+  const selectedCustomListThreads = useMemo(
+    () => customListThreadCandidates.filter((thread) => selectedCustomListThreadIds.includes(thread.id)),
+    [customListThreadCandidates, selectedCustomListThreadIds],
+  );
   const activeThreads = useMemo(() => {
     const conversationKeys = new Set(conversations.map((thread) => getContactPrimaryKey(thread)));
     let base = conversationThreads;
-    if (activeFilter === "groups") {
+    if (isCustomFilterKey(activeFilter)) {
+      const listId = getCustomFilterIdFromKey(activeFilter);
+      const selectedIds = new Set(customConversationListById.get(listId)?.threadIds ?? []);
+      base = allThreads.filter((thread) => selectedIds.has(thread.id));
+    } else if (activeFilter === "groups") {
       base = groups;
     } else if (activeFilter === "contacts") {
       base = [...conversations, ...contactsWithMessages];
@@ -1575,9 +1876,11 @@ export default function KnexChatPage() {
         (thread) => (unreadByThread[thread.id] ?? thread.unread ?? 0) > 0,
       );
     }
-    const sorted = [...base].sort(
-      (a, b) => getThreadActivityTimestamp(b) - getThreadActivityTimestamp(a),
-    );
+    const sorted = [...base].sort((a, b) => {
+      const diff = getThreadActivityTimestamp(b) - getThreadActivityTimestamp(a);
+      if (diff !== 0) return diff;
+      return a.id.localeCompare(b.id);
+    });
     const seen = new Set<string>();
     return sorted.filter((thread) => {
       if (thread.tab !== "contacts") return true;
@@ -1587,10 +1890,48 @@ export default function KnexChatPage() {
       seen.add(key);
       return true;
     });
-  }, [activeFilter, contactsWithMessages, conversationThreads, conversations, groups, unreadByThread]);
+  }, [
+    activeFilter,
+    allThreads,
+    contactsWithMessages,
+    conversationThreads,
+    conversations,
+    customConversationListById,
+    groups,
+    unreadByThread,
+  ]);
+  useEffect(() => {
+    setSelectedCustomListThreadIds((prev) => {
+      if (!prev.length) return prev;
+      const available = new Set(customListThreadCandidates.map((thread) => thread.id));
+      const filtered = prev.filter((id) => available.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [customListThreadCandidates]);
+  useEffect(() => {
+    if (!isCustomFilterKey(activeFilter)) return;
+    const listId = getCustomFilterIdFromKey(activeFilter);
+    if (customConversationListById.has(listId)) return;
+    setActiveFilter("all");
+  }, [activeFilter, customConversationListById]);
   const activeThread = useMemo(() => {
     return allThreads.find((thread) => thread.id === activeThreadId) ?? activeThreads[0] ?? null;
   }, [activeThreadId, activeThreads, allThreads]);
+  const unreadTotal = useMemo(
+    () =>
+      allThreads.reduce((total, thread) => {
+        const unread = unreadByThread[thread.id] ?? thread.unread ?? 0;
+        return total + Math.max(0, unread);
+      }, 0),
+    [allThreads, unreadByThread],
+  );
+  const unreadTotalLabel = unreadTotal > 99 ? "99+" : String(unreadTotal);
+  const mobileProfileHeaderFade = Math.min(Math.max(mobileProfileSheetScrollY / 72, 0), 1);
+  const isMobileProfileHeaderCompact = mobileProfileSheetScrollY > 28;
+  const handleMobileProfileSheetScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const next = event.currentTarget.scrollTop;
+    setMobileProfileSheetScrollY((prev) => (Math.abs(prev - next) < 0.5 ? prev : next));
+  }, []);
   const filteredActiveThreads = useMemo(() => {
     const query = conversationSearch.trim().toLowerCase();
     if (!query) return activeThreads;
@@ -2318,16 +2659,121 @@ export default function KnexChatPage() {
   );
   const openThreadById = useCallback(
     (threadId: string) => {
-      setActiveThreadId(threadId);
+      setActiveThreadId((prev) => (prev === threadId ? prev : threadId));
       if (isMobileView) {
         setIsMobileDetailOpen(true);
-        router.push(`/knexchat/t/${threadId}`);
+      }
+      if (activeNavKey !== "conversations") setActiveNavKey("conversations");
+      if (isSettingsOpen) setIsSettingsOpen(false);
+      if (activeSettingKey !== null) setActiveSettingKey(null);
+      if (isDirectoryOpen) setIsDirectoryOpen(false);
+      if (isDirectoryFiltersOpen) setIsDirectoryFiltersOpen(false);
+      if (isNewChatOpen) setIsNewChatOpen(false);
+      if (isCustomListOpen) setIsCustomListOpen(false);
+      if (isNewChatEmailOpen) setIsNewChatEmailOpen(false);
+      if (isNewGroupOpen) setIsNewGroupOpen(false);
+      if (isNewGroupCreateOpen) setIsNewGroupCreateOpen(false);
+      if (isCommunityListOpen) setIsCommunityListOpen(false);
+      if (isGroupsPanelOpen) setIsGroupsPanelOpen(false);
+      if (isGroupCreateOpen) setIsGroupCreateOpen(false);
+      if (isNewContactOpen) setIsNewContactOpen(false);
+      if (isGroupsExpanded) setIsGroupsExpanded(false);
+      if (selectedGroupMemberIds.length) setSelectedGroupMemberIds([]);
+      if (isProfileOpen) setIsProfileOpen(false);
+      if (profileTarget !== null) setProfileTarget(null);
+      if (isProfileAvatarPreviewOpen) setIsProfileAvatarPreviewOpen(false);
+      if (isThreadMenuOpen) setIsThreadMenuOpen(false);
+      if (isContactInfoOpen) setIsContactInfoOpen(false);
+      if (isContactEditOpen) setIsContactEditOpen(false);
+      if (isGroupInfoOpen) setIsGroupInfoOpen(false);
+      if (isGroupPermissionsOpen) setIsGroupPermissionsOpen(false);
+      if (isGroupAdminsModalOpen) setIsGroupAdminsModalOpen(false);
+      if (isMobileView) {
+        const isThreadRoute = pathname?.startsWith("/knexchat/t/");
+        if (!isThreadRoute || threadParam !== threadId) {
+          const nextRoute = `/knexchat/t/${threadId}`;
+          if (typeof window !== "undefined") {
+            window.requestAnimationFrame(() => router.replace(nextRoute));
+          } else {
+            router.replace(nextRoute);
+          }
+        }
       }
     },
-    [isMobileView, router],
+    [
+      activeNavKey,
+      activeSettingKey,
+      isContactEditOpen,
+      isContactInfoOpen,
+      isCustomListOpen,
+      isDirectoryFiltersOpen,
+      isDirectoryOpen,
+      isGroupAdminsModalOpen,
+      isGroupCreateOpen,
+      isGroupInfoOpen,
+      isGroupPermissionsOpen,
+      isGroupsExpanded,
+      isGroupsPanelOpen,
+      isMobileView,
+      isNewChatEmailOpen,
+      isNewChatOpen,
+      isNewContactOpen,
+      isNewGroupCreateOpen,
+      isNewGroupOpen,
+      isProfileAvatarPreviewOpen,
+      isProfileOpen,
+      isSettingsOpen,
+      isThreadMenuOpen,
+      isCommunityListOpen,
+      pathname,
+      profileTarget,
+      router,
+      selectedGroupMemberIds.length,
+      threadParam,
+    ],
   );
   const openContactThread = useCallback(
     (threadId: string) => {
+      if (threadId === "self-contact" && currentUser?.email) {
+        const selfEmail = normalizeEmail(currentUser.email);
+        const existingSelfThread =
+          conversations.find(
+            (thread) => thread.contactEmail && normalizeEmail(thread.contactEmail) === selfEmail,
+          ) ?? null;
+        if (existingSelfThread) {
+          setActiveFilter("all");
+          openThreadById(existingSelfThread.id);
+        } else {
+          const selfThreadId = contactIdFromEmail(selfEmail);
+          const now = Date.now();
+          const selfThread: Thread = {
+            id: selfThreadId,
+            title: currentUser.name ?? "Você",
+            preview: "Mensagens para mim",
+            lastActivity: "Agora",
+            lastActivityAt: now,
+            tab: "conversations",
+            avatarUrl: currentUser.avatarUrl ?? undefined,
+            contactEmail: selfEmail,
+          };
+          setConversations((prev) => (prev.some((thread) => thread.id === selfThreadId) ? prev : [selfThread, ...prev]));
+          setMessagesByThread((prev) => ({ ...prev, [selfThreadId]: prev[selfThreadId] ?? [] }));
+          setUnreadByThread((prev) => ({ ...prev, [selfThreadId]: prev[selfThreadId] ?? 0 }));
+          setActiveFilter("all");
+          openThreadById(selfThreadId);
+        }
+        setIsNewChatOpen(false);
+        setIsNewChatEmailOpen(false);
+        setIsNewGroupOpen(false);
+        setIsNewGroupCreateOpen(false);
+        setIsCommunityListOpen(false);
+        setIsNewContactOpen(false);
+        setIsCustomListOpen(false);
+        setIsDirectoryOpen(false);
+        setIsProfileOpen(false);
+        setProfileTarget(null);
+        return;
+      }
       const contact = contacts.find((item) => item.id === threadId);
       const contactEmail = contact?.contactEmail
         ? normalizeEmail(contact.contactEmail)
@@ -2350,12 +2796,119 @@ export default function KnexChatPage() {
       setIsNewGroupCreateOpen(false);
       setIsCommunityListOpen(false);
       setIsNewContactOpen(false);
+      setIsCustomListOpen(false);
       setIsDirectoryOpen(false);
       setIsProfileOpen(false);
       setProfileTarget(null);
     },
-    [contacts, conversations, openThreadById],
+    [contacts, conversations, currentUser, openThreadById],
   );
+  const openCommunityThread = useCallback(
+    (community: { id: string; title: string; preview: string; lastActivity?: string }) => {
+      const existingById = groups.find((group) => group.id === community.id);
+      const existingByTitle = groups.find(
+        (group) => group.title.trim().toLocaleLowerCase("pt-BR") === community.title.trim().toLocaleLowerCase("pt-BR"),
+      );
+      const existing = existingById ?? existingByTitle ?? null;
+      if (existing) {
+        setActiveFilter("groups");
+        openThreadById(existing.id);
+        return;
+      }
+      const createdAt = Date.now();
+      const threadId = `grp-${community.id}`;
+      const thread: Thread = {
+        id: threadId,
+        title: community.title,
+        preview: community.preview,
+        lastActivity: community.lastActivity ?? "Agora",
+        lastActivityAt: createdAt,
+        tab: "groups",
+      };
+      setGroups((prev) => (prev.some((group) => group.id === threadId) ? prev : [thread, ...prev]));
+      setMessagesByThread((prev) => ({ ...prev, [threadId]: prev[threadId] ?? [] }));
+      setUnreadByThread((prev) => ({ ...prev, [threadId]: prev[threadId] ?? 0 }));
+      setActiveFilter("groups");
+      openThreadById(threadId);
+    },
+    [groups, openThreadById],
+  );
+  const resetCustomListDraft = useCallback(() => {
+    setNewCustomListName("");
+    setCustomListSearch("");
+    setCustomListStep("name");
+    setCustomListError(null);
+    setSelectedCustomListThreadIds([]);
+  }, []);
+  const handleOpenCustomListPanel = useCallback(() => {
+    setIsDirectoryOpen(false);
+    setIsNewChatOpen(false);
+    setIsNewChatEmailOpen(false);
+    setIsNewGroupOpen(false);
+    setIsNewGroupCreateOpen(false);
+    setIsCommunityListOpen(false);
+    setIsGroupsPanelOpen(false);
+    setIsGroupCreateOpen(false);
+    setIsGroupsExpanded(false);
+    setIsNewContactOpen(false);
+    setIsCustomListOpen(true);
+    resetCustomListDraft();
+  }, [resetCustomListDraft]);
+  const handleCloseCustomListPanel = useCallback(() => {
+    setIsCustomListOpen(false);
+    resetCustomListDraft();
+  }, [resetCustomListDraft]);
+  const handleContinueCustomListMembers = useCallback(() => {
+    const normalizedName = newCustomListName.trim();
+    if (!normalizedName) {
+      setCustomListError("Digite um nome para a lista.");
+      return;
+    }
+    const duplicate = customConversationLists.some(
+      (list) => list.name.toLocaleLowerCase("pt-BR") === normalizedName.toLocaleLowerCase("pt-BR"),
+    );
+    if (duplicate) {
+      setCustomListError("Esse nome de lista já existe.");
+      return;
+    }
+    setCustomListError(null);
+    setCustomListStep("members");
+  }, [customConversationLists, newCustomListName]);
+  const handleToggleCustomListThread = useCallback((threadId: string) => {
+    setSelectedCustomListThreadIds((prev) =>
+      prev.includes(threadId) ? prev.filter((id) => id !== threadId) : [...prev, threadId],
+    );
+  }, []);
+  const handleSaveCustomList = useCallback(() => {
+    const normalizedName = newCustomListName.trim();
+    if (!normalizedName) {
+      setCustomListError("Digite um nome para a lista.");
+      setCustomListStep("name");
+      return;
+    }
+    const dedupedThreadIds = Array.from(new Set(selectedCustomListThreadIds));
+    if (!dedupedThreadIds.length) return;
+    const duplicate = customConversationLists.some(
+      (list) => list.name.toLocaleLowerCase("pt-BR") === normalizedName.toLocaleLowerCase("pt-BR"),
+    );
+    if (duplicate) {
+      setCustomListError("Esse nome de lista já existe.");
+      setCustomListStep("name");
+      return;
+    }
+    const now = Date.now();
+    const listId = `lst-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const nextList: CustomConversationList = {
+      id: listId,
+      name: normalizedName,
+      threadIds: dedupedThreadIds,
+      createdAt: now,
+    };
+    setCustomConversationLists((prev) => [nextList, ...prev]);
+    setActiveFilter(toCustomFilterKey(listId));
+    setIsCustomListOpen(false);
+    resetCustomListDraft();
+  }, [customConversationLists, newCustomListName, resetCustomListDraft, selectedCustomListThreadIds]);
   const addContactFromDirectory = useCallback(
     (email: string, name?: string, avatarUrl?: string | null) => {
       const normalized = normalizeEmail(email);
@@ -2539,12 +3092,26 @@ export default function KnexChatPage() {
     const previewEmail = extractEmail(thread.preview);
     return previewEmail ? normalizeEmail(previewEmail) : null;
   }, []);
+  const isSelfConversationThread = useCallback(
+    (thread: Thread | null) => {
+      if (!thread || (thread.tab !== "contacts" && thread.tab !== "conversations")) return false;
+      if (!identity?.email) return false;
+      const selfEmail = normalizeEmail(identity.email);
+      const recipientEmail = getThreadRecipientEmail(thread);
+      return Boolean(recipientEmail && recipientEmail === selfEmail);
+    },
+    [getThreadRecipientEmail, identity?.email],
+  );
   const ensureRecipientRegistered = useCallback(
     async (thread: Thread | null) => {
       if (!thread || (thread.tab !== "contacts" && thread.tab !== "conversations")) return true;
+      if (isSelfConversationThread(thread)) return true;
+      if (!serverMessagingEnabled) return true;
       const recipientEmail = getThreadRecipientEmail(thread);
       if (!recipientEmail) return true;
       if (isRegisteredEmail(recipientEmail)) return true;
+      const canVerifyDirectory = Boolean(authTokenRef.current ?? authSession?.access_token);
+      if (!canVerifyDirectory) return true;
       const exists = await checkEmailRegistered(recipientEmail);
       if (exists) return true;
       setMessageSendNotice(
@@ -2552,7 +3119,14 @@ export default function KnexChatPage() {
       );
       return false;
     },
-    [checkEmailRegistered, getThreadRecipientEmail, isRegisteredEmail],
+    [
+      authSession?.access_token,
+      checkEmailRegistered,
+      getThreadRecipientEmail,
+      isRegisteredEmail,
+      isSelfConversationThread,
+      serverMessagingEnabled,
+    ],
   );
   useEffect(() => {
     setMessageSendNotice(null);
@@ -2718,7 +3292,9 @@ export default function KnexChatPage() {
 
   const previewFromApiMessage = useCallback((message?: ApiMessage | null) => {
     if (!message) return "Sem mensagens";
-    if (message.kind === "image") return "Imagem enviada";
+    if (message.kind === "image") {
+      return detectMediaTypeFromSource(message.media_url) === "video" ? "Vídeo enviado" : "Imagem enviada";
+    }
     if (message.kind === "audio") return "Mensagem de áudio";
     if (message.kind === "file") return message.media_name ?? "Arquivo enviado";
     return message.body?.trim() || "Mensagem enviada";
@@ -2726,7 +3302,7 @@ export default function KnexChatPage() {
 
   const mapApiThreadToThread = useCallback(
     (thread: ApiThread): Thread => {
-      const identityEmail = identity?.email ? normalizeEmail(identity.email) : "";
+      const identityEmail = identityEmailRef.current;
       const participants = (thread.participants ?? []).map((participant) => ({
         email: normalizeEmail(participant.email),
         role: participant.role,
@@ -2747,7 +3323,7 @@ export default function KnexChatPage() {
           participants.find((participant) => normalizeEmail(participant.email) !== identityEmail) ?? participants[0];
         const otherEmail = otherParticipant?.email ? normalizeEmail(otherParticipant.email) : "";
         contactEmail = otherEmail || undefined;
-        const contactInfo = otherEmail ? contactNameByEmail.get(otherEmail) : undefined;
+        const contactInfo = otherEmail ? contactNameByEmailRef.current.get(otherEmail) : undefined;
         const displayName = contactInfo?.name ?? otherParticipant?.name ?? "";
         title = displayName || (otherEmail ? formatNameFromEmail(otherEmail) : "Conversa direta");
         avatarUrl = contactInfo?.avatarUrl ?? otherParticipant?.avatarUrl ?? undefined;
@@ -2770,15 +3346,15 @@ export default function KnexChatPage() {
         participantRoles: participants,
       };
     },
-    [contactNameByEmail, identity?.email, previewFromApiMessage],
+    [previewFromApiMessage],
   );
 
   const mapApiMessageToMessage = useCallback(
     (message: ApiMessage): Message => {
       const senderEmail = normalizeEmail(message.sender_email);
-      const senderInfo = senderEmail ? contactNameByEmail.get(senderEmail) : undefined;
-      const author: "me" | "them" =
-        identity?.email && normalizeEmail(identity.email) === senderEmail ? "me" : "them";
+      const senderInfo = senderEmail ? contactNameByEmailRef.current.get(senderEmail) : undefined;
+      const author: "me" | "them" = identityEmailRef.current && identityEmailRef.current === senderEmail ? "me" : "them";
+      const deliveryStatus: MessageDeliveryState | undefined = author === "me" ? "delivered" : undefined;
       const timeLabel = formatTimestampLabel(message.created_at) || "Agora";
       if (message.kind === "image") {
         return {
@@ -2791,6 +3367,7 @@ export default function KnexChatPage() {
           senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
           imageUrl: message.media_url ?? undefined,
           imageName: message.media_name ?? undefined,
+          deliveryStatus,
         };
       }
       if (message.kind === "audio") {
@@ -2804,6 +3381,7 @@ export default function KnexChatPage() {
           senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
           audioUrl: message.media_url ?? undefined,
           audioDuration: message.media_name ?? undefined,
+          deliveryStatus,
         };
       }
       if (message.kind === "file") {
@@ -2815,6 +3393,9 @@ export default function KnexChatPage() {
           senderName: senderInfo?.name,
           senderEmail: senderEmail || undefined,
           senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
+          fileUrl: message.media_url ?? undefined,
+          fileName: message.media_name ?? undefined,
+          deliveryStatus,
         };
       }
       return {
@@ -2825,9 +3406,10 @@ export default function KnexChatPage() {
         senderName: senderInfo?.name,
         senderEmail: senderEmail || undefined,
         senderAvatarUrl: senderInfo?.avatarUrl ?? undefined,
+        deliveryStatus,
       };
     },
-    [contactNameByEmail, identity?.email],
+    [],
   );
 
   const updateThreadActivity = useCallback((threadId: string, preview: string, activityAt: number) => {
@@ -2865,6 +3447,8 @@ export default function KnexChatPage() {
 
   const fetchThreadsFromServer = useCallback(async () => {
     if (!serverMessagingEnabled || !identity?.email) return;
+    if (isFetchingThreadsRef.current) return;
+    isFetchingThreadsRef.current = true;
     setIsServerSyncing(true);
     setServerSyncError(null);
     try {
@@ -2872,14 +3456,45 @@ export default function KnexChatPage() {
       if (!res.ok) throw new Error("threads_failed");
       const payload = (await res.json().catch(() => ({}))) as { threads?: ApiThread[] };
       const rawThreads = Array.isArray(payload?.threads) ? payload.threads : [];
-      const mapped = rawThreads.map(mapApiThreadToThread);
+      const mapped = rawThreads.map(mapApiThreadToThread).sort((a, b) => {
+        const diff = getThreadActivityTimestamp(b) - getThreadActivityTimestamp(a);
+        if (diff !== 0) return diff;
+        return a.id.localeCompare(b.id);
+      });
       const nextConversations = mapped.filter((thread) => thread.tab === "conversations");
       const nextGroups = mapped.filter((thread) => thread.tab === "groups");
-      setConversations(nextConversations);
-      setGroups(nextGroups);
+      setConversations((prev) => {
+        const selfEmail = identityEmailRef.current;
+        if (!selfEmail) {
+          return areThreadListsEqual(prev, nextConversations) ? prev : nextConversations;
+        }
+        const selfThreads = prev.filter(
+          (thread) =>
+            thread.tab === "conversations" &&
+            !isUuid(thread.id) &&
+            Boolean(thread.contactEmail && normalizeEmail(thread.contactEmail) === selfEmail),
+        );
+        if (!selfThreads.length) {
+          return areThreadListsEqual(prev, nextConversations) ? prev : nextConversations;
+        }
+        const merged = [...nextConversations];
+        selfThreads.forEach((thread) => {
+          const alreadyIncluded = merged.some(
+            (item) =>
+              item.id === thread.id ||
+              Boolean(item.contactEmail && normalizeEmail(item.contactEmail) === selfEmail),
+          );
+          if (!alreadyIncluded) {
+            merged.unshift(thread);
+          }
+        });
+        return areThreadListsEqual(prev, merged) ? prev : merged;
+      });
+      setGroups((prev) => (areThreadListsEqual(prev, nextGroups) ? prev : nextGroups));
       setGroupAdminIdsByGroup((prev) => {
         const next = { ...prev };
-        const selfEmail = identity?.email ? normalizeEmail(identity.email) : "";
+        const selfEmail = identityEmailRef.current;
+        let changed = false;
         mapped.forEach((thread) => {
           if (thread.tab !== "groups" || !thread.participantRoles?.length) return;
           const adminIds = thread.participantRoles
@@ -2888,19 +3503,27 @@ export default function KnexChatPage() {
               const normalized = normalizeEmail(participant.email);
               return selfEmail && normalized === selfEmail ? "self" : participant.email;
             });
-          if (adminIds.length) {
+          if (!adminIds.length) {
+            if (thread.id in next) {
+              delete next[thread.id];
+              changed = true;
+            }
+            return;
+          }
+          if (!areStringArraysEqual(next[thread.id] ?? [], adminIds)) {
             next[thread.id] = adminIds;
+            changed = true;
           }
         });
-        return next;
+        return changed ? next : prev;
       });
-      refreshRealtime();
     } catch {
       setServerSyncError("Não foi possível sincronizar suas conversas.");
     } finally {
+      isFetchingThreadsRef.current = false;
       setIsServerSyncing(false);
     }
-  }, [authFetch, identity?.email, mapApiThreadToThread, refreshRealtime, serverMessagingEnabled]);
+  }, [authFetch, identity?.email, mapApiThreadToThread, serverMessagingEnabled]);
 
   const fetchMessagesForThread = useCallback(
     async (threadId: string) => {
@@ -2911,7 +3534,11 @@ export default function KnexChatPage() {
         const payload = (await res.json().catch(() => ({}))) as { messages?: ApiMessage[] };
         const rawMessages = Array.isArray(payload?.messages) ? payload.messages : [];
         const mappedMessages = rawMessages.map(mapApiMessageToMessage);
-        setMessagesByThread((prev) => ({ ...prev, [threadId]: mappedMessages }));
+        setMessagesByThread((prev) => {
+          const existing = prev[threadId] ?? [];
+          if (areMessagesEqual(existing, mappedMessages)) return prev;
+          return { ...prev, [threadId]: mappedMessages };
+        });
         const lastMessage = rawMessages[rawMessages.length - 1];
         if (lastMessage) {
           const preview = previewFromApiMessage(lastMessage);
@@ -2928,11 +3555,29 @@ export default function KnexChatPage() {
   const ensureServerThreadForSend = useCallback(
     async (thread: Thread) => {
       if (!serverMessagingEnabled) return thread.id;
+      if (isSelfConversationThread(thread)) return thread.id;
       if (isUuid(thread.id)) return thread.id;
-      if (!identity?.email) return null;
-      if (thread.tab !== "contacts" && thread.tab !== "conversations") return null;
-      const recipientEmail = getThreadRecipientEmail(thread);
-      if (!recipientEmail) return null;
+      if (!identity?.email) {
+        setMessageSendNotice("Sessão indisponível. Faça login novamente para enviar mensagens.");
+        return null;
+      }
+      if (thread.tab !== "contacts" && thread.tab !== "conversations") {
+        setMessageSendNotice("Abra uma conversa direta para enviar mensagem.");
+        return null;
+      }
+      let recipientEmail = getThreadRecipientEmail(thread);
+      if (!recipientEmail && thread.participantRoles?.length) {
+        const selfEmail = normalizeEmail(identity.email);
+        const otherParticipant =
+          thread.participantRoles.find((participant) => normalizeEmail(participant.email) !== selfEmail) ??
+          thread.participantRoles[0];
+        const candidate = otherParticipant?.email ? normalizeEmail(otherParticipant.email) : "";
+        recipientEmail = candidate && candidate !== selfEmail ? candidate : null;
+      }
+      if (!recipientEmail) {
+        setMessageSendNotice("Não foi possível identificar o destinatário desta conversa.");
+        return null;
+      }
       try {
         const res = await authFetch("/api/knexchat/threads", {
           method: "POST",
@@ -2971,7 +3616,15 @@ export default function KnexChatPage() {
         return null;
       }
     },
-    [authFetch, getThreadRecipientEmail, identity?.email, mapApiThreadToThread, refreshRealtime, serverMessagingEnabled],
+    [
+      authFetch,
+      getThreadRecipientEmail,
+      identity?.email,
+      isSelfConversationThread,
+      mapApiThreadToThread,
+      refreshRealtime,
+      serverMessagingEnabled,
+    ],
   );
   const handleSendInvite = useCallback(async () => {
     if (!normalizedNewContactEmail) return;
@@ -3149,6 +3802,7 @@ export default function KnexChatPage() {
     setProfileTarget(target);
     setIsProfileAvatarPreviewOpen(false);
     setIsNewChatOpen(false);
+    setIsCustomListOpen(false);
     setIsNewChatEmailOpen(false);
     setIsNewGroupOpen(false);
     setIsNewGroupCreateOpen(false);
@@ -3180,6 +3834,7 @@ export default function KnexChatPage() {
     setDirectorySearch("");
     setIsDirectoryFiltersOpen(false);
     setIsNewChatOpen(false);
+    setIsCustomListOpen(false);
     setIsNewChatEmailOpen(false);
     setIsNewGroupOpen(false);
     setIsNewGroupCreateOpen(false);
@@ -3227,6 +3882,15 @@ export default function KnexChatPage() {
     setIsSettingsOpen(true);
     setActiveSettingKey(key);
   };
+  const handleBackFromSettingsDetail = useCallback(() => {
+    if (isMobileView) {
+      setIsSettingsOpen(false);
+      setActiveSettingKey(null);
+      setIsMobileProfileSheetOpen(true);
+      return;
+    }
+    setActiveSettingKey(null);
+  }, [isMobileView]);
   const commitProfileName = useCallback(() => {
     if (profileTarget !== "self" || !identity) return;
     const normalizedName = normalizeName(profileNameDraft);
@@ -3433,6 +4097,340 @@ export default function KnexChatPage() {
       { id: "m2", author: "me", body: "Oi! Vamos conversar por aqui.", time: "Agora" },
     ];
   }, [activeThread, messagesByThread]);
+  const conversationMediaItems = useMemo<ConversationMediaViewerItem[]>(() => {
+    return activeMessages
+      .filter((message) => Boolean(message.imageUrl))
+      .map((message, index) => {
+        const senderInfo = message.senderEmail
+          ? contactNameByEmail.get(normalizeEmail(message.senderEmail))
+          : undefined;
+        const senderName =
+          message.author === "me"
+            ? currentUser?.name ?? "Você"
+            : message.senderName?.trim() || senderInfo?.name || "Participante";
+        const senderAvatarCandidate =
+          message.author === "me"
+            ? currentUser?.avatarUrl ?? null
+            : message.senderAvatarUrl ?? senderInfo?.avatarUrl ?? null;
+        return {
+          id: message.id,
+          src: message.imageUrl ?? "",
+          label: message.imageName ?? message.body ?? `Mídia ${index + 1}`,
+          time: message.time,
+          senderName,
+          senderAvatarUrl: normalizeAvatarUrl(senderAvatarCandidate) ?? undefined,
+          mediaType: detectMediaTypeFromSource(message.imageUrl),
+        };
+      });
+  }, [activeMessages, contactNameByEmail, currentUser?.avatarUrl, currentUser?.name]);
+  const activeConversationMediaItem =
+    conversationMediaItems.length && conversationMediaViewerIndex >= 0
+      ? conversationMediaItems[Math.min(conversationMediaViewerIndex, conversationMediaItems.length - 1)]
+      : null;
+  const openConversationMediaViewer = useCallback(
+    (messageId: string) => {
+      const index = conversationMediaItems.findIndex((item) => item.id === messageId);
+      if (index < 0) return;
+      setMessageMediaContextMenu(null);
+      setConversationMediaViewerIndex(index);
+      setIsConversationMediaViewerUiVisible(!isMobileView);
+      setIsConversationMediaViewerOpen(true);
+    },
+    [conversationMediaItems, isMobileView],
+  );
+  const closeConversationMediaViewer = useCallback(() => {
+    const video = conversationMediaViewerVideoRef.current;
+    if (video && !video.paused) {
+      video.pause();
+    }
+    setIsConversationMediaViewerOpen(false);
+    setIsConversationMediaViewerUiVisible(false);
+    setIsConversationMediaViewerVideoPlaying(false);
+    setConversationMediaViewerVideoCurrentTime(0);
+    setConversationMediaViewerVideoDuration(0);
+    conversationMediaViewerTouchStartRef.current = null;
+    conversationMediaViewerDidSwipeRef.current = false;
+  }, []);
+  const toggleConversationMediaViewerVideoPlayback = useCallback(() => {
+    const video = conversationMediaViewerVideoRef.current;
+    if (!video) return;
+    if (isMobileView) {
+      setIsConversationMediaViewerUiVisible(true);
+    }
+    if (video.paused || video.ended) {
+      setIsConversationMediaViewerVideoPlaying(true);
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          setIsConversationMediaViewerVideoPlaying(false);
+        });
+      }
+      return;
+    }
+    setIsConversationMediaViewerVideoPlaying(false);
+    video.pause();
+  }, [isMobileView]);
+  const cycleConversationMediaViewerVideoPlaybackSpeed = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      setConversationMediaViewerVideoPlaybackSpeed((previous) => getNextPlaybackSpeed(previous));
+    },
+    [],
+  );
+  const handleConversationMediaViewerVideoSurfaceClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+      if (conversationMediaViewerDidSwipeRef.current) {
+        conversationMediaViewerDidSwipeRef.current = false;
+        return;
+      }
+      toggleConversationMediaViewerVideoPlayback();
+    },
+    [toggleConversationMediaViewerVideoPlayback],
+  );
+  const handleConversationMediaViewerVideoButtonClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      toggleConversationMediaViewerVideoPlayback();
+    },
+    [toggleConversationMediaViewerVideoPlayback],
+  );
+  const toggleConversationMediaViewerUi = useCallback(() => {
+    if (!isMobileView) return;
+    setIsConversationMediaViewerUiVisible((previous) => !previous);
+  }, [isMobileView]);
+  const goToPreviousConversationMedia = useCallback(() => {
+    setConversationMediaViewerIndex((prev) => Math.max(0, prev - 1));
+  }, []);
+  const goToNextConversationMedia = useCallback(() => {
+    setConversationMediaViewerIndex((prev) => Math.min(conversationMediaItems.length - 1, prev + 1));
+  }, [conversationMediaItems.length]);
+  const updateMessageVideoDuration = useCallback((messageId: string, seconds: number) => {
+    if (!messageId || !Number.isFinite(seconds) || seconds <= 0) return;
+    const label = formatDuration(Math.round(seconds));
+    setMessageVideoDurationById((previous) =>
+      previous[messageId] === label ? previous : { ...previous, [messageId]: label },
+    );
+  }, []);
+  const closeMessageMediaContextMenu = useCallback(() => {
+    setMessageMediaContextMenu(null);
+  }, []);
+  const openMessageMediaContextMenu = useCallback(
+    (
+      event: React.MouseEvent<HTMLButtonElement>,
+      message: Message,
+      mediaType: "image" | "video",
+    ) => {
+      if (isMobileView || !message.imageUrl) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const menuWidth = 320;
+      const menuHeight = 420;
+      const gutter = 8;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const x = Math.min(Math.max(gutter, event.clientX), Math.max(gutter, viewportWidth - menuWidth - gutter));
+      const y = Math.min(Math.max(gutter, event.clientY), Math.max(gutter, viewportHeight - menuHeight - gutter));
+      setMessageMediaContextMenu({
+        messageId: message.id,
+        src: message.imageUrl,
+        label: message.imageName ?? message.body ?? (mediaType === "video" ? "Vídeo" : "Imagem"),
+        mediaType,
+        x,
+        y,
+      });
+    },
+    [isMobileView],
+  );
+  const handleMessageMediaContextMenuAction = useCallback(() => {
+    setMessageMediaContextMenu(null);
+  }, []);
+  const handleMessageMediaContextMenuCopy = useCallback(async () => {
+    if (!messageMediaContextMenu) return;
+    try {
+      const response = await fetch(messageMediaContextMenu.src);
+      if (!response.ok) throw new Error("copy_fetch_failed");
+      const blob = await response.blob();
+      if (
+        typeof ClipboardItem !== "undefined" &&
+        navigator.clipboard?.write &&
+        blob.type &&
+        (messageMediaContextMenu.mediaType === "image" || blob.type.startsWith("image/"))
+      ) {
+        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+      } else {
+        const dataUrl = await readFileAsDataUrl(blob);
+        await navigator.clipboard.writeText(dataUrl);
+      }
+    } catch {
+      try {
+        await navigator.clipboard.writeText(messageMediaContextMenu.src);
+      } catch {
+        // Ignore clipboard errors to keep menu responsive.
+      }
+    }
+    setMessageMediaContextMenu(null);
+  }, [messageMediaContextMenu, readFileAsDataUrl]);
+  const handleMessageMediaContextMenuSaveAs = useCallback(() => {
+    if (!messageMediaContextMenu) return;
+    const link = document.createElement("a");
+    link.href = messageMediaContextMenu.src;
+    link.download = messageMediaContextMenu.label;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setMessageMediaContextMenu(null);
+  }, [messageMediaContextMenu]);
+  const handleConversationMediaViewerTouchStart = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      if (!isMobileView || conversationMediaItems.length <= 1) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      conversationMediaViewerDidSwipeRef.current = false;
+      conversationMediaViewerTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    },
+    [conversationMediaItems.length, isMobileView],
+  );
+  const handleConversationMediaViewerTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      if (!isMobileView || conversationMediaItems.length <= 1) return;
+      const start = conversationMediaViewerTouchStartRef.current;
+      conversationMediaViewerTouchStartRef.current = null;
+      if (!start) return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      if (Math.abs(deltaX) < 48 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+      conversationMediaViewerDidSwipeRef.current = true;
+      setIsConversationMediaViewerUiVisible(false);
+      if (deltaX < 0) {
+        goToNextConversationMedia();
+        return;
+      }
+      goToPreviousConversationMedia();
+    },
+    [conversationMediaItems.length, goToNextConversationMedia, goToPreviousConversationMedia, isMobileView],
+  );
+  const handleConversationMediaViewerOverlayClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!isMobileView) {
+        closeConversationMediaViewer();
+        return;
+      }
+      if (conversationMediaViewerDidSwipeRef.current) {
+        conversationMediaViewerDidSwipeRef.current = false;
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (!target || target.closest("button, a")) return;
+      toggleConversationMediaViewerUi();
+    },
+    [closeConversationMediaViewer, isMobileView, toggleConversationMediaViewerUi],
+  );
+  useEffect(() => {
+    if (!isConversationMediaViewerOpen) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeConversationMediaViewer();
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        goToPreviousConversationMedia();
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        goToNextConversationMedia();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [
+    closeConversationMediaViewer,
+    goToNextConversationMedia,
+    goToPreviousConversationMedia,
+    isConversationMediaViewerOpen,
+  ]);
+  useEffect(() => {
+    if (!messageMediaContextMenu || isMobileView) return;
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && messageMediaContextMenuRef.current?.contains(target)) return;
+      closeMessageMediaContextMenu();
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMessageMediaContextMenu();
+      }
+    };
+    const handleViewportChange = () => {
+      closeMessageMediaContextMenu();
+    };
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [closeMessageMediaContextMenu, isMobileView, messageMediaContextMenu]);
+  useEffect(() => {
+    if (!isConversationMediaViewerOpen) return;
+    if (!conversationMediaItems.length) {
+      setIsConversationMediaViewerOpen(false);
+      setIsConversationMediaViewerUiVisible(false);
+      setConversationMediaViewerIndex(0);
+      return;
+    }
+    if (conversationMediaViewerIndex >= conversationMediaItems.length) {
+      setConversationMediaViewerIndex(conversationMediaItems.length - 1);
+    }
+  }, [conversationMediaItems.length, conversationMediaViewerIndex, isConversationMediaViewerOpen]);
+  useEffect(() => {
+    if (
+      !isConversationMediaViewerOpen ||
+      !activeConversationMediaItem ||
+      activeConversationMediaItem.mediaType !== "video"
+    ) {
+      const video = conversationMediaViewerVideoRef.current;
+      if (video && !video.paused) {
+        video.pause();
+      }
+      setIsConversationMediaViewerVideoPlaying(false);
+      setConversationMediaViewerVideoCurrentTime(0);
+      setConversationMediaViewerVideoDuration(0);
+      return;
+    }
+    setIsConversationMediaViewerVideoPlaying(false);
+    setConversationMediaViewerVideoCurrentTime(0);
+    setConversationMediaViewerVideoDuration(0);
+  }, [activeConversationMediaItem, isConversationMediaViewerOpen]);
+  useEffect(() => {
+    const video = conversationMediaViewerVideoRef.current;
+    if (!video) return;
+    video.playbackRate = conversationMediaViewerVideoPlaybackSpeed;
+  }, [conversationMediaViewerVideoPlaybackSpeed, activeConversationMediaItem?.id, isConversationMediaViewerOpen]);
+  useEffect(() => {
+    if (!isConversationMediaViewerOpen || !isMobileView || !isConversationMediaViewerUiVisible) return;
+    const timeoutId = window.setTimeout(() => {
+      setIsConversationMediaViewerUiVisible(false);
+    }, 2300);
+    return () => window.clearTimeout(timeoutId);
+  }, [conversationMediaViewerIndex, isConversationMediaViewerOpen, isConversationMediaViewerUiVisible, isMobileView]);
+  useEffect(() => {
+    setIsConversationMediaViewerOpen(false);
+    setIsConversationMediaViewerUiVisible(false);
+    setMessageMediaContextMenu(null);
+    setIsConversationMediaViewerVideoPlaying(false);
+    setConversationMediaViewerVideoCurrentTime(0);
+    setConversationMediaViewerVideoDuration(0);
+    setConversationMediaViewerIndex(0);
+    conversationMediaViewerTouchStartRef.current = null;
+    conversationMediaViewerDidSwipeRef.current = false;
+  }, [activeThreadId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3461,6 +4459,28 @@ export default function KnexChatPage() {
     if (isMobileView) return;
     setIsMobileProfileSheetOpen(false);
   }, [isMobileView]);
+  useEffect(() => {
+    if (isMobileProfileSheetOpen) return;
+    setMobileProfileSheetScrollY(0);
+    setIsMobileProfileSearchOpen(false);
+    setMobileProfileSearchQuery("");
+  }, [isMobileProfileSheetOpen]);
+  useEffect(() => {
+    if (!isMobileProfileSheetOpen || !isMobileProfileSearchOpen) return;
+    if (mobileProfileSheetScrollRef.current) {
+      mobileProfileSheetScrollRef.current.scrollTop = 0;
+    }
+    const timer = window.setTimeout(() => {
+      mobileProfileSearchInputRef.current?.focus();
+      mobileProfileSearchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isMobileProfileSearchOpen, isMobileProfileSheetOpen]);
+
+  useEffect(() => {
+    if (!(isDirectoryOpen || isGroupsPanelOpen || isNewChatOpen || isProfileOpen || isSettingsOpen)) return;
+    setIsCustomListOpen(false);
+  }, [isDirectoryOpen, isGroupsPanelOpen, isNewChatOpen, isProfileOpen, isSettingsOpen]);
 
   useEffect(() => {
     const hasHorizontalOverflow = (element: HTMLDivElement | null) => {
@@ -3471,11 +4491,9 @@ export default function KnexChatPage() {
     const evaluateCarouselNeeds = () => {
       if (!isMobileView) {
         setIsMobileDockCarousel(false);
-        setIsConversationFiltersCarousel(false);
-        setIsDirectoryFiltersCarousel(false);
-        return;
+      } else {
+        setIsMobileDockCarousel(hasHorizontalOverflow(mobileDockButtonsRef.current));
       }
-      setIsMobileDockCarousel(hasHorizontalOverflow(mobileDockButtonsRef.current));
       setIsConversationFiltersCarousel(hasHorizontalOverflow(conversationFiltersRef.current));
       setIsDirectoryFiltersCarousel(hasHorizontalOverflow(directoryFiltersRef.current));
     };
@@ -3500,6 +4518,7 @@ export default function KnexChatPage() {
     directoryFilter,
     directoryTab,
     isDirectoryFiltersOpen,
+    isCustomListOpen,
     isMobileView,
     isNewChatOpen,
   ]);
@@ -3728,6 +4747,7 @@ export default function KnexChatPage() {
         groupDescriptions: Record<string, string>;
         groupPermissions: Record<string, GroupPermissions>;
         groupAdmins: Record<string, string[]>;
+        customConversationLists: CustomConversationList[];
         activeFilter: FilterKey;
         activeThreadId: string;
       }>>(raw);
@@ -3772,18 +4792,52 @@ export default function KnexChatPage() {
       if (parsed.groupAdmins && typeof parsed.groupAdmins === "object") {
         setGroupAdminIdsByGroup(parsed.groupAdmins as Record<string, string[]>);
       }
-      if (parsed.activeFilter) {
+      if (Array.isArray(parsed.customConversationLists)) {
+        setCustomConversationLists(
+          parsed.customConversationLists
+            .filter((item) => item && typeof item === "object")
+            .map((item) => {
+              const draft = item as Partial<CustomConversationList>;
+              const id = typeof draft.id === "string" ? draft.id.trim() : "";
+              const name = typeof draft.name === "string" ? draft.name.trim() : "";
+              const threadIds = Array.isArray(draft.threadIds)
+                ? draft.threadIds.filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+                : [];
+              const createdAt =
+                typeof draft.createdAt === "number" && Number.isFinite(draft.createdAt) ? draft.createdAt : Date.now();
+              if (!id || !name) return null;
+              return { id, name, threadIds, createdAt };
+            })
+            .filter((item): item is CustomConversationList => Boolean(item)),
+        );
+      }
+      const parsedUiState = chatUiStateKey
+        ? safeParseJson<Partial<{ activeFilter: FilterKey; activeThreadId: string }>>(
+            localStorage.getItem(chatUiStateKey),
+          )
+        : null;
+      const hasUiFilter = typeof parsedUiState?.activeFilter === "string" && parsedUiState.activeFilter.length > 0;
+      const hasUiThreadId =
+        typeof parsedUiState?.activeThreadId === "string" && parsedUiState.activeThreadId.trim().length > 0;
+      if (hasUiFilter) {
+        setActiveFilter(parsedUiState.activeFilter as FilterKey);
+      } else if (parsed.activeFilter) {
         setActiveFilter(parsed.activeFilter);
       }
-      if (parsed.activeThreadId) {
+      if (hasUiThreadId) {
+        setActiveThreadId(parsedUiState.activeThreadId as string);
+      } else if (parsed.activeThreadId) {
         setActiveThreadId(parsed.activeThreadId);
       }
     } catch {
       localStorage.removeItem(chatStateKey);
+      if (chatUiStateKey) {
+        localStorage.removeItem(chatUiStateKey);
+      }
     } finally {
       setIsChatStateHydrated(true);
     }
-  }, [chatStateKey, resetChatState]);
+  }, [chatStateKey, chatUiStateKey, resetChatState]);
 
   useEffect(() => {
     if (!isChatStateHydrated) return;
@@ -3935,6 +4989,26 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
     if (isKnexchatActivated !== true || entitlementBlocked) return;
+    const interval = window.setInterval(
+      () => {
+        void fetchThreadsFromServer();
+      },
+      isRealtimeConnected ? 12000 : 8000,
+    );
+    return () => window.clearInterval(interval);
+  }, [
+    entitlementBlocked,
+    fetchThreadsFromServer,
+    identity?.email,
+    isChatStateHydrated,
+    isKnexchatActivated,
+    isRealtimeConnected,
+    serverMessagingEnabled,
+  ]);
+
+  useEffect(() => {
+    if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
+    if (isKnexchatActivated !== true || entitlementBlocked) return;
     if (!authSession?.access_token) return;
     let source: EventSource | null = null;
     let cancelled = false;
@@ -4064,11 +5138,10 @@ export default function KnexChatPage() {
             groupDescriptions,
             groupPermissions: groupPermissionsById,
             groupAdmins: groupAdminIdsByGroup,
+            customConversationLists,
             selfAvatarUrl,
             threadAvatarOverrides,
             mediaLibrary,
-            activeFilter,
-            activeThreadId,
           }),
         );
       } catch {
@@ -4077,11 +5150,10 @@ export default function KnexChatPage() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [
-    activeFilter,
-    activeThreadId,
     chatStateKey,
     contacts,
     conversations,
+    customConversationLists,
     groups,
     isChatStateHydrated,
     mediaLibrary,
@@ -4094,6 +5166,24 @@ export default function KnexChatPage() {
     groupAdminIdsByGroup,
     threadAvatarOverrides,
   ]);
+
+  useEffect(() => {
+    if (!isChatStateHydrated || !chatUiStateKey) return;
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          chatUiStateKey,
+          JSON.stringify({
+            activeFilter,
+            activeThreadId,
+          }),
+        );
+      } catch {
+        // Ignore storage errors.
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [activeFilter, activeThreadId, chatUiStateKey, isChatStateHydrated]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4237,15 +5327,23 @@ export default function KnexChatPage() {
   };
 
   const handleSendMessage = async () => {
-    if (!activeThread || !currentUser) return;
+    if (!activeThread) {
+      setMessageSendNotice("Selecione uma conversa para enviar mensagem.");
+      return;
+    }
     const trimmed = messageDraft.trim();
     if (!trimmed) return;
     if (!(await ensureRecipientRegistered(activeThread))) return;
     if (messageSendNotice) setMessageSendNotice(null);
     const threadId = await ensureServerThreadForSend(activeThread);
-    if (!threadId) return;
+    if (!threadId) {
+      if (!messageSendNotice) {
+        setMessageSendNotice("Não foi possível preparar esta conversa para envio.");
+      }
+      return;
+    }
 
-    if (serverMessagingEnabled && identity?.email) {
+    if (serverMessagingEnabled && identity?.email && !isSelfConversationThread(activeThread)) {
       try {
         const res = await authFetch("/api/knexchat/messages", {
           method: "POST",
@@ -4285,6 +5383,7 @@ export default function KnexChatPage() {
       author: "me",
       body: trimmed,
       time: timeLabel,
+      deliveryStatus: "sent",
     };
     setMessagesByThread((prev) => ({
       ...prev,
@@ -4294,21 +5393,35 @@ export default function KnexChatPage() {
     setMessageDraft("");
   };
 
-  const handleSendImage = async (file: File) => {
-    if (!activeThread || !currentUser) return;
+  const handleSendAttachment = async (file: File) => {
+    if (!activeThread) {
+      setMessageSendNotice("Selecione uma conversa para enviar mensagem.");
+      return;
+    }
     if (!(await ensureRecipientRegistered(activeThread))) return;
     if (messageSendNotice) setMessageSendNotice(null);
     const threadId = await ensureServerThreadForSend(activeThread);
-    if (!threadId) return;
-    let imageUrl = "";
-    try {
-      imageUrl = await readFileAsDataUrl(file);
-    } catch {
+    if (!threadId) {
+      if (!messageSendNotice) {
+        setMessageSendNotice("Não foi possível preparar esta conversa para envio.");
+      }
       return;
     }
-    if (!imageUrl) return;
+    const isVideo = file.type.startsWith("video/");
+    const isVisualMedia = file.type.startsWith("image/") || isVideo;
+    const messageKind: "image" | "file" = isVisualMedia ? "image" : "file";
+    const previewLabel = isVisualMedia ? (isVideo ? "Vídeo enviado" : "Imagem enviada") : "Arquivo enviado";
+    const mediaName = file.name?.trim() || (isVisualMedia ? (isVideo ? "Vídeo enviado" : "Imagem enviada") : "Arquivo enviado");
+    let mediaUrl = "";
+    try {
+      mediaUrl = await readFileAsDataUrl(file);
+    } catch {
+      setMessageSendNotice("Não foi possível preparar esse arquivo para envio.");
+      return;
+    }
+    if (!mediaUrl) return;
 
-    if (serverMessagingEnabled && identity?.email) {
+    if (serverMessagingEnabled && identity?.email && !isSelfConversationThread(activeThread)) {
       try {
         const res = await authFetch("/api/knexchat/messages", {
           method: "POST",
@@ -4316,10 +5429,10 @@ export default function KnexChatPage() {
           body: JSON.stringify({
             threadId,
             senderEmail: identity.email,
-            kind: "image",
-            body: file.name ?? "Imagem enviada",
-            mediaUrl: imageUrl,
-            mediaName: file.name ?? "Imagem enviada",
+            kind: messageKind,
+            body: mediaName,
+            mediaUrl,
+            mediaName,
           }),
         });
         if (!res.ok) throw new Error("send_failed");
@@ -4333,7 +5446,7 @@ export default function KnexChatPage() {
         const activityAt = toTimestampMs(payload.message.created_at) ?? Date.now();
         updateThreadActivity(threadId, previewFromApiMessage(payload.message), activityAt);
       } catch {
-        setMessageSendNotice("Não foi possível enviar a imagem agora.");
+        setMessageSendNotice("Não foi possível enviar o arquivo agora.");
         return;
       }
     } else {
@@ -4342,39 +5455,329 @@ export default function KnexChatPage() {
         minute: "2-digit",
       });
       const activityAt = Date.now();
-      const newMessage: Message = {
-        id: `m_${Date.now()}`,
-        author: "me",
-        body: file.name ?? "Imagem enviada",
-        time: timeLabel,
-        imageUrl,
-        imageName: file.name,
-      };
+      const newMessage: Message = isVisualMedia
+        ? {
+            id: `m_${Date.now()}`,
+            author: "me",
+            body: mediaName,
+            time: timeLabel,
+            imageUrl: mediaUrl,
+            imageName: mediaName,
+            deliveryStatus: "sent",
+          }
+        : {
+            id: `m_${Date.now()}`,
+            author: "me",
+            body: mediaName,
+            time: timeLabel,
+            fileUrl: mediaUrl,
+            fileName: mediaName,
+            deliveryStatus: "sent",
+          };
       setMessagesByThread((prev) => ({
         ...prev,
         [threadId]: [...(prev[threadId] ?? []), newMessage],
       }));
-      updateThreadActivity(threadId, "Imagem enviada", activityAt);
+      updateThreadActivity(threadId, previewLabel, activityAt);
     }
 
-    const mediaItem: MediaItem = {
-      id: `media_${Date.now()}`,
-      threadId,
-      label: file.name ?? "Imagem",
-      caption: `Enviado por ${currentUser.name ?? "Você"}`,
-      src: imageUrl,
-      sizeKb: file.size ? Math.max(1, Math.round(file.size / 1024)) : undefined,
-      isFavorite: false,
-      mediaType: "image",
-    };
-    setMediaLibrary((prev) => [mediaItem, ...prev]);
+    if (isVisualMedia) {
+      const mediaItem: MediaItem = {
+        id: `media_${Date.now()}`,
+        threadId,
+        label: mediaName,
+        caption: `Enviado por ${currentUser?.name ?? "Você"}`,
+        src: mediaUrl,
+        sizeKb: file.size ? Math.max(1, Math.round(file.size / 1024)) : undefined,
+        isFavorite: false,
+        mediaType: isVideo ? "video" : "image",
+      };
+      setMediaLibrary((prev) => [mediaItem, ...prev]);
+    }
   };
-  const handleMessageImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMessageAttachmentChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    await handleSendImage(file);
+    await handleSendAttachment(file);
     event.target.value = "";
   };
+  const pickPreferredAttachmentFile = useCallback((files: File[]) => {
+    return (
+      files.find((candidate) => candidate.type.startsWith("image/")) ??
+      files.find((candidate) => candidate.type.startsWith("video/")) ??
+      files[0] ??
+      null
+    );
+  }, []);
+  const extractMediaSourcesFromText = useCallback((raw: string | null | undefined) => {
+    if (!raw) return [];
+    const input = raw.trim();
+    if (!input) return [];
+    const sources: string[] = [];
+    const seen = new Set<string>();
+    const pushSource = (candidate: string | null | undefined) => {
+      if (!candidate) return;
+      const sanitized = candidate
+        .trim()
+        .replace(/^[<("'`]+/, "")
+        .replace(/[>)"'`.,;]+$/, "")
+        .replace(/&amp;/g, "&");
+      if (!sanitized) return;
+      if (!/^(https?:\/\/|blob:|data:)/i.test(sanitized)) return;
+      if (seen.has(sanitized)) return;
+      seen.add(sanitized);
+      sources.push(sanitized);
+    };
+    function scanUnknown(value: unknown, depth: number): void {
+      if (depth > 5 || value == null) return;
+      if (typeof value === "string") {
+        scanString(value, depth);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((item) => scanUnknown(item, depth + 1));
+        return;
+      }
+      if (typeof value === "object") {
+        Object.values(value as Record<string, unknown>).forEach((item) => scanUnknown(item, depth + 1));
+      }
+    }
+    function scanString(value: string, depth: number): void {
+      const text = value.trim();
+      if (!text) return;
+      pushSource(text);
+      const urlMatches = text.match(/(?:https?:\/\/|blob:)[^\s"'<>]+/gi);
+      urlMatches?.forEach((match) => pushSource(match));
+      const dataMatches = text.match(/data:[^\s"'<>]+/gi);
+      dataMatches?.forEach((match) => pushSource(match));
+      if (depth >= 4) return;
+      if ((text.startsWith("{") || text.startsWith("[")) && text.length <= 220000) {
+        try {
+          const parsed = JSON.parse(text) as unknown;
+          scanUnknown(parsed, depth + 1);
+        } catch {
+          // ignore non-json payloads
+        }
+      }
+    }
+    scanString(input, 0);
+    return sources;
+  }, []);
+  const extractMediaSourcesFromHtml = useCallback(
+    (html: string | null | undefined) => {
+      if (!html) return [];
+      const sources: string[] = [];
+      const seen = new Set<string>();
+      const pushSource = (candidate: string | null | undefined) => {
+        if (!candidate) return;
+        const cleaned = candidate.trim();
+        if (!cleaned) return;
+        if (seen.has(cleaned)) return;
+        seen.add(cleaned);
+        sources.push(cleaned);
+      };
+      if (typeof DOMParser !== "undefined") {
+        try {
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          doc
+            .querySelectorAll("img[src], video[src], source[src], a[href]")
+            .forEach((element) => pushSource(element.getAttribute("src") ?? element.getAttribute("href")));
+        } catch {
+          // ignore html parser errors
+        }
+      }
+      const attrMatches = html.matchAll(/(?:src|href)=["']([^"']+)["']/gi);
+      for (const match of attrMatches) {
+        pushSource(match[1]);
+      }
+      extractMediaSourcesFromText(html).forEach((source) => pushSource(source));
+      return sources;
+    },
+    [extractMediaSourcesFromText],
+  );
+  const collectMediaSourcesFromTransfer = useCallback(
+    (transfer: DataTransfer | null | undefined) => {
+      if (!transfer) return [];
+      const sources: string[] = [];
+      const seen = new Set<string>();
+      const pushSource = (candidate: string | null | undefined) => {
+        if (!candidate) return;
+        const cleaned = candidate.trim();
+        if (!cleaned) return;
+        if (seen.has(cleaned)) return;
+        seen.add(cleaned);
+        sources.push(cleaned);
+      };
+      const uriList = transfer.getData("text/uri-list");
+      if (uriList) {
+        uriList
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#"))
+          .forEach((line) => extractMediaSourcesFromText(line).forEach((source) => pushSource(source)));
+      }
+      extractMediaSourcesFromHtml(transfer.getData("text/html")).forEach((source) => pushSource(source));
+      extractMediaSourcesFromText(transfer.getData("text/plain")).forEach((source) => pushSource(source));
+      return sources;
+    },
+    [extractMediaSourcesFromHtml, extractMediaSourcesFromText],
+  );
+  const buildFileFromMediaSource = useCallback(async (source: string) => {
+    try {
+      const response = await fetch(source);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      if (!blob.size) return null;
+      const normalizedBlob = blob.type ? blob : new Blob([blob], { type: "application/octet-stream" });
+      const sourcePath = source.split("#")[0]?.split("?")[0] ?? source;
+      const encodedName = sourcePath.split("/").pop() ?? "";
+      let decodedName = "";
+      try {
+        decodedName = decodeURIComponent(encodedName);
+      } catch {
+        decodedName = encodedName;
+      }
+      const sanitizedName = decodedName.replace(/[\\/:*?"<>|]/g, "_").trim();
+      const hasExtension = /\.[a-z0-9]{2,12}$/i.test(sanitizedName);
+      const mimeSubtype = normalizedBlob.type.includes("/")
+        ? normalizedBlob.type.split("/")[1]?.split(";")[0]?.toLowerCase() ?? ""
+        : "";
+      const extensionMap: Record<string, string> = {
+        jpeg: "jpg",
+        "svg+xml": "svg",
+        quicktime: "mov",
+        "x-matroska": "mkv",
+      };
+      const mappedSubtype = extensionMap[mimeSubtype] ?? mimeSubtype;
+      const extension = mappedSubtype ? `.${mappedSubtype.replace(/[^a-z0-9.+-]/g, "")}` : "";
+      const detectedType = detectMediaTypeFromSource(source);
+      const baseName =
+        normalizedBlob.type.startsWith("video/") || detectedType === "video"
+          ? "video-colado"
+          : normalizedBlob.type.startsWith("image/")
+            ? "imagem-colada"
+            : "arquivo-colado";
+      const fileName = sanitizedName && hasExtension ? sanitizedName : `${baseName}${extension}`;
+      return new File([normalizedBlob], fileName, { type: normalizedBlob.type || "application/octet-stream" });
+    } catch {
+      return null;
+    }
+  }, []);
+  const extractAttachmentFromTransfer = useCallback(
+    async (transfer: DataTransfer | null | undefined): Promise<{ file: File | null; hasMediaPayload: boolean }> => {
+      if (!transfer) return { file: null, hasMediaPayload: false };
+      const directFiles = Array.from(transfer.files ?? []);
+      const fileFromFiles = pickPreferredAttachmentFile(directFiles);
+      if (fileFromFiles) return { file: fileFromFiles, hasMediaPayload: true };
+
+      const itemFiles = Array.from(transfer.items ?? [])
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((candidate): candidate is File => Boolean(candidate));
+      const fileFromItems = pickPreferredAttachmentFile(itemFiles);
+      if (fileFromItems) return { file: fileFromItems, hasMediaPayload: true };
+
+      const mediaSources = collectMediaSourcesFromTransfer(transfer);
+      if (!mediaSources.length) return { file: null, hasMediaPayload: false };
+      for (const source of mediaSources) {
+        const file = await buildFileFromMediaSource(source);
+        if (file) return { file, hasMediaPayload: true };
+      }
+      return { file: null, hasMediaPayload: true };
+    },
+    [buildFileFromMediaSource, collectMediaSourcesFromTransfer, pickPreferredAttachmentFile],
+  );
+  const hasDragFiles = useCallback((dataTransfer: DataTransfer | null | undefined) => {
+    if (!dataTransfer) return false;
+    if ((dataTransfer.files?.length ?? 0) > 0) return true;
+    if (Array.from(dataTransfer.items ?? []).some((item) => item.kind === "file")) return true;
+    const types = Array.from(dataTransfer.types ?? []);
+    return types.includes("Files") || types.includes("text/uri-list") || types.includes("text/html");
+  }, []);
+  const hasClipboardMediaPayload = useCallback(
+    (dataTransfer: DataTransfer | null | undefined) => {
+      if (!dataTransfer) return false;
+      if (hasDragFiles(dataTransfer)) return true;
+      const plainText = dataTransfer.getData("text/plain")?.trim();
+      if (!plainText) return false;
+      if (/^data:(image|video|application)\//i.test(plainText)) return true;
+      if (/^blob:/i.test(plainText)) return true;
+      if (/^https?:\/\/[^\s]+\.(png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|m4v|mkv)(?:[?#].*)?$/i.test(plainText)) {
+        return true;
+      }
+      if ((plainText.startsWith("{") || plainText.startsWith("[")) && /"(src|url|image|media|file|video)"/i.test(plainText)) {
+        return extractMediaSourcesFromText(plainText).length > 0;
+      }
+      if (/<(?:img|video|source)\b/i.test(plainText)) return extractMediaSourcesFromText(plainText).length > 0;
+      return false;
+    },
+    [extractMediaSourcesFromText, hasDragFiles],
+  );
+  const resetComposerDragState = useCallback(() => {
+    composerDragDepthRef.current = 0;
+    setIsComposerDragActive(false);
+  }, []);
+  const handleComposerDragEnter = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      if (!hasDragFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      composerDragDepthRef.current += 1;
+      setIsComposerDragActive(true);
+    },
+    [hasDragFiles],
+  );
+  const handleComposerDragOver = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      if (!hasDragFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      if (!isComposerDragActive) setIsComposerDragActive(true);
+    },
+    [hasDragFiles, isComposerDragActive],
+  );
+  const handleComposerDragLeave = useCallback((event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (composerDragDepthRef.current > 0) {
+      composerDragDepthRef.current -= 1;
+    }
+    if (composerDragDepthRef.current === 0) {
+      setIsComposerDragActive(false);
+    }
+  }, []);
+  const handleComposerDrop = useCallback(
+    async (event: React.DragEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const transfer = event.dataTransfer;
+      resetComposerDragState();
+      const { file, hasMediaPayload } = await extractAttachmentFromTransfer(transfer);
+      if (!file) {
+        if (hasMediaPayload) {
+          setMessageSendNotice("Não foi possível ler esse arquivo arrastado.");
+        }
+        return;
+      }
+      await handleSendAttachment(file);
+    },
+    [extractAttachmentFromTransfer, handleSendAttachment, resetComposerDragState],
+  );
+  const handleComposerPaste = useCallback(
+    async (event: React.ClipboardEvent<HTMLElement>) => {
+      const clipboardData = event.clipboardData;
+      if (!hasClipboardMediaPayload(clipboardData)) return;
+      event.preventDefault();
+      const { file } = await extractAttachmentFromTransfer(clipboardData);
+      if (!file) {
+        setMessageSendNotice("Não foi possível colar essa mídia.");
+        return;
+      }
+      await handleSendAttachment(file);
+    },
+    [extractAttachmentFromTransfer, handleSendAttachment, hasClipboardMediaPayload],
+  );
 
   const toggleMediaSelectMode = useCallback(() => {
     setIsMediaSelectMode((prev) => {
@@ -4697,6 +6100,7 @@ export default function KnexChatPage() {
       stopShareAudioPlayback();
       stopShareAudioProgress(true);
       const audio = new Audio(entry.url);
+      audio.playbackRate = shareAudioPlaybackSpeed;
       shareAudioPlayerRef.current = audio;
       setShareAudioPlayingId(entry.id);
       setShareAudioPlaybackSeconds(0);
@@ -4732,9 +6136,21 @@ export default function KnexChatPage() {
       startShareAudioProgress,
       stopShareAudioPlayback,
       stopShareAudioProgress,
+      shareAudioPlaybackSpeed,
       updateShareAudioDuration,
     ],
   );
+  const cycleShareAudioPlaybackSpeed = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      setShareAudioPlaybackSpeed((previous) => getNextPlaybackSpeed(previous));
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!shareAudioPlayerRef.current) return;
+    shareAudioPlayerRef.current.playbackRate = shareAudioPlaybackSpeed;
+  }, [shareAudioPlaybackSpeed, shareAudioPlayingId]);
 
   const stopRecordingTimer = () => {
     if (recordingIntervalRef.current) {
@@ -4767,7 +6183,7 @@ export default function KnexChatPage() {
       if (messageSendNotice) setMessageSendNotice(null);
       const threadId = await ensureServerThreadForSend(activeThread);
       if (threadId) {
-        if (serverMessagingEnabled && identity?.email) {
+        if (serverMessagingEnabled && identity?.email && !isSelfConversationThread(activeThread)) {
           try {
             const audioDataUrl = await readFileAsDataUrl(blob);
             const res = await authFetch("/api/knexchat/messages", {
@@ -4809,6 +6225,7 @@ export default function KnexChatPage() {
             time: timeLabel,
             audioUrl,
             audioDuration: durationLabel,
+            deliveryStatus: "sent",
           };
           setMessagesByThread((prev) => ({
             ...prev,
@@ -4894,18 +6311,26 @@ export default function KnexChatPage() {
       active
         ? isDarkTheme
           ? "border border-white/25 bg-slate-300/35 text-white shadow-[0_12px_24px_rgba(0,0,0,0.38)]"
-          : "bg-blue-600 text-white shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
+          : "bg-white text-black shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
         : isDarkTheme
           ? "text-slate-300 hover:bg-slate-300/25 hover:text-white"
           : "text-white/90 hover:bg-white/15 hover:text-white"
     }`;
   const mobileDockButtonClass = (active: boolean) =>
-    `grid h-10 w-10 shrink-0 place-items-center rounded-xl transition max-[420px]:h-9 max-[420px]:w-9 max-[360px]:h-8 max-[360px]:w-8 ${
-      isMobileDockCarousel ? "snap-start" : ""
-    } ${
+    `flex h-10 w-full items-center justify-center rounded-xl transition max-[420px]:h-9 max-[360px]:h-8 ${
       active
-        ? "bg-white text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.15)]"
-        : "text-white hover:bg-white/15 hover:text-white"
+        ? isDarkTheme
+          ? "bg-white/20 text-white shadow-[0_8px_18px_rgba(15,23,42,0.35)]"
+          : "bg-white text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.15)]"
+        : "text-white hover:bg-white/20 hover:text-white"
+    }`;
+  const mobileDockAvatarButtonClass = (active: boolean) =>
+    `relative flex h-10 w-full items-center justify-center overflow-hidden rounded-xl border-[1.25px] transition max-[420px]:h-9 max-[360px]:h-8 ${
+      active
+        ? "border-white bg-white shadow-[0_8px_18px_rgba(15,23,42,0.15)]"
+        : isDarkTheme
+          ? "border-white/60 bg-transparent hover:border-white/85 hover:bg-white/10"
+          : "border-slate-200/80 bg-transparent hover:border-slate-300"
     }`;
   const avatarFrameLg = "rounded-[26px]";
   const avatarFrameMd = "rounded-[8.5px]";
@@ -5357,18 +6782,47 @@ export default function KnexChatPage() {
   const navRailBase = shellBrandSurface;
   const navRailDivider = isDarkTheme ? "bg-[#2a2a2a]" : "bg-white/20";
   const shellSurface = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[var(--kx-bg)] lg:bg-[var(--kx-header)]";
-  const mobileDockSurface = shellBrandSurface;
+  const mobileDockSurface = isDarkTheme ? "bg-[var(--knex-850)]" : "bg-[var(--kx-header)]";
   const shellHeaderSurface = isDarkTheme
-    ? `border-b border-[#2a2a2a] ${shellBrandSurface} text-slate-100`
-    : `border-b border-white/10 ${shellBrandSurface} text-white`;
+    ? `border-b border-[#2a2a2a] ${shellBrandSurface} text-white`
+    : `${shellBrandSurface} text-white`;
   const headerLineLeft = isSettingsOpen ? "calc(3.5rem + 340px)" : "calc(3.5rem + 24rem)";
   const messagePanelBg = isDarkTheme ? "bg-[#141414]" : "bg-slate-50";
+  const useDetachedMobileMic = isMobileView && isDarkTheme;
+  const hasComposerText = messageDraft.trim().length > 0;
+  const hasPreviousConversationMedia = conversationMediaViewerIndex > 0;
+  const hasNextConversationMedia = conversationMediaViewerIndex < conversationMediaItems.length - 1;
+  const isConversationMediaViewerChromeVisible = !isMobileView || isConversationMediaViewerUiVisible;
+  const conversationMediaViewerVideoCurrentLabel = formatDuration(
+    Math.max(0, Math.floor(conversationMediaViewerVideoCurrentTime)),
+  );
+  const conversationMediaViewerVideoDurationLabel = formatDuration(
+    Math.max(0, Math.round(conversationMediaViewerVideoDuration)),
+  );
+  const conversationMediaViewerVideoPlaybackSpeedLabel = formatPlaybackSpeedLabel(
+    conversationMediaViewerVideoPlaybackSpeed,
+  );
+  const conversationMediaViewerVideoProgressPercent =
+    conversationMediaViewerVideoDuration > 0
+      ? Math.min(
+          100,
+          Math.max(0, (conversationMediaViewerVideoCurrentTime / conversationMediaViewerVideoDuration) * 100),
+        )
+      : 0;
+  const shareAudioPlaybackSpeedLabel = formatPlaybackSpeedLabel(shareAudioPlaybackSpeed);
+  const mediaContextMenuSurface = isDarkTheme
+    ? "border-[#2a2a2a] bg-[#1b1b1b] text-slate-100"
+    : "border-slate-200 bg-[#f4f4f4] text-slate-700";
+  const mediaContextMenuDivider = isDarkTheme ? "bg-white/10" : "bg-slate-300/80";
+  const mediaContextMenuOption = isDarkTheme ? "hover:bg-white/5" : "hover:bg-black/5";
+  const mediaContextMenuReaction = isDarkTheme ? "hover:bg-white/10" : "hover:bg-black/5";
   const messagePanelBodyStyle = wallpaperColor ? { backgroundColor: wallpaperColor } : undefined;
   const mobileProfileSheetItems: {
     id: string;
     label: string;
     description: string;
     icon: LucideIcon;
+    settingKey: (typeof SETTINGS_MENU)[number]["key"] | null;
     onSelect: () => void;
   }[] = [
     {
@@ -5376,6 +6830,7 @@ export default function KnexChatPage() {
       label: "Pagamentos",
       description: "Gerenciar pagamentos e plano",
       icon: CreditCard,
+      settingKey: "account",
       onSelect: () => openSettingsFromMobileSheet("account"),
     },
     {
@@ -5383,6 +6838,7 @@ export default function KnexChatPage() {
       label: "Conta",
       description: "Notificações de segurança, mudança de número",
       icon: User,
+      settingKey: "account",
       onSelect: () => openSettingsFromMobileSheet("account"),
     },
     {
@@ -5390,6 +6846,7 @@ export default function KnexChatPage() {
       label: "Privacidade",
       description: "Bloqueio de contatos e mensagens temporárias",
       icon: Shield,
+      settingKey: "privacy",
       onSelect: () => openSettingsFromMobileSheet("privacy"),
     },
     {
@@ -5397,6 +6854,7 @@ export default function KnexChatPage() {
       label: "Avatar",
       description: "Criar, editar e foto do perfil",
       icon: Camera,
+      settingKey: null,
       onSelect: () => {
         setIsMobileProfileSheetOpen(false);
         resetPanelsForMobileNavigation();
@@ -5408,6 +6866,7 @@ export default function KnexChatPage() {
       label: "Listas",
       description: "Gerenciar pessoas e grupos",
       icon: Users2,
+      settingKey: null,
       onSelect: () => openMobileFooterEnvironment("contacts", { directoryTab: "contacts" }),
     },
     {
@@ -5415,6 +6874,7 @@ export default function KnexChatPage() {
       label: "Conversas",
       description: "Tema, papel de parede e histórico",
       icon: MessageSquare,
+      settingKey: "chats",
       onSelect: () => openSettingsFromMobileSheet("chats"),
     },
     {
@@ -5422,6 +6882,7 @@ export default function KnexChatPage() {
       label: "Listas de transmissão",
       description: "Gerencie listas e envie transmissões",
       icon: SendHorizontal,
+      settingKey: null,
       onSelect: () => openMobileFooterEnvironment("channels"),
     },
     {
@@ -5429,6 +6890,7 @@ export default function KnexChatPage() {
       label: "Notificações",
       description: "Mensagens, grupos e ligações",
       icon: Bell,
+      settingKey: "notifications",
       onSelect: () => openSettingsFromMobileSheet("notifications"),
     },
     {
@@ -5436,6 +6898,7 @@ export default function KnexChatPage() {
       label: "Armazenamento e dados",
       description: "Uso de rede e download automático",
       icon: Smartphone,
+      settingKey: "media",
       onSelect: () => openSettingsFromMobileSheet("media"),
     },
     {
@@ -5443,6 +6906,7 @@ export default function KnexChatPage() {
       label: "Acessibilidade",
       description: "Aumentar contraste e animação",
       icon: SlidersHorizontal,
+      settingKey: "shortcuts",
       onSelect: () => openSettingsFromMobileSheet("shortcuts"),
     },
     {
@@ -5450,6 +6914,7 @@ export default function KnexChatPage() {
       label: "Idioma do app",
       description: "Português (Brasil)",
       icon: Globe,
+      settingKey: "general",
       onSelect: () => openSettingsFromMobileSheet("general"),
     },
     {
@@ -5457,6 +6922,7 @@ export default function KnexChatPage() {
       label: "Ajuda",
       description: "Central de Ajuda e Política de Privacidade",
       icon: HelpCircle,
+      settingKey: "help",
       onSelect: () => openSettingsFromMobileSheet("help"),
     },
     {
@@ -5464,6 +6930,7 @@ export default function KnexChatPage() {
       label: "Enviar feedback",
       description: "Relatar problemas técnicos",
       icon: Flag,
+      settingKey: "help",
       onSelect: () => openSettingsFromMobileSheet("help"),
     },
     {
@@ -5471,6 +6938,7 @@ export default function KnexChatPage() {
       label: "Convidar amigos",
       description: "Compartilhar acesso ao KnexChat",
       icon: UserPlus,
+      settingKey: null,
       onSelect: () => openMobileFooterEnvironment("contacts", { directoryTab: "people" }),
     },
     {
@@ -5478,6 +6946,7 @@ export default function KnexChatPage() {
       label: "Acesso antecipado a recursos",
       description: "Participar do programa beta",
       icon: Star,
+      settingKey: "help",
       onSelect: () => openSettingsFromMobileSheet("help"),
     },
     {
@@ -5485,9 +6954,17 @@ export default function KnexChatPage() {
       label: "Atualizações do app",
       description: "Ver novidades e versões",
       icon: Download,
+      settingKey: "help",
       onSelect: () => openSettingsFromMobileSheet("help"),
     },
   ];
+  const filteredMobileProfileSheetItems = mobileProfileSearchQuery.trim()
+    ? mobileProfileSheetItems.filter((item) => {
+        const query = mobileProfileSearchQuery.trim().toLowerCase();
+        const haystack = `${item.label} ${item.description}`.toLowerCase();
+        return haystack.includes(query);
+      })
+    : mobileProfileSheetItems;
 
   const activationBackdrop = !isChatRoute ? (
     <>
@@ -5559,26 +7036,150 @@ export default function KnexChatPage() {
       <div className="relative z-10 flex h-full flex-col">
         <header
           className={`relative flex min-h-[3.25rem] flex-nowrap items-center justify-start px-2 py-1.5 lg:min-h-[3rem] lg:flex-wrap lg:justify-between lg:gap-3 lg:px-4 lg:py-1.5 lg:border-b-0 ${shellHeaderSurface}`}
-          style={{ paddingTop: "env(safe-area-inset-top)" }}
+          style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.375rem)" }}
         >
-        <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-3 lg:left-4">
-          <div>
-            <p className={`${spaceGrotesk.className} text-lg font-semibold leading-none lg:text-xl`}>
-              <span className="text-white">KnexChat</span>
-            </p>
-          </div>
-        </div>
-        <span
-          className={`absolute right-1 top-1/2 -translate-y-1/2 lg:hidden ${
-            isDarkTheme ? "text-slate-200" : "text-white"
-          }`}
-          aria-hidden="true"
-        >
-          <MoreVertical className="h-5 w-5" />
-        </span>
+          {showMobileConversationShellHeader ? (
+            <div className="relative flex w-full items-center gap-2 md:hidden">
+              <button
+                type="button"
+                onClick={handleMobileBack}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/15"
+                aria-label="Voltar"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenProfile("thread")}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                title="Abrir perfil"
+              >
+                {activeThread ? (
+                  activeThreadAvatarUrl ? (
+                    <img
+                      src={activeThreadAvatarUrl}
+                      alt={`Avatar de ${activeThread.title}`}
+                      className={`h-9 w-9 ${avatarFrameSm} object-cover`}
+                    />
+                  ) : (
+                    <div className="grid h-9 w-9 place-items-center rounded-full bg-white/20 text-xs font-semibold text-white">
+                      {getAvatarText(activeThread.title)}
+                    </div>
+                  )
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <p className={`${spaceGrotesk.className} truncate text-base font-semibold text-white`}>
+                    {activeThread?.title ?? "Conversa"}
+                  </p>
+                  <p className="min-h-[1rem] truncate text-[11px] leading-4 text-white">
+                    {headerInfoItems[headerInfoStep] ?? ""}
+                  </p>
+                </div>
+              </button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  aria-label="Iniciar videochamada"
+                  className="rounded-full p-2 text-white transition hover:bg-white/15 hover:text-white"
+                >
+                  <Video className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Iniciar chamada"
+                  className="rounded-full p-2 text-white transition hover:bg-white/15 hover:text-white"
+                >
+                  <Phone className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Mais opções"
+                  ref={threadMenuAnchorRef}
+                  onClick={() => {
+                    if (!activeThread) return;
+                    setIsThreadMenuOpen((prev) => !prev);
+                  }}
+                  className="rounded-full p-2 text-white transition hover:bg-white/15 hover:text-white"
+                >
+                  <MoreVertical className="h-5 w-5" />
+                </button>
+              </div>
+              {isThreadMenuOpen && threadMenuSections.length ? (
+                <div
+                  ref={threadMenuRef}
+                  className={`absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border px-2 py-2 text-sm shadow-xl ${
+                    isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b]" : "border-slate-200 bg-white"
+                  }`}
+                >
+                  {threadMenuSections.map((section, sectionIndex) => (
+                    <div key={`thread-menu-mobile-section-${sectionIndex}`}>
+                      {section.map((item) => {
+                        const Icon = item.icon;
+                        const isDanger = item.tone === "danger";
+                        const action = item.action as string | undefined;
+                        return (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => {
+                              if (action === "contact-info") {
+                                setIsContactInfoOpen(true);
+                                setIsGroupInfoOpen(false);
+                              } else if (action === "group-info") {
+                                setIsGroupInfoOpen(true);
+                                setIsContactInfoOpen(false);
+                              }
+                              setIsThreadMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
+                              isDanger
+                                ? isDarkTheme
+                                  ? "hover:bg-rose-500/20"
+                                  : "hover:bg-rose-100"
+                                : isDarkTheme
+                                  ? "hover:bg-white/5"
+                                  : "hover:bg-slate-100"
+                            } ${isDarkTheme ? "text-slate-200" : "text-slate-700"}`}
+                          >
+                            <Icon className="h-4 w-4" />
+                            <span className="text-sm">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                      {sectionIndex < threadMenuSections.length - 1 ? (
+                        <div className={`${isDarkTheme ? "bg-white/10" : "bg-slate-200"} my-2 h-px`} />
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-3 lg:left-4">
+                <div>
+                  <p className={`${spaceGrotesk.className} text-lg font-semibold leading-none lg:text-xl`}>
+                    <span className="text-white">KnexChat</span>
+                  </p>
+                </div>
+              </div>
+              <span
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-white lg:hidden"
+                aria-hidden="true"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </span>
+            </>
+          )}
         </header>
 
-        <div className={`relative flex min-h-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+5rem)] lg:flex-row lg:pb-0 ${shellSurface}`}>
+        <div
+          className={`relative flex min-h-0 flex-1 flex-col ${
+            showMobileFooterDock
+              ? "pb-[calc(env(safe-area-inset-bottom)+5rem)]"
+              : "pb-[env(safe-area-inset-bottom)]"
+          } lg:flex-row lg:pb-0 ${shellSurface}`}
+        >
         <nav
           className={`hidden w-14 flex-col items-center gap-4 ${navRailBase} py-5 lg:flex`}
         >
@@ -5608,9 +7209,11 @@ export default function KnexChatPage() {
             >
               <MessageCircle className="h-5 w-5" />
             </button>
-            <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-orange-600 px-1.5 text-[10px] font-semibold text-white">
-              67
-            </span>
+            {unreadTotal > 0 ? (
+              <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-orange-600 px-1.5 text-[10px] font-semibold text-white">
+                {unreadTotalLabel}
+              </span>
+            ) : null}
             <span
               className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
                 isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
@@ -5747,7 +7350,9 @@ export default function KnexChatPage() {
               <UserPlus
                 className={`h-5 w-5 ${
                   activeNavKey === "contacts"
-                    ? "text-white"
+                    ? isDarkTheme
+                      ? "text-white"
+                      : "text-black"
                     : isDarkTheme
                       ? "text-slate-300 group-hover:text-white"
                       : "text-white/90 group-hover:text-white"
@@ -5821,14 +7426,18 @@ export default function KnexChatPage() {
                 setSelectedGroupMemberIds([]);
               }}
                 aria-label="Configurações"
-                title="Configurações"
+                title={isSettingsOpen ? undefined : "Configurações"}
               >
                 <Settings className="h-5 w-5" />
               </button>
               <span
                 className={`pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow transition ${
                   isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-900 text-white"
-                } opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0`}
+                } ${
+                  isSettingsOpen
+                    ? "opacity-0 translate-x-1"
+                    : "opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0"
+                }`}
               >
                 Configurações
               </span>
@@ -5839,14 +7448,15 @@ export default function KnexChatPage() {
           isSettingsOpen ? (
           <>
             <aside
-              className={`flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${settingsPanelBase} md:w-[340px] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md`}
+              style={chatListWidthStyle}
+              className={`relative flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${settingsPanelBase} md:w-[var(--chat-list-width)] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
             >
               {activeSettingKey === "general" ? (
-                <div className="flex h-full flex-col">
+                <div className="flex h-full min-h-0 flex-col">
                   <div className={`flex items-center gap-3 border-b px-5 py-3 ${settingsBorder}`}>
                     <button
                       type="button"
-                      onClick={() => setActiveSettingKey(null)}
+                      onClick={handleBackFromSettingsDetail}
                       className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
                         isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
                       }`}
@@ -5856,7 +7466,7 @@ export default function KnexChatPage() {
                     </button>
                     <span className="text-base font-semibold">Geral</span>
                   </div>
-                  <div className="flex-1 space-y-6 px-5 py-4">
+                  <div className="flex-1 min-h-0 overflow-y-auto space-y-6 px-5 py-4">
                     <div className="space-y-3">
                       <p className={`text-xs font-semibold ${settingsMuted}`}>Iniciar e fechar</p>
                       <div className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b pb-3 ${settingsBorder}`}>
@@ -5868,7 +7478,9 @@ export default function KnexChatPage() {
                           onClick={() => toggleSetting("openOnStart")}
                           className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
                             settingsState.openOnStart
-                              ? "border-emerald-500 bg-emerald-500"
+                              ? isDarkTheme
+                                ? "border-slate-200/80 bg-slate-200"
+                                : "border-blue-500 bg-blue-500"
                               : isDarkTheme
                                 ? "border-[#3a3a3a] bg-[#1f1f1f]"
                                 : "border-slate-300 bg-white"
@@ -5876,9 +7488,9 @@ export default function KnexChatPage() {
                           aria-pressed={settingsState.openOnStart}
                         >
                           <span
-                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
-                              settingsState.openOnStart ? "translate-x-[20px]" : "translate-x-0"
-                            }`}
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full shadow transition ${
+                              isDarkTheme || settingsState.openOnStart ? "bg-white" : "bg-slate-400"
+                            } ${settingsState.openOnStart ? "translate-x-[20px]" : "translate-x-0"}`}
                           />
                         </button>
                       </div>
@@ -5896,7 +7508,9 @@ export default function KnexChatPage() {
                           onClick={() => toggleSetting("minimizeToTray")}
                           className={`relative mt-0.5 h-6 w-11 justify-self-end rounded-full border transition ${
                             settingsState.minimizeToTray
-                              ? "border-emerald-500 bg-emerald-500"
+                              ? isDarkTheme
+                                ? "border-slate-200/80 bg-slate-200"
+                                : "border-blue-500 bg-blue-500"
                               : isDarkTheme
                                 ? "border-[#3a3a3a] bg-[#1f1f1f]"
                                 : "border-slate-300 bg-white"
@@ -5904,9 +7518,9 @@ export default function KnexChatPage() {
                           aria-pressed={settingsState.minimizeToTray}
                         >
                           <span
-                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
-                              settingsState.minimizeToTray ? "translate-x-[20px]" : "translate-x-0"
-                            }`}
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full shadow transition ${
+                              isDarkTheme || settingsState.minimizeToTray ? "bg-white" : "bg-slate-400"
+                            } ${settingsState.minimizeToTray ? "translate-x-[20px]" : "translate-x-0"}`}
                           />
                         </button>
                       </div>
@@ -5939,7 +7553,7 @@ export default function KnexChatPage() {
                   </div>
                 </div>
               ) : activeSettingKey === "chats" ? (
-                <div className="flex h-full flex-col">
+                <div className="flex h-full min-h-0 flex-col">
                   <div className={`flex items-center gap-3 border-b px-5 py-3 ${settingsBorder}`}>
                     <button
                       type="button"
@@ -5948,7 +7562,7 @@ export default function KnexChatPage() {
                           setIsWallpaperModalOpen(false);
                           setWallpaperHoverKey(null);
                         } else {
-                          setActiveSettingKey(null);
+                          handleBackFromSettingsDetail();
                         }
                       }}
                       className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
@@ -5995,7 +7609,7 @@ export default function KnexChatPage() {
                       </div>
                     </div>
                   ) : (
-                  <div className="flex-1 space-y-6 px-5 py-4">
+                  <div className="flex-1 min-h-0 overflow-y-auto space-y-6 px-5 py-4">
                     <div className="space-y-2">
                       <p className={`text-xs font-semibold ${settingsMuted}`}>Exibição</p>
                       <button
@@ -6059,7 +7673,9 @@ export default function KnexChatPage() {
                           onClick={() => toggleSetting("spellCheck")}
                           className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
                             settingsState.spellCheck
-                              ? "border-emerald-500 bg-emerald-500"
+                              ? isDarkTheme
+                                ? "border-slate-200/80 bg-slate-200"
+                                : "border-blue-500 bg-blue-500"
                               : isDarkTheme
                                 ? "border-[#3a3a3a] bg-[#1f1f1f]"
                                 : "border-slate-300 bg-white"
@@ -6067,9 +7683,9 @@ export default function KnexChatPage() {
                           aria-pressed={settingsState.spellCheck}
                         >
                           <span
-                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
-                              settingsState.spellCheck ? "translate-x-[20px]" : "translate-x-0"
-                            }`}
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full shadow transition ${
+                              isDarkTheme || settingsState.spellCheck ? "bg-white" : "bg-slate-400"
+                            } ${settingsState.spellCheck ? "translate-x-[20px]" : "translate-x-0"}`}
                           />
                         </button>
                       </div>
@@ -6085,7 +7701,9 @@ export default function KnexChatPage() {
                           onClick={() => toggleSetting("emojiReplace")}
                           className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
                             settingsState.emojiReplace
-                              ? "border-emerald-500 bg-emerald-500"
+                              ? isDarkTheme
+                                ? "border-slate-200/80 bg-slate-200"
+                                : "border-blue-500 bg-blue-500"
                               : isDarkTheme
                                 ? "border-[#3a3a3a] bg-[#1f1f1f]"
                                 : "border-slate-300 bg-white"
@@ -6093,9 +7711,9 @@ export default function KnexChatPage() {
                           aria-pressed={settingsState.emojiReplace}
                         >
                           <span
-                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
-                              settingsState.emojiReplace ? "translate-x-[20px]" : "translate-x-0"
-                            }`}
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full shadow transition ${
+                              isDarkTheme || settingsState.emojiReplace ? "bg-white" : "bg-slate-400"
+                            } ${settingsState.emojiReplace ? "translate-x-[20px]" : "translate-x-0"}`}
                           />
                         </button>
                       </div>
@@ -6111,7 +7729,9 @@ export default function KnexChatPage() {
                           onClick={() => toggleSetting("enterToSend")}
                           className={`relative h-6 w-11 justify-self-end rounded-full border transition ${
                             settingsState.enterToSend
-                              ? "border-emerald-500 bg-emerald-500"
+                              ? isDarkTheme
+                                ? "border-slate-200/80 bg-slate-200"
+                                : "border-blue-500 bg-blue-500"
                               : isDarkTheme
                                 ? "border-[#3a3a3a] bg-[#1f1f1f]"
                                 : "border-slate-300 bg-white"
@@ -6119,9 +7739,9 @@ export default function KnexChatPage() {
                           aria-pressed={settingsState.enterToSend}
                         >
                           <span
-                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full bg-white shadow transition ${
-                              settingsState.enterToSend ? "translate-x-[20px]" : "translate-x-0"
-                            }`}
+                            className={`absolute left-1 top-1/2 h-[14px] w-[14px] -translate-y-1/2 rounded-full shadow transition ${
+                              isDarkTheme || settingsState.enterToSend ? "bg-white" : "bg-slate-400"
+                            } ${settingsState.enterToSend ? "translate-x-[20px]" : "translate-x-0"}`}
                           />
                         </button>
                       </div>
@@ -6137,10 +7757,10 @@ export default function KnexChatPage() {
                       className={`mt-2 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm ${
                         isDarkTheme
                           ? "border-emerald-500/60 bg-[#1b1b1b] text-slate-300"
-                          : "border-emerald-400/70 bg-white text-slate-500"
+                          : "border-blue-400/70 bg-white text-slate-500"
                       }`}
                     >
-                      <Search className="h-4 w-4 text-emerald-500" />
+                      <Search className={`h-4 w-4 ${isDarkTheme ? "text-emerald-500" : "text-blue-500"}`} />
                       <span>Pesquisar configurações</span>
                     </div>
                   </div>
@@ -6178,23 +7798,26 @@ export default function KnexChatPage() {
                       </div>
                     </button>
                   </div>
-                  <div className="flex-1 px-4 py-2">
+                  <div className="flex-1 min-h-0 overflow-y-auto px-4 py-2">
                     <div className="space-y-0.5">
-                      {SETTINGS_MENU.map((item) => {
+                      <p className={`px-3 pb-1 pt-2 text-xs font-semibold tracking-[0.08em] ${settingsMuted}`}>
+                        Configurações
+                      </p>
+                      {mobileProfileSheetItems.map((item) => {
                         const Icon = item.icon;
-                        const isActive = activeSettingKey === item.key;
+                        const isActive = item.settingKey ? activeSettingKey === item.settingKey : false;
                         return (
                           <button
-                            key={item.key}
+                            key={item.id}
                             type="button"
-                            onClick={() => setActiveSettingKey(item.key)}
+                            onClick={item.onSelect}
                             className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition ${
                               isActive ? (isDarkTheme ? "bg-white/10" : "bg-slate-100") : settingsHover
                             }`}
                           >
                             <div
-                              className={`grid h-8 w-8 place-items-center rounded-2xl ${
-                                isDarkTheme ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-600"
+                              className={`mt-0.5 grid h-8 w-8 place-items-center ${
+                                isDarkTheme ? "text-slate-300" : "text-slate-600"
                               }`}
                             >
                               <Icon className="h-4 w-4" />
@@ -6216,8 +7839,8 @@ export default function KnexChatPage() {
                         }`}
                       >
                         <div
-                          className={`grid h-8 w-8 place-items-center rounded-2xl ${
-                            isDarkTheme ? "bg-rose-500/10 text-rose-300" : "bg-rose-100 text-rose-500"
+                          className={`grid h-8 w-8 place-items-center ${
+                            isDarkTheme ? "text-rose-300" : "text-rose-500"
                           }`}
                         >
                           <LogOut className="h-4 w-4" />
@@ -6230,6 +7853,25 @@ export default function KnexChatPage() {
                   </div>
                 </>
               )}
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Redimensionar painel lateral"
+                onMouseDown={handleStartChatListResize}
+                className="group absolute left-full top-0 z-30 hidden h-full w-3 cursor-col-resize lg:block"
+              >
+                <span
+                  className={`pointer-events-none absolute left-0 top-0 h-full rounded-full transition-all ${
+                    isChatListResizing
+                      ? isDarkTheme
+                        ? "w-1 bg-slate-400/45"
+                        : "w-1 bg-blue-500/60"
+                      : isDarkTheme
+                        ? "w-px bg-[#2a2a2a] group-hover:w-1 group-hover:bg-slate-500/50"
+                        : "w-px bg-slate-300/70 group-hover:w-1 group-hover:bg-slate-400/80"
+                  }`}
+                />
+              </div>
             </aside>
             <section
               className={`flex min-h-0 flex-1 border-t ${settingsBorder} md:border-t-0 ${
@@ -6245,20 +7887,17 @@ export default function KnexChatPage() {
                   />
                 </div>
               ) : (
-                <div className="flex flex-1 items-center justify-center">
-                  <div className="text-center">
-                    <Settings className={`mx-auto h-16 w-16 ${isDarkTheme ? "text-slate-500" : "text-slate-300"}`} />
-                    <p className={`mt-4 text-2xl font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-700"}`}>
-                      Configurações
-                    </p>
-                  </div>
-                </div>
+                <div className="flex-1" />
               )}
             </section>
             {isThemeModalOpen ? (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
-                <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
-                  <h3 className="text-lg font-semibold text-slate-900">Tema</h3>
+                <div
+                  className={`w-full max-w-xl rounded-3xl p-6 shadow-2xl ${
+                    isDarkTheme ? "border border-[#3a3a3a] bg-[#2a2a2a]" : "bg-white"
+                  }`}
+                >
+                  <h3 className={`text-lg font-semibold ${isDarkTheme ? "text-slate-200" : "text-slate-900"}`}>Tema</h3>
                   <div className="mt-4 space-y-3">
                     {[
                       { key: "light", label: "Claro" },
@@ -6271,18 +7910,32 @@ export default function KnexChatPage() {
                           key={option.key}
                           type="button"
                           onClick={() => setPendingTheme(option.key as "light" | "dark" | "system")}
-                          className="flex w-full items-center gap-3 text-left text-sm text-slate-900"
+                          className={`flex w-full items-center gap-3 text-left text-sm transition ${
+                            isDarkTheme ? "text-slate-200 hover:text-white" : "text-slate-900"
+                          }`}
                         >
                           <span
                             className={`relative h-5 w-5 rounded-full border-2 ${
-                              isSelected ? "border-emerald-500" : "border-slate-300"
+                              isSelected
+                                ? isDarkTheme
+                                  ? "border-white"
+                                  : "border-blue-500"
+                                : isDarkTheme
+                                  ? "border-slate-500"
+                                  : "border-slate-300"
                             }`}
                           >
                             {isSelected ? (
-                              <span className="absolute inset-0 m-1 rounded-full bg-emerald-500" />
+                              <span
+                                className={`absolute inset-0 m-1 rounded-full ${
+                                  isDarkTheme ? "bg-white" : "bg-blue-500"
+                                }`}
+                              />
                             ) : null}
                           </span>
-                          <span>{option.label}</span>
+                          <span className={isSelected ? (isDarkTheme ? "text-white" : "text-blue-600") : ""}>
+                            {option.label}
+                          </span>
                         </button>
                       );
                     })}
@@ -6291,7 +7944,9 @@ export default function KnexChatPage() {
                     <button
                       type="button"
                       onClick={() => setIsThemeModalOpen(false)}
-                      className="rounded-full px-4 py-2 text-sm font-semibold text-emerald-600 transition hover:bg-emerald-50"
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10 hover:text-white" : "text-blue-600 hover:bg-blue-50"
+                      }`}
                     >
                       Cancelar
                     </button>
@@ -6301,7 +7956,9 @@ export default function KnexChatPage() {
                         setSettingsState((prev) => ({ ...prev, theme: pendingTheme }));
                         setIsThemeModalOpen(false);
                       }}
-                      className="rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                      className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
+                        isDarkTheme ? "bg-slate-200 text-slate-900 hover:bg-white" : "bg-blue-500 text-white hover:bg-blue-600"
+                      }`}
                     >
                       OK
                     </button>
@@ -6315,9 +7972,9 @@ export default function KnexChatPage() {
         {isProfileOpen ? (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${
+            className={`relative flex h-full min-h-0 w-full flex-col border-t ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:border-b-0 ${isDarkTheme ? "md:border-t" : "md:border-t-0"} md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
           >
             <div className="flex items-center justify-between px-4 py-3">
               <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Perfil</span>
@@ -6460,9 +8117,9 @@ export default function KnexChatPage() {
         ) : (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex h-full min-h-0 w-full flex-col border-b border-t ${settingsBorder} ${
+            className={`relative flex h-full min-h-0 w-full flex-col border-t ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-slate-50"
-            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:border-b-0 ${isDarkTheme ? "md:border-t" : "md:border-t-0"} md:border-l md:border-r md:rounded-tl-md md:overflow-visible`}
           >
             {isGroupsPanelOpen ? (
               <div className={`flex flex-col gap-4 border-b px-4 py-4 ${settingsBorder}`}>
@@ -6518,7 +8175,7 @@ export default function KnexChatPage() {
                 )}
               </div>
             ) : (
-              isDirectoryOpen || isNewChatOpen ? null : (
+              isDirectoryOpen || isNewChatOpen || isCustomListOpen ? null : (
                 <div className={`flex flex-col gap-3 border-b px-4 py-3 ${settingsBorder}`}>
                   <div className="hidden items-center gap-3 lg:flex">
                     {currentUser?.avatarUrl ? (
@@ -6580,7 +8237,7 @@ export default function KnexChatPage() {
                       </button>
                     </div>
                   </div>
-                  {isNewChatOpen ? null : (
+                  {isNewChatOpen || isCustomListOpen ? null : (
                     <div
                       className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
                         isDarkTheme
@@ -6602,14 +8259,22 @@ export default function KnexChatPage() {
                       />
                     </div>
                   )}
-                  {isNewChatOpen ? null : (
+                  {isNewChatOpen || isCustomListOpen ? null : (
                     <div
                       ref={conversationFiltersRef}
-                      className={`no-scrollbar flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap ${
+                      className={`no-scrollbar flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap ${
                         isConversationFiltersCarousel ? "scroll-smooth touch-pan-x snap-x snap-mandatory" : ""
                       }`}
+                      onWheel={(event) => {
+                        if (isMobileView) return;
+                        const element = event.currentTarget;
+                        if (element.scrollWidth <= element.clientWidth) return;
+                        if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+                        element.scrollLeft += event.deltaY;
+                        event.preventDefault();
+                      }}
                     >
-                      {FILTERS.map((filter) => {
+                      {conversationFilterOptions.map((filter) => {
                         const isActive = filter.key === activeFilter;
                         return (
                           <button
@@ -6625,32 +8290,22 @@ export default function KnexChatPage() {
                                   : "border border-slate-300/40 text-slate-300 hover:border-slate-300/50 hover:bg-white/5 hover:text-slate-100"
                                 : isActive
                                   ? "border border-slate-300 bg-blue-100 text-blue-800"
-                                  : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                                  : "border border-slate-300 bg-transparent text-slate-600 hover:border-slate-400 hover:bg-slate-100/70"
                             }`}
                           >
-                            {filter.label}
+                            <span className="block max-w-[9rem] truncate">{filter.label}</span>
                           </button>
                         );
                       })}
                       <button
                         type="button"
-                        onClick={() => {
-                          setIsDirectoryOpen(false);
-                          setIsNewChatOpen(true);
-                          setIsNewChatEmailOpen(false);
-                          setIsNewGroupOpen(false);
-                          setIsCommunityListOpen(false);
-                          setIsGroupsPanelOpen(false);
-                          setIsGroupCreateOpen(false);
-                          setIsGroupsExpanded(false);
-                          setIsNewContactOpen(false);
-                        }}
+                        onClick={handleOpenCustomListPanel}
                         className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-[clamp(0.5rem,2vw,0.7rem)] py-[clamp(0.24rem,1vw,0.34rem)] text-[clamp(10px,2.6vw,12px)] font-semibold leading-none transition ${
                           isConversationFiltersCarousel ? "snap-start" : ""
                         } ${
                           isDarkTheme
                             ? "border border-slate-300/40 text-slate-200 hover:border-slate-300/50 hover:bg-white/5 hover:text-slate-100"
-                            : "border border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                            : "border border-slate-300 bg-transparent text-slate-600 hover:border-slate-400 hover:bg-slate-100/70"
                         }`}
                         aria-label="Incluir nova lista"
                         title="Incluir nova lista"
@@ -6665,8 +8320,8 @@ export default function KnexChatPage() {
             )}
             <div
               className={`flex min-h-0 flex-1 ${
-                isNewChatOpen ? "overflow-visible" : isDirectoryOpen ? "overflow-hidden" : "overflow-y-auto"
-              } ${isNewChatOpen || isDirectoryOpen ? "px-0 py-0" : "px-2 py-2"}`}
+                isNewChatOpen || isCustomListOpen ? "overflow-visible" : isDirectoryOpen ? "overflow-hidden" : "overflow-y-auto"
+              } ${isNewChatOpen || isDirectoryOpen || isCustomListOpen ? "px-0 py-0" : "px-2 py-2"}`}
             >
               {isGroupsPanelOpen ? (
                 isGroupCreateOpen ? (
@@ -6729,6 +8384,10 @@ export default function KnexChatPage() {
                       <button
                         key={group.id}
                         type="button"
+                        onClick={() => {
+                          setActiveFilter("groups");
+                          openThreadById(group.id);
+                        }}
                         className={`flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition ${
                           isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100/70"
                         }`}
@@ -6807,7 +8466,7 @@ export default function KnexChatPage() {
                     <div
                       className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
                         isDarkTheme
-                          ? "border-blue-400/60 text-slate-200"
+                          ? "border-slate-200/80 text-slate-200"
                           : "border-blue-400 text-slate-600"
                       }`}
                     >
@@ -6829,7 +8488,7 @@ export default function KnexChatPage() {
                         ref={directoryFiltersRef}
                         className={`mt-3 flex flex-wrap gap-2 ${
                           isDirectoryFiltersCarousel
-                            ? "no-scrollbar flex-nowrap items-center overflow-x-auto scroll-smooth touch-pan-x snap-x snap-mandatory"
+                            ? "no-scrollbar flex-nowrap items-center overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x snap-x snap-mandatory"
                             : ""
                         }`}
                       >
@@ -7178,6 +8837,247 @@ export default function KnexChatPage() {
                       </div>
                     )}
                   </div>
+                </div>
+              ) : isCustomListOpen ? (
+                <div
+                  className={`absolute inset-0 z-20 flex h-full flex-col ${
+                    isDarkTheme ? "bg-[#0f1012]/40" : "bg-white"
+                  } lg:rounded-tl-md`}
+                >
+                  <div className="px-4 pt-2 lg:hidden">
+                    <span
+                      className={`mx-auto block h-1 w-16 rounded-full ${
+                        isDarkTheme ? "bg-white/25" : "bg-slate-300"
+                      }`}
+                    />
+                  </div>
+                  <div className={`flex items-center justify-between border-b px-4 py-3 ${settingsBorder}`}>
+                    {customListStep === "members" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomListStep("name");
+                          setCustomListSearch("");
+                        }}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                        aria-label="Voltar para edição da lista"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleCloseCustomListPanel}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                          isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                        aria-label="Fechar nova lista"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    )}
+                    <p className={`text-base font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>
+                      {customListStep === "members" ? "Adicione pessoas ou grupos" : "Nova lista"}
+                    </p>
+                    <span className="h-8 w-8" aria-hidden="true" />
+                  </div>
+                  {customListStep === "members" ? (
+                    <>
+                      <div className={`border-b px-4 py-3 ${settingsBorder}`}>
+                        <div
+                          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-blue-400/60 text-slate-200"
+                              : "border-blue-400 text-slate-600"
+                          }`}
+                        >
+                          <Search className={`${isDarkTheme ? "text-blue-300" : "text-blue-600"} h-4 w-4`} />
+                          <input
+                            type="text"
+                            placeholder="Pesquisar pessoas ou grupos"
+                            value={customListSearch}
+                            onChange={(event) => setCustomListSearch(event.target.value)}
+                            className={`w-full bg-transparent text-xs focus:outline-none ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-400 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                        </div>
+                      </div>
+                      {selectedCustomListThreads.length ? (
+                        <div className={`flex flex-wrap gap-2 border-b px-4 py-3 ${settingsBorder}`}>
+                          {selectedCustomListThreads.map((thread) => (
+                            <button
+                              key={`custom-list-chip-${thread.id}`}
+                              type="button"
+                              onClick={() => handleToggleCustomListThread(thread.id)}
+                              className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-1 text-[11px] ${
+                                isDarkTheme
+                                  ? "border-blue-300/40 bg-blue-500/10 text-blue-100"
+                                  : "border-blue-200 bg-blue-50 text-blue-700"
+                              }`}
+                            >
+                              <span className="truncate">{thread.title}</span>
+                              <X className="h-3 w-3" />
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="flex-1 overflow-y-auto px-4 py-4">
+                        <p className={`text-xs font-semibold ${settingsMuted}`}>Sugestões para a lista</p>
+                        <div className="mt-3 space-y-2">
+                          {filteredCustomListCandidates.length ? (
+                            filteredCustomListCandidates.map((thread) => {
+                              const isSelected = selectedCustomListThreadIds.includes(thread.id);
+                              const threadAvatarUrl = threadAvatarOverrides[thread.id] ?? thread.avatarUrl;
+                              return (
+                                <button
+                                  key={`custom-list-option-${thread.id}`}
+                                  type="button"
+                                  onClick={() => handleToggleCustomListThread(thread.id)}
+                                  className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-left transition ${
+                                    isSelected
+                                      ? isDarkTheme
+                                        ? "border-blue-300/60 bg-blue-500/15"
+                                        : "border-blue-300 bg-blue-50"
+                                      : isDarkTheme
+                                        ? "border-white/10 hover:border-white/20 hover:bg-white/5"
+                                        : "border-slate-200 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  <div className="flex min-w-0 items-center gap-3">
+                                    {threadAvatarUrl ? (
+                                      <img
+                                        src={threadAvatarUrl}
+                                        alt={`Avatar de ${thread.title}`}
+                                        className={`h-10 w-10 shrink-0 ${avatarFrameSm} object-cover`}
+                                      />
+                                    ) : (
+                                      <div
+                                        className={`grid h-10 w-10 shrink-0 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                        }`}
+                                      >
+                                        {getAvatarText(thread.title)}
+                                      </div>
+                                    )}
+                                    <div className="min-w-0">
+                                      <p
+                                        className={`truncate text-sm font-semibold ${
+                                          isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                        }`}
+                                      >
+                                        {thread.title}
+                                      </p>
+                                      <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                        {thread.preview}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                        thread.tab === "groups"
+                                          ? isDarkTheme
+                                            ? "bg-violet-500/20 text-violet-100"
+                                            : "bg-violet-50 text-violet-700"
+                                          : isDarkTheme
+                                            ? "bg-emerald-500/20 text-emerald-100"
+                                            : "bg-emerald-50 text-emerald-700"
+                                      }`}
+                                    >
+                                      {thread.tab === "groups" ? "Grupo" : "Pessoa"}
+                                    </span>
+                                    <span
+                                      className={`grid h-5 w-5 place-items-center rounded border ${
+                                        isSelected
+                                          ? isDarkTheme
+                                            ? "border-blue-300 bg-blue-500 text-white"
+                                            : "border-blue-500 bg-blue-600 text-white"
+                                          : isDarkTheme
+                                            ? "border-white/20 text-transparent"
+                                            : "border-slate-300 text-transparent"
+                                      }`}
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <p className={`text-xs ${settingsMuted}`}>Nenhuma pessoa ou grupo encontrado.</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className={`mt-auto border-t px-4 pb-[calc(env(safe-area-inset-bottom)+0.9rem)] pt-3 ${settingsBorder}`}>
+                        <button
+                          type="button"
+                          onClick={handleSaveCustomList}
+                          disabled={!selectedCustomListThreadIds.length}
+                          className={`w-full rounded-full px-4 py-3 text-sm font-semibold transition ${
+                            selectedCustomListThreadIds.length
+                              ? isDarkTheme
+                                ? "bg-blue-500 text-white hover:bg-blue-400"
+                                : "bg-blue-600 text-white hover:bg-blue-700"
+                              : isDarkTheme
+                                ? "bg-[#2a2a2a] text-slate-500"
+                                : "bg-slate-200 text-slate-400"
+                          }`}
+                        >
+                          Salvar lista
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="px-4 py-6">
+                        <label className={`text-sm ${settingsMuted}`} htmlFor="custom-list-name-input">
+                          Nome da lista
+                        </label>
+                        <div className={`mt-2 flex items-center gap-2 border-b pb-2 ${isDarkTheme ? "border-slate-200/80" : "border-blue-500"}`}>
+                          <input
+                            id="custom-list-name-input"
+                            type="text"
+                            value={newCustomListName}
+                            onChange={(event) => {
+                              setNewCustomListName(event.target.value);
+                              if (customListError) setCustomListError(null);
+                            }}
+                            placeholder="Exemplo: Trabalho, Amigos"
+                            className={`w-full bg-transparent text-lg font-medium leading-tight focus:outline-none sm:text-xl ${
+                              isDarkTheme
+                                ? "placeholder:text-slate-500 text-slate-100"
+                                : "placeholder:text-slate-400 text-slate-700"
+                            }`}
+                          />
+                          <Smile className={`h-5 w-5 shrink-0 ${settingsMuted}`} />
+                        </div>
+                        {customListError ? <p className="mt-2 text-xs text-rose-500">{customListError}</p> : null}
+                        <p className={`mt-6 max-w-md text-sm ${settingsMuted}`}>
+                          As listas que você cria viram um filtro na parte de cima da aba Conversas.
+                        </p>
+                      </div>
+                      <div
+                        className={`mt-auto flex justify-center border-t px-4 pb-[calc(env(safe-area-inset-bottom)+0.9rem)] pt-3 ${settingsBorder}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={handleContinueCustomListMembers}
+                          className={`inline-flex min-w-[13rem] items-center justify-center rounded-full border px-4 py-2 text-xs font-semibold leading-none transition ${
+                            isDarkTheme
+                              ? "border-slate-200/80 bg-white/10 text-slate-100 hover:bg-white/15"
+                              : "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                          }`}
+                        >
+                          Adicione pessoas ou grupos
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : isNewChatOpen ? (
                 <div
@@ -7649,7 +9549,12 @@ export default function KnexChatPage() {
                             lastActivity: "19/12/2025",
                           },
                         ].map((community) => (
-                          <button key={community.id} type="button" className="flex w-full items-center gap-3 text-left">
+                          <button
+                            key={community.id}
+                            type="button"
+                            onClick={() => openCommunityThread(community)}
+                            className="flex w-full items-center gap-3 text-left"
+                          >
                             <div
                               className={`grid h-11 w-11 place-items-center ${avatarFrameMd} ${
                                 isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-600"
@@ -7997,8 +9902,8 @@ export default function KnexChatPage() {
                           } ${
                             isActive
                               ? isDarkTheme
-                                ? "border-2 border-slate-300/50 bg-white/5"
-                                : "border-2 border-blue-300 bg-blue-100"
+                                ? "border-2 border-slate-300/55 bg-blue-500/10"
+                                : "border-2 border-blue-600 bg-blue-100"
                               : isDarkTheme
                                 ? "border-white/10 hover:border-white/30 hover:bg-white/5"
                                 : "border-transparent hover:border-blue-100 hover:bg-blue-100"
@@ -8084,7 +9989,7 @@ export default function KnexChatPage() {
         <section className={`flex min-h-0 flex-1 flex-col overflow-hidden ${messagePanelBg}`}>
           {isProfileOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className={`border-b border-t ${settingsBorder} px-6 py-4`}>
+              <div className={`border-b ${isDarkTheme ? "border-t" : "border-t-0"} ${settingsBorder} px-6 py-4`}>
                 <p className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Publicações</p>
                 <p className={`text-xs ${isDarkTheme ? "text-slate-400" : "text-slate-500"}`}>
                   Feed de {profileData?.title ?? "participante"}
@@ -8103,153 +10008,161 @@ export default function KnexChatPage() {
             </div>
           ) : (
             <>
-              <div
-                className={`relative flex flex-wrap items-center justify-between gap-3 border-b border-t ${settingsBorder} ${
-                  isDarkTheme ? "bg-[var(--knex-850)]/40 text-white" : "bg-slate-50"
-                } px-4 py-0`}
-              >
-                {showDetailOnMobile ? (
+              {showMobileConversationShellHeader ? null : (
+                <div
+                  className={`relative flex flex-nowrap items-center justify-between gap-3 border-b ${
+                    isDarkTheme ? "border-t" : "border-t-0"
+                  } ${settingsBorder} ${
+                    isDarkTheme ? "bg-[var(--knex-850)]/40 text-white" : "bg-slate-50"
+                  } px-4 py-0`}
+                >
+                  {showDetailOnMobile ? (
+                    <button
+                      type="button"
+                      onClick={handleMobileBack}
+                      className={`flex h-9 w-9 items-center justify-center rounded-full transition md:hidden ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      aria-label="Voltar"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    onClick={handleMobileBack}
-                    className={`flex h-9 w-9 items-center justify-center rounded-full transition md:hidden ${
-                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                    aria-label="Voltar"
+                    onClick={() => handleOpenProfile("thread")}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    title="Abrir perfil"
                   >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => handleOpenProfile("thread")}
-                  className="flex items-center gap-3 text-left"
-                  title="Abrir perfil"
-                >
-                  {activeThread ? (
-                    activeThreadAvatarUrl ? (
-                      <img
-                        src={activeThreadAvatarUrl}
-                        alt={`Avatar de ${activeThread.title}`}
-                        className={`h-10 w-10 ${avatarFrameSm} object-cover`}
-                      />
-                    ) : (
+                    {activeThread ? (
+                      activeThreadAvatarUrl ? (
+                        <img
+                          src={activeThreadAvatarUrl}
+                          alt={`Avatar de ${activeThread.title}`}
+                          className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                        />
+                      ) : (
+                        <div
+                          className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {getAvatarText(activeThread.title)}
+                        </div>
+                      )
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`${spaceGrotesk.className} text-lg font-semibold ${
+                          isDarkTheme ? "text-slate-100" : "text-slate-900"
+                        } truncate max-w-[200px] sm:max-w-[260px] lg:max-w-[320px]`}
+                      >
+                        {activeThread?.title ?? "Selecione uma conversa"}
+                      </p>
                       <div
-                        className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
-                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                        className={`mt-1 flex min-h-[1rem] items-center gap-2 text-xs ${
+                          isDarkTheme ? "text-slate-300" : "text-slate-500"
                         }`}
                       >
-                        {getAvatarText(activeThread.title)}
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${headerInfo.dotClass}`} />
+                        <span className="block min-w-0 truncate">{headerInfoItems[headerInfoStep] ?? ""}</span>
                       </div>
-                    )
-                  ) : null}
-                  <div className="min-w-0">
-                    <p
-                      className={`${spaceGrotesk.className} text-lg font-semibold ${
-                        isDarkTheme ? "text-slate-100" : "text-slate-900"
-                      } truncate max-w-[200px] sm:max-w-[260px] lg:max-w-[320px]`}
-                    >
-                      {activeThread?.title ?? "Selecione uma conversa"}
-                    </p>
-                    <div className={`mt-1 flex items-center gap-2 text-xs ${isDarkTheme ? "text-slate-300" : "text-slate-500"}`}>
-                      <span className={`h-2 w-2 rounded-full ${headerInfo.dotClass}`} />
-                      <span>{headerInfoItems[headerInfoStep] ?? ""}</span>
                     </div>
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      aria-label="Iniciar videochamada"
+                      className={`rounded-full p-2 transition ${
+                        isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                      }`}
+                    >
+                      <Video className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Iniciar chamada"
+                      className={`rounded-full p-2 transition ${
+                        isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                      }`}
+                    >
+                      <Phone className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Buscar na conversa"
+                      className={`rounded-full p-2 transition ${
+                        isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                      }`}
+                    >
+                      <Search className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Mais opções"
+                      ref={threadMenuAnchorRef}
+                      onClick={() => {
+                        if (!activeThread) return;
+                        setIsThreadMenuOpen((prev) => !prev);
+                      }}
+                      className={`rounded-full p-2 transition ${
+                        isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                      }`}
+                    >
+                      <MoreVertical className="h-5 w-5" />
+                    </button>
                   </div>
-                </button>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    aria-label="Iniciar videochamada"
-                    className={`rounded-full p-2 transition ${
-                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                    }`}
-                  >
-                    <Video className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Iniciar chamada"
-                    className={`rounded-full p-2 transition ${
-                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                    }`}
-                  >
-                    <Phone className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Buscar na conversa"
-                    className={`rounded-full p-2 transition ${
-                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                    }`}
-                  >
-                    <Search className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Mais opções"
-                    ref={threadMenuAnchorRef}
-                    onClick={() => {
-                      if (!activeThread) return;
-                      setIsThreadMenuOpen((prev) => !prev);
-                    }}
-                    className={`rounded-full p-2 transition ${
-                      isDarkTheme ? "text-blue-400 hover:bg-blue-500/10 hover:text-blue-300" : "text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                    }`}
-                  >
-                    <MoreVertical className="h-5 w-5" />
-                  </button>
+                  {isThreadMenuOpen && threadMenuSections.length ? (
+                    <div
+                      ref={threadMenuRef}
+                      className={`absolute right-4 top-full z-40 mt-2 w-64 rounded-2xl border px-2 py-2 text-sm shadow-xl ${
+                        isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b]" : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      {threadMenuSections.map((section, sectionIndex) => (
+                        <div key={`thread-menu-section-${sectionIndex}`}>
+                          {section.map((item) => {
+                            const Icon = item.icon;
+                            const isDanger = item.tone === "danger";
+                            const action = item.action as string | undefined;
+                            return (
+                              <button
+                                key={item.label}
+                                type="button"
+                                onClick={() => {
+                                  if (action === "contact-info") {
+                                    setIsContactInfoOpen(true);
+                                    setIsGroupInfoOpen(false);
+                                  } else if (action === "group-info") {
+                                    setIsGroupInfoOpen(true);
+                                    setIsContactInfoOpen(false);
+                                  }
+                                  setIsThreadMenuOpen(false);
+                                }}
+                                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
+                                  isDanger
+                                    ? isDarkTheme
+                                      ? "hover:bg-rose-500/20"
+                                      : "hover:bg-rose-100"
+                                    : isDarkTheme
+                                      ? "hover:bg-white/5"
+                                      : "hover:bg-slate-100"
+                                } ${isDarkTheme ? "text-slate-200" : "text-slate-700"}`}
+                              >
+                                <Icon className="h-4 w-4" />
+                                <span className="text-sm">{item.label}</span>
+                              </button>
+                            );
+                          })}
+                          {sectionIndex < threadMenuSections.length - 1 ? (
+                            <div className={`${isDarkTheme ? "bg-white/10" : "bg-slate-200"} my-2 h-px`} />
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                {isThreadMenuOpen && threadMenuSections.length ? (
-                  <div
-                    ref={threadMenuRef}
-                    className={`absolute right-4 top-full z-40 mt-2 w-64 rounded-2xl border px-2 py-2 text-sm shadow-xl ${
-                      isDarkTheme ? "border-[#2a2a2a] bg-[#1b1b1b]" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    {threadMenuSections.map((section, sectionIndex) => (
-                      <div key={`thread-menu-section-${sectionIndex}`}>
-                        {section.map((item) => {
-                          const Icon = item.icon;
-                          const isDanger = item.tone === "danger";
-                          const action = item.action as string | undefined;
-                          return (
-                            <button
-                              key={item.label}
-                              type="button"
-                              onClick={() => {
-                                if (action === "contact-info") {
-                                  setIsContactInfoOpen(true);
-                                  setIsGroupInfoOpen(false);
-                                } else if (action === "group-info") {
-                                  setIsGroupInfoOpen(true);
-                                  setIsContactInfoOpen(false);
-                                }
-                                setIsThreadMenuOpen(false);
-                              }}
-                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
-                                isDanger
-                                  ? isDarkTheme
-                                    ? "hover:bg-rose-500/20"
-                                    : "hover:bg-rose-100"
-                                  : isDarkTheme
-                                    ? "hover:bg-white/5"
-                                    : "hover:bg-slate-100"
-                              } ${isDarkTheme ? "text-slate-200" : "text-slate-700"}`}
-                            >
-                              <Icon className="h-4 w-4" />
-                              <span className="text-sm">{item.label}</span>
-                            </button>
-                          );
-                        })}
-                        {sectionIndex < threadMenuSections.length - 1 ? (
-                          <div className={`${isDarkTheme ? "bg-white/10" : "bg-slate-200"} my-2 h-px`} />
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
+              )}
 
               <div
                 className={`relative flex-1 min-h-0 transition-colors ${messagePanelBg}`}
@@ -8277,7 +10190,7 @@ export default function KnexChatPage() {
                       </div>
                     ) : null}
                     <div className="space-y-4">
-                      {activeMessages.map((message) => {
+                      {activeMessages.map((message, messageIndex) => {
                         const isMe = message.author === "me";
                         const isGroupChat = activeThread?.tab === "groups";
                         const senderInfo = message.senderEmail
@@ -8287,10 +10200,22 @@ export default function KnexChatPage() {
                           message.senderName?.trim() ||
                           senderInfo?.name ||
                           "Participante";
-                        const showSender = !isMe && isGroupChat;
                         const senderColorClass = getSenderColorClass(senderLabel);
                         const bubbleVariant = isMe ? "knex-bubble--out" : "knex-bubble--in";
                         const isMediaMessage = Boolean(message.imageUrl);
+                        const isFileMessage = Boolean(message.fileUrl || message.fileName);
+                        const isAttachmentMessage = isMediaMessage || isFileMessage;
+                        const mediaType = message.imageUrl ? detectMediaTypeFromSource(message.imageUrl) : null;
+                        const videoDurationLabel =
+                          mediaType === "video" ? messageVideoDurationById[message.id] ?? "0:00" : null;
+                        const showSender = !isMe && isGroupChat && !isAttachmentMessage;
+                        const deliveryState = resolveMessageDeliveryState(message, messageIndex, activeMessages);
+                        const deliveryStatusClass =
+                          deliveryState === "seen"
+                            ? "text-[#53bdeb]"
+                            : isMe
+                              ? "text-white/85"
+                              : "text-slate-500";
                         const incomingAvatarUrl = isGroupChat
                           ? normalizeAvatarUrl(
                               message.senderAvatarUrl ??
@@ -8306,17 +10231,102 @@ export default function KnexChatPage() {
                             ) : null}
                             {message.imageUrl ? (
                               <div className="knex-bubble__media">
-                                <img
-                                  src={message.imageUrl}
-                                  alt={message.imageName ?? "Imagem enviada"}
-                                  className="knex-bubble__image"
-                                />
-                                {message.body ? <p className="knex-bubble__text">{message.body}</p> : null}
+                                <button
+                                  type="button"
+                                  onClick={() => openConversationMediaViewer(message.id)}
+                                  onContextMenu={(event) => {
+                                    if (!mediaType) return;
+                                    openMessageMediaContextMenu(event, message, mediaType);
+                                  }}
+                                  className="knex-bubble__media-trigger block w-full overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+                                  aria-label={mediaType === "video" ? "Abrir vídeo" : "Abrir imagem"}
+                                >
+                                  <div className="relative">
+                                    {mediaType === "video" ? (
+                                      <video
+                                        src={message.imageUrl}
+                                        className="knex-bubble__image"
+                                        muted
+                                        playsInline
+                                        preload="metadata"
+                                        onLoadedMetadata={(event) =>
+                                          updateMessageVideoDuration(message.id, event.currentTarget.duration)
+                                        }
+                                      />
+                                    ) : (
+                                      <img
+                                        src={message.imageUrl}
+                                        alt={message.imageName ?? "Imagem enviada"}
+                                        className="knex-bubble__image"
+                                      />
+                                    )}
+                                    {mediaType === "video" ? (
+                                      <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                                        <span className="grid h-9 w-9 place-items-center rounded-full bg-black/45 text-white">
+                                          <Play className="h-4 w-4" />
+                                        </span>
+                                      </span>
+                                    ) : null}
+                                    <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/80 via-black/30 to-transparent px-2.5 pb-2 pt-7">
+                                      {mediaType === "video" ? (
+                                        <span className="inline-flex h-5 items-center justify-center gap-1 rounded-md bg-black/35 px-1.5 text-white">
+                                          <Video className="h-3.5 w-3.5" />
+                                          <span className="text-[10px] font-medium tabular-nums">{videoDurationLabel}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="h-5 w-5" />
+                                      )}
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-white">
+                                        <span>{message.time}</span>
+                                        {deliveryState ? (
+                                          <DeliveryStatusIndicator
+                                            state={deliveryState}
+                                            className={deliveryState === "seen" ? "text-[#53bdeb]" : "text-white/85"}
+                                          />
+                                        ) : null}
+                                      </span>
+                                    </span>
+                                  </div>
+                                </button>
+                              </div>
+                            ) : isFileMessage ? (
+                              <div className={`rounded-xl px-3 py-2.5 ${isMe ? "bg-white/15" : "bg-black/5"}`}>
+                                <div className="flex items-center gap-2">
+                                  <FolderOpen className="h-4 w-4 shrink-0" />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium">{message.fileName ?? message.body ?? "Arquivo enviado"}</p>
+                                  </div>
+                                  {message.fileUrl ? (
+                                    <a
+                                      href={message.fileUrl}
+                                      download={message.fileName ?? "arquivo"}
+                                      className={`ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full transition ${
+                                        isMe ? "bg-white/20 hover:bg-white/30" : "bg-black/10 hover:bg-black/15"
+                                      }`}
+                                      aria-label="Baixar arquivo"
+                                    >
+                                      <Download className="h-4 w-4" />
+                                    </a>
+                                  ) : null}
+                                </div>
+                                <div className={`mt-1 flex items-center justify-end gap-1 text-[11px] ${isMe ? "text-white/85" : "text-slate-500"}`}>
+                                  <span>{message.time}</span>
+                                  {deliveryState ? (
+                                    <DeliveryStatusIndicator state={deliveryState} className={deliveryStatusClass} />
+                                  ) : null}
+                                </div>
                               </div>
                             ) : (
                               <p className="knex-bubble__text">{message.body}</p>
                             )}
-                            <p className="knex-bubble__time">{message.time}</p>
+                            {!isAttachmentMessage ? (
+                              <p className="knex-bubble__time">
+                                <span>{message.time}</span>
+                                {deliveryState ? (
+                                  <DeliveryStatusIndicator state={deliveryState} className={deliveryStatusClass} />
+                                ) : null}
+                              </p>
+                            ) : null}
                           </div>
                         );
                         const incomingAvatar = incomingAvatarUrl ? (
@@ -8370,16 +10380,52 @@ export default function KnexChatPage() {
                     </div>
                   </div>
 
-                  <div className="px-4 pb-2 pt-1">
-                    <form
-                      className="flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        if (recordingState === "idle") {
-                          handleSendMessage();
-                        }
+                  <div className={useDetachedMobileMic ? "px-2 pb-1 pt-0.5" : "px-4 pb-2 pt-1"}>
+                    <div
+                      className={
+                        useDetachedMobileMic
+                          ? isComposerDragActive
+                            ? "grid grid-cols-1 items-end gap-0"
+                            : "grid grid-cols-[minmax(0,1fr)_44px] items-end gap-1"
+                          : "flex items-end gap-2"
+                      }
+                      onDragEnter={handleComposerDragEnter}
+                      onDragOver={handleComposerDragOver}
+                      onDragLeave={handleComposerDragLeave}
+                      onDrop={(event) => {
+                        void handleComposerDrop(event);
                       }}
                     >
+                      <form
+                        className={`relative flex flex-1 flex-wrap items-center transition-all duration-200 ${
+                          isComposerDragActive
+                            ? "min-h-[56vh] w-full justify-center rounded-[28px] border-2 border-dashed border-emerald-500 bg-emerald-100/80 p-6 sm:min-h-[62vh] sm:p-8"
+                            : useDetachedMobileMic
+                              ? "gap-1"
+                              : "gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
+                        }`}
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (recordingState === "idle") {
+                            handleSendMessage();
+                          }
+                        }}
+                        onPaste={(event) => {
+                          void handleComposerPaste(event);
+                        }}
+                      >
+                      {isComposerDragActive ? (
+                        <div className="pointer-events-none flex h-full w-full flex-col items-center justify-center gap-4 text-center text-emerald-900">
+                          <div className="grid h-20 w-20 place-items-center rounded-3xl bg-emerald-500/15">
+                            <ImageIcon className="h-10 w-10" />
+                          </div>
+                          <p className="text-2xl font-semibold leading-none sm:text-4xl">Arraste o arquivo aqui</p>
+                          <p className="text-sm font-medium text-emerald-800/90 sm:text-base">
+                            Solte para enviar imagem, vídeo ou arquivo.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
                       {messageSendNotice ? (
                         <div
                           className={`w-full rounded-2xl border px-3 py-2 text-xs ${
@@ -8391,26 +10437,36 @@ export default function KnexChatPage() {
                           {messageSendNotice}
                         </div>
                       ) : null}
-                      <div className="flex min-w-[200px] flex-1 items-center gap-4 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-within:border-blue-600">
+                      <div
+                        className={`flex min-w-[200px] flex-1 items-center border text-sm focus-within:border-blue-600 ${
+                          useDetachedMobileMic
+                            ? "h-[40px] rounded-xl border-slate-600 bg-[#3a3a3a] text-white gap-3 pl-1.5 pr-2"
+                            : "rounded-2xl border-slate-300 bg-white text-slate-900 gap-4 px-3 py-2"
+                        }`}
+                      >
                         <button
                           type="button"
                           aria-label="Adicionar"
                           onClick={() => messageImageInputRef.current?.click()}
-                          className="text-3xl leading-none text-slate-600 transition hover:text-slate-900"
+                          className={`text-3xl leading-none transition ${
+                            useDetachedMobileMic ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                          }`}
                         >
                           +
                         </button>
                         <input
                           ref={messageImageInputRef}
                           type="file"
-                          accept="image/*"
+                          accept="*/*"
                           className="sr-only"
-                          onChange={handleMessageImageChange}
+                          onChange={handleMessageAttachmentChange}
                         />
                         <button
                           type="button"
                           aria-label="Emojis"
-                          className="text-slate-600 transition hover:text-slate-900"
+                          className={`transition ${
+                            useDetachedMobileMic ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                          }`}
                         >
                           <Smile className="h-5 w-5" />
                         </button>
@@ -8421,8 +10477,23 @@ export default function KnexChatPage() {
                             setMessageDraft(event.target.value);
                             if (messageSendNotice) setMessageSendNotice(null);
                           }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            if (event.nativeEvent.isComposing) return;
+                            if (!settingsState.enterToSend) {
+                              event.preventDefault();
+                              return;
+                            }
+                            event.preventDefault();
+                            if (recordingState === "idle") {
+                              void handleSendMessage();
+                            }
+                          }}
+                          enterKeyHint={settingsState.enterToSend ? "send" : "done"}
                           placeholder="Digite uma mensagem"
-                          className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+                          className={`w-full bg-transparent text-sm focus:outline-none ${
+                            useDetachedMobileMic ? "text-white placeholder:text-slate-300" : "text-slate-900 placeholder:text-slate-500"
+                          }`}
                         />
                         {recordingState !== "idle" ? (
                           <div className="ml-auto flex items-center gap-2">
@@ -8459,16 +10530,18 @@ export default function KnexChatPage() {
                               {recordingState === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                             </button>
                             <Timer className="h-4 w-4 text-slate-400" />
-                            <button
-                              type="button"
-                              aria-label="Enviar áudio"
-                              onClick={() => stopRecording("send")}
-                              className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
-                            >
-                              <SendHorizontal className="h-4 w-4" />
-                            </button>
+                            {useDetachedMobileMic ? null : (
+                              <button
+                                type="button"
+                                aria-label="Enviar áudio"
+                                onClick={() => stopRecording("send")}
+                                className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700"
+                              >
+                                <SendHorizontal className="h-4 w-4" />
+                              </button>
+                            )}
                           </div>
-                        ) : (
+                        ) : useDetachedMobileMic ? null : (
                           <button
                             type="button"
                             aria-label="Gravar áudio"
@@ -8479,7 +10552,7 @@ export default function KnexChatPage() {
                           </button>
                         )}
                       </div>
-                      {recordingState === "idle" && messageDraft.trim() ? (
+                      {!useDetachedMobileMic && recordingState === "idle" && hasComposerText ? (
                         <button
                           type="submit"
                           className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
@@ -8487,7 +10560,40 @@ export default function KnexChatPage() {
                           Enviar
                         </button>
                       ) : null}
-                    </form>
+                        </>
+                      )}
+                      </form>
+                      {useDetachedMobileMic && !isComposerDragActive ? (
+                        <button
+                          type="button"
+                          aria-label={
+                            recordingState !== "idle"
+                              ? "Enviar áudio"
+                              : hasComposerText
+                                ? "Enviar mensagem"
+                                : "Gravar áudio"
+                          }
+                          onClick={() => {
+                            if (recordingState !== "idle") {
+                              stopRecording("send");
+                              return;
+                            }
+                            if (hasComposerText) {
+                              void handleSendMessage();
+                              return;
+                            }
+                            startRecording();
+                          }}
+                          className="flex h-[40px] w-[44px] shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700"
+                        >
+                          {recordingState !== "idle" || hasComposerText ? (
+                            <SendHorizontal className="h-5 w-5" />
+                          ) : (
+                            <Mic className="h-5 w-5" />
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -9682,20 +11788,26 @@ export default function KnexChatPage() {
           </div>
         </div>
       ) : null}
-      <div
-        className={`fixed inset-x-0 bottom-0 z-40 px-3 pt-0 lg:hidden ${mobileDockSurface}`}
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)" }}
-      >
-        <div className="flex w-full items-center gap-1.5 pt-2">
-          <div
-            ref={mobileDockButtonsRef}
-            className={`no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto ${
-              isMobileDockCarousel ? "scroll-smooth touch-pan-x snap-x snap-mandatory" : ""
-            }`}
-          >
+      {showMobileFooterDock ? (
+        <div
+          className={`fixed inset-x-0 bottom-0 z-40 px-3 pt-0 lg:hidden ${mobileDockSurface}`}
+          style={{
+            height: "calc(env(safe-area-inset-bottom) + 5rem)",
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)",
+          }}
+        >
+          <div className="pt-1.5">
+            <div
+              ref={mobileDockButtonsRef}
+              data-overflow={isMobileDockCarousel ? "1" : "0"}
+              className="grid w-full grid-cols-7 items-center gap-1.5"
+            >
+            {/*
+              While profile sheet is open, avatar is the only selected footer item.
+            */}
             <button
               type="button"
-              className={mobileDockButtonClass(activeNavKey === "conversations")}
+              className={mobileDockButtonClass(!isMobileProfileSheetOpen && activeNavKey === "conversations")}
               onClick={() => openMobileFooterEnvironment("conversations")}
               aria-label="Conversas"
               title="Conversas"
@@ -9704,7 +11816,7 @@ export default function KnexChatPage() {
             </button>
             <button
               type="button"
-              className={mobileDockButtonClass(activeNavKey === "calls")}
+              className={mobileDockButtonClass(!isMobileProfileSheetOpen && activeNavKey === "calls")}
               onClick={() => openMobileFooterEnvironment("calls")}
               aria-label="Ligações"
               title="Ligações"
@@ -9713,7 +11825,7 @@ export default function KnexChatPage() {
             </button>
             <button
               type="button"
-              className={mobileDockButtonClass(activeNavKey === "status")}
+              className={mobileDockButtonClass(!isMobileProfileSheetOpen && activeNavKey === "status")}
               onClick={() => openMobileFooterEnvironment("status")}
               aria-label="Status"
               title="Status"
@@ -9722,7 +11834,7 @@ export default function KnexChatPage() {
             </button>
             <button
               type="button"
-              className={mobileDockButtonClass(activeNavKey === "channels")}
+              className={mobileDockButtonClass(!isMobileProfileSheetOpen && activeNavKey === "channels")}
               onClick={() => openMobileFooterEnvironment("channels")}
               aria-label="Canais"
               title="Canais"
@@ -9731,7 +11843,7 @@ export default function KnexChatPage() {
             </button>
             <button
               type="button"
-              className={mobileDockButtonClass(activeNavKey === "communities")}
+              className={mobileDockButtonClass(!isMobileProfileSheetOpen && activeNavKey === "communities")}
               onClick={() => openMobileFooterEnvironment("communities")}
               aria-label="Comunidades"
               title="Comunidades"
@@ -9740,58 +11852,55 @@ export default function KnexChatPage() {
             </button>
             <button
               type="button"
-              className={mobileDockButtonClass(activeNavKey === "contacts")}
+              className={mobileDockButtonClass(!isMobileProfileSheetOpen && activeNavKey === "contacts")}
               onClick={() => openMobileFooterEnvironment("contacts", { directoryTab: "people" })}
               aria-label="Novo contato ou conversa"
               title="Novo contato ou conversa"
             >
               <UserPlus className="h-5 w-5" />
             </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setIsProfileOpen(false);
-              setProfileTarget(null);
-              setIsSettingsOpen(false);
-              setActiveSettingKey(null);
-              setIsDirectoryOpen(false);
-              setIsMobileProfileSheetOpen((prev) => !prev);
-            }}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.25px] transition max-[420px]:h-9 max-[420px]:w-9 max-[360px]:h-8 max-[360px]:w-8 ${
-              isMobileProfileSheetOpen
-                ? "border-slate-200 bg-transparent"
-                : isDarkTheme
-                  ? "border-slate-200/45 bg-transparent hover:border-slate-200/60"
-                  : "border-slate-200/80 bg-transparent hover:border-slate-300"
-            }`}
-            aria-label="Meu perfil"
-            title="Meu perfil"
-          >
-            {currentUser?.avatarUrl ? (
-              <img
-                src={currentUser.avatarUrl}
-                alt={`Avatar de ${currentUser?.name ?? "Perfil"}`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span
-                className={`grid h-full w-full place-items-center text-[10px] font-semibold ${
-                  isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-200 text-slate-700"
-                }`}
-              >
-                {getAvatarText(currentUser?.name ?? "KN")}
+            <button
+              type="button"
+              onClick={() => {
+                setIsProfileOpen(false);
+                setProfileTarget(null);
+                setIsSettingsOpen(false);
+                setActiveSettingKey(null);
+                setIsDirectoryOpen(false);
+                setIsMobileProfileSheetOpen((prev) => !prev);
+              }}
+              className={mobileDockAvatarButtonClass(isMobileProfileSheetOpen)}
+              aria-label="Meu perfil"
+              title="Meu perfil"
+            >
+              <span className="relative z-10 flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg max-[420px]:h-7 max-[420px]:w-7 max-[360px]:h-6 max-[360px]:w-6">
+                {currentUser?.avatarUrl ? (
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt={`Avatar de ${currentUser?.name ?? "Perfil"}`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                    <span
+                      className={`grid h-full w-full place-items-center text-[10px] font-semibold ${
+                        isDarkTheme ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {getAvatarText(currentUser?.name ?? "KN")}
+                    </span>
+                )}
               </span>
-            )}
             </button>
+            </div>
+          </div>
         </div>
-      </div>
+      ) : null}
       {isMobileProfileSheetOpen ? (
         <>
           <button
             type="button"
             aria-label="Fechar opções do perfil"
-            className="fixed inset-0 z-50 bg-black/35 lg:hidden"
+            className="fixed inset-x-0 top-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-50 bg-black/35 lg:hidden"
             onClick={() => setIsMobileProfileSheetOpen(false)}
           />
           <div className="fixed inset-x-0 top-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-[55] lg:hidden">
@@ -9801,82 +11910,259 @@ export default function KnexChatPage() {
               }`}
             >
               <div
-                className={`relative flex flex-col items-center border-b px-4 pb-4 text-center ${settingsBorder}`}
-                style={{ paddingTop: "calc(env(safe-area-inset-top) + 7.29rem)" }}
+                className="flex items-center justify-between gap-2 px-4"
+                style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)", paddingBottom: "0.75rem" }}
               >
-                <div
-                  className="absolute right-4 flex items-center gap-2"
-                  style={{ top: "calc(env(safe-area-inset-top) + 0.75rem)" }}
-                >
-                  <button
-                    type="button"
-                    aria-label="Pesquisar"
-                    title="Pesquisar"
-                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
-                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                  >
-                    <Search className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Leitor de QR Code"
-                    title="Leitor de QR Code"
-                    className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
-                      isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                  >
-                    <QrCode className="h-4 w-4" />
-                  </button>
-                </div>
-                {currentUser?.avatarUrl ? (
-                  <img
-                    src={currentUser.avatarUrl}
-                    alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                    className={`h-[4.6rem] w-[4.6rem] ${avatarFrameMd} object-cover`}
-                  />
-                ) : (
+                {isMobileProfileSearchOpen ? (
                   <div
-                    className={`grid h-[4.6rem] w-[4.6rem] place-items-center ${avatarFrameMd} text-sm font-semibold ${
-                      isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-full border px-2.5 py-2 text-xs ${
+                      isDarkTheme
+                        ? "border-slate-200/80 bg-white/5 text-slate-100"
+                        : "border-blue-300 bg-blue-50 text-slate-700"
                     }`}
                   >
-                    {getAvatarText(currentUser?.name ?? "KN")}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <p className="mt-2 truncate text-base font-semibold">{currentUser?.name ?? "Perfil"}</p>
-                  <p className={`mt-1 truncate text-xs ${settingsMuted}`}>{currentUser?.knexIdLabel}</p>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto px-0 py-2">
-                {mobileProfileSheetItems.map((item) => {
-                  const Icon = item.icon;
-                  return (
                     <button
-                      key={item.id}
                       type="button"
-                      onClick={item.onSelect}
-                      className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition ${settingsHover}`}
+                      aria-label="Fechar pesquisa"
+                      title="Fechar pesquisa"
+                      onClick={() => {
+                        setIsMobileProfileSearchOpen(false);
+                        setMobileProfileSearchQuery("");
+                      }}
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-white/60"
+                      }`}
                     >
-                      <span
-                        className={`mt-0.5 grid h-8 w-8 place-items-center rounded-xl ${
-                          isDarkTheme ? "bg-white/10 text-slate-100" : "bg-slate-100 text-slate-700"
+                      <ArrowRight className="h-3.5 w-3.5 rotate-180" />
+                    </button>
+                    <input
+                      ref={mobileProfileSearchInputRef}
+                      type="text"
+                      value={mobileProfileSearchQuery}
+                      onChange={(event) => setMobileProfileSearchQuery(event.target.value)}
+                      placeholder="Pesquisar configurações"
+                      className={`w-full bg-transparent text-xs focus:outline-none ${
+                        isDarkTheme
+                          ? "placeholder:text-slate-400 text-slate-100"
+                          : "placeholder:text-slate-500 text-slate-700"
+                      }`}
+                    />
+                    <Search className={`${isDarkTheme ? "text-slate-300" : "text-blue-600"} h-4 w-4 shrink-0`} />
+                  </div>
+                ) : (
+                  <>
+                    <div className="min-w-0 flex-1 pr-2">
+                      <p
+                        className={`truncate text-sm font-semibold transition-opacity duration-150 ${
+                          isMobileProfileHeaderCompact ? "opacity-100" : "opacity-0"
                         }`}
                       >
-                        <Icon className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold">{item.label}</span>
-                        <span className={`block truncate text-[11px] ${settingsMuted}`}>{item.description}</span>
-                      </span>
+                        {currentUser?.name ?? "Perfil"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Escanear QR"
+                      title="Escanear QR"
+                      className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                        isDarkTheme
+                          ? "border-slate-200/80 bg-slate-100 text-slate-900 hover:bg-white"
+                          : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                      }`}
+                    >
+                      <ScanLine className="h-4 w-4" />
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      aria-label="Pesquisar"
+                      title="Pesquisar"
+                      onClick={() => setIsMobileProfileSearchOpen(true)}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                        isDarkTheme ? "text-slate-200 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Search className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+              <div
+                ref={mobileProfileSheetScrollRef}
+                className="flex-1 overflow-y-auto px-0 py-0"
+                onScroll={handleMobileProfileSheetScroll}
+              >
+                {isMobileProfileSearchOpen ? null : (
+                  <div
+                    className={`flex flex-col items-center border-b px-4 py-4 text-center ${settingsBorder}`}
+                    style={{
+                      opacity: 1 - mobileProfileHeaderFade,
+                      transform: `translateY(${-mobileProfileHeaderFade * 22}px) scale(${1 - mobileProfileHeaderFade * 0.08})`,
+                      transformOrigin: "top center",
+                    }}
+                  >
+                    {currentUser?.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                        className={`h-[4.6rem] w-[4.6rem] ${avatarFrameMd} object-cover`}
+                      />
+                    ) : (
+                      <div
+                        className={`grid h-[4.6rem] w-[4.6rem] place-items-center ${avatarFrameMd} text-sm font-semibold ${
+                          isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {getAvatarText(currentUser?.name ?? "KN")}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="mt-2 truncate text-base font-semibold">{currentUser?.name ?? "Perfil"}</p>
+                      <p className={`mt-1 truncate text-xs ${settingsMuted}`}>{currentUser?.knexIdLabel}</p>
+                    </div>
+                  </div>
+                )}
+                <div className={`px-0 ${isMobileProfileSearchOpen ? "py-0" : "py-2"}`}>
+                  <p className={`px-3 pb-1 pt-2 text-xs font-semibold tracking-[0.08em] ${settingsMuted}`}>
+                    Configurações
+                  </p>
+                  {filteredMobileProfileSheetItems.map((item) => {
+                    const Icon = item.icon;
+                    const isMobileSettingEnabled = item.id === "chats";
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          if (!isMobileSettingEnabled) return;
+                          item.onSelect();
+                        }}
+                        className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition ${settingsHover}`}
+                      >
+                        <span
+                          className={`mt-0.5 grid h-8 w-8 place-items-center ${
+                            isDarkTheme ? "text-slate-100" : "text-slate-700"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold">{item.label}</span>
+                          <span className={`block truncate text-[11px] ${settingsMuted}`}>{item.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {filteredMobileProfileSheetItems.length ? null : (
+                    <p className={`px-4 py-4 text-xs ${settingsMuted}`}>Nenhuma configuração encontrada.</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </>
+      ) : null}
+      {messageMediaContextMenu && !isMobileView ? (
+        <div
+          ref={messageMediaContextMenuRef}
+          className={`fixed z-[110] w-[320px] overflow-hidden rounded-2xl border shadow-2xl ${mediaContextMenuSurface}`}
+          style={{ left: messageMediaContextMenu.x, top: messageMediaContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+          role="menu"
+        >
+          <div className="flex items-center gap-1.5 px-2.5 py-2">
+            {MEDIA_CONTEXT_REACTIONS.map((emoji) => (
+              <button
+                key={`${messageMediaContextMenu.messageId}-${emoji}`}
+                type="button"
+                onClick={handleMessageMediaContextMenuAction}
+                className={`grid h-9 w-9 place-items-center rounded-full text-xl transition ${mediaContextMenuReaction}`}
+                aria-label={`Reagir com ${emoji}`}
+              >
+                <span aria-hidden="true">{emoji}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuAction}
+              className={`ml-auto grid h-9 w-9 place-items-center rounded-full transition ${mediaContextMenuReaction}`}
+              aria-label="Mais reações"
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+          </div>
+          <div className={`h-px ${mediaContextMenuDivider}`} />
+          <div className="py-1">
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuAction}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${mediaContextMenuOption}`}
+            >
+              <Reply className="h-4 w-4" />
+              <span className="text-sm">Responder</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuCopy}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${mediaContextMenuOption}`}
+            >
+              <Copy className="h-4 w-4" />
+              <span className="text-sm">Copiar</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuAction}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${mediaContextMenuOption}`}
+            >
+              <ArrowRight className="h-4 w-4" />
+              <span className="text-sm">Encaminhar</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuAction}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${mediaContextMenuOption}`}
+            >
+              <Pin className="h-4 w-4" />
+              <span className="text-sm">Fixar</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuAction}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${mediaContextMenuOption}`}
+            >
+              <Star className="h-4 w-4" />
+              <span className="text-sm">Favoritar</span>
+            </button>
+            <div className={`my-1 h-px ${mediaContextMenuDivider}`} />
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuAction}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${mediaContextMenuOption}`}
+            >
+              <CheckSquare className="h-4 w-4" />
+              <span className="text-sm">Selecionar</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuSaveAs}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${mediaContextMenuOption}`}
+            >
+              <Download className="h-4 w-4" />
+              <span className="text-sm">Salvar como</span>
+            </button>
+            <div className={`my-1 h-px ${mediaContextMenuDivider}`} />
+            <button
+              type="button"
+              onClick={handleMessageMediaContextMenuAction}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${
+                isDarkTheme ? "text-rose-300 hover:bg-rose-500/15" : "text-rose-600 hover:bg-rose-50"
+              }`}
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="text-sm">Apagar</span>
+            </button>
+          </div>
+        </div>
       ) : null}
       {isProfileOpen && isProfileAvatarPreviewOpen ? (
         <div
@@ -9919,6 +12205,248 @@ export default function KnexChatPage() {
               Foto de perfil
             </p>
           </div>
+        </div>
+      ) : null}
+      {isConversationMediaViewerOpen && activeConversationMediaItem ? (
+        <div
+          className={`${isMobileView ? "fixed inset-0 bg-black" : "absolute inset-0 bg-[#e7e7e7]"} z-[90] flex flex-col`}
+          onClick={handleConversationMediaViewerOverlayClick}
+          role="presentation"
+        >
+          <div
+            className={`z-10 flex items-center justify-between px-4 py-3 ${
+              isMobileView
+                ? `absolute inset-x-0 top-0 bg-black/45 transition-all duration-200 ${
+                    isConversationMediaViewerChromeVisible
+                      ? "pointer-events-auto opacity-100 translate-y-0"
+                      : "pointer-events-none opacity-0 -translate-y-3"
+                  }`
+                : "border-b border-slate-300/80"
+            }`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="min-w-0 flex items-center gap-3">
+              {activeConversationMediaItem.senderAvatarUrl ? (
+                <img
+                  src={activeConversationMediaItem.senderAvatarUrl}
+                  alt={`Avatar de ${activeConversationMediaItem.senderName}`}
+                  className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                />
+              ) : (
+                <div
+                  className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                    isMobileView ? "bg-white/20 text-white" : "bg-slate-300 text-slate-700"
+                  }`}
+                >
+                  {getAvatarText(activeConversationMediaItem.senderName)}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className={`truncate text-sm font-semibold ${isMobileView ? "text-white" : "text-slate-900"}`}>
+                  {activeConversationMediaItem.senderName}
+                </p>
+                <p className={`truncate text-xs ${isMobileView ? "text-white/80" : "text-slate-600"}`}>
+                  {activeConversationMediaItem.time}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={activeConversationMediaItem.src}
+                download={activeConversationMediaItem.label}
+                target="_blank"
+                rel="noreferrer"
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                  isMobileView ? "text-white hover:bg-white/20" : "text-slate-700 hover:bg-white/70"
+                }`}
+                aria-label="Baixar mídia"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <Download className="h-4 w-4" />
+              </a>
+              <button
+                type="button"
+                onClick={closeConversationMediaViewer}
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                  isMobileView ? "text-white hover:bg-white/20" : "text-slate-700 hover:bg-white/70"
+                }`}
+                aria-label="Fechar visualizador de mídia"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+          <div
+            className={`relative flex min-h-0 flex-1 items-center justify-center ${
+              isMobileView ? "px-0 pb-0" : "px-4 pb-4 sm:px-14"
+            }`}
+            onClick={(event) => {
+              if (!isMobileView) {
+                event.stopPropagation();
+              }
+            }}
+            onTouchStart={handleConversationMediaViewerTouchStart}
+            onTouchEnd={handleConversationMediaViewerTouchEnd}
+            onTouchCancel={() => {
+              conversationMediaViewerTouchStartRef.current = null;
+              conversationMediaViewerDidSwipeRef.current = false;
+            }}
+          >
+            {activeConversationMediaItem.mediaType === "video" ? (
+              <div
+                className={`relative ${isMobileView ? "h-full w-full" : "max-h-full max-w-full overflow-hidden rounded-md shadow-lg"}`}
+                onClick={handleConversationMediaViewerVideoSurfaceClick}
+              >
+                <video
+                  ref={conversationMediaViewerVideoRef}
+                  key={activeConversationMediaItem.id}
+                  src={activeConversationMediaItem.src}
+                  className={`max-h-full max-w-full bg-black object-contain ${isMobileView ? "h-full w-full rounded-none" : ""}`}
+                  playsInline
+                  preload="metadata"
+                  onPlay={() => setIsConversationMediaViewerVideoPlaying(true)}
+                  onPause={() => setIsConversationMediaViewerVideoPlaying(false)}
+                  onEnded={() => setIsConversationMediaViewerVideoPlaying(false)}
+                  onLoadedMetadata={(event) => {
+                    const duration = Number.isFinite(event.currentTarget.duration)
+                      ? event.currentTarget.duration
+                      : 0;
+                    event.currentTarget.playbackRate = conversationMediaViewerVideoPlaybackSpeed;
+                    setConversationMediaViewerVideoDuration(duration);
+                    setConversationMediaViewerVideoCurrentTime(event.currentTarget.currentTime || 0);
+                  }}
+                  onTimeUpdate={(event) => {
+                    setConversationMediaViewerVideoCurrentTime(event.currentTarget.currentTime || 0);
+                    if (Number.isFinite(event.currentTarget.duration)) {
+                      setConversationMediaViewerVideoDuration(event.currentTarget.duration);
+                    }
+                  }}
+                />
+                {isConversationMediaViewerChromeVisible ? (
+                  <div
+                    className={`pointer-events-none absolute inset-x-0 bottom-0 px-3 py-2 text-[11px] text-white ${
+                      isMobileView ? "bg-black/35" : "bg-black/45"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="shrink-0 tabular-nums">{conversationMediaViewerVideoCurrentLabel}</span>
+                      <span className="shrink-0 tabular-nums">{conversationMediaViewerVideoDurationLabel}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/25">
+                        <span
+                          className="block h-full rounded-full bg-white/90 transition-[width] duration-150"
+                          style={{ width: `${conversationMediaViewerVideoProgressPercent}%` }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={cycleConversationMediaViewerVideoPlaybackSpeed}
+                        className={`pointer-events-auto inline-flex h-6 min-w-[44px] items-center justify-center rounded-full px-2 text-[10px] font-semibold ${
+                          isMobileView ? "bg-white/20 text-white" : "bg-white/25 text-white"
+                        }`}
+                        aria-label={`Alterar velocidade do video. Atual ${conversationMediaViewerVideoPlaybackSpeedLabel}`}
+                      >
+                        {conversationMediaViewerVideoPlaybackSpeedLabel}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleConversationMediaViewerVideoButtonClick}
+                  className={`absolute left-1/2 top-1/2 z-10 grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full transition ${
+                    isMobileView ? "h-14 w-14" : "h-16 w-16"
+                  } ${
+                    isConversationMediaViewerVideoPlaying
+                      ? "pointer-events-none opacity-0"
+                      : "pointer-events-auto bg-black/55 text-white opacity-100 hover:bg-black/65"
+                  }`}
+                  aria-label="Reproduzir vídeo"
+                >
+                  <Play className="h-6 w-6" />
+                </button>
+              </div>
+            ) : (
+              <img
+                src={activeConversationMediaItem.src}
+                alt={activeConversationMediaItem.label}
+                className={`max-h-full max-w-full object-contain ${isMobileView ? "h-full w-full" : "shadow-lg"}`}
+              />
+            )}
+            {!isMobileView && conversationMediaItems.length > 1 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={goToPreviousConversationMedia}
+                  disabled={!hasPreviousConversationMedia}
+                  className={`absolute left-3 top-1/2 -translate-y-1/2 grid place-items-center rounded-full transition ${
+                    isMobileView ? "h-9 w-9" : "h-10 w-10"
+                  } ${
+                    hasPreviousConversationMedia
+                      ? isMobileView
+                        ? "bg-black/45 text-white hover:bg-black/60"
+                        : "bg-slate-700/85 text-white hover:bg-slate-800"
+                      : "cursor-not-allowed bg-slate-500/40 text-white/60"
+                  }`}
+                  aria-label="Mídia anterior"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={goToNextConversationMedia}
+                  disabled={!hasNextConversationMedia}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 grid place-items-center rounded-full transition ${
+                    isMobileView ? "h-9 w-9" : "h-10 w-10"
+                  } ${
+                    hasNextConversationMedia
+                      ? isMobileView
+                        ? "bg-black/45 text-white hover:bg-black/60"
+                        : "bg-slate-700/85 text-white hover:bg-slate-800"
+                      : "cursor-not-allowed bg-slate-500/40 text-white/60"
+                  }`}
+                  aria-label="Próxima mídia"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </>
+            ) : null}
+          </div>
+          {!isMobileView && conversationMediaItems.length > 1 ? (
+            <div
+              className="border-t border-slate-300/80 bg-white/70 px-3 py-2"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="no-scrollbar mx-auto flex max-w-full items-center justify-center gap-2 overflow-x-auto">
+                {conversationMediaItems.map((item, index) => {
+                  const isActive = index === conversationMediaViewerIndex;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setConversationMediaViewerIndex(index)}
+                      className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-md transition ${
+                        isActive ? "ring-2 ring-blue-500" : "opacity-75 hover:opacity-100"
+                      }`}
+                      aria-label={`Abrir mídia ${index + 1}`}
+                    >
+                      {item.mediaType === "video" ? (
+                        <div className="relative h-full w-full">
+                          <video src={item.src} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                          <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/25">
+                            <Play className="h-3.5 w-3.5 text-white" />
+                          </span>
+                        </div>
+                      ) : (
+                        <img src={item.src} alt={item.label} className="h-full w-full object-cover" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {isMediaModalOpen ? (
@@ -10483,6 +13011,18 @@ export default function KnexChatPage() {
                                       </span>
                                       <button
                                         type="button"
+                                        onClick={cycleShareAudioPlaybackSpeed}
+                                        className={`inline-flex h-5 min-w-[34px] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
+                                          isDarkTheme
+                                            ? "text-blue-100 hover:bg-blue-500/30"
+                                            : "text-blue-700 hover:bg-blue-200/60"
+                                        }`}
+                                        aria-label={`Alterar velocidade do audio. Atual ${shareAudioPlaybackSpeedLabel}`}
+                                      >
+                                        {shareAudioPlaybackSpeedLabel}
+                                      </button>
+                                      <button
+                                        type="button"
                                         onClick={() => removeShareAudioById(entry.id)}
                                         className={`flex h-5 w-5 items-center justify-center rounded-full ${
                                           isDarkTheme
@@ -10519,6 +13059,18 @@ export default function KnexChatPage() {
                                       Áudio {index + 1}
                                       {entry.duration ? ` · ${entry.duration}` : ""}
                                     </span>
+                                    <button
+                                      type="button"
+                                      onClick={cycleShareAudioPlaybackSpeed}
+                                      className={`inline-flex h-5 min-w-[34px] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
+                                        isDarkTheme
+                                          ? "text-blue-100 hover:bg-blue-500/30"
+                                          : "text-blue-700 hover:bg-blue-200/60"
+                                      }`}
+                                      aria-label={`Alterar velocidade do audio. Atual ${shareAudioPlaybackSpeedLabel}`}
+                                    >
+                                      {shareAudioPlaybackSpeedLabel}
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => removeShareAudioById(entry.id)}
