@@ -88,6 +88,36 @@ export type Database = {
         }
         Relationships: []
       }
+      knexchat_contact_requests: {
+        Row: {
+          created_at: string
+          id: string
+          requester_email: string
+          responded_at: string | null
+          status: string
+          target_email: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          requester_email: string
+          responded_at?: string | null
+          status?: string
+          target_email: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          requester_email?: string
+          responded_at?: string | null
+          status?: string
+          target_email?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       knexchat_direct_threads: {
         Row: {
           created_at: string
@@ -137,36 +167,6 @@ export type Database = {
           created_at?: string
           email?: string
           name?: string | null
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      knexchat_contact_requests: {
-        Row: {
-          created_at: string
-          id: string
-          requester_email: string
-          responded_at: string | null
-          status: string
-          target_email: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          requester_email: string
-          responded_at?: string | null
-          status?: string
-          target_email: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          requester_email?: string
-          responded_at?: string | null
-          status?: string
-          target_email?: string
           updated_at?: string
         }
         Relationships: []
