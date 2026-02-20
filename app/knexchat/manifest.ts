@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Knexchat",
     short_name: "knex",
-    start_url: "/knexchat/web/chat",
+    start_url: "/knexchat/web",
     scope: "/knexchat/",
     display: "standalone",
     background_color: "#ffffff",

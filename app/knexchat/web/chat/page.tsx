@@ -1,5 +1,1 @@
-import WebLanding from "../WebLanding";
-
-export default function KnexchatWebChatPage() {
-  return <WebLanding />;
-}
+export { default } from "@/knexchat/web/page";

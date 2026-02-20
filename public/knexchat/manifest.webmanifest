@@ -1,7 +1,7 @@
 {
   "name": "Knexchat",
   "short_name": "knex",
-  "start_url": "/knexchat/web/chat",
+  "start_url": "/knexchat/web",
   "scope": "/knexchat/",
   "display": "standalone",
   "background_color": "#ffffff",

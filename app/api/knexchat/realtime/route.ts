@@ -7,6 +7,26 @@ const REALTIME_TICKET_COOKIE = "knexchat_rt";
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
 const MAX_PROFILE_EMAIL_SUBSCRIPTIONS = 300;
+const isContactRequestStatus = (value: string) =>
+  value === "pending" ||
+  value === "accepted" ||
+  value === "rejected" ||
+  value === "blocked" ||
+  value === "canceled";
+
+const toThreadParticipationRealtimeEntry = (raw: unknown, authEmail: string) => {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const threadId = typeof record.thread_id === "string" ? record.thread_id.trim() : "";
+  const participantEmail = normalizeEmail(String(record.email ?? ""));
+  if (!threadId) return null;
+  if (!isValidEmail(participantEmail)) return null;
+  if (participantEmail !== authEmail) return null;
+  return {
+    thread_id: threadId,
+    email: participantEmail,
+  };
+};
 
 const toDirectoryRealtimeEntry = (raw: unknown) => {
   if (!raw || typeof raw !== "object") return null;
@@ -16,11 +36,41 @@ const toDirectoryRealtimeEntry = (raw: unknown) => {
   const name = typeof record.name === "string" ? record.name : null;
   const avatarUrl = typeof record.avatar_url === "string" ? record.avatar_url : null;
   const createdAt = typeof record.created_at === "string" ? record.created_at : null;
+  const updatedAt = typeof record.updated_at === "string" ? record.updated_at : null;
   return {
     email,
     ...(name ? { name } : {}),
     ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
     ...(createdAt ? { created_at: createdAt } : {}),
+    ...(updatedAt ? { updated_at: updatedAt } : {}),
+  };
+};
+
+const toContactRequestRealtimeEntry = (raw: unknown, authEmail: string) => {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const requesterEmail = normalizeEmail(String(record.requester_email ?? ""));
+  const targetEmail = normalizeEmail(String(record.target_email ?? ""));
+  const statusRaw = typeof record.status === "string" ? record.status.trim().toLowerCase() : "";
+  const createdAt = typeof record.created_at === "string" ? record.created_at : null;
+  const updatedAt = typeof record.updated_at === "string" ? record.updated_at : null;
+
+  if (!id) return null;
+  if (!isValidEmail(requesterEmail) || !isValidEmail(targetEmail)) return null;
+  if (!isContactRequestStatus(statusRaw)) return null;
+
+  const isOutgoing = requesterEmail === authEmail;
+  const isIncoming = targetEmail === authEmail;
+  if (!isOutgoing && !isIncoming) return null;
+
+  return {
+    id,
+    email: isOutgoing ? targetEmail : requesterEmail,
+    status: statusRaw,
+    direction: isOutgoing ? "outgoing" : "incoming",
+    ...(createdAt ? { created_at: createdAt } : {}),
+    ...(updatedAt ? { updated_at: updatedAt } : {}),
   };
 };
 
@@ -122,6 +172,14 @@ export async function GET(req: NextRequest) {
           send("message", { message: payload.new });
         },
       ) as typeof channel;
+
+      channel = channel?.on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "knexchat_threads", filter: `id=eq.${threadId}` },
+        (payload) => {
+          send("thread", { thread: payload.new });
+        },
+      ) as typeof channel;
     });
 
     const profileEmailList = Array.from(profileEmails).slice(0, MAX_PROFILE_EMAIL_SUBSCRIPTIONS);
@@ -146,6 +204,61 @@ export async function GET(req: NextRequest) {
         },
       ) as typeof channel;
     });
+
+    channel = channel?.on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "knexchat_contact_requests", filter: `requester_email=eq.${email}` },
+      (payload: { new: unknown }) => {
+        const entry = toContactRequestRealtimeEntry(payload.new, email);
+        if (!entry) return;
+        send("contact_request", { entry });
+      },
+    ) as typeof channel;
+
+    channel = channel?.on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "knexchat_contact_requests", filter: `target_email=eq.${email}` },
+      (payload: { new: unknown }) => {
+        const entry = toContactRequestRealtimeEntry(payload.new, email);
+        if (!entry) return;
+        send("contact_request", { entry });
+      },
+    ) as typeof channel;
+
+    channel = channel?.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "knexchat_contact_requests", filter: `requester_email=eq.${email}` },
+      (payload: { new: unknown }) => {
+        const entry = toContactRequestRealtimeEntry(payload.new, email);
+        if (!entry) return;
+        send("contact_request", { entry });
+      },
+    ) as typeof channel;
+
+    channel = channel?.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "knexchat_contact_requests", filter: `target_email=eq.${email}` },
+      (payload: { new: unknown }) => {
+        const entry = toContactRequestRealtimeEntry(payload.new, email);
+        if (!entry) return;
+        send("contact_request", { entry });
+      },
+    ) as typeof channel;
+
+    channel = channel?.on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "knexchat_thread_participants",
+        filter: `email=eq.${email}`,
+      },
+      (payload) => {
+        const entry = toThreadParticipationRealtimeEntry(payload.new, email);
+        if (!entry) return;
+        send("thread_participation", { entry });
+      },
+    ) as typeof channel;
 
     channel?.subscribe();
 

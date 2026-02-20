@@ -7,13 +7,26 @@ export const runtime = "nodejs";
 const allowedKinds = new Set(["direct", "group", "forum"]);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isValidEmail = (value: string) => Boolean(value) && value.includes("@");
+const MAX_THREAD_AVATAR_URL_LENGTH = 1_600_000;
+const sanitizeThreadAvatarUrl = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^https?:\/\//i.test(trimmed) && !/^data:image\//i.test(trimmed)) return null;
+  if (trimmed.length > MAX_THREAD_AVATAR_URL_LENGTH) return null;
+  return trimmed;
+};
 
 type ThreadParticipant = {
   email: string;
   role: string;
   name?: string | null;
   avatar_url?: string | null;
+  updated_at?: string | null;
 };
+
+const THREAD_SELECT_BASE = "id, kind, title, created_by, created_at, updated_at, last_message_at";
+const THREAD_SELECT_WITH_AVATAR = "id, kind, title, avatar_url, created_by, created_at, updated_at, last_message_at";
 
 function uniqueEmails(values: string[]) {
   const seen = new Set<string>();
@@ -54,18 +67,40 @@ async function attachParticipantNames(
   if (!admin) {
     throw new Error("Supabase service role not configured");
   }
-  const { data: directoryRows, error } = await admin
+  let directoryRows:
+    | Array<{ email: string; name?: string | null; avatar_url?: string | null; updated_at?: string | null }>
+    | null = null;
+  let directoryError: { message?: string } | null = null;
+  const withUpdatedAt = await admin
     .from("knexchat_directory")
-    .select("email, name, avatar_url")
+    .select("email, name, avatar_url, updated_at")
     .in("email", Array.from(allEmails));
+  directoryRows = withUpdatedAt.data;
+  directoryError = withUpdatedAt.error;
 
-  if (error) throw error;
+  if (directoryError && /updated_at/i.test(directoryError.message ?? "")) {
+    const fallback = await admin
+      .from("knexchat_directory")
+      .select("email, name, avatar_url")
+      .in("email", Array.from(allEmails));
+    directoryRows = (fallback.data ?? []) as Array<{
+      email: string;
+      name?: string | null;
+      avatar_url?: string | null;
+      updated_at?: string | null;
+    }>;
+    directoryError = fallback.error;
+  }
+
+  if (directoryError) throw directoryError;
 
   const nameByEmail = new Map<string, string | null>();
   const directoryAvatarByEmail = new Map<string, string | null>();
+  const updatedAtByEmail = new Map<string, string | null>();
   (directoryRows ?? []).forEach((row) => {
     nameByEmail.set(row.email, row.name ?? null);
     directoryAvatarByEmail.set(row.email, row.avatar_url ?? null);
+    updatedAtByEmail.set(row.email, row.updated_at ?? null);
   });
 
   const userIdByEmail = new Map<string, string>();
@@ -115,6 +150,7 @@ async function attachParticipantNames(
       ...participant,
       name: nameByEmail.get(participant.email) ?? null,
       avatar_url: avatarByEmail.get(participant.email) ?? null,
+      updated_at: updatedAtByEmail.get(participant.email) ?? null,
     }));
   });
 
@@ -122,11 +158,33 @@ async function attachParticipantNames(
 }
 
 async function loadThreadWithParticipants(admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>, threadId: string) {
-  const { data: existing, error: existingError } = await admin
+  const withAvatar = await admin
     .from("knexchat_threads")
-    .select("id, kind, title, created_by, created_at, updated_at, last_message_at")
+    .select(THREAD_SELECT_WITH_AVATAR)
     .eq("id", threadId)
     .maybeSingle();
+  let existing = withAvatar.data as
+    | {
+        id: string;
+        kind: string;
+        title: string | null;
+        avatar_url?: string | null;
+        created_by: string;
+        created_at: string;
+        updated_at: string;
+        last_message_at: string | null;
+      }
+    | null;
+  let existingError = withAvatar.error;
+  if (existingError && /avatar_url/i.test(existingError.message ?? "")) {
+    const fallback = await admin
+      .from("knexchat_threads")
+      .select(THREAD_SELECT_BASE)
+      .eq("id", threadId)
+      .maybeSingle();
+    existing = fallback.data ? { ...fallback.data, avatar_url: null } : null;
+    existingError = fallback.error;
+  }
   if (existingError) throw existingError;
   if (!existing) return null;
 
@@ -214,10 +272,31 @@ export async function GET(req: NextRequest) {
       return Response.json({ threads: [] }, { status: 200 });
     }
 
-    const { data: threads, error: threadsError } = await admin
+    const withAvatar = await admin
       .from("knexchat_threads")
-      .select("id, kind, title, created_by, created_at, updated_at, last_message_at")
+      .select(THREAD_SELECT_WITH_AVATAR)
       .in("id", threadIds);
+    let threads = withAvatar.data as
+      | Array<{
+          id: string;
+          kind: string;
+          title: string | null;
+          avatar_url?: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+          last_message_at: string | null;
+        }>
+      | null;
+    let threadsError = withAvatar.error;
+    if (threadsError && /avatar_url/i.test(threadsError.message ?? "")) {
+      const fallback = await admin
+        .from("knexchat_threads")
+        .select(THREAD_SELECT_BASE)
+        .in("id", threadIds);
+      threads = (fallback.data ?? []).map((row) => ({ ...row, avatar_url: null }));
+      threadsError = fallback.error;
+    }
 
     if (threadsError) throw threadsError;
 
@@ -304,6 +383,18 @@ export async function POST(req: NextRequest) {
 
     const titleRaw = typeof body?.title === "string" ? body.title.trim() : "";
     const title = titleRaw ? titleRaw : null;
+    const avatarInput =
+      body && Object.prototype.hasOwnProperty.call(body, "avatarUrl")
+        ? body.avatarUrl
+        : body && Object.prototype.hasOwnProperty.call(body, "avatar_url")
+          ? body.avatar_url
+          : undefined;
+    const avatarRaw = typeof avatarInput === "string" ? avatarInput : "";
+    const avatarHasValue = avatarRaw.trim().length > 0;
+    const avatarUrl = kindRaw === "group" || kindRaw === "forum" ? sanitizeThreadAvatarUrl(avatarRaw) : null;
+    if (kindRaw !== "direct" && avatarHasValue && !avatarUrl) {
+      return Response.json({ message: "Invalid avatarUrl" }, { status: 400 });
+    }
 
     const participantsRaw = Array.isArray(body?.participants) ? body.participants : [];
     const participants = uniqueEmails([...participantsRaw, createdBy]);
@@ -389,17 +480,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { data: thread, error: threadError } = await admin
+    const insertPayloadBase = {
+      kind: kindRaw,
+      title,
+      created_by: createdBy,
+    };
+    const insertPayloadWithAvatar = avatarUrl ? { ...insertPayloadBase, avatar_url: avatarUrl } : insertPayloadBase;
+    const withAvatarInsert = await admin
       .from("knexchat_threads")
-      .insert({
-        kind: kindRaw,
-        title,
-        created_by: createdBy,
-      })
-      .select("id, kind, title, created_by, created_at, updated_at, last_message_at")
+      .insert(insertPayloadWithAvatar)
+      .select(THREAD_SELECT_WITH_AVATAR)
       .single();
+    let thread = withAvatarInsert.data as
+      | {
+          id: string;
+          kind: string;
+          title: string | null;
+          avatar_url?: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+          last_message_at: string | null;
+        }
+      | null;
+    let threadError = withAvatarInsert.error;
+    if (threadError && /avatar_url/i.test(threadError.message ?? "")) {
+      const fallbackInsert = await admin
+        .from("knexchat_threads")
+        .insert(insertPayloadBase)
+        .select(THREAD_SELECT_BASE)
+        .single();
+      thread = fallbackInsert.data ? { ...fallbackInsert.data, avatar_url: null } : null;
+      threadError = fallbackInsert.error;
+    }
 
     if (threadError) throw threadError;
+    if (!thread) {
+      throw new Error("thread_insert_missing");
+    }
 
     const adminRaw = Array.isArray(body?.admins) ? body.admins : [];
     const adminSet = new Set(uniqueEmails(adminRaw));
@@ -468,5 +586,250 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     return Response.json({ message: "Insert failed" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  if (!getSupabaseAdmin()) {
+    return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+  }
+
+  const entitlement = await requireKnexchatEntitlement(req);
+  if (entitlement.response) return entitlement.response;
+  const authEmail = normalizeEmail(entitlement.user?.email ?? "");
+  if (!isValidEmail(authEmail)) {
+    return Response.json({ message: "Invalid email" }, { status: 400 });
+  }
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const threadId = typeof body?.threadId === "string" ? body.threadId.trim() : "";
+    if (!threadId) {
+      return Response.json({ message: "threadId is required" }, { status: 400 });
+    }
+
+    const titleRaw = typeof body?.title === "string" ? body.title.trim() : undefined;
+    const title = typeof titleRaw === "string" ? (titleRaw ? titleRaw : null) : undefined;
+
+    const hasAvatarField =
+      Object.prototype.hasOwnProperty.call(body ?? {}, "avatarUrl") ||
+      Object.prototype.hasOwnProperty.call(body ?? {}, "avatar_url");
+    const avatarInput =
+      body && Object.prototype.hasOwnProperty.call(body, "avatarUrl")
+        ? body.avatarUrl
+        : body && Object.prototype.hasOwnProperty.call(body, "avatar_url")
+          ? body.avatar_url
+          : undefined;
+    const avatarRaw = typeof avatarInput === "string" ? avatarInput : "";
+    const avatarHasValue = avatarRaw.trim().length > 0;
+    const avatarUrl = sanitizeThreadAvatarUrl(avatarRaw);
+    const clearAvatar = hasAvatarField && !avatarHasValue;
+    if (hasAvatarField && avatarHasValue && !avatarUrl) {
+      return Response.json({ message: "Invalid avatarUrl" }, { status: 400 });
+    }
+
+    const hasParticipantsField = Object.prototype.hasOwnProperty.call(body ?? {}, "participants");
+    const participantsRaw: unknown[] = Array.isArray(body?.participants) ? body.participants : [];
+    const requestedParticipants = hasParticipantsField
+      ? uniqueEmails(participantsRaw.filter((item): item is string => typeof item === "string"))
+      : [];
+    if (hasParticipantsField && !requestedParticipants.length) {
+      return Response.json({ message: "participants must include at least one valid email" }, { status: 400 });
+    }
+
+    if (title === undefined && !hasAvatarField && !hasParticipantsField) {
+      return Response.json({ message: "Nothing to update" }, { status: 400 });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+    }
+
+    const { data: membership, error: membershipError } = await admin
+      .from("knexchat_thread_participants")
+      .select("role")
+      .eq("thread_id", threadId)
+      .eq("email", authEmail)
+      .maybeSingle();
+    if (membershipError) throw membershipError;
+    if (!membership) {
+      return Response.json({ message: "Forbidden" }, { status: 403 });
+    }
+
+    const { data: currentThread, error: currentThreadError } = await admin
+      .from("knexchat_threads")
+      .select("id, kind")
+      .eq("id", threadId)
+      .maybeSingle();
+    if (currentThreadError) throw currentThreadError;
+    if (!currentThread) {
+      return Response.json({ message: "Thread not found" }, { status: 404 });
+    }
+    if ((currentThread.kind === "group" || currentThread.kind === "forum") && membership.role !== "admin") {
+      return Response.json({ message: "Only admins can update group settings" }, { status: 403 });
+    }
+    if (hasParticipantsField && currentThread.kind === "direct") {
+      return Response.json({ message: "Direct threads do not support participants updates" }, { status: 400 });
+    }
+
+    const updates: { title?: string | null; avatar_url?: string | null } = {};
+    if (title !== undefined) {
+      updates.title = title;
+    }
+    if (hasAvatarField) {
+      updates.avatar_url = clearAvatar ? null : avatarUrl;
+    }
+
+    let insertedParticipants = 0;
+    if (hasParticipantsField) {
+      const { data: existingParticipants, error: existingParticipantsError } = await admin
+        .from("knexchat_thread_participants")
+        .select("email")
+        .eq("thread_id", threadId);
+      if (existingParticipantsError) throw existingParticipantsError;
+
+      const existingSet = new Set((existingParticipants ?? []).map((row) => normalizeEmail(row.email)));
+      const participantsToInsert = requestedParticipants.filter((email) => !existingSet.has(email));
+
+      if (participantsToInsert.length) {
+        const { data: directoryRows, error: directoryError } = await admin
+          .from("knexchat_directory")
+          .select("email")
+          .in("email", participantsToInsert);
+        if (directoryError) throw directoryError;
+        const existingDirectoryEmails = new Set((directoryRows ?? []).map((row) => normalizeEmail(row.email)));
+        const missing = participantsToInsert.filter((email) => !existingDirectoryEmails.has(email));
+        if (missing.length) {
+          return Response.json({ message: "Some participants are not registered", missing }, { status: 422 });
+        }
+
+        const rows = participantsToInsert.map((email) => ({
+          thread_id: threadId,
+          email,
+          role: "member" as const,
+        }));
+        const { error: participantsInsertError } = await admin
+          .from("knexchat_thread_participants")
+          .upsert(rows, { onConflict: "thread_id,email" });
+        if (participantsInsertError) throw participantsInsertError;
+        insertedParticipants = participantsToInsert.length;
+      }
+    }
+
+    if (!Object.keys(updates).length && insertedParticipants === 0) {
+      const updated = await loadThreadWithParticipants(admin, threadId);
+      if (!updated) {
+        return Response.json({ message: "Thread not found" }, { status: 404 });
+      }
+      return Response.json({ thread: updated }, { status: 200 });
+    }
+
+    if (Object.keys(updates).length) {
+      const primaryUpdate = await admin
+        .from("knexchat_threads")
+        .update(updates)
+        .eq("id", threadId);
+      let updateError = primaryUpdate.error;
+      if (updateError && /avatar_url/i.test(updateError.message ?? "")) {
+        const fallbackUpdates = { ...updates };
+        delete fallbackUpdates.avatar_url;
+        if (!Object.keys(fallbackUpdates).length) {
+          return Response.json({ message: "Avatar update not supported yet. Apply latest migrations." }, { status: 409 });
+        }
+        const fallbackUpdate = await admin
+          .from("knexchat_threads")
+          .update(fallbackUpdates)
+          .eq("id", threadId);
+        updateError = fallbackUpdate.error;
+      }
+      if (updateError) throw updateError;
+    } else if (insertedParticipants > 0) {
+      const touch = await admin
+        .from("knexchat_threads")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", threadId);
+      if (touch.error) throw touch.error;
+    }
+
+    const updated = await loadThreadWithParticipants(admin, threadId);
+    if (!updated) {
+      return Response.json({ message: "Thread not found" }, { status: 404 });
+    }
+
+    return Response.json({ thread: updated }, { status: 200 });
+  } catch {
+    return Response.json({ message: "Update failed" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  if (!getSupabaseAdmin()) {
+    return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+  }
+
+  const entitlement = await requireKnexchatEntitlement(req);
+  if (entitlement.response) return entitlement.response;
+  const authEmail = normalizeEmail(entitlement.user?.email ?? "");
+  if (!isValidEmail(authEmail)) {
+    return Response.json({ message: "Invalid email" }, { status: 400 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const threadId = searchParams.get("threadId")?.trim() ?? "";
+  if (!threadId) {
+    return Response.json({ message: "threadId is required" }, { status: 400 });
+  }
+
+  try {
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return Response.json({ message: "Supabase service role not configured" }, { status: 500 });
+    }
+
+    const { data: memberRow, error: memberError } = await admin
+      .from("knexchat_thread_participants")
+      .select("thread_id")
+      .eq("thread_id", threadId)
+      .eq("email", authEmail)
+      .maybeSingle();
+    if (memberError) throw memberError;
+
+    if (!memberRow) {
+      // Idempotent: if the user is no longer in this thread, treat as success.
+      return Response.json({ threadId, removed: true }, { status: 200 });
+    }
+
+    const { error: deleteParticipantError } = await admin
+      .from("knexchat_thread_participants")
+      .delete()
+      .eq("thread_id", threadId)
+      .eq("email", authEmail);
+    if (deleteParticipantError) throw deleteParticipantError;
+
+    // Keep direct mapping consistent when one side removes the conversation.
+    const { error: deleteDirectMapError } = await admin
+      .from("knexchat_direct_threads")
+      .delete()
+      .eq("thread_id", threadId);
+    if (deleteDirectMapError) throw deleteDirectMapError;
+
+    const { count: remainingParticipants, error: remainingError } = await admin
+      .from("knexchat_thread_participants")
+      .select("email", { head: true, count: "exact" })
+      .eq("thread_id", threadId);
+    if (remainingError) throw remainingError;
+
+    if ((remainingParticipants ?? 0) === 0) {
+      const { error: deleteThreadError } = await admin
+        .from("knexchat_threads")
+        .delete()
+        .eq("id", threadId);
+      if (deleteThreadError) throw deleteThreadError;
+    }
+
+    return Response.json({ threadId, removed: true }, { status: 200 });
+  } catch {
+    return Response.json({ message: "Delete failed" }, { status: 500 });
   }
 }

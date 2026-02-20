@@ -49,22 +49,51 @@ export async function GET(req: NextRequest) {
 
     let query = admin
       .from("knexchat_directory")
-      .select("email, name, avatar_url, created_at")
+      .select("email, name, avatar_url, created_at, updated_at")
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
-
     if (rawQuery) {
       const safeQuery = rawQuery.replace(/[%_]/g, "\\$&");
       query = query.or(`email.ilike.%${safeQuery}%,name.ilike.%${safeQuery}%`);
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
-    const entries = (data ?? []) as {
+    const primaryResult = await query;
+    let error = primaryResult.error;
+    let rows = (primaryResult.data ?? []) as Array<{
       email: string;
       name?: string | null;
       avatar_url?: string | null;
       created_at: string;
+      updated_at?: string | null;
+    }>;
+    if (error && /updated_at/i.test(error.message ?? "")) {
+      let fallbackQuery = admin
+        .from("knexchat_directory")
+        .select("email, name, avatar_url, created_at")
+        .order("created_at", { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (rawQuery) {
+        const safeQuery = rawQuery.replace(/[%_]/g, "\\$&");
+        fallbackQuery = fallbackQuery.or(`email.ilike.%${safeQuery}%,name.ilike.%${safeQuery}%`);
+      }
+      const fallbackResult = await fallbackQuery;
+      rows = (fallbackResult.data ?? []) as Array<{
+        email: string;
+        name?: string | null;
+        avatar_url?: string | null;
+        created_at: string;
+        updated_at?: string | null;
+      }>;
+      error = fallbackResult.error;
+    }
+
+    if (error) throw error;
+    const entries = rows as {
+      email: string;
+      name?: string | null;
+      avatar_url?: string | null;
+      created_at: string;
+      updated_at?: string;
     }[];
     return Response.json({ entries, offset, limit }, { status: 200 });
   } catch {
