@@ -123,18 +123,51 @@ export type Database = {
           created_at: string
           email: string
           name: string | null
+          updated_at: string
         }
         Insert: {
           avatar_url?: string | null
           created_at?: string
           email: string
           name?: string | null
+          updated_at?: string
         }
         Update: {
           avatar_url?: string | null
           created_at?: string
           email?: string
           name?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      knexchat_contact_requests: {
+        Row: {
+          created_at: string
+          id: string
+          requester_email: string
+          responded_at: string | null
+          status: string
+          target_email: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          requester_email: string
+          responded_at?: string | null
+          status?: string
+          target_email: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          requester_email?: string
+          responded_at?: string | null
+          status?: string
+          target_email?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -482,6 +515,7 @@ export type Database = {
       }
       knexchat_threads: {
         Row: {
+          avatar_url: string | null
           created_at: string
           created_by: string
           id: string
@@ -491,6 +525,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string
           created_by: string
           id?: string
@@ -500,6 +535,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string
           created_by?: string
           id?: string

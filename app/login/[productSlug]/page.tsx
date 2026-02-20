@@ -15,8 +15,5 @@ export default function LoginProductPage({ params }: LoginProductPageProps) {
   }
   const paramsQuery = new URLSearchParams();
   paramsQuery.set("returnTo", product.homePath);
-  if (product.slug === "knexchat") {
-    redirect(`/knexit-workspace/acesso/novo?${paramsQuery.toString()}`);
-  }
   redirect(`/knexit-workspace/acesso?${paramsQuery.toString()}`);
 }

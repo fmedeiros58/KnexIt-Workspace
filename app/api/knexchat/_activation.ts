@@ -9,6 +9,20 @@ export type ActivationAuthUser = {
   avatarUrl?: string;
 };
 
+const decodeJwtPayload = (token: string) => {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payload = Buffer.from(parts[1], "base64url").toString("utf8");
+    return JSON.parse(payload) as {
+      email?: string;
+      user_metadata?: { email?: string };
+    };
+  } catch {
+    return null;
+  }
+};
+
 const sanitizeAvatarUrl = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -32,7 +46,12 @@ export const requireActivationAuth = async (req: Request) => {
   if (error || !data?.user?.id) {
     return { user: null, token: null, response: Response.json({ message: "Unauthorized" }, { status: 401 }) };
   }
-  const email = data.user.email ?? "";
+  const payload = decodeJwtPayload(token);
+  const email =
+    data.user.email?.trim() ||
+    payload?.email?.trim() ||
+    payload?.user_metadata?.email?.trim() ||
+    "";
   if (!email) {
     return { user: null, token: null, response: Response.json({ message: "Unauthorized" }, { status: 401 }) };
   }

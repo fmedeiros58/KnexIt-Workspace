@@ -382,6 +382,20 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "Sender not in thread" }, { status: 403 });
     }
 
+    try {
+      await admin
+        .from("knexchat_directory")
+        .upsert(
+          {
+            email: senderEmail,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "email" },
+        );
+    } catch {
+      // Presence update is best-effort and should not block message delivery.
+    }
+
     const { data: message, error: insertError } = await admin
       .from("knexchat_messages")
       .insert({

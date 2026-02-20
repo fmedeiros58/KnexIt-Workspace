@@ -90,7 +90,9 @@ export const resolvePostLoginTarget = async (returnTo: string, accessToken?: str
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (res.status === 401) {
-      return `/knexit-workspace/acesso/novo?returnTo=${encodeURIComponent(returnTo)}`;
+      // Do not force re-activation on transient/invalid-token probes.
+      // Let KnexChat guard handle auth/activation checks in the product route.
+      return returnTo;
     }
     const payload = (await res.json().catch(() => null)) as { activated?: boolean; profile_completed?: boolean } | null;
     if (res.ok && payload && payload.activated === false) {
