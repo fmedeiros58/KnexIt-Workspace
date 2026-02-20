@@ -14,12 +14,21 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#0b111c",
 };
 
 export default function KnexchatLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[var(--kx-bg)] text-slate-500">
+          <span className="text-sm">Carregando KnexChat...</span>
+        </div>
+      }
+    >
       <KnexchatGuardClient>{children}</KnexchatGuardClient>
     </Suspense>
   );

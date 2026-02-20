@@ -28,6 +28,15 @@ export default {
       container: { center: true, padding: "1rem" },
     },
   },
+  safelist: [
+    "min-h-[100dvh]",
+    "h-[100dvh]",
+    "min-h-dvh",
+    "h-dvh",
+    "pb-[env(safe-area-inset-bottom)]",
+    "pt-[env(safe-area-inset-top)]",
+    "pb-[calc(env(safe-area-inset-bottom)+0.9rem)]",
+  ],
   plugins: [],
 } satisfies Config;
 

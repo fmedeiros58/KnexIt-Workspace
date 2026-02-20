@@ -115,7 +115,21 @@ export default function KnexchatGuardClient({ children }: { children: React.Reac
     };
   }, [activationPath, identityPath, loginPath, pathname, router]);
 
-  if (checking) return null;
-  if (!authorized) return null;
+  if (checking) {
+    return (
+      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[var(--kx-bg)] text-slate-500">
+        <span className="text-sm">Validando acesso ao KnexChat...</span>
+      </div>
+    );
+  }
+
+  if (!authorized) {
+    return (
+      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[var(--kx-bg)] text-slate-500">
+        <span className="text-sm">Redirecionando...</span>
+      </div>
+    );
+  }
+
   return <>{children}</>;
 }
