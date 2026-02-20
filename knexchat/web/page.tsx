@@ -745,6 +745,7 @@ type DirectoryRequestsTabKey = "incoming" | "outgoing";
 
 type ContactRequestStatus = "pending" | "accepted" | "rejected" | "blocked" | "canceled";
 type ContactRequestDirection = "incoming" | "outgoing";
+type ContactRequestLookupKey = `${ContactRequestDirection}:${string}`;
 type ContactRequest = {
   id: string;
   email: string;
@@ -4017,11 +4018,14 @@ export default function KnexChatPage() {
           return nextAvatar ? { ...withName, avatarUrl: nextAvatar } : withName;
         });
       setContactRequests((prev) => {
-        const previousByKey = new Map(
-          prev.map((request) => [`${request.direction}:${normalizeEmail(request.email)}`, request] as const),
+        const previousByKey = new Map<ContactRequestLookupKey, ContactRequest>(
+          prev.map(
+            (request) =>
+              [`${request.direction}:${normalizeEmail(request.email)}` as ContactRequestLookupKey, request] as const,
+          ),
         );
         const next = pending.map((request) => {
-          const key = `${request.direction}:${normalizeEmail(request.email)}`;
+          const key: ContactRequestLookupKey = `${request.direction}:${normalizeEmail(request.email)}`;
           const previousRequest = previousByKey.get(key);
           if (!previousRequest) return request;
           if (!areAvatarUrlsEqual(previousRequest.avatarUrl, request.avatarUrl)) return request;
@@ -13116,7 +13120,7 @@ export default function KnexChatPage() {
                                         src={message.imageUrl}
                                         alt={message.imageName ?? "Imagem enviada"}
                                         className="knex-bubble__image"
-                                        onLoad={scrollMessageListToBottom}
+                                        onLoad={() => scrollMessageListToBottom()}
                                       />
                                     )}
                                     {mediaType === "video" ? (
