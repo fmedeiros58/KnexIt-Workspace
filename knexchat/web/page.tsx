@@ -92,11 +92,11 @@ type MasterDetailProps = {
 
 function MasterDetail({ showDetail, master, detail, className = "" }: MasterDetailProps) {
   return (
-    <div className={`flex h-full min-h-0 flex-1 overflow-hidden ${className}`.trim()}>
-      <div className={`${showDetail ? "hidden md:flex" : "flex"} h-full min-h-0 w-full flex-col md:w-auto md:min-w-0`}>
+    <div className={`flex min-h-0 flex-1 overflow-hidden ${className}`.trim()}>
+      <div className={`${showDetail ? "hidden md:flex" : "flex"} min-h-0 w-full flex-col md:w-auto md:min-w-0`}>
         {master}
       </div>
-      <div className={`${showDetail ? "flex" : "hidden md:flex"} h-full min-h-0 flex-1 flex-col`}>{detail}</div>
+      <div className={`${showDetail ? "flex" : "hidden md:flex"} min-h-0 flex-1 flex-col`}>{detail}</div>
     </div>
   );
 }
@@ -108,6 +108,15 @@ type SkeletonProps = {
 function Skeleton({ className = "" }: SkeletonProps) {
   return <div className={`animate-pulse rounded-md bg-slate-200/80 ${className}`.trim()} />;
 }
+
+type DebugUiSnapshot = {
+  viewport: string;
+  visualViewport: string;
+  rootFontSize: string;
+  route: string;
+  env: string;
+  userAgent: string;
+};
 
 const STORAGE_KEY = "knexchat.identity";
 const CHAT_STATE_KEY = "knexchat.state.v2";
@@ -740,6 +749,7 @@ type ContactRequest = {
   id: string;
   email: string;
   name?: string;
+  avatarUrl?: string | null;
   status: ContactRequestStatus;
   direction: ContactRequestDirection;
   createdAt: string;
@@ -749,6 +759,8 @@ type ApiContactRequest = {
   id?: string;
   email?: string;
   name?: string | null;
+  avatarUrl?: string | null;
+  avatar_url?: string | null;
   status?: string;
   direction?: string;
   createdAt?: string;
@@ -1110,12 +1122,14 @@ function mapApiContactRequest(raw: unknown): ContactRequest | null {
     typeof record.name === "string" && record.name.trim()
       ? normalizeName(record.name)
       : undefined;
+  const avatarUrl = normalizeAvatarUrl(record.avatarUrl ?? record.avatar_url ?? null);
 
   if (!id || !email || !isValidEmail(email) || !direction || !status) return null;
   return {
     id,
     email,
     ...(name ? { name } : {}),
+    ...(avatarUrl ? { avatarUrl } : {}),
     status,
     direction,
     createdAt,
@@ -1263,7 +1277,7 @@ function areParticipantRolesEqual(
       participant.email === candidate.email &&
       participant.role === candidate.role &&
       (participant.name ?? null) === (candidate.name ?? null) &&
-      (participant.avatarUrl ?? null) === (candidate.avatarUrl ?? null) &&
+      areAvatarUrlsEqual(participant.avatarUrl ?? null, candidate.avatarUrl ?? null) &&
       (participant.lastSeenAt ?? undefined) === (candidate.lastSeenAt ?? undefined)
     );
   });
@@ -1278,7 +1292,7 @@ function areThreadsEqual(previous: Thread, next: Thread) {
     (previous.lastActivityAt ?? undefined) === (next.lastActivityAt ?? undefined) &&
     (previous.unread ?? undefined) === (next.unread ?? undefined) &&
     previous.tab === next.tab &&
-    (previous.avatarUrl ?? undefined) === (next.avatarUrl ?? undefined) &&
+    areAvatarUrlsEqual(previous.avatarUrl ?? undefined, next.avatarUrl ?? undefined) &&
     (previous.onlineCount ?? undefined) === (next.onlineCount ?? undefined) &&
     (previous.contactEmail ?? undefined) === (next.contactEmail ?? undefined) &&
     areParticipantRolesEqual(previous.participantRoles, next.participantRoles)
@@ -1294,6 +1308,28 @@ function areThreadListsEqual(previous: Thread[], next: Thread[]) {
   });
 }
 
+function preserveStableThreadAvatars(previous: Thread[], next: Thread[]) {
+  if (!previous.length || !next.length) return next;
+  const previousById = new Map(previous.map((thread) => [thread.id, thread] as const));
+  let changed = false;
+  const stabilized = next.map((thread) => {
+    const previousThread = previousById.get(thread.id);
+    if (!previousThread) return thread;
+    const previousAvatar = previousThread.avatarUrl ?? null;
+    const nextAvatar = thread.avatarUrl ?? null;
+    if (!nextAvatar && previousAvatar) {
+      changed = true;
+      return { ...thread, avatarUrl: previousThread.avatarUrl };
+    }
+    if (areAvatarUrlsEqual(previousAvatar, nextAvatar) && previousAvatar !== nextAvatar) {
+      changed = true;
+      return { ...thread, avatarUrl: previousThread.avatarUrl };
+    }
+    return thread;
+  });
+  return changed ? stabilized : next;
+}
+
 function areMessagesEqual(previous: Message[] = [], next: Message[] = []) {
   if (previous.length !== next.length) return false;
   return previous.every((message, index) => {
@@ -1307,7 +1343,7 @@ function areMessagesEqual(previous: Message[] = [], next: Message[] = []) {
       (message.sentAt ?? undefined) === (candidate.sentAt ?? undefined) &&
       (message.senderName ?? undefined) === (candidate.senderName ?? undefined) &&
       (message.senderEmail ?? undefined) === (candidate.senderEmail ?? undefined) &&
-      (message.senderAvatarUrl ?? undefined) === (candidate.senderAvatarUrl ?? undefined) &&
+      areAvatarUrlsEqual(message.senderAvatarUrl ?? undefined, candidate.senderAvatarUrl ?? undefined) &&
       (message.imageUrl ?? undefined) === (candidate.imageUrl ?? undefined) &&
       (message.imageName ?? undefined) === (candidate.imageName ?? undefined) &&
       (message.fileUrl ?? undefined) === (candidate.fileUrl ?? undefined) &&
@@ -1485,6 +1521,22 @@ function normalizeAvatarUrl(raw: unknown): string | null {
   return null;
 }
 
+function getAvatarComparisonKey(raw: string | null | undefined): string {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return "";
+  if (!/^https?:\/\//i.test(value)) return value;
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return value;
+  }
+}
+
+function areAvatarUrlsEqual(previous: string | null | undefined, next: string | null | undefined): boolean {
+  return getAvatarComparisonKey(previous) === getAvatarComparisonKey(next);
+}
+
 function resolveApiMessageMediaUrl(message: ApiMessage): string | null {
   const direct = typeof message.media_url === "string" ? message.media_url.trim() : "";
   if (direct) return direct;
@@ -1605,11 +1657,14 @@ export default function KnexChatPage() {
   } | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authHttpUnauthorized, setAuthHttpUnauthorized] = useState(false);
   const [isKnexchatActivated, setIsKnexchatActivated] = useState<boolean | null>(null);
   const [entitlementBlocked, setEntitlementBlocked] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   const [isMobileDetailOpen, setIsMobileDetailOpen] = useState(false);
+  const debugUiEnabled = process.env.NEXT_PUBLIC_DEBUG_UI === "1";
+  const [debugUiSnapshot, setDebugUiSnapshot] = useState<DebugUiSnapshot | null>(null);
   const [activationLayout, setActivationLayout] = useState<ActivationLayout>(() =>
     computeActivationLayout(1440, 900),
   );
@@ -1654,6 +1709,8 @@ export default function KnexChatPage() {
   const [composerCameraCapturedFile, setComposerCameraCapturedFile] = useState<File | null>(null);
   const [composerCameraCapturedPreview, setComposerCameraCapturedPreview] = useState<string | null>(null);
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(MESSAGE_SEED);
+  const [messageLoadingByThread, setMessageLoadingByThread] = useState<Record<string, boolean>>({});
+  const [messageErrorByThread, setMessageErrorByThread] = useState<Record<string, string | null>>({});
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [activeNavKey, setActiveNavKey] = useState<
@@ -1865,6 +1922,8 @@ export default function KnexChatPage() {
   const recordingSecondsRef = useRef(0);
   const recordingActionRef = useRef<"send" | "discard">("discard");
   const recordingDurationRef = useRef(0);
+  const messageFetchInFlightRef = useRef<Set<string>>(new Set());
+  const refreshSessionPromiseRef = useRef<Promise<string | null> | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const messageImageInputRef = useRef<HTMLInputElement | null>(null);
   const messageCameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -1911,6 +1970,8 @@ export default function KnexChatPage() {
   const composerCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const composerCameraStreamRef = useRef<MediaStream | null>(null);
   const messageListScrollRef = useRef<HTMLDivElement | null>(null);
+  const messageListPinnedToBottomRef = useRef(true);
+  const previousMessageListThreadRef = useRef<string | null>(null);
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const profileAvatarCameraInputRef = useRef<HTMLInputElement | null>(null);
   const profileAvatarDesktopCameraVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -1923,10 +1984,16 @@ export default function KnexChatPage() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const scrollMessageListToBottom = useCallback(() => {
+  const scrollMessageListToBottom = useCallback((force = false) => {
     const container = messageListScrollRef.current;
     if (!container) return;
+    if (!force && !messageListPinnedToBottomRef.current) return;
     container.scrollTop = container.scrollHeight;
+  }, []);
+  const handleMessageListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    messageListPinnedToBottomRef.current = distanceToBottom <= 24;
   }, []);
 
   useEffect(() => {
@@ -2007,6 +2074,9 @@ export default function KnexChatPage() {
     incomingCountRef.current = {};
     unreadInitializedRef.current = false;
     setMessagesByThread(MESSAGE_SEED);
+    setMessageLoadingByThread({});
+    setMessageErrorByThread({});
+    messageFetchInFlightRef.current.clear();
     setSettingsState({ ...DEFAULT_SETTINGS_STATE });
     setGroupDescriptions({});
     setGroupPermissionsById({});
@@ -2124,7 +2194,7 @@ export default function KnexChatPage() {
     (avatarCandidate: string | null | undefined, emailCandidate?: string | null) => {
       const normalizedAvatar = normalizeAvatarUrl(avatarCandidate ?? null);
       if (!normalizedAvatar) return;
-      if (normalizedAvatar === selfAvatarUrlRef.current) return;
+      if (areAvatarUrlsEqual(normalizedAvatar, selfAvatarUrlRef.current)) return;
       selfAvatarUrlRef.current = normalizedAvatar;
       setSelfAvatarUrl(normalizedAvatar);
 
@@ -2147,7 +2217,7 @@ export default function KnexChatPage() {
           ];
         }
         const existing = prev[index];
-        if (existing.avatarUrl === normalizedAvatar) return prev;
+        if (areAvatarUrlsEqual(existing.avatarUrl, normalizedAvatar)) return prev;
         const next = [...prev];
         next[index] = { ...existing, avatarUrl: normalizedAvatar, updatedAt: now };
         return next;
@@ -2212,7 +2282,7 @@ export default function KnexChatPage() {
         const nextName = normalizedName || existing.name;
         const nextUpdatedAt = updatedAtRaw ?? existing.updatedAt;
         if (
-          existing.avatarUrl === nextAvatar &&
+          areAvatarUrlsEqual(existing.avatarUrl, nextAvatar) &&
           existing.name === nextName &&
           existing.updatedAt === nextUpdatedAt
         ) {
@@ -2262,7 +2332,7 @@ export default function KnexChatPage() {
               };
               if (
                 updatedParticipant.name !== participant.name ||
-                updatedParticipant.avatarUrl !== participant.avatarUrl ||
+                !areAvatarUrlsEqual(updatedParticipant.avatarUrl, participant.avatarUrl) ||
                 updatedParticipant.lastSeenAt !== participant.lastSeenAt
               ) {
                 participantChanged = true;
@@ -2304,7 +2374,7 @@ export default function KnexChatPage() {
             };
             if (
               updatedMessage.senderName !== message.senderName ||
-              updatedMessage.senderAvatarUrl !== message.senderAvatarUrl
+              !areAvatarUrlsEqual(updatedMessage.senderAvatarUrl, message.senderAvatarUrl)
             ) {
               changed = true;
             }
@@ -3785,20 +3855,71 @@ export default function KnexChatPage() {
   useEffect(() => {
     authTokenRef.current = authSession?.access_token ?? null;
   }, [authSession?.access_token]);
+  useEffect(() => {
+    if (!authSession?.access_token) return;
+    setAuthHttpUnauthorized(false);
+  }, [authSession?.access_token]);
+
+  const refreshAuthToken = useCallback(async () => {
+    if (refreshSessionPromiseRef.current) {
+      return refreshSessionPromiseRef.current;
+    }
+    const refreshPromise = (async () => {
+      try {
+        const { data, error } = await supabase.auth.refreshSession();
+        if (error) return null;
+        const nextToken = data.session?.access_token ?? null;
+        if (!nextToken) return null;
+        authTokenRef.current = nextToken;
+        setAuthSession(data.session ?? null);
+        setAuthHttpUnauthorized(false);
+        return nextToken;
+      } catch {
+        return null;
+      } finally {
+        refreshSessionPromiseRef.current = null;
+      }
+    })();
+    refreshSessionPromiseRef.current = refreshPromise;
+    return refreshPromise;
+  }, []);
 
   const authFetch = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
-      const headers = new Headers(init.headers ?? {});
-      const token = authTokenRef.current ?? authSession?.access_token;
-      if (token) {
-        headers.set("Authorization", `Bearer ${token}`);
-      }
       const method = (init.method ?? "GET").toUpperCase();
-      const response = await fetch(input, {
-        ...init,
-        headers,
-        ...(init.cache ? {} : method === "GET" || method === "HEAD" ? { cache: "no-store" } : {}),
-      });
+      const requestWithToken = async (token: string | null) => {
+        const headers = new Headers(init.headers ?? {});
+        if (token) {
+          headers.set("Authorization", `Bearer ${token}`);
+        }
+        return fetch(input, {
+          ...init,
+          headers,
+          ...(init.cache ? {} : method === "GET" || method === "HEAD" ? { cache: "no-store" } : {}),
+        });
+      };
+
+      const initialToken = authTokenRef.current ?? authSession?.access_token ?? null;
+      let response = await requestWithToken(initialToken);
+
+      if (response.status === 401) {
+        const refreshedToken = await refreshAuthToken();
+        if (refreshedToken && refreshedToken !== initialToken) {
+          response = await requestWithToken(refreshedToken);
+        }
+      }
+
+      if (response.status === 401) {
+        if (!authHttpUnauthorized) {
+          setAuthHttpUnauthorized(true);
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[KnexChat] API returned 401, stopping sync loops until re-auth.");
+          }
+          void supabase.auth.signOut().catch(() => undefined);
+        }
+        return response;
+      }
+
       if (response.status === 403) {
         const payload = await response.clone().json().catch(() => null);
         if (payload && typeof payload === "object" && payload.code === "ENTITLEMENT_REQUIRED") {
@@ -3807,10 +3928,11 @@ export default function KnexChatPage() {
       }
       return response;
     },
-    [authSession?.access_token],
+    [authHttpUnauthorized, authSession?.access_token, refreshAuthToken],
   );
   const sendPresenceHeartbeat = useCallback(async () => {
-    if (!serverMessagingEnabled || !identity?.email) return;
+    if (!serverMessagingEnabled || !identity?.email || authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     try {
       const res = await authFetch("/api/knexchat/presence", { method: "POST" });
       if (!res.ok) return;
@@ -3829,10 +3951,19 @@ export default function KnexChatPage() {
     } catch {
       // Ignore heartbeat errors.
     }
-  }, [applyRealtimeProfileSync, authFetch, identity?.email, identity?.name, serverMessagingEnabled]);
+  }, [
+    applyRealtimeProfileSync,
+    authFetch,
+    authHttpUnauthorized,
+    authSession?.access_token,
+    identity?.email,
+    identity?.name,
+    serverMessagingEnabled,
+  ]);
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
-    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    if (isKnexchatActivated !== true || entitlementBlocked || authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     let cancelled = false;
     const heartbeat = async () => {
       if (cancelled) return;
@@ -3847,6 +3978,8 @@ export default function KnexChatPage() {
       window.clearInterval(interval);
     };
   }, [
+    authHttpUnauthorized,
+    authSession?.access_token,
     entitlementBlocked,
     identity?.email,
     isChatStateHydrated,
@@ -3857,6 +3990,8 @@ export default function KnexChatPage() {
   const syncContactRequestsFromServer = useCallback(async () => {
     if (!serverMessagingEnabled) return;
     if (!identity?.email) return;
+    if (authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     try {
       const res = await authFetch("/api/knexchat/contact-requests?includeResolved=1");
       if (!res.ok) return;
@@ -3875,15 +4010,53 @@ export default function KnexChatPage() {
       const pending = mapped
         .filter((request) => request.status === "pending")
         .map((request) => {
-          if (request.name?.trim()) return request;
           const known = contactNameByEmailRef.current.get(normalizeEmail(request.email));
-          return known?.name ? { ...request, name: known.name } : request;
+          const nextName = request.name?.trim() ? request.name : known?.name;
+          const nextAvatar = request.avatarUrl ?? known?.avatarUrl ?? null;
+          const withName = nextName ? { ...request, name: nextName } : request;
+          return nextAvatar ? { ...withName, avatarUrl: nextAvatar } : withName;
         });
-      setContactRequests(pending);
+      setContactRequests((prev) => {
+        const previousByKey = new Map(
+          prev.map((request) => [`${request.direction}:${normalizeEmail(request.email)}`, request] as const),
+        );
+        const next = pending.map((request) => {
+          const key = `${request.direction}:${normalizeEmail(request.email)}`;
+          const previousRequest = previousByKey.get(key);
+          if (!previousRequest) return request;
+          if (!areAvatarUrlsEqual(previousRequest.avatarUrl, request.avatarUrl)) return request;
+          if ((previousRequest.avatarUrl ?? null) === (request.avatarUrl ?? null)) return request;
+          return { ...request, avatarUrl: previousRequest.avatarUrl ?? null };
+        });
+        const unchanged =
+          prev.length === next.length &&
+          prev.every((request, index) => {
+            const candidate = next[index];
+            if (!candidate) return false;
+            return (
+              request.id === candidate.id &&
+              request.email === candidate.email &&
+              request.name === candidate.name &&
+              request.status === candidate.status &&
+              request.direction === candidate.direction &&
+              request.createdAt === candidate.createdAt &&
+              areAvatarUrlsEqual(request.avatarUrl, candidate.avatarUrl)
+            );
+          });
+        return unchanged ? prev : next;
+      });
     } catch {
       // Keep local state on transient errors.
     }
-  }, [addContactFromDirectory, authFetch, contactEmailSet, identity?.email, serverMessagingEnabled]);
+  }, [
+    addContactFromDirectory,
+    authFetch,
+    authHttpUnauthorized,
+    authSession?.access_token,
+    contactEmailSet,
+    identity?.email,
+    serverMessagingEnabled,
+  ]);
   const handleSendContactRequest = useCallback(
     (email: string, name?: string) => {
       const normalized = normalizeEmail(email);
@@ -4721,8 +4894,9 @@ export default function KnexChatPage() {
       const nextGroups = mapped.filter((thread) => thread.tab === "groups");
       setConversations((prev) => {
         const selfEmail = identityEmailRef.current;
+        const stabilizedRemoteConversations = preserveStableThreadAvatars(prev, nextConversations);
         if (!selfEmail) {
-          return areThreadListsEqual(prev, nextConversations) ? prev : nextConversations;
+          return areThreadListsEqual(prev, stabilizedRemoteConversations) ? prev : stabilizedRemoteConversations;
         }
         const selfThreads = prev.filter(
           (thread) =>
@@ -4731,9 +4905,9 @@ export default function KnexChatPage() {
             Boolean(thread.contactEmail && normalizeEmail(thread.contactEmail) === selfEmail),
         );
         if (!selfThreads.length) {
-          return areThreadListsEqual(prev, nextConversations) ? prev : nextConversations;
+          return areThreadListsEqual(prev, stabilizedRemoteConversations) ? prev : stabilizedRemoteConversations;
         }
-        const merged = [...nextConversations];
+        const merged = [...stabilizedRemoteConversations];
         selfThreads.forEach((thread) => {
           const alreadyIncluded = merged.some(
             (item) =>
@@ -4744,9 +4918,13 @@ export default function KnexChatPage() {
             merged.unshift(thread);
           }
         });
-        return areThreadListsEqual(prev, merged) ? prev : merged;
+        const stabilizedMerged = preserveStableThreadAvatars(prev, merged);
+        return areThreadListsEqual(prev, stabilizedMerged) ? prev : stabilizedMerged;
       });
-      setGroups((prev) => (areThreadListsEqual(prev, nextGroups) ? prev : nextGroups));
+      setGroups((prev) => {
+        const stabilizedGroups = preserveStableThreadAvatars(prev, nextGroups);
+        return areThreadListsEqual(prev, stabilizedGroups) ? prev : stabilizedGroups;
+      });
       setGroupAdminIdsByGroup((prev) => {
         const next = { ...prev };
         const selfEmail = identityEmailRef.current;
@@ -4791,6 +4969,10 @@ export default function KnexChatPage() {
   const fetchMessagesForThread = useCallback(
     async (threadId: string) => {
       if (!serverMessagingEnabled || !identity?.email || !isUuid(threadId)) return;
+      if (messageFetchInFlightRef.current.has(threadId)) return;
+      messageFetchInFlightRef.current.add(threadId);
+      setMessageLoadingByThread((prev) => ({ ...prev, [threadId]: true }));
+      setMessageErrorByThread((prev) => ({ ...prev, [threadId]: null }));
       try {
         const res = await authFetch(`/api/knexchat/messages?threadId=${encodeURIComponent(threadId)}&limit=200`);
         if (!res.ok) throw new Error("messages_failed");
@@ -4808,11 +4990,27 @@ export default function KnexChatPage() {
           const activityAt = toTimestampMs(lastMessage.created_at) ?? Date.now();
           updateThreadActivity(threadId, preview, activityAt);
         }
-      } catch {
-        // Ignore fetch errors for now.
+      } catch (error) {
+        setMessageErrorByThread((prev) => ({
+          ...prev,
+          [threadId]: "Não foi possível carregar as mensagens desta conversa.",
+        }));
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[KnexChat] fetchMessagesForThread failed", error);
+        }
+      } finally {
+        messageFetchInFlightRef.current.delete(threadId);
+        setMessageLoadingByThread((prev) => ({ ...prev, [threadId]: false }));
       }
     },
-    [authFetch, identity?.email, mapApiMessageToMessage, previewFromApiMessage, serverMessagingEnabled, updateThreadActivity],
+    [
+      authFetch,
+      identity?.email,
+      mapApiMessageToMessage,
+      previewFromApiMessage,
+      serverMessagingEnabled,
+      updateThreadActivity,
+    ],
   );
 
   const ensureServerThreadForSend = useCallback(
@@ -5971,13 +6169,24 @@ export default function KnexChatPage() {
     if (!activeThread) return [];
     return messagesByThread[activeThread.id] ?? [];
   }, [activeThread, messagesByThread]);
+  const isActiveThreadMessageLoading = Boolean(activeThread && messageLoadingByThread[activeThread.id]);
+  const activeThreadMessageLoadError = activeThread ? messageErrorByThread[activeThread.id] ?? null : null;
+  const hasActiveThreadMessages = activeMessages.length > 0;
+  const shouldShowInitialMessageLoading = isActiveThreadMessageLoading && !hasActiveThreadMessages;
+  const shouldShowMessageEmptyState =
+    !isActiveThreadMessageLoading && !activeThreadMessageLoadError && !hasActiveThreadMessages;
   useEffect(() => {
     if (!activeThreadId) return;
+    const isThreadSwitch = previousMessageListThreadRef.current !== activeThreadId;
+    previousMessageListThreadRef.current = activeThreadId;
+    if (isThreadSwitch) {
+      messageListPinnedToBottomRef.current = true;
+    }
     const frameId = window.requestAnimationFrame(() => {
-      scrollMessageListToBottom();
+      scrollMessageListToBottom(isThreadSwitch);
     });
     const timeoutId = window.setTimeout(() => {
-      scrollMessageListToBottom();
+      scrollMessageListToBottom(isThreadSwitch);
     }, 120);
     return () => {
       window.cancelAnimationFrame(frameId);
@@ -6341,6 +6550,36 @@ export default function KnexChatPage() {
     media.addListener(handleChange);
     return () => media.removeListener(handleChange);
   }, []);
+  useEffect(() => {
+    if (!debugUiEnabled || typeof window === "undefined") return;
+    const updateDebugSnapshot = () => {
+      const rootFontSize = window.getComputedStyle(document.documentElement).fontSize;
+      const visualWidth = window.visualViewport ? Math.round(window.visualViewport.width) : null;
+      const visualHeight = window.visualViewport ? Math.round(window.visualViewport.height) : null;
+      setDebugUiSnapshot({
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        visualViewport: visualWidth && visualHeight ? `${visualWidth}x${visualHeight}` : "indisponível",
+        rootFontSize,
+        route: `${window.location.pathname}${window.location.search}`,
+        env: process.env.NODE_ENV ?? "unknown",
+        userAgent: navigator.userAgent,
+      });
+    };
+
+    updateDebugSnapshot();
+    window.addEventListener("resize", updateDebugSnapshot);
+    const visualViewport = window.visualViewport;
+    if (visualViewport) {
+      visualViewport.addEventListener("resize", updateDebugSnapshot);
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateDebugSnapshot);
+      if (visualViewport) {
+        visualViewport.removeEventListener("resize", updateDebugSnapshot);
+      }
+    };
+  }, [debugUiEnabled, pathname, searchQuery]);
 
   useEffect(() => {
     if (isMobileView) return;
@@ -6925,9 +7164,12 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
-    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    if (isKnexchatActivated !== true || entitlementBlocked || authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     void syncContactRequestsFromServer();
   }, [
+    authHttpUnauthorized,
+    authSession?.access_token,
     entitlementBlocked,
     identity?.email,
     isChatStateHydrated,
@@ -6938,7 +7180,8 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
-    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    if (isKnexchatActivated !== true || entitlementBlocked || authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     const interval = window.setInterval(
       () => {
         void syncContactRequestsFromServer();
@@ -6947,6 +7190,8 @@ export default function KnexChatPage() {
     );
     return () => window.clearInterval(interval);
   }, [
+    authHttpUnauthorized,
+    authSession?.access_token,
     entitlementBlocked,
     identity?.email,
     isChatStateHydrated,
@@ -6971,13 +7216,24 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
-    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    if (isKnexchatActivated !== true || entitlementBlocked || authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     void fetchThreadsFromServer();
-  }, [entitlementBlocked, fetchThreadsFromServer, identity?.email, isChatStateHydrated, isKnexchatActivated, serverMessagingEnabled]);
+  }, [
+    authHttpUnauthorized,
+    authSession?.access_token,
+    entitlementBlocked,
+    fetchThreadsFromServer,
+    identity?.email,
+    isChatStateHydrated,
+    isKnexchatActivated,
+    serverMessagingEnabled,
+  ]);
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
-    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    if (isKnexchatActivated !== true || entitlementBlocked || authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     const interval = window.setInterval(
       () => {
         void fetchThreadsFromServer();
@@ -6986,6 +7242,8 @@ export default function KnexChatPage() {
     );
     return () => window.clearInterval(interval);
   }, [
+    authHttpUnauthorized,
+    authSession?.access_token,
     entitlementBlocked,
     fetchThreadsFromServer,
     identity?.email,
@@ -6997,7 +7255,7 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
-    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    if (isKnexchatActivated !== true || entitlementBlocked || authHttpUnauthorized) return;
     if (!authSession?.access_token) return;
     let source: EventSource | null = null;
     let cancelled = false;
@@ -7173,6 +7431,7 @@ export default function KnexChatPage() {
     applyRealtimeContactRequestSync,
     applyRealtimeProfileSync,
     applyRealtimeThreadSync,
+    authHttpUnauthorized,
     entitlementBlocked,
     fetchThreadsFromServer,
     authSession?.access_token,
@@ -7192,7 +7451,8 @@ export default function KnexChatPage() {
 
   useEffect(() => {
     if (!serverMessagingEnabled || !identity?.email || !isChatStateHydrated) return;
-    if (isKnexchatActivated !== true || entitlementBlocked) return;
+    if (isKnexchatActivated !== true || entitlementBlocked || authHttpUnauthorized) return;
+    if (!authTokenRef.current && !authSession?.access_token) return;
     if (!activeServerThreadId) return;
     let cancelled = false;
     const loadMessages = async () => {
@@ -7207,6 +7467,8 @@ export default function KnexChatPage() {
     };
   }, [
     activeServerThreadId,
+    authHttpUnauthorized,
+    authSession?.access_token,
     entitlementBlocked,
     fetchMessagesForThread,
     identity?.email,
@@ -7284,7 +7546,24 @@ export default function KnexChatPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
-    navigator.serviceWorker.register("/knexchat/sw.js", { scope: "/knexchat/" }).catch(() => {});
+    let disposed = false;
+    navigator.serviceWorker
+      .register("/knexchat/sw.js", { scope: "/knexchat/" })
+      .then((registration) => {
+        if (disposed) return;
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+        void registration.update().catch(() => undefined);
+      })
+      .catch((error) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[KnexChat] service worker registration failed", error);
+        }
+      });
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -9256,10 +9535,10 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${KNEXCHAT_FONT_CLASS} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}
+        className={`${KNEXCHAT_FONT_CLASS} relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--kx-bg)] text-slate-900`}
       >
         {activationBackdrop}
-        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
+        <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center">
           <div className="text-sm text-slate-400">Carregando KnexChat...</div>
         </div>
       </main>
@@ -9270,10 +9549,10 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${KNEXCHAT_FONT_CLASS} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}
+        className={`${KNEXCHAT_FONT_CLASS} relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--kx-bg)] text-slate-900`}
       >
         {activationBackdrop}
-        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
+        <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center">
           <div className="text-sm text-slate-400">Verificando sua conta KnexChat...</div>
         </div>
       </main>
@@ -9282,8 +9561,11 @@ export default function KnexChatPage() {
 
   if (!identity) {
     return (
-      <main className={`${KNEXCHAT_FONT_CLASS} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}>
-        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
+      <main
+        style={THEME_STYLE}
+        className={`${KNEXCHAT_FONT_CLASS} relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--kx-bg)] text-slate-900`}
+      >
+        <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center">
           <div className="text-sm text-slate-400">Redirecionando para ativacao...</div>
         </div>
       </main>
@@ -9294,10 +9576,10 @@ export default function KnexChatPage() {
     return (
       <main
         style={THEME_STYLE}
-        className={`${KNEXCHAT_FONT_CLASS} relative h-full min-h-0 bg-[var(--kx-bg)] overflow-hidden text-slate-900`}
+        className={`${KNEXCHAT_FONT_CLASS} relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--kx-bg)] text-slate-900`}
       >
         {activationBackdrop}
-        <div className="relative z-10 flex h-full min-h-0 items-center justify-center">
+        <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center">
           <div className="text-sm text-slate-400">Abrindo o KnexChat...</div>
         </div>
       </main>
@@ -9307,12 +9589,12 @@ export default function KnexChatPage() {
   return (
     <main
       style={THEME_STYLE}
-      className={`${KNEXCHAT_FONT_CLASS} relative h-full min-h-0 overflow-hidden ${
+      className={`${KNEXCHAT_FONT_CLASS} relative flex h-full min-h-0 flex-col overflow-hidden ${
         isDarkTheme ? "bg-[#141414] text-slate-100" : "bg-[var(--kx-bg)] text-slate-900"
       }`}
     >
       <KnexChatMotionStyles />
-      <div className="relative z-10 flex h-full flex-col">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <header
           className={`relative flex min-h-[3.25rem] flex-nowrap items-center justify-start px-2 py-1.5 lg:min-h-[3rem] lg:flex-wrap lg:justify-between lg:gap-3 lg:px-4 lg:py-1.5 ${shellHeaderSurface}`}
           style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.375rem)" }}
@@ -9482,7 +9764,7 @@ export default function KnexChatPage() {
             showMobileFooterDock
               ? "pb-[3.5rem]"
               : "pb-[env(safe-area-inset-bottom)]"
-          } ${isDarkTheme ? "" : "md:-mt-px"} lg:flex-row lg:pb-0 ${shellSurface}`}
+          } ${isDarkTheme ? "" : "md:-mt-px"} overflow-hidden lg:flex-row lg:pb-0 ${shellSurface}`}
         >
         <nav
           className={`hidden w-14 flex-col items-center gap-4 ${navRailBase} py-5 lg:flex`}
@@ -9753,10 +10035,10 @@ export default function KnexChatPage() {
           <>
             <aside
               style={{ ...(chatListWidthStyle ?? {}), ...(settingsCrispTextStyle ?? {}) }}
-              className={`relative flex h-full min-h-0 w-full flex-col border-b ${settingsBorder} ${settingsPanelBase} ${settingsCrispClass} ${settingsCrispContrastClass} md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
+              className={`relative flex min-h-0 w-full flex-1 flex-col border-b ${settingsBorder} ${settingsPanelBase} ${settingsCrispClass} ${settingsCrispContrastClass} md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
             >
               {activeSettingKey === "general" ? (
-                <div className="flex h-full min-h-0 flex-col">
+                <div className="flex min-h-0 flex-1 flex-col">
                   <div className={`flex items-center gap-3 border-b px-5 py-3 ${settingsBorder}`}>
                     <button
                       type="button"
@@ -9857,7 +10139,7 @@ export default function KnexChatPage() {
                   </div>
                 </div>
               ) : activeSettingKey === "chats" ? (
-                <div className="flex h-full min-h-0 flex-col">
+                <div className="flex min-h-0 flex-1 flex-col">
                   <div className={`flex items-center gap-3 border-b px-5 py-3 ${settingsBorder}`}>
                     <button
                       type="button"
@@ -10285,7 +10567,7 @@ export default function KnexChatPage() {
         {isProfileOpen ? (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex h-full min-h-0 w-full flex-col ${settingsBorder} ${
+            className={`relative flex min-h-0 w-full flex-1 flex-col ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-white"
             } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
           >
@@ -10415,7 +10697,7 @@ export default function KnexChatPage() {
         ) : (
           <aside
             style={chatListWidthStyle}
-            className={`relative flex h-full min-h-0 w-full flex-col ${settingsBorder} ${conversationPanelFontClass} ${
+            className={`relative flex min-h-0 w-full flex-1 flex-col ${settingsBorder} ${conversationPanelFontClass} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-white"
             } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
           >
@@ -11030,11 +11312,17 @@ export default function KnexChatPage() {
                         )}
                       </div>
                     ) : directoryTab === "contacts" ? (
-                      <div className="space-y-3">
-                        <p className={`text-[11px] font-semibold ${settingsMuted}`}>Meus contatos</p>
+                      <div className="-mx-4 space-y-0">
+                        <p className={`px-4 text-[11px] font-semibold ${settingsMuted}`}>Meus contatos</p>
                         {contacts.length ? (
                           contacts.map((contact) => {
                             const isContactActive = contact.id === activeThread?.id;
+                            const normalizedContactEmail = normalizeEmail(contact.contactEmail ?? "");
+                            const fallbackContactAvatar =
+                              normalizedContactEmail && isValidEmail(normalizedContactEmail)
+                                ? contactNameByEmail.get(normalizedContactEmail)?.avatarUrl ?? null
+                                : null;
+                            const contactAvatarUrl = resolveThreadAvatarUrl(contact) ?? fallbackContactAvatar;
                             return (
                               <button
                                 key={contact.id}
@@ -11051,9 +11339,9 @@ export default function KnexChatPage() {
                                 }`}
                               >
                                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                                  {contact.avatarUrl ? (
+                                  {contactAvatarUrl ? (
                                     <img
-                                      src={contact.avatarUrl}
+                                      src={contactAvatarUrl}
                                       alt={`Avatar de ${contact.title}`}
                                       className={`h-11 w-11 shrink-0 ${avatarFrameMd} object-cover`}
                                     />
@@ -11124,64 +11412,84 @@ export default function KnexChatPage() {
                         {directoryRequestsTab === "incoming" ? (
                           <div className="-mx-4">
                             {incomingRequests.length ? (
-                              incomingRequests.map((request) => (
-                                <div
-                                  key={request.id}
-                                  className={`flex items-center justify-between gap-3 px-4 py-[0.4rem] transition ${
-                                    isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100"
-                                  }`}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <p
-                                      className={`truncate text-base font-semibold md:text-[19px] md:leading-tight ${
-                                        isDarkTheme ? "text-slate-100" : "text-slate-900"
-                                      }`}
-                                    >
-                                      {request.name ?? formatNameFromEmail(request.email)}
-                                    </p>
-                                    <p className={`truncate text-[11px] ${settingsMuted}`}>
-                                      {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
-                                    </p>
-                                  </div>
-                                  {request.status === "pending" ? (
-                                    <div className="flex items-center gap-1 md:shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          handleAcceptContactRequest(
-                                            request.email,
-                                            request.name,
-                                            contactNameByEmail.get(normalizeEmail(request.email))?.avatarUrl ?? null,
-                                          );
-                                          setDirectoryTab("contacts");
-                                        }}
-                                        className={`inline-flex h-9 min-w-[7.25rem] items-center justify-center whitespace-nowrap rounded-xl px-3 text-sm font-medium leading-none transition ${
-                                          isDarkTheme
-                                            ? "bg-blue-500 text-slate-100 hover:bg-blue-400"
-                                            : "bg-blue-600 text-white hover:bg-blue-700"
-                                        }`}
-                                      >
-                                        Aceitar
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRejectContactRequest(request.email, "rejected")}
-                                        className={`inline-flex h-9 min-w-[7.25rem] items-center justify-center whitespace-nowrap rounded-xl px-3 text-sm font-medium leading-none transition ${
-                                          isDarkTheme
-                                            ? "bg-white/10 text-slate-200 hover:bg-white/20"
-                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                        }`}
-                                      >
-                                        Excluir
-                                      </button>
+                              incomingRequests.map((request) => {
+                                const requestDisplayName = request.name ?? formatNameFromEmail(request.email);
+                                const requestAvatarUrl =
+                                  request.avatarUrl ??
+                                  contactNameByEmail.get(normalizeEmail(request.email))?.avatarUrl ??
+                                  null;
+                                return (
+                                  <div
+                                    key={request.id}
+                                    className={`flex items-center justify-between gap-3 px-4 py-[0.4rem] transition ${
+                                      isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                                      {requestAvatarUrl ? (
+                                        <img
+                                          src={requestAvatarUrl}
+                                          alt={`Avatar de ${requestDisplayName}`}
+                                          className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                                        />
+                                      ) : (
+                                        <div
+                                          className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                          }`}
+                                        >
+                                          {getAvatarText(requestDisplayName)}
+                                        </div>
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <p
+                                          className={`truncate text-base font-normal md:text-[19px] md:font-semibold md:leading-tight ${
+                                            isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                          }`}
+                                        >
+                                          {requestDisplayName}
+                                        </p>
+                                        <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                          {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                        </p>
+                                      </div>
                                     </div>
-                                  ) : (
-                                    <span className={`md:w-[10.5rem] md:shrink-0 md:text-center text-[11px] ${settingsMuted}`}>
-                                      {request.status}
-                                    </span>
-                                  )}
-                                </div>
-                              ))
+                                    {request.status === "pending" ? (
+                                      <div className="flex items-center gap-1 md:shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleAcceptContactRequest(request.email, request.name, requestAvatarUrl);
+                                            setDirectoryTab("contacts");
+                                          }}
+                                          className={`inline-flex h-9 min-w-[7.25rem] items-center justify-center whitespace-nowrap rounded-xl px-3 text-sm font-medium leading-none transition ${
+                                            isDarkTheme
+                                              ? "bg-blue-500 text-slate-100 hover:bg-blue-400"
+                                              : "bg-blue-600 text-white hover:bg-blue-700"
+                                          }`}
+                                        >
+                                          Aceitar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRejectContactRequest(request.email, "rejected")}
+                                          className={`inline-flex h-9 min-w-[7.25rem] items-center justify-center whitespace-nowrap rounded-xl px-3 text-sm font-medium leading-none transition ${
+                                            isDarkTheme
+                                              ? "bg-white/10 text-slate-200 hover:bg-white/20"
+                                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                          }`}
+                                        >
+                                          Excluir
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className={`md:w-[10.5rem] md:shrink-0 md:text-center text-[11px] ${settingsMuted}`}>
+                                        {request.status}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })
                             ) : (
                               <p className={`px-4 py-10 text-center text-xs ${settingsMuted}`}>Nenhuma solicitação recebida.</p>
                             )}
@@ -11189,40 +11497,64 @@ export default function KnexChatPage() {
                         ) : (
                           <div className="-mx-4">
                             {outgoingRequests.length ? (
-                              outgoingRequests.map((request) => (
-                                <div
-                                  key={request.id}
-                                  className={`flex items-center justify-between gap-3 px-4 py-[0.4rem] transition ${
-                                    isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100"
-                                  }`}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <p
-                                      className={`truncate text-base font-semibold md:text-[19px] md:leading-tight ${
-                                        isDarkTheme ? "text-slate-100" : "text-slate-900"
-                                      }`}
-                                    >
-                                      {request.name ?? formatNameFromEmail(request.email)}
-                                    </p>
-                                    <p className={`truncate text-[11px] ${settingsMuted}`}>
-                                      {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
-                                    </p>
-                                  </div>
-                                  <span
-                                    className={`inline-flex h-9 min-w-[8.25rem] items-center justify-center whitespace-nowrap rounded-xl px-3 text-sm font-medium leading-none md:w-[10.5rem] md:min-w-0 md:shrink-0 ${
-                                      request.status === "pending"
-                                        ? isDarkTheme
-                                          ? "bg-blue-500 text-slate-100"
-                                          : "bg-blue-600 text-white"
-                                        : isDarkTheme
-                                          ? "bg-white/10 text-slate-200"
-                                          : "bg-slate-100 text-slate-600"
+                              outgoingRequests.map((request) => {
+                                const requestDisplayName = request.name ?? formatNameFromEmail(request.email);
+                                const requestAvatarUrl =
+                                  request.avatarUrl ??
+                                  contactNameByEmail.get(normalizeEmail(request.email))?.avatarUrl ??
+                                  null;
+                                return (
+                                  <div
+                                    key={request.id}
+                                    className={`flex items-center justify-between gap-3 px-4 py-[0.4rem] transition ${
+                                      isDarkTheme ? "hover:bg-white/5" : "hover:bg-slate-100"
                                     }`}
                                   >
-                                    {request.status === "pending" ? "Aguardando" : request.status}
-                                  </span>
-                                </div>
-                              ))
+                                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                                      {requestAvatarUrl ? (
+                                        <img
+                                          src={requestAvatarUrl}
+                                          alt={`Avatar de ${requestDisplayName}`}
+                                          className={`h-10 w-10 ${avatarFrameSm} object-cover`}
+                                        />
+                                      ) : (
+                                        <div
+                                          className={`grid h-10 w-10 place-items-center ${avatarFrameSm} text-xs font-semibold ${
+                                            isDarkTheme ? "bg-slate-900 text-slate-200" : "bg-slate-100 text-slate-700"
+                                          }`}
+                                        >
+                                          {getAvatarText(requestDisplayName)}
+                                        </div>
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <p
+                                          className={`truncate text-base font-normal md:text-[19px] md:font-semibold md:leading-tight ${
+                                            isDarkTheme ? "text-slate-100" : "text-slate-900"
+                                          }`}
+                                        >
+                                          {requestDisplayName}
+                                        </p>
+                                        <p className={`truncate text-[11px] ${settingsMuted}`}>
+                                          {getKnexIdFromEmail(request.email)} • {maskEmail(request.email)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <span
+                                      className={`inline-flex h-9 min-w-[8.25rem] items-center justify-center whitespace-nowrap rounded-xl px-3 text-sm font-medium leading-none md:w-[10.5rem] md:min-w-0 md:shrink-0 ${
+                                        request.status === "pending"
+                                          ? isDarkTheme
+                                            ? "bg-blue-500 text-slate-100"
+                                            : "bg-blue-600 text-white"
+                                          : isDarkTheme
+                                            ? "bg-white/10 text-slate-200"
+                                            : "bg-slate-100 text-slate-600"
+                                      }`}
+                                    >
+                                      {request.status === "pending" ? "Aguardando" : request.status}
+                                    </span>
+                                  </div>
+                                );
+                              })
                             ) : (
                               <p className={`px-4 py-10 text-center text-xs ${settingsMuted}`}>Nenhuma solicitação enviada.</p>
                             )}
@@ -11926,25 +12258,25 @@ export default function KnexChatPage() {
                             </p>
                           )}
                         </div>
-                        {selectedGroupMembers.length ? (
-                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-                            <button
-                              type="button"
-                              onClick={handleAdvanceGroupMemberPicker}
-                              className={`flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg transition ${
-                                isDarkTheme ? "bg-blue-600 hover:bg-blue-500" : "bg-blue-600 hover:bg-blue-700"
-                              }`}
-                              aria-label="Avançar"
-                            >
-                              {groupMemberPickerMode === "add" ? (
-                                <Check className="h-5 w-5" />
-                              ) : (
-                                <ArrowRight className="h-5 w-5" />
-                              )}
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
+                      {selectedGroupMembers.length ? (
+                        <div className="fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.75rem)] right-4 z-[46] lg:hidden">
+                          <button
+                            type="button"
+                            onClick={handleAdvanceGroupMemberPicker}
+                            className={`grid h-12 w-12 place-items-center rounded-xl text-white shadow-lg transition ${
+                              isDarkTheme ? "bg-blue-600 hover:bg-blue-500" : "bg-blue-600 hover:bg-blue-700"
+                            }`}
+                            aria-label="Avançar"
+                          >
+                            {groupMemberPickerMode === "add" ? (
+                              <Check className="h-5 w-5" />
+                            ) : (
+                              <ArrowRight className="h-5 w-5" />
+                            )}
+                          </button>
+                        </div>
+                      ) : null}
                     </>
                   ) : isCommunityListOpen ? (
                     <div className="flex-1 px-4 py-4">
@@ -12321,6 +12653,28 @@ export default function KnexChatPage() {
                 </div>
               ) : (
                 <div className="w-full space-y-0">
+                  {serverSyncError ? (
+                    <div
+                      className={`mx-2 mb-2 rounded-xl border px-3 py-2 text-xs ${
+                        isDarkTheme
+                          ? "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                          : "border-rose-200 bg-rose-50 text-rose-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{serverSyncError}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void fetchThreadsFromServer();
+                          }}
+                          className="rounded-lg px-2 py-1 font-semibold transition hover:bg-black/10"
+                        >
+                          Tentar novamente
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   {isServerSyncing && !filteredActiveThreads.length ? (
                     <div className="space-y-3 px-0 py-1">
                       {Array.from({ length: 6 }).map((_, index) => (
@@ -12440,7 +12794,9 @@ export default function KnexChatPage() {
       )
       }
       detail={
-        <section className={`flex min-h-0 flex-1 flex-col overflow-hidden ${settingsBorder} md:border-t ${messagePanelBg}`}>
+        <section
+          className={`flex min-h-0 flex-1 flex-col overflow-hidden ${settingsBorder} md:border-t ${messagePanelBg}`}
+        >
           {isProfileOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className={`border-b ${isDarkTheme ? "border-t" : "border-t-0"} md:border-t-0 ${settingsBorder} px-6 py-4`}>
@@ -12619,11 +12975,17 @@ export default function KnexChatPage() {
               )}
 
               <div
-                className={`relative flex-1 min-h-0 transition-colors ${messagePanelBg}`}
+                className={`relative flex-1 min-h-0 overflow-hidden transition-colors ${messagePanelBg}`}
                 style={messagePanelBodyStyle}
               >
-                <div className="flex h-full min-h-0 flex-col">
-                  <div ref={messageListScrollRef} className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-2">
+                <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]">
+                  <div
+                    ref={messageListScrollRef}
+                    onScroll={handleMessageListScroll}
+                    className={`min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch] px-6 pt-6 ${
+                      isMobileView ? "pb-3" : "pb-4"
+                    }`}
+                  >
                     {pendingJoinToken ? (
                       <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -12644,7 +13006,48 @@ export default function KnexChatPage() {
                       </div>
                     ) : null}
                     <div className="space-y-4">
-                      {activeMessages.map((message, messageIndex) => {
+                      {activeThreadMessageLoadError ? (
+                        <div
+                          className={`rounded-xl border px-3 py-2 text-xs ${
+                            isDarkTheme
+                              ? "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                              : "border-rose-200 bg-rose-50 text-rose-700"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>{activeThreadMessageLoadError}</span>
+                            {activeThread ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void fetchMessagesForThread(activeThread.id);
+                                }}
+                                className="rounded-lg px-2 py-1 font-semibold transition hover:bg-black/10"
+                              >
+                                Tentar novamente
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+                      {shouldShowInitialMessageLoading ? (
+                        <div className="space-y-3 py-2">
+                          {Array.from({ length: 5 }).map((_, index) => (
+                            <Skeleton key={`message-skeleton-${index}`} className="h-12 w-[78%]" />
+                          ))}
+                        </div>
+                      ) : null}
+                      {shouldShowMessageEmptyState ? (
+                        <div
+                          className={`rounded-2xl border px-4 py-5 text-center text-sm ${
+                            isDarkTheme ? "border-[#2a2a2a] text-slate-300" : "border-slate-200 text-slate-500"
+                          }`}
+                        >
+                          Nenhuma mensagem ainda. Envie a primeira mensagem para iniciar a conversa.
+                        </div>
+                      ) : null}
+                      {!shouldShowInitialMessageLoading && !shouldShowMessageEmptyState
+                        ? activeMessages.map((message, messageIndex) => {
                         const isMe = message.author === "me";
                         const isGroupChat = activeThread?.tab === "groups";
                         const senderInfo = message.senderEmail
@@ -12675,7 +13078,6 @@ export default function KnexChatPage() {
                           ? normalizeAvatarUrl(
                               message.senderAvatarUrl ??
                                 senderInfo?.avatarUrl ??
-                                activeThreadAvatarUrl ??
                                 null,
                             )
                           : null;
@@ -12833,18 +13235,27 @@ export default function KnexChatPage() {
                       ) : null}
                         </div>
                       );
-                    })}
+                    })
+                        : null}
                     </div>
                   </div>
 
-                  <div className={useDetachedMobileMic ? "px-2 pb-1 pt-0.5" : "px-4 pb-2 pt-1"}>
+                  <div
+                    className={`${
+                      useDetachedMobileMic
+                        ? "px-2 pt-0.5 pb-[calc(env(safe-area-inset-bottom)+0.35rem)]"
+                        : "px-0 pb-0 pt-0"
+                    } z-10 shrink-0 ${isDarkTheme ? "bg-[#141414]" : "bg-slate-50"}`}
+                  >
                     <div
                       className={
                         useDetachedMobileMic
                           ? isComposerDragActive
                             ? "grid grid-cols-1 items-end gap-0"
                             : "grid grid-cols-[minmax(0,1fr)_44px] items-end gap-1"
-                          : "flex items-end gap-2"
+                          : isMobileView
+                            ? "flex items-end gap-2"
+                            : "flex items-center gap-0"
                       }
                       onDragEnter={handleComposerDragEnter}
                       onDragOver={handleComposerDragOver}
@@ -12854,12 +13265,14 @@ export default function KnexChatPage() {
                       }}
                     >
                       <form
-                        className={`relative flex flex-1 flex-wrap items-center transition-all duration-200 ${
+                        className={`relative flex flex-1 items-center transition-all duration-200 ${
+                          isMobileView ? "flex-wrap" : "flex-nowrap"
+                        } ${
                           isComposerDragActive
                             ? "min-h-[56vh] w-full justify-center rounded-[28px] border-2 border-dashed border-emerald-500 bg-emerald-100/80 p-6 sm:min-h-[62vh] sm:p-8"
                             : useDetachedMobileMic
                               ? "gap-1"
-                              : "gap-2 rounded-2xl bg-[var(--knex-850)]/70 p-2"
+                              : "gap-2 bg-[var(--knex-850)]/70 px-4 py-2"
                         }`}
                         onSubmit={(event) => {
                           event.preventDefault();
@@ -16421,6 +16834,17 @@ export default function KnexChatPage() {
               ) : null}
             </div>
           </div>
+        </div>
+      ) : null}
+      {debugUiEnabled && debugUiSnapshot ? (
+        <div className="pointer-events-none fixed bottom-2 left-2 z-[200] w-[min(90vw,460px)] rounded-xl border border-slate-300 bg-white/95 p-2 text-[11px] leading-4 text-slate-700 shadow-lg backdrop-blur">
+          <p className="font-semibold text-slate-900">KnexChat Debug UI</p>
+          <p>route: {debugUiSnapshot.route}</p>
+          <p>env: {debugUiSnapshot.env}</p>
+          <p>viewport: {debugUiSnapshot.viewport}</p>
+          <p>visualViewport: {debugUiSnapshot.visualViewport}</p>
+          <p>root font-size: {debugUiSnapshot.rootFontSize}</p>
+          <p className="truncate">ua: {debugUiSnapshot.userAgent}</p>
         </div>
       ) : null}
     </main>

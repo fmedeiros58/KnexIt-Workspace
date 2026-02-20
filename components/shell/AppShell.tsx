@@ -47,6 +47,9 @@ export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [productsPanelOpen, setProductsPanelOpen] = useState(false);
+  const isKnexchatMessageRoute = Boolean(
+    pathname && (pathname.startsWith("/knexchat/web") || pathname.startsWith("/knexchat/t/")),
+  );
 
   const shouldUseShell = useMemo(() => {
     if (!pathname) return true;
@@ -66,11 +69,19 @@ export default function AppShell({ children }: AppShellProps) {
   const closeProductsPanel = () => setProductsPanelOpen(false);
 
   if (!shouldUseShell) {
-    return <div className="h-screen overflow-y-auto bg-[var(--kx-bg)] text-slate-900">{children}</div>;
+    return (
+      <div
+        className={`h-[100dvh] min-h-0 min-w-0 bg-[var(--kx-bg)] text-slate-900 ${
+          isKnexchatMessageRoute ? "overflow-hidden" : "overflow-y-auto"
+        }`}
+      >
+        {children}
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-screen min-w-0 flex-col bg-[var(--kx-bg)] text-slate-900 overflow-x-visible">
+    <div className="flex h-[100dvh] min-h-0 min-w-0 flex-col overflow-x-visible bg-[var(--kx-bg)] text-slate-900">
       <div className="relative z-30">
         <Header
           title={activeItem?.label ?? "Knexspace One"}
@@ -117,7 +128,11 @@ export default function AppShell({ children }: AppShellProps) {
         ) : null}
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pl-0 pr-0 pt-0 pb-4">
+        <main
+          className={`min-h-0 min-w-0 flex-1 overflow-x-hidden pl-0 pr-0 pt-0 ${
+            isKnexchatMessageRoute ? "overflow-hidden pb-0" : "overflow-y-auto pb-4"
+          }`}
+        >
           {children}
         </main>
       </div>
