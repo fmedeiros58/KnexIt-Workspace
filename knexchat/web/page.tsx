@@ -43,6 +43,7 @@ import {
   MessageCircle,
   MessageSquare,
   MoreVertical,
+  Menu,
   Plus,
   FolderOpen,
   Smartphone,
@@ -135,6 +136,24 @@ const roboto = Roboto({
   fallback: ["Helvetica Neue", "Arial", "sans-serif"],
 });
 const KNEXCHAT_FONT_CLASS = roboto.className;
+const TOP_MENU_CAROUSEL_ITEMS = [
+  "Música",
+  "Mixes",
+  "Aeronaves militares",
+  "Ao vivo",
+  "Caminhões",
+  "Sátira",
+  "Suspenses",
+  "Sedã",
+  "Tiro prático",
+  "Ao vivo",
+  "Telefones",
+  "Computadores",
+  "Máquinas",
+  "Animação",
+  "Enviados recentemente",
+  "Aventura",
+];
 const supabase = createIdentitySupabase();
 
 function buildKnexchatWebHref(searchQuery: string, threadId: string | null): string {
@@ -1065,6 +1084,30 @@ const SETTINGS_MENU = [
   },
 ] as const;
 
+type AppNavKey =
+  | "conversations"
+  | "calls"
+  | "status"
+  | "channels"
+  | "communities"
+  | "contacts"
+  | "images"
+  | "settings";
+
+type GlobalSearchResult = {
+  id: string;
+  kind: "thread" | "message" | "person" | "area" | "setting";
+  label: string;
+  subLabel: string;
+  icon: LucideIcon;
+  score: number;
+  threadId?: string;
+  threadTab?: TabKey;
+  navKey?: AppNavKey;
+  settingKey?: (typeof SETTINGS_MENU)[number]["key"];
+  directoryQuery?: string;
+};
+
 const MESSAGE_SEED: Record<string, Message[]> = {};
 
 const THEME_STYLE: CSSProperties = {
@@ -1717,6 +1760,7 @@ export default function KnexChatPage() {
   const [activeNavKey, setActiveNavKey] = useState<
     "conversations" | "calls" | "status" | "channels" | "communities" | "contacts" | "images" | "settings"
   >("conversations");
+  const [isNavSidebarOpen, setIsNavSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<"thread" | "self" | null>(null);
@@ -1732,6 +1776,7 @@ export default function KnexChatPage() {
   const [chatListWidth, setChatListWidth] = useState(384);
   const [isChatListResizing, setIsChatListResizing] = useState(false);
   const [isThreadMenuOpen, setIsThreadMenuOpen] = useState(false);
+  const [isHeaderAvatarMenuOpen, setIsHeaderAvatarMenuOpen] = useState(false);
   const [desktopConversationContextMenu, setDesktopConversationContextMenu] = useState<{
     threadId: string;
     threadTab: TabKey;
@@ -1778,6 +1823,7 @@ export default function KnexChatPage() {
   const [directoryRequestsTab, setDirectoryRequestsTab] = useState<DirectoryRequestsTabKey>("incoming");
   const [directorySearch, setDirectorySearch] = useState("");
   const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilterKey>("all");
+  const [activeTopMenuIndex, setActiveTopMenuIndex] = useState(0);
 
   const showDetailOnMobile =
     isMobileView &&
@@ -1810,6 +1856,32 @@ export default function KnexChatPage() {
     if (!threadParam && !pathname?.startsWith("/knexchat/t/")) return;
     router.replace(buildKnexchatWebHref(searchQuery, null), { scroll: false });
   }, [isMobileView, pathname, router, searchQuery, threadParam]);
+  const handleToggleSidebar = useCallback(() => {
+    if (isMobileView) {
+      setIsProfileOpen(false);
+      setProfileTarget(null);
+      setIsSettingsOpen(false);
+      setActiveSettingKey(null);
+      setIsDirectoryOpen(false);
+      setIsMobileProfileSheetOpen((prev) => !prev);
+      return;
+    }
+    setIsNavSidebarOpen((prev) => !prev);
+  }, [isMobileView]);
+  useEffect(() => {
+    if (!isMobileView || !isNavSidebarOpen) return;
+    setIsNavSidebarOpen(false);
+  }, [isMobileView, isNavSidebarOpen]);
+  useEffect(() => {
+    if (isMobileView || !isNavSidebarOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsNavSidebarOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileView, isNavSidebarOpen]);
 
   const [isDirectoryFiltersOpen, setIsDirectoryFiltersOpen] = useState(false);
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
@@ -1852,6 +1924,8 @@ export default function KnexChatPage() {
   const [shareAudioPlaybackSpeed, setShareAudioPlaybackSpeed] = useState<PlaybackSpeed>(1);
   const [isComposerDragActive, setIsComposerDragActive] = useState(false);
   const [isGroupsExpanded, setIsGroupsExpanded] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
   const [customListSearch, setCustomListSearch] = useState("");
   const [newChatSearch, setNewChatSearch] = useState("");
@@ -1947,11 +2021,14 @@ export default function KnexChatPage() {
   const mobileDockButtonsRef = useRef<HTMLDivElement | null>(null);
   const mobileProfileSheetScrollRef = useRef<HTMLDivElement | null>(null);
   const mobileProfileSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const topMenuCarouselRef = useRef<HTMLDivElement | null>(null);
   const conversationFiltersRef = useRef<HTMLDivElement | null>(null);
   const directoryFiltersRef = useRef<HTMLDivElement | null>(null);
   const [shareAudioPlayingId, setShareAudioPlayingId] = useState<string | null>(null);
   const [shareAudioIsPaused, setShareAudioIsPaused] = useState(false);
   const [isMobileDockCarousel, setIsMobileDockCarousel] = useState(false);
+  const [canScrollTopMenuLeft, setCanScrollTopMenuLeft] = useState(false);
+  const [canScrollTopMenuRight, setCanScrollTopMenuRight] = useState(false);
   const [isConversationFiltersCarousel, setIsConversationFiltersCarousel] = useState(false);
   const [isDirectoryFiltersCarousel, setIsDirectoryFiltersCarousel] = useState(false);
   const incomingCountRef = useRef<Record<string, number>>({});
@@ -1959,6 +2036,8 @@ export default function KnexChatPage() {
   const chatListResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const threadMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const threadMenuRef = useRef<HTMLDivElement | null>(null);
+  const globalSearchContainerRef = useRef<HTMLDivElement | null>(null);
+  const headerAvatarMenuRef = useRef<HTMLDivElement | null>(null);
   const desktopConversationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const hiddenThreadIdsRef = useRef<Set<string>>(new Set());
   const conversationMediaViewerTouchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -5346,6 +5425,7 @@ export default function KnexChatPage() {
   }, [identity?.name, isProfileOpen, profileTarget, settingsState.profileRecado]);
 
   const handleOpenProfile = (target: "thread" | "self") => {
+    setIsHeaderAvatarMenuOpen(false);
     setIsProfileOpen(true);
     setProfileTarget(target);
     setIsProfileAvatarPreviewOpen(false);
@@ -5434,6 +5514,41 @@ export default function KnexChatPage() {
     setActiveNavKey("settings");
     setIsSettingsOpen(true);
     setActiveSettingKey(key);
+  };
+  const handleSidebarMenuSelect = (
+    key: "conversations" | "calls" | "status" | "channels" | "communities" | "contacts" | "images" | "settings",
+  ) => {
+    if (key === "settings") {
+      openSettingsFromMobileSheet(null);
+      setIsNavSidebarOpen(false);
+      return;
+    }
+    if (key === "images") {
+      setActiveNavKey("images");
+      setIsDirectoryOpen(false);
+      setIsMediaModalOpen(true);
+      setActiveMediaTab("media");
+      setIsMediaSelectMode(false);
+      setSelectedMediaIds([]);
+      setIsMediaFilterOpen(false);
+      setIsMediaShareOpen(false);
+      setShareSearch("");
+      setShareMessage("");
+      setSelectedShareContactIds([]);
+      clearShareAudios();
+      if (shareRecordingState === "recording") {
+        stopShareRecording("discard");
+      }
+      setIsNavSidebarOpen(false);
+      return;
+    }
+    if (key === "contacts") {
+      openMobileFooterEnvironment("contacts", { directoryTab: "people" });
+      setIsNavSidebarOpen(false);
+      return;
+    }
+    openMobileFooterEnvironment(key);
+    setIsNavSidebarOpen(false);
   };
   const handleBackFromSettingsDetail = useCallback(() => {
     if (isMobileView) {
@@ -6038,6 +6153,14 @@ export default function KnexChatPage() {
     setIsThreadMenuOpen(false);
   }, [activeThreadId]);
   useEffect(() => {
+    if (!isMobileView && !showMobileConversationShellHeader) return;
+    setIsHeaderAvatarMenuOpen(false);
+  }, [isMobileView, showMobileConversationShellHeader]);
+  useEffect(() => {
+    if (!isMobileView) return;
+    setIsGlobalSearchOpen(false);
+  }, [isMobileView]);
+  useEffect(() => {
     if (!isThreadMenuOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as Node | null;
@@ -6058,6 +6181,46 @@ export default function KnexChatPage() {
       window.removeEventListener("keydown", handleKey);
     };
   }, [isThreadMenuOpen]);
+  useEffect(() => {
+    if (!isHeaderAvatarMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (headerAvatarMenuRef.current?.contains(target)) return;
+      setIsHeaderAvatarMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsHeaderAvatarMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [isHeaderAvatarMenuOpen]);
+  useEffect(() => {
+    if (!isGlobalSearchOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (globalSearchContainerRef.current?.contains(target)) return;
+      setIsGlobalSearchOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsGlobalSearchOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [isGlobalSearchOpen]);
   useEffect(() => {
     if (!desktopConversationContextMenu) return;
     const closeMenu = () => setDesktopConversationContextMenu(null);
@@ -6611,6 +6774,50 @@ export default function KnexChatPage() {
     if (!(isDirectoryOpen || isGroupsPanelOpen || isNewChatOpen || isProfileOpen || isSettingsOpen)) return;
     setIsCustomListOpen(false);
   }, [isDirectoryOpen, isGroupsPanelOpen, isNewChatOpen, isProfileOpen, isSettingsOpen]);
+
+  const updateTopMenuCarouselEdges = useCallback(() => {
+    const element = topMenuCarouselRef.current;
+    if (!element) {
+      setCanScrollTopMenuLeft(false);
+      setCanScrollTopMenuRight(false);
+      return;
+    }
+    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+    setCanScrollTopMenuLeft(element.scrollLeft > 2);
+    setCanScrollTopMenuRight(element.scrollLeft < maxScrollLeft - 2);
+  }, []);
+
+  useEffect(() => {
+    if (showMobileConversationShellHeader) {
+      setCanScrollTopMenuLeft(false);
+      setCanScrollTopMenuRight(false);
+      return;
+    }
+
+    const element = topMenuCarouselRef.current;
+    if (!element) {
+      setCanScrollTopMenuLeft(false);
+      setCanScrollTopMenuRight(false);
+      return;
+    }
+
+    const handleTopMenuEdgeUpdate = () => updateTopMenuCarouselEdges();
+    handleTopMenuEdgeUpdate();
+    element.addEventListener("scroll", handleTopMenuEdgeUpdate, { passive: true });
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => handleTopMenuEdgeUpdate());
+      resizeObserver.observe(element);
+    }
+
+    window.addEventListener("resize", handleTopMenuEdgeUpdate);
+    return () => {
+      element.removeEventListener("scroll", handleTopMenuEdgeUpdate);
+      window.removeEventListener("resize", handleTopMenuEdgeUpdate);
+      resizeObserver?.disconnect();
+    };
+  }, [showMobileConversationShellHeader, updateTopMenuCarouselEdges]);
 
   useEffect(() => {
     const hasHorizontalOverflow = (element: HTMLDivElement | null) => {
@@ -7664,6 +7871,7 @@ export default function KnexChatPage() {
 
 
   const handleLogout = async () => {
+    setIsHeaderAvatarMenuOpen(false);
     try {
       await supabase.auth.signOut();
     } catch {
@@ -8243,6 +8451,16 @@ export default function KnexChatPage() {
     const delta = direction === "left" ? -80 : 80;
     shareThumbsRef.current.scrollBy({ left: delta, behavior: "smooth" });
   }, []);
+  const scrollTopMenuCarousel = useCallback((direction: "left" | "right") => {
+    if (!topMenuCarouselRef.current) return;
+    const viewportWidth = topMenuCarouselRef.current.clientWidth;
+    const delta = Math.max(180, Math.floor(viewportWidth * 0.72));
+    topMenuCarouselRef.current.scrollBy({
+      left: direction === "left" ? -delta : delta,
+      behavior: "smooth",
+    });
+    window.requestAnimationFrame(() => updateTopMenuCarouselEdges());
+  }, [updateTopMenuCarouselEdges]);
   const updateShareAudioDuration = useCallback((id: string, duration: string, durationSeconds?: number) => {
     setShareAudioFiles((prev) =>
       prev.map((item) =>
@@ -8761,7 +8979,7 @@ export default function KnexChatPage() {
           : "bg-white text-black shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
         : isDarkTheme
           ? "text-slate-300 hover:bg-slate-300/25 hover:text-white"
-          : "text-white/90 hover:bg-white/15 hover:text-white"
+          : "text-slate-700 hover:bg-slate-200/80 hover:text-slate-900"
     }`;
   const mobileDockButtonClass = (active: boolean) =>
     `flex h-11 w-full items-center justify-center rounded-xl transition max-[420px]:h-10 max-[360px]:h-9 ${
@@ -9317,9 +9535,9 @@ export default function KnexChatPage() {
     : undefined;
   const conversationPanelFontClass = KNEXCHAT_FONT_CLASS;
   const shellBrandSurface = isDarkTheme ? "bg-[var(--knex-850)]/85" : "bg-[var(--kx-header)]";
-  const navRailBase = shellBrandSurface;
-  const navRailDivider = isDarkTheme ? "bg-[#2a2a2a]" : "bg-white/20";
-  const shellSurface = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[var(--kx-bg)] lg:bg-[var(--kx-header)]";
+  const navRailBase = isDarkTheme ? shellBrandSurface : "bg-[#f5f6f7]";
+  const navRailDivider = isDarkTheme ? "bg-[#2a2a2a]" : "bg-slate-300/90";
+  const shellSurface = isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-[var(--kx-bg)] lg:bg-[#f5f6f7]";
   const mobileDockSurface = isDarkTheme ? "bg-[var(--knex-850)]" : "bg-[var(--kx-header)]";
   const whiteHeaderTextStyle: CSSProperties = { textShadow: "0 0 0.6px rgba(8,33,78,0.92)" };
   const headerBrandTextStyle: CSSProperties = {
@@ -9330,7 +9548,7 @@ export default function KnexChatPage() {
   };
   const shellHeaderSurface = isDarkTheme
     ? `border-b border-[#2a2a2a] md:border-b-0 ${shellBrandSurface} text-white`
-    : `${shellBrandSurface} text-white`;
+    : "bg-[var(--kx-header)] text-white md:bg-[#f5f6f7] md:text-slate-900";
   const showMobileConversationFloatingActions =
     isMobileView &&
     showMobileFooterDock &&
@@ -9342,6 +9560,15 @@ export default function KnexChatPage() {
     !isGroupsPanelOpen &&
     !isCustomListOpen &&
     !isNewChatOpen;
+  const headerAvatarHandle = useMemo(() => {
+    const emailLocalPart = currentUser?.email?.split("@")[0] ?? "";
+    const source = emailLocalPart || currentUser?.name || "usuario";
+    const normalized = source
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[^a-z0-9._-]/g, "");
+    return `@${normalized || "usuario"}`;
+  }, [currentUser?.email, currentUser?.name]);
   const headerLineLeft = isSettingsOpen ? "calc(3.5rem + 340px)" : "calc(3.5rem + 24rem)";
   const messagePanelBg = isDarkTheme ? "bg-[#141414]" : "bg-slate-50";
   const useDetachedMobileMic = isMobileView;
@@ -9527,6 +9754,233 @@ export default function KnexChatPage() {
         return haystack.includes(query);
       })
     : mobileProfileSheetItems;
+  const desktopSidebarPrimaryItems: {
+    key: "conversations" | "calls" | "status" | "channels" | "communities" | "contacts";
+    label: string;
+    icon: LucideIcon;
+  }[] = [
+    { key: "conversations", label: "Conversas", icon: MessageCircle },
+    { key: "calls", label: "Ligacoes", icon: Phone },
+    { key: "status", label: "Status", icon: CircleDot },
+    { key: "channels", label: "Canais", icon: Radio },
+    { key: "communities", label: "Comunidades", icon: Shapes },
+    { key: "contacts", label: "Contatos", icon: UserPlus },
+  ];
+  const desktopSidebarExploreItems: {
+    key: "images" | "settings";
+    label: string;
+    icon: LucideIcon;
+  }[] = [
+    { key: "images", label: "Midias", icon: ImageIcon },
+    { key: "settings", label: "Configuracoes", icon: Settings },
+  ];
+  const globalSearchResults = useMemo<GlobalSearchResult[]>(() => {
+    const query = globalSearchQuery.trim().toLowerCase();
+    if (!query) return [];
+
+    const scoreToken = (value: string) => {
+      const candidate = value.trim().toLowerCase();
+      if (!candidate) return -1;
+      if (candidate === query) return 140;
+      if (candidate.startsWith(query)) return 112;
+      if (candidate.includes(` ${query}`)) return 94;
+      return candidate.includes(query) ? 72 : -1;
+    };
+    const resolveScore = (...entries: { text: string; boost?: number }[]) => {
+      let best = -1;
+      entries.forEach((entry) => {
+        const base = scoreToken(entry.text);
+        if (base < 0) return;
+        const boosted = base + (entry.boost ?? 0);
+        if (boosted > best) best = boosted;
+      });
+      return best;
+    };
+
+    const threadById = new Map<string, Thread>();
+    allThreads.forEach((thread) => {
+      threadById.set(thread.id, thread);
+    });
+
+    const directThreadByEmail = new Map<string, { id: string; tab: TabKey }>();
+    allThreads.forEach((thread) => {
+      if (thread.tab !== "contacts" && thread.tab !== "conversations") return;
+      const email = thread.contactEmail ? normalizeEmail(thread.contactEmail) : extractEmail(thread.preview) ?? "";
+      if (!email || directThreadByEmail.has(email)) return;
+      directThreadByEmail.set(email, { id: thread.id, tab: thread.tab });
+    });
+
+    const nextResults: GlobalSearchResult[] = [];
+
+    allThreads.forEach((thread) => {
+      const score = resolveScore(
+        { text: thread.title, boost: 22 },
+        { text: thread.preview, boost: 9 },
+        { text: thread.contactEmail ?? "", boost: 7 },
+      );
+      if (score < 0) return;
+      const icon: LucideIcon =
+        thread.tab === "groups" ? Users2 : thread.tab === "contacts" ? UserPlus : MessageCircle;
+      nextResults.push({
+        id: `thread:${thread.id}`,
+        kind: "thread",
+        label: thread.title,
+        subLabel: thread.preview || thread.lastActivity || "Conversa",
+        icon,
+        score,
+        threadId: thread.id,
+        threadTab: thread.tab,
+      });
+    });
+
+    Object.entries(messagesByThread).forEach(([threadId, threadMessages]) => {
+      const thread = threadById.get(threadId);
+      if (!thread || !threadMessages.length) return;
+      let threadHitCount = 0;
+      for (let index = threadMessages.length - 1; index >= 0 && threadHitCount < 2; index -= 1) {
+        const message = threadMessages[index];
+        const messageLabel = [message.body, message.fileName, message.imageName]
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .find(Boolean) ?? "Mensagem";
+        const score = resolveScore(
+          { text: message.body ?? "", boost: 16 },
+          { text: message.fileName ?? "", boost: 14 },
+          { text: message.imageName ?? "", boost: 13 },
+          { text: `${message.body ?? ""} ${message.fileName ?? ""} ${message.imageName ?? ""} ${message.senderName ?? ""}`, boost: 8 },
+        );
+        if (score < 0) continue;
+        nextResults.push({
+          id: `message:${threadId}:${message.id}`,
+          kind: "message",
+          label: messageLabel,
+          subLabel: `${thread.title} · ${message.time}`,
+          icon: MessageSquare,
+          score,
+          threadId,
+          threadTab: thread.tab,
+        });
+        threadHitCount += 1;
+      }
+    });
+
+    directoryPeople.forEach((person) => {
+      const normalizedEmail = normalizeEmail(person.email);
+      const linkedThread = normalizedEmail ? directThreadByEmail.get(normalizedEmail) : undefined;
+      const score = resolveScore(
+        { text: person.name, boost: 15 },
+        { text: person.knexId, boost: 11 },
+        { text: person.email, boost: 10 },
+      );
+      if (score < 0) return;
+      nextResults.push({
+        id: `person:${normalizedEmail || person.email}`,
+        kind: "person",
+        label: person.name,
+        subLabel: `${person.knexId} · ${person.email}`,
+        icon: User,
+        score: score + (linkedThread ? 5 : 0),
+        ...(linkedThread ? { threadId: linkedThread.id, threadTab: linkedThread.tab } : {}),
+        directoryQuery: person.email,
+      });
+    });
+
+    const areaTargets: { key: AppNavKey; label: string; hint: string; icon: LucideIcon }[] = [
+      { key: "conversations", label: "Conversas", hint: "Abrir painel de conversas", icon: MessageCircle },
+      { key: "calls", label: "Ligações", hint: "Abrir chamadas", icon: Phone },
+      { key: "status", label: "Status", hint: "Abrir status", icon: CircleDot },
+      { key: "channels", label: "Canais", hint: "Abrir canais", icon: Radio },
+      { key: "communities", label: "Comunidades", hint: "Abrir comunidades", icon: Shapes },
+      { key: "contacts", label: "Contatos", hint: "Abrir contatos", icon: UserPlus },
+      { key: "images", label: "Mídias", hint: "Abrir biblioteca de mídias", icon: ImageIcon },
+      { key: "settings", label: "Configurações", hint: "Abrir configurações", icon: Settings },
+    ];
+    areaTargets.forEach((target) => {
+      const score = resolveScore(
+        { text: target.label, boost: 14 },
+        { text: target.hint, boost: 8 },
+      );
+      if (score < 0) return;
+      nextResults.push({
+        id: `area:${target.key}`,
+        kind: "area",
+        label: target.label,
+        subLabel: target.hint,
+        icon: target.icon,
+        score,
+        navKey: target.key,
+      });
+    });
+
+    SETTINGS_MENU.forEach((setting) => {
+      const score = resolveScore(
+        { text: setting.label, boost: 16 },
+        { text: setting.description, boost: 10 },
+      );
+      if (score < 0) return;
+      nextResults.push({
+        id: `setting:${setting.key}`,
+        kind: "setting",
+        label: setting.label,
+        subLabel: setting.description,
+        icon: setting.icon,
+        score,
+        settingKey: setting.key,
+      });
+    });
+
+    const deduped = new Map<string, GlobalSearchResult>();
+    nextResults.forEach((result) => {
+      const existing = deduped.get(result.id);
+      if (!existing || existing.score < result.score) {
+        deduped.set(result.id, result);
+      }
+    });
+
+    return Array.from(deduped.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 18);
+  }, [allThreads, directoryPeople, globalSearchQuery, messagesByThread]);
+  const globalSearchSections = useMemo(
+    () => [
+      { key: "thread", title: "Conversas", items: globalSearchResults.filter((item) => item.kind === "thread").slice(0, 5) },
+      { key: "message", title: "Mensagens", items: globalSearchResults.filter((item) => item.kind === "message").slice(0, 5) },
+      { key: "person", title: "Pessoas", items: globalSearchResults.filter((item) => item.kind === "person").slice(0, 4) },
+      { key: "area", title: "Navegação", items: globalSearchResults.filter((item) => item.kind === "area").slice(0, 3) },
+      { key: "setting", title: "Configurações", items: globalSearchResults.filter((item) => item.kind === "setting").slice(0, 4) },
+    ].filter((section) => section.items.length > 0),
+    [globalSearchResults],
+  );
+  const handleSelectGlobalSearchResult = (result: GlobalSearchResult) => {
+    setIsGlobalSearchOpen(false);
+    setGlobalSearchQuery("");
+
+    if (result.kind === "setting" && result.settingKey) {
+      openSettingsFromMobileSheet(result.settingKey);
+      return;
+    }
+
+    if (result.kind === "area" && result.navKey) {
+      handleSidebarMenuSelect(result.navKey);
+      return;
+    }
+
+    if (result.kind === "person") {
+      if (result.threadId) {
+        openContactThread(result.threadId);
+        return;
+      }
+      openMobileFooterEnvironment("contacts", { directoryTab: "people" });
+      setDirectorySearch(result.directoryQuery?.trim() || result.label);
+      return;
+    }
+
+    if (!result.threadId) return;
+    if (result.threadTab === "contacts") {
+      openContactThread(result.threadId);
+      return;
+    }
+    openThreadById(result.threadId);
+  };
 
   const activationBackdrop = !isChatRoute ? (
     <>
@@ -9637,7 +10091,7 @@ export default function KnexChatPage() {
                 ) : null}
                 <div className="min-w-0 flex-1">
                   <p
-                    className={`${KNEXCHAT_FONT_CLASS} truncate text-base font-semibold text-white`}
+                    className={`${KNEXCHAT_FONT_CLASS} truncate text-base font-normal text-white`}
                     style={whiteHeaderTextStyle}
                   >
                     {activeThread?.title ?? "Conversa"}
@@ -9736,22 +10190,158 @@ export default function KnexChatPage() {
             </div>
           ) : (
             <>
-              <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-3 lg:left-4">
+              <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5 lg:left-4">
+                <button
+                  type="button"
+                  onClick={handleToggleSidebar}
+                  aria-label={isNavSidebarOpen ? "Fechar menu lateral" : "Abrir menu lateral"}
+                  title={isNavSidebarOpen ? "Fechar menu lateral" : "Abrir menu lateral"}
+                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-md transition ${
+                    isDarkTheme
+                      ? "text-white hover:bg-white/15"
+                      : "text-white hover:bg-white/15 md:text-slate-700 md:hover:bg-slate-200/70"
+                  }`}
+                >
+                  <Menu
+                    className="h-[clamp(1.06rem,3.8vw,1.18rem)] w-[clamp(1.06rem,3.8vw,1.18rem)] [filter:drop-shadow(0_0_0.6px_rgba(8,33,78,0.92))]"
+                    strokeWidth={2.45}
+                  />
+                </button>
+                <img
+                  src="/knexchat/icons/spacehub-official-tight.png"
+                  alt="Logo SpaceHub"
+                  className="h-[clamp(1.24rem,4.6vw,1.58rem)] w-[clamp(1.24rem,4.6vw,1.58rem)] shrink-0 object-contain object-center"
+                />
                 <div>
                   <p
-                    className="text-[clamp(1.46rem,6.55vw,1.82rem)] font-semibold leading-none max-[360px]:text-[clamp(1.34rem,6.18vw,1.58rem)] md:text-[clamp(1.26rem,1.95vw,1.54rem)]"
+                    className="text-[clamp(1.3rem,5.8vw,1.62rem)] font-semibold leading-none max-[360px]:text-[clamp(1.2rem,5.45vw,1.42rem)] md:text-[clamp(1.14rem,1.6vw,1.34rem)]"
                   >
                     <span
-                      className="text-white"
-                      style={headerBrandTextStyle}
+                      className={isDarkTheme ? "text-white" : "text-white md:text-slate-900"}
+                      style={isDarkTheme ? headerBrandTextStyle : undefined}
                     >
-                      Spacehub
+                      SpaceHub
                     </span>
                   </p>
                 </div>
               </div>
+              <div
+                ref={globalSearchContainerRef}
+                className="pointer-events-none absolute left-1/2 top-1/2 hidden w-[calc(min(42rem,calc(100%-26rem))*0.8)] -translate-x-1/2 -translate-y-1/2 items-center justify-center lg:flex"
+              >
+                <div className="pointer-events-auto relative w-full">
+                  <div
+                    className={`flex h-8 w-full items-center overflow-hidden rounded-full border ${
+                      isDarkTheme ? "border-[#3a3a3a] bg-[#1f1f1f] text-slate-200" : "border-slate-300 bg-[#efefef] text-slate-700"
+                    }`}
+                  >
+                    <input
+                      type="search"
+                      aria-label="Pesquisar no SpaceHub"
+                      placeholder="Pesquisar no SpaceHub"
+                      value={globalSearchQuery}
+                      onFocus={() => {
+                        if (globalSearchQuery.trim()) setIsGlobalSearchOpen(true);
+                      }}
+                      onChange={(event) => {
+                        const nextQuery = event.target.value;
+                        setGlobalSearchQuery(nextQuery);
+                        setIsGlobalSearchOpen(Boolean(nextQuery.trim()));
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setIsGlobalSearchOpen(false);
+                          return;
+                        }
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        const firstResult = globalSearchResults[0];
+                        if (!firstResult) return;
+                        handleSelectGlobalSearchResult(firstResult);
+                      }}
+                      className={`h-full min-w-0 flex-1 bg-transparent px-4 text-[0.99rem] outline-none placeholder:text-slate-400 ${
+                        isDarkTheme ? "placeholder:text-slate-500" : ""
+                      }`}
+                    />
+                    <span className={`grid h-full w-10 place-items-center border-l ${isDarkTheme ? "border-[#3a3a3a] text-slate-400" : "border-slate-300 text-slate-500"}`}>
+                      <Keyboard className="h-3.5 w-3.5" />
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Buscar"
+                      title="Buscar"
+                      onClick={() => {
+                        const firstResult = globalSearchResults[0];
+                        if (!firstResult) return;
+                        handleSelectGlobalSearchResult(firstResult);
+                      }}
+                      className={`grid h-full w-11 place-items-center transition ${
+                        isDarkTheme ? "border-l border-[#3a3a3a] bg-[#2a2a2a] text-slate-200 hover:bg-[#343434]" : "border-l border-slate-300 bg-[#e5e5e5] text-slate-700 hover:bg-[#dcdcdc]"
+                      }`}
+                    >
+                      <Search className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {isGlobalSearchOpen ? (
+                    <div
+                      className={`absolute left-0 right-0 top-full z-[60] mt-2 max-h-[26rem] overflow-y-auto rounded-2xl border p-2 shadow-2xl ${
+                        isDarkTheme ? "border-[#343434] bg-[#1a1a1a] text-slate-100" : "border-slate-300 bg-[#f4f4f4] text-slate-900"
+                      }`}
+                    >
+                      {globalSearchQuery.trim() ? (
+                        globalSearchSections.length ? (
+                          <div className="space-y-1.5">
+                            {globalSearchSections.map((section) => (
+                              <div key={`global-search-section-${section.key}`}>
+                                <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${settingsMuted}`}>
+                                  {section.title}
+                                </p>
+                                {section.items.map((item) => {
+                                  const ItemIcon = item.icon;
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onClick={() => handleSelectGlobalSearchResult(item)}
+                                      className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition ${settingsHover}`}
+                                    >
+                                      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${isDarkTheme ? "border-[#3b3b3b] bg-[#252525]" : "border-slate-300 bg-white"}`}>
+                                        <ItemIcon className="h-4 w-4" />
+                                      </span>
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-sm font-medium">{item.label}</span>
+                                        <span className={`block truncate text-xs ${settingsMuted}`}>{item.subLabel}</span>
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className={`px-2 py-3 text-sm ${settingsMuted}`}>Nenhum resultado encontrado.</p>
+                        )
+                      ) : (
+                        <p className={`px-2 py-3 text-sm ${settingsMuted}`}>Digite para pesquisar em todo o app.</p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  aria-label="Pesquisa por voz"
+                  title="Pesquisa por voz"
+                  className={`pointer-events-auto ml-3 grid h-8 w-8 shrink-0 place-items-center rounded-full border transition ${
+                    isDarkTheme ? "border-[#3a3a3a] bg-[#222] text-slate-200 hover:bg-[#2d2d2d]" : "border-slate-300 bg-[#efefef] text-slate-700 hover:bg-[#e2e2e2]"
+                  }`}
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
+              </div>
               <span
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white lg:hidden"
+                className={`absolute right-1.5 top-1/2 -translate-y-1/2 lg:hidden ${
+                  isDarkTheme ? "text-white" : "text-white md:text-slate-700"
+                }`}
                 aria-hidden="true"
               >
                 <MoreVertical
@@ -9759,19 +10349,254 @@ export default function KnexChatPage() {
                   strokeWidth={2.45}
                 />
               </span>
+              <div className="absolute right-3 top-1/2 hidden -translate-y-1/2 lg:block">
+                <div ref={headerAvatarMenuRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsHeaderAvatarMenuOpen((prev) => !prev)}
+                    aria-label="Abrir menu da conta"
+                    title="Conta"
+                    className={`flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border transition ${
+                      isDarkTheme
+                        ? "border-white/45 bg-white/10 hover:bg-white/20"
+                        : "border-slate-300 bg-white hover:bg-slate-100"
+                    }`}
+                  >
+                    {currentUser?.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className={`grid h-full w-full place-items-center text-xs font-semibold ${isDarkTheme ? "text-white" : "text-slate-700"}`}>
+                        {getAvatarText(currentUser?.name ?? "KN")}
+                      </span>
+                    )}
+                  </button>
+                  {isHeaderAvatarMenuOpen ? (
+                    <div
+                      className={`absolute right-0 top-full z-50 mt-2 w-[19rem] overflow-hidden rounded-2xl border shadow-2xl ${
+                        isDarkTheme ? "border-[#2f2f2f] bg-[#1f1f1f] text-slate-100" : "border-slate-300 bg-[#f1f1f1] text-slate-900"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3 px-4 py-3">
+                        {currentUser?.avatarUrl ? (
+                          <img
+                            src={currentUser.avatarUrl}
+                            alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
+                            className={`h-11 w-11 ${avatarFrameMd} object-cover`}
+                          />
+                        ) : (
+                          <div
+                            className={`grid h-11 w-11 place-items-center ${avatarFrameMd} text-sm font-semibold ${
+                              isDarkTheme ? "bg-slate-900 text-slate-100" : "bg-slate-200 text-slate-700"
+                            }`}
+                          >
+                            {getAvatarText(currentUser?.name ?? "KN")}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xl font-normal leading-tight">{currentUser?.name ?? "Participante"}</p>
+                          <p className={`truncate text-sm ${isDarkTheme ? "text-slate-400" : "text-slate-600"}`}>
+                            {headerAvatarHandle}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsHeaderAvatarMenuOpen(false);
+                              handleOpenProfile("self");
+                            }}
+                            className={`mt-1.5 text-sm font-medium ${
+                              isDarkTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700 hover:text-blue-600"
+                            }`}
+                          >
+                            Acessar seu canal
+                          </button>
+                        </div>
+                      </div>
+                      <div className={`h-px ${isDarkTheme ? "bg-white/10" : "bg-slate-300/80"}`} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsHeaderAvatarMenuOpen(false);
+                          openSettingsFromMobileSheet("account");
+                        }}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-[1.05rem] transition ${
+                          isDarkTheme ? "hover:bg-white/5" : "hover:bg-black/5"
+                        }`}
+                      >
+                        <span
+                          className={`grid h-5 w-5 place-items-center rounded-full text-[13px] font-bold ${
+                            isDarkTheme ? "bg-slate-700 text-white" : "bg-white text-slate-800"
+                          }`}
+                        >
+                          G
+                        </span>
+                        <span>Conta do Google</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsHeaderAvatarMenuOpen(false)}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-[1.05rem] transition ${
+                          isDarkTheme ? "hover:bg-white/5" : "hover:bg-black/5"
+                        }`}
+                      >
+                        <User className="h-5 w-5" />
+                        <span>Mudar de conta</span>
+                        <ChevronRight className={`ml-auto h-4 w-4 ${isDarkTheme ? "text-slate-400" : "text-slate-600"}`} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-[1.05rem] transition ${
+                          isDarkTheme ? "hover:bg-white/5" : "hover:bg-black/5"
+                        }`}
+                      >
+                        <LogOut className="h-5 w-5" />
+                        <span>Sair</span>
+                      </button>
+                      <div className={`h-px ${isDarkTheme ? "bg-white/10" : "bg-slate-300/80"}`} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsHeaderAvatarMenuOpen(false);
+                          openSettingsFromMobileSheet("account");
+                        }}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-[1.05rem] transition ${
+                          isDarkTheme ? "hover:bg-white/5" : "hover:bg-black/5"
+                        }`}
+                      >
+                        <Play className="h-5 w-5" />
+                        <span>YouTube Studio</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsHeaderAvatarMenuOpen(false);
+                          openSettingsFromMobileSheet("account");
+                        }}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-[1.05rem] transition ${
+                          isDarkTheme ? "hover:bg-white/5" : "hover:bg-black/5"
+                        }`}
+                      >
+                        <CreditCard className="h-5 w-5" />
+                        <span>Compras e assinaturas</span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </>
           )}
         </header>
-
+        <button
+          type="button"
+          aria-label="Fechar menu lateral"
+          onClick={() => setIsNavSidebarOpen(false)}
+          className={`absolute inset-0 z-[18] hidden transition lg:block ${
+            isNavSidebarOpen ? "bg-black/15 opacity-100" : "pointer-events-none bg-transparent opacity-0"
+          }`}
+        />
+        <aside
+          className={`absolute left-0 top-0 z-[19] hidden h-full w-[17rem] flex-col border-r shadow-xl transition-all duration-200 ease-out lg:flex ${
+            isDarkTheme ? "border-[#2a2a2a] bg-[#161616] text-slate-100" : "border-slate-200 bg-[#f5f6f7] text-slate-900"
+          } ${isNavSidebarOpen ? "translate-x-0 opacity-100" : "-translate-x-5 opacity-0 pointer-events-none"}`}
+        >
+          <div className={`flex min-h-[3rem] items-center gap-1.5 border-b px-4 py-1.5 ${settingsBorder}`}>
+            <button
+              type="button"
+              onClick={() => setIsNavSidebarOpen(false)}
+              aria-label="Fechar menu lateral"
+              title="Fechar menu lateral"
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-md transition ${
+                isDarkTheme ? "text-white hover:bg-white/15" : "text-slate-800 hover:bg-slate-200/70"
+              }`}
+            >
+              <Menu
+                className="h-[clamp(1.06rem,3.8vw,1.18rem)] w-[clamp(1.06rem,3.8vw,1.18rem)]"
+                strokeWidth={2.45}
+              />
+            </button>
+            <img
+              src="/knexchat/icons/spacehub-official-tight.png"
+              alt="Logo SpaceHub"
+              className="h-[clamp(1.24rem,4.6vw,1.58rem)] w-[clamp(1.24rem,4.6vw,1.58rem)] shrink-0 object-contain object-center"
+            />
+            <p
+              className="truncate text-[clamp(1.3rem,5.8vw,1.62rem)] font-semibold leading-none max-[360px]:text-[clamp(1.2rem,5.45vw,1.42rem)] md:text-[clamp(1.14rem,1.6vw,1.34rem)]"
+            >
+              <span className={isDarkTheme ? "text-white" : "text-slate-900"} style={isDarkTheme ? headerBrandTextStyle : undefined}>
+                SpaceHub
+              </span>
+            </p>
+          </div>
+          <div className="flex-1 overflow-y-auto py-2">
+            <div className="space-y-0.5 px-2">
+              {desktopSidebarPrimaryItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeNavKey === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => handleSidebarMenuSelect(item.key)}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
+                      isActive
+                        ? isDarkTheme
+                          ? "bg-white/10 text-white"
+                          : "bg-slate-200 text-slate-900"
+                        : isDarkTheme
+                          ? "text-slate-200 hover:bg-white/5"
+                          : "text-slate-800 hover:bg-slate-200/70"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className={`my-2 h-px ${settingsBorder} border-b`} />
+            <div className="px-4 pb-1 pt-1">
+              <p className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${settingsMuted}`}>Explorar</p>
+            </div>
+            <div className="space-y-0.5 px-2">
+              {desktopSidebarExploreItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeNavKey === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => handleSidebarMenuSelect(item.key)}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
+                      isActive
+                        ? isDarkTheme
+                          ? "bg-white/10 text-white"
+                          : "bg-slate-200 text-slate-900"
+                        : isDarkTheme
+                          ? "text-slate-200 hover:bg-white/5"
+                          : "text-slate-800 hover:bg-slate-200/70"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </aside>
         <div
           className={`relative flex min-h-0 flex-1 flex-col ${
             showMobileFooterDock
               ? "pb-[3.5rem]"
               : "pb-[env(safe-area-inset-bottom)]"
-          } ${isDarkTheme ? "" : "md:-mt-px"} overflow-hidden lg:flex-row lg:pb-0 ${shellSurface}`}
+          } overflow-hidden lg:flex-row lg:pb-0 ${shellSurface}`}
         >
         <nav
-          className={`hidden w-14 flex-col items-center gap-4 ${navRailBase} py-5 lg:flex`}
+          className={`hidden w-14 flex-col items-center gap-4 ${navRailBase} pb-5 pt-[3.2rem] lg:flex`}
         >
           <div className="relative group">
             <button
@@ -9945,7 +10770,7 @@ export default function KnexChatPage() {
                       : "text-black"
                     : isDarkTheme
                       ? "text-slate-300 group-hover:text-white"
-                      : "text-white/90 group-hover:text-white"
+                      : "text-slate-700 group-hover:text-slate-900"
                 }`}
               />
             </button>
@@ -10034,12 +10859,90 @@ export default function KnexChatPage() {
             </div>
           </div>
         </nav>
-        <MasterDetail showDetail={showDetailOnMobile} master={
+        <div className="flex min-h-0 flex-1 flex-col">
+        {showMobileConversationShellHeader ? null : (
+          <div
+            className={`${settingsBorder} ${
+              isDarkTheme ? "bg-[var(--knex-850)]/50" : "bg-[#f5f6f7]"
+            }`}
+          >
+            <div className="px-4 py-2 md:px-0">
+              <div className="flex items-center gap-2">
+                {canScrollTopMenuLeft ? (
+                  <button
+                    type="button"
+                    onClick={() => scrollTopMenuCarousel("left")}
+                    aria-label="Voltar no menu"
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border transition ${
+                      isDarkTheme
+                        ? "border-white/25 bg-transparent text-slate-200 hover:bg-white/10"
+                        : "border-slate-400/80 bg-transparent text-slate-600 hover:bg-slate-200/70"
+                    }`}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                ) : null}
+                <div
+                  ref={topMenuCarouselRef}
+                  className="no-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap scroll-px-4 scroll-smooth md:-mx-4 md:px-4 md:scroll-px-4"
+                  onWheel={(event) => {
+                    const element = event.currentTarget;
+                    if (element.scrollWidth <= element.clientWidth) return;
+                    if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+                    element.scrollLeft += event.deltaY;
+                    event.preventDefault();
+                  }}
+                >
+                  <span className="w-1.5 shrink-0 md:w-2" aria-hidden="true" />
+                  {TOP_MENU_CAROUSEL_ITEMS.map((label, index) => {
+                    const itemKey = `${label}-${index}`;
+                    const isActive = index === activeTopMenuIndex;
+                    return (
+                      <button
+                        key={itemKey}
+                        type="button"
+                        onClick={() => setActiveTopMenuIndex(index)}
+                        className={`shrink-0 rounded-[7px] px-4 py-1.5 text-[15px] font-semibold leading-none transition md:text-[14px] ${
+                          isActive
+                            ? "bg-black text-white"
+                            : isDarkTheme
+                              ? "bg-[#2e2e2e] text-slate-100 hover:bg-[#3a3a3a]"
+                              : "bg-[#e6e6e6] text-[#1f1f1f] hover:bg-[#dddddd]"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                  <span className="w-1.5 shrink-0 md:w-2" aria-hidden="true" />
+                </div>
+                {canScrollTopMenuRight ? (
+                  <button
+                    type="button"
+                    onClick={() => scrollTopMenuCarousel("right")}
+                    aria-label="Avançar no menu"
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border transition ${
+                      isDarkTheme
+                        ? "border-white/25 bg-transparent text-slate-200 hover:bg-white/10"
+                        : "border-slate-400/80 bg-transparent text-slate-600 hover:bg-slate-200/70"
+                    }`}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+        <MasterDetail
+          className="min-h-0 flex-1"
+          showDetail={showDetailOnMobile}
+          master={
           isSettingsOpen ? (
           <>
             <aside
               style={{ ...(chatListWidthStyle ?? {}), ...(settingsCrispTextStyle ?? {}) }}
-              className={`relative flex min-h-0 w-full flex-1 flex-col border-b ${settingsBorder} ${settingsPanelBase} ${settingsCrispClass} ${settingsCrispContrastClass} md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
+              className={`relative flex min-h-0 w-full flex-1 flex-col border-b ${settingsBorder} ${settingsPanelBase} ${settingsCrispClass} ${settingsCrispContrastClass} md:w-[var(--chat-list-width)] md:border-b-0 ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:overflow-visible`}
             >
               {activeSettingKey === "general" ? (
                 <div className="flex min-h-0 flex-1 flex-col">
@@ -10472,7 +11375,7 @@ export default function KnexChatPage() {
               </div>
             </aside>
             <section
-              className={`flex min-h-0 flex-1 md:border-t overflow-hidden ${settingsBorder} ${settingsCrispClass} ${settingsCrispContrastClass} ${
+              className={`flex min-h-0 flex-1 overflow-hidden ${settingsBorder} ${settingsCrispClass} ${settingsCrispContrastClass} ${
                 isDarkTheme ? "bg-[#141414]" : "bg-slate-50"
               }`}
               style={settingsCrispTextStyle}
@@ -10573,7 +11476,7 @@ export default function KnexChatPage() {
             style={chatListWidthStyle}
             className={`relative flex min-h-0 w-full flex-1 flex-col ${settingsBorder} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-white"
-            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:border-b-0 ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:overflow-visible`}
           >
             <div className="flex items-center justify-between px-4 py-3">
               <span className={`text-sm font-semibold ${isDarkTheme ? "text-slate-100" : "text-slate-900"}`}>Perfil</span>
@@ -10703,7 +11606,7 @@ export default function KnexChatPage() {
             style={chatListWidthStyle}
             className={`relative flex min-h-0 w-full flex-1 flex-col ${settingsBorder} ${conversationPanelFontClass} ${
               isDarkTheme ? "bg-[var(--knex-850)]/60" : "bg-white"
-            } md:w-[var(--chat-list-width)] md:border-b-0 md:border-t ${isDarkTheme ? "md:border-l" : "md:border-l-0"} md:border-r md:rounded-tl-md md:overflow-visible`}
+            } md:w-[var(--chat-list-width)] md:rounded-tl-lg md:border-b-0 md:border-l md:border-t md:border-r md:overflow-visible`}
           >
             {isGroupsPanelOpen ? (
               <div className={`flex flex-col gap-4 border-b px-4 py-4 ${settingsBorder}`}>
@@ -10761,29 +11664,9 @@ export default function KnexChatPage() {
             ) : (
               isDirectoryOpen || isNewChatOpen || isCustomListOpen ? null : (
                 <div className={`flex flex-col gap-3 border-b px-0 py-3 md:px-4 ${settingsBorder}`}>
-                  <div className="hidden items-center gap-3 lg:flex">
-                    {currentUser?.avatarUrl ? (
-                      <img
-                        src={currentUser.avatarUrl}
-                        alt={`Avatar de ${currentUser?.name ?? "Participante"}`}
-                        className={`h-12 w-12 ${avatarFrameMd} object-cover`}
-                      />
-                    ) : (
-                      <div
-                        className={`grid h-12 w-12 place-items-center ${avatarFrameMd} bg-slate-900 text-base font-semibold text-emerald-200`}
-                      >
-                        {currentUser?.avatarText ?? "KN"}
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-[1.35rem] font-semibold leading-none text-slate-900 md:text-[1.35rem]">
-                        {currentUser?.name}
-                      </p>
-                    </div>
-                  </div>
                   <div className="hidden items-center justify-between md:flex">
                     <p
-                      className={`text-[1.5rem] font-semibold leading-none md:text-base ${
+                      className={`text-[1.56rem] font-normal leading-none md:text-[1.08rem] ${
                         isDarkTheme ? "text-slate-100" : "text-slate-900"
                       }`}
                     >
@@ -12611,7 +13494,7 @@ export default function KnexChatPage() {
                           </button>
                         </div>
                         <div className="px-4 py-4">
-                          <p className={`text-sm font-semibold md:text-sm ${settingsMuted}`}>Contatos no Spacehub</p>
+                          <p className={`text-sm font-semibold md:text-sm ${settingsMuted}`}>Contatos no SpaceHub</p>
                           <div className="mt-3 space-y-3">
                             {filteredNewChatContacts.map((contact) => (
                               <button
@@ -12731,14 +13614,14 @@ export default function KnexChatPage() {
                             )}
                             <div className="min-w-0 flex-1">
                               <p
-                                className={`truncate text-[19px] font-normal leading-tight ${
+                                className={`truncate text-[17px] font-normal leading-tight ${
                                   isDarkTheme ? "text-slate-100" : "text-slate-900"
                                 }`}
                               >
                                 {thread.title}
                               </p>
                               <p
-                                className={`mt-0.5 truncate text-[13px] leading-tight ${
+                                className={`mt-0.5 truncate text-[12.5px] leading-tight ${
                                   isDarkTheme ? "text-slate-300" : "text-slate-700"
                                 }`}
                               >
@@ -12747,7 +13630,7 @@ export default function KnexChatPage() {
                             </div>
                             <div className="ml-2 flex shrink-0 flex-col items-end justify-start self-start pt-0.5">
                               <span
-                                className={`text-[13px] font-semibold leading-none ${
+                                className={`text-[12.5px] font-semibold leading-none ${
                                   unreadCount
                                     ? isDarkTheme
                                       ? "text-emerald-300"
@@ -12799,7 +13682,7 @@ export default function KnexChatPage() {
       }
       detail={
         <section
-          className={`flex min-h-0 flex-1 flex-col overflow-hidden ${settingsBorder} md:border-t ${messagePanelBg}`}
+          className={`flex min-h-0 flex-1 flex-col overflow-hidden ${settingsBorder} ${messagePanelBg}`}
         >
           {isProfileOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
@@ -12824,10 +13707,8 @@ export default function KnexChatPage() {
             <>
               {showMobileConversationShellHeader ? null : (
                 <div
-                  className={`relative flex flex-nowrap items-center justify-between gap-3 border-b ${
-                    isDarkTheme ? "border-t" : "border-t-0"
-                  } md:border-t-0 ${settingsBorder} ${
-                    isDarkTheme ? "bg-[var(--knex-850)]/40 text-white" : "bg-slate-50"
+                  className={`relative flex flex-nowrap items-center justify-between gap-3 border-b border-t ${settingsBorder} ${
+                    isDarkTheme ? "bg-[var(--knex-850)]/40 text-white" : "bg-[#f5f6f7]"
                   } px-4 py-0`}
                 >
                   {showDetailOnMobile ? (
@@ -12867,7 +13748,7 @@ export default function KnexChatPage() {
                     ) : null}
                     <div className="min-w-0 flex-1">
                       <p
-                        className={`${KNEXCHAT_FONT_CLASS} text-lg font-semibold ${
+                        className={`${KNEXCHAT_FONT_CLASS} text-lg font-normal ${
                           isDarkTheme ? "text-slate-100" : "text-slate-900"
                         } truncate max-w-[200px] sm:max-w-[260px] lg:max-w-[320px]`}
                       >
@@ -13701,7 +14582,7 @@ export default function KnexChatPage() {
             </>
           )}
         </section>
-        }
+          }
         />
         {isContactInfoOpen && activeThread && activeThread.tab !== "groups" ? (
           <aside
@@ -16840,6 +17721,7 @@ export default function KnexChatPage() {
           </div>
         </div>
       ) : null}
+      </div>
       {debugUiEnabled && debugUiSnapshot ? (
         <div className="pointer-events-none fixed bottom-2 left-2 z-[200] w-[min(90vw,460px)] rounded-xl border border-slate-300 bg-white/95 p-2 text-[11px] leading-4 text-slate-700 shadow-lg backdrop-blur">
           <p className="font-semibold text-slate-900">KnexChat Debug UI</p>

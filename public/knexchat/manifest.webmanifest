@@ -1,6 +1,6 @@
 {
-  "name": "Knexchat",
-  "short_name": "knex",
+  "name": "SpaceHub",
+  "short_name": "SpaceHub",
   "start_url": "/knexchat/web",
   "scope": "/knexchat/",
   "display": "standalone",
