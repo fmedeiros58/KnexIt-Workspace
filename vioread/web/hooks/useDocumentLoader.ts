@@ -1,56 +1,85 @@
-import { useCallback } from "react";
-import type { DocumentDescriptor, VioReadDocument } from "../lib/vioreadTypes";
+﻿import { useCallback, useRef, useState } from "react";
+import type { DocumentDescriptor, PageMapping } from "../lib/types";
+import {
+  detectTextLayerAvailability,
+  extractPdfPageMapping,
+  loadPdfSession,
+  renderPdfPageToCanvas,
+  type PdfSession,
+} from "../services/pdf.service";
 
-// TODO: integrar com SupaDrive/Supabase de fato.
-async function fetchFromSupaDrive(descriptor: DocumentDescriptor): Promise<VioReadDocument> {
-  return {
-    id: descriptor.id || `supadrive-${Date.now()}`,
-    title: descriptor.name,
-    language: "en",
-    summary: "Mock de documento vindo do SupaDrive. TODO: buscar conteúdo real via Supabase/storage.",
-    sections: [
-      {
-        id: "sd-intro",
-        title: "Introdução (mock)",
-        blocks: [
-          { id: "sd-b1", kind: "paragraph", text: "Conteúdo fictício carregado do SupaDrive para demonstrar o fluxo." },
-        ],
-      },
-    ],
-  };
-}
-
-async function fromUpload(descriptor: DocumentDescriptor): Promise<VioReadDocument> {
-  const text = descriptor.payload?.content || "Conteúdo não lido do arquivo (mock).";
-  return {
-    id: descriptor.id || `upload-${Date.now()}`,
-    title: descriptor.name,
-    language: "en",
-    summary: "Documento enviado por upload (mock).",
-    sections: [
-      { id: "up-1", title: "Arquivo enviado", blocks: [{ id: "up-b1", kind: "paragraph", text }] },
-    ],
-  };
-}
-
-async function fromRawText(descriptor: DocumentDescriptor): Promise<VioReadDocument> {
-  const text = descriptor.payload?.content || "Texto colado (mock).";
-  return {
-    id: descriptor.id || `raw-${Date.now()}`,
-    title: descriptor.name || "Texto colado",
-    language: "en",
-    summary: "Conteúdo de texto colado ou URL (mock).",
-    sections: [{ id: "raw-1", title: "Conteúdo", blocks: [{ id: "raw-b1", kind: "paragraph", text }] }],
-  };
-}
+type LoadDocumentState = {
+  loading: boolean;
+  error: string | null;
+  document: DocumentDescriptor | null;
+  hasTextLayer: boolean;
+};
 
 export function useDocumentLoader() {
-  const loadDocument = useCallback(async (descriptor: DocumentDescriptor): Promise<VioReadDocument> => {
-    if (descriptor.source === "supadrive") return fetchFromSupaDrive(descriptor);
-    if (descriptor.source === "upload") return fromUpload(descriptor);
-    return fromRawText(descriptor);
+  const sessionRef = useRef<PdfSession | null>(null);
+  const [state, setState] = useState<LoadDocumentState>({
+    loading: false,
+    error: null,
+    document: null,
+    hasTextLayer: false,
+  });
+
+  const loadPdfFile = useCallback(async (file: File) => {
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const session = await loadPdfSession(file);
+      sessionRef.current = session;
+      const firstPageMapping = await extractPdfPageMapping({ session, pageNumber: 1 });
+      const hasTextLayer = detectTextLayerAvailability(firstPageMapping);
+
+      setState({
+        loading: false,
+        error: null,
+        document: session.descriptor,
+        hasTextLayer,
+      });
+
+      return {
+        descriptor: session.descriptor,
+        firstPageMapping,
+        hasTextLayer,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao carregar PDF.";
+      setState({ loading: false, error: message, document: null, hasTextLayer: false });
+      throw error;
+    }
   }, []);
 
-  return { loadDocument };
+  const getPageMapping = useCallback(async (pageNumber: number): Promise<PageMapping> => {
+    if (!sessionRef.current) {
+      throw new Error("Nenhum documento PDF ativo.");
+    }
+    return extractPdfPageMapping({
+      session: sessionRef.current,
+      pageNumber,
+    });
+  }, []);
+
+  const renderPage = useCallback(
+    async (pageNumber: number, canvas: HTMLCanvasElement) => {
+      if (!sessionRef.current) {
+        throw new Error("Nenhum documento PDF ativo.");
+      }
+      return renderPdfPageToCanvas({
+        session: sessionRef.current,
+        pageNumber,
+        canvas,
+      });
+    },
+    [],
+  );
+
+  return {
+    ...state,
+    loadPdfFile,
+    getPageMapping,
+    renderPage,
+  };
 }
 
