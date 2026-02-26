@@ -40,6 +40,8 @@ export async function streamLeticia(prompt: string, history: LeticiaMessage[], h
     const delta = decoder.decode(value, { stream: true });
     if (delta) handlers.onChunk?.(delta);
   }
+  const tail = decoder.decode();
+  if (tail) handlers.onChunk?.(tail);
 
   handlers.onDone?.();
 }
