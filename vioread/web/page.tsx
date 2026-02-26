@@ -1,93 +1,94 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useMemo } from "react";
+import {
+  ChevronDown,
+  CircleUserRound,
+  FilePlus2,
+  FileText,
+  FolderOpen,
+  Hand,
+  Minus,
+  Printer,
+  Redo2,
+  RotateCcw,
+  Save,
+  Search,
+  Square,
+  Undo2,
+  X,
+} from "lucide-react";
+import ReaderRibbon from "./components/ReaderRibbon";
 import ReaderShell from "./components/ReaderShell";
-import { useVioReadState } from "./hooks/useVioReadState";
-import { useTranslationJob } from "./hooks/useTranslationJob";
-import type { DocumentDescriptor } from "./lib/vioreadTypes";
+
+const HEADER_ACTIONS = [
+  { id: "app", icon: RotateCcw, label: "Ações do app" },
+  { id: "open", icon: FolderOpen, label: "Abrir" },
+  { id: "save", icon: Save, label: "Salvar" },
+  { id: "print", icon: Printer, label: "Imprimir" },
+  { id: "file", icon: FileText, label: "Documento" },
+  { id: "file-add", icon: FilePlus2, label: "Novo documento" },
+  { id: "undo", icon: Undo2, label: "Desfazer" },
+  { id: "redo", icon: Redo2, label: "Refazer" },
+  { id: "hand", icon: Hand, label: "Ferramenta mão" },
+];
 
 export default function VioReadPage() {
-  const {
-    document,
-    translated,
-    mode,
-    targetLang,
-    sourceLang,
-    setMode,
-    setTargetLang,
-    setSourceLang,
-    setDocument,
-    setTranslated,
-    setActiveSectionId,
-    activeSectionId,
-  } = useVioReadState();
-
-  const { translate, loading: translating, error: translateError } = useTranslationJob();
-
-  // Trigger a mock translation whenever document or targetLang changes (MVP).
-  useEffect(() => {
-    if (!document) return;
-    translate({ document, sourceLang, targetLang }).then((result) => setTranslated(result)).catch(() => {});
-  }, [document, targetLang, sourceLang, translate, setTranslated]);
-
-  const viewerData = useMemo(
-    () => ({
-      original: document,
-      translated,
-    }),
-    [document, translated]
-  );
-
-  const handleSelectDocument = (descriptor: DocumentDescriptor) => {
-    setDocument(descriptor);
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="relative overflow-hidden border-b border-slate-200 bg-white">
-        <div className="absolute inset-0 bg-gradient-to-r from-indigo-50 via-white to-emerald-50 opacity-70" />
-        <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-6">
-          <div className="flex flex-col gap-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-600">VioRead</p>
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900">
-              Leitura acadêmica assistida por IA, com tradução e visão lado a lado.
-            </h1>
-            <p className="text-base md:text-lg text-slate-600 max-w-3xl">
-              Conecte-se ao SupaDrive ou envie seus PDFs/DOCX, traduza preservando a estrutura e peça explicações, resumos e fichamentos com KnexAI.
-            </p>
+    <main className="reader-app">
+      <header className="reader-titlebar">
+        <div className="reader-titlebar-left">
+          <div className="reader-titlebar-tools" aria-label="Ações rápidas">
+            {HEADER_ACTIONS.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button key={action.id} type="button" className="reader-title-icon-btn" title={action.label} aria-label={action.label}>
+                  <Icon size={16} strokeWidth={1.8} />
+                </button>
+              );
+            })}
+            <span className="reader-title-sep" />
+            <button type="button" className="reader-title-icon-btn" title="Mais opções" aria-label="Mais opções">
+              <ChevronDown size={16} strokeWidth={1.8} />
+            </button>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <span className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-indigo-700 ring-1 ring-indigo-100">
-              🌐 Tradução com estrutura preservada
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700 ring-1 ring-emerald-100">
-              📑 Original + traduzido lado a lado
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 ring-1 ring-slate-200">
-              🤖 IA para explicar, resumir e fichar
-            </span>
-          </div>
-        </div>
-      </div>
 
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <ReaderShell
-            mode={mode}
-            onModeChange={setMode}
-            sourceLang={sourceLang}
-            targetLang={targetLang}
-            onSourceLangChange={setSourceLang}
-            onTargetLangChange={setTargetLang}
-            onSelectDocument={handleSelectDocument}
-            viewerData={viewerData}
-            translating={translating}
-            translateError={translateError || null}
-            activeSectionId={activeSectionId}
-            onActiveSectionChange={setActiveSectionId}
-          />
+          <div className="reader-titlebar-doc" title="R59 - Stress-and-allostasis-induced brain plasticity">
+            <span className="reader-title">R59 - Stress-and-allostasis-induced brain plasticity</span>
+          </div>
         </div>
+
+        <div className="reader-titlebar-search-center">
+          <div className="reader-titlebar-search">
+            <Search size={16} strokeWidth={1.9} className="reader-search-icon" />
+            <input className="reader-search" placeholder="Pesquisar" aria-label="Pesquisar" />
+          </div>
+        </div>
+
+        <div className="reader-titlebar-right">
+          <button type="button" className="reader-title-icon-btn" title="Perfil" aria-label="Perfil">
+            <CircleUserRound size={16} strokeWidth={1.9} />
+          </button>
+          <button type="button" className="reader-title-icon-btn" title="Conta" aria-label="Conta">
+            <ChevronDown size={14} strokeWidth={1.8} />
+          </button>
+          <span className="reader-title-sep" />
+          <button type="button" className="reader-window-action" title="Minimizar" aria-label="Minimizar">
+            <Minus size={14} strokeWidth={2.1} />
+          </button>
+          <button type="button" className="reader-window-action" title="Maximizar" aria-label="Maximizar">
+            <Square size={13} strokeWidth={2} />
+          </button>
+          <button type="button" className="reader-window-action danger" title="Fechar" aria-label="Fechar">
+            <X size={14} strokeWidth={2.1} />
+          </button>
+        </div>
+      </header>
+
+      <ReaderRibbon />
+
+      <div className="reader-app-body">
+        <ReaderShell />
       </div>
-    </div>
+    </main>
   );
 }

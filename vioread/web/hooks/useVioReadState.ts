@@ -1,8 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useState, useCallback } from "react";
 import type { DocumentDescriptor, VioReadDocument } from "../lib/vioreadTypes";
-import { useDocumentLoader } from "./useDocumentLoader";
 
 const MOCK_DOC: VioReadDocument = {
   id: "sample",
@@ -32,7 +31,6 @@ const MOCK_DOC: VioReadDocument = {
 };
 
 export function useVioReadState() {
-  const { loadDocument } = useDocumentLoader();
   const [document, setDocumentState] = useState<VioReadDocument | null>(MOCK_DOC);
   const [translated, setTranslated] = useState<VioReadDocument | null>(null);
   const [mode, setMode] = useState<"single" | "dual">("single");
@@ -40,15 +38,24 @@ export function useVioReadState() {
   const [targetLang, setTargetLang] = useState<string>("pt");
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
 
-  const setDocument = useCallback(
-    async (descriptor: DocumentDescriptor) => {
-      const loaded = await loadDocument(descriptor);
-      setDocumentState(loaded);
-      setTranslated(null);
-      setActiveSectionId(null);
-    },
-    [loadDocument]
-  );
+  const setDocument = useCallback(async (descriptor: DocumentDescriptor) => {
+    const fallbackDoc: VioReadDocument = {
+      id: descriptor.id || `legacy-${Date.now()}`,
+      title: descriptor.name || "Documento",
+      language: sourceLang,
+      sections: [
+        {
+          id: "legacy-intro",
+          title: "Conteúdo",
+          blocks: [{ id: "legacy-b1", kind: "paragraph", text: "Documento carregado no modo legado." }],
+        },
+      ],
+    };
+
+    setDocumentState(fallbackDoc);
+    setTranslated(null);
+    setActiveSectionId(null);
+  }, [sourceLang]);
 
   return {
     document,
@@ -65,4 +72,3 @@ export function useVioReadState() {
     setActiveSectionId,
   };
 }
-
