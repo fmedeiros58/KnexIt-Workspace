@@ -48,6 +48,9 @@ class LLMAdapter:
         hypotheses: List[Hypothesis],
         readiness_state: str,
         max_tokens: int = 512,
+        temperature: float = 0.3,
+        top_p: float = 0.9,
+        style_hint: str = "",
         trace_id: str | None = None,
     ) -> EngineResponse:
         """
@@ -78,8 +81,15 @@ class LLMAdapter:
             context=context,
             hypotheses=hypotheses,
             readiness_state=readiness_state,
+            style_hint=style_hint,
         )
-        request = self.engine_client.build_request(messages=messages, max_tokens=max_tokens, trace_id=trace)
+        request = self.engine_client.build_request(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            trace_id=trace,
+        )
         payload = self.engine_client.engine_request_to_payload(request)
         raw = self.engine_client.invoke(payload, trace_id=trace)
         return self.response_parser.parse(raw, trace_id=trace)

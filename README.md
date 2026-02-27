@@ -16,13 +16,15 @@ Template com Next.js 14 + Tailwind + Supabase para autenticação (senha, OTP de
 4. `npm run dev` na raiz para subir o workspace principal (app + portal).
    - Portal: `http://localhost:3003/knexit-workspace`
    - Rotas diretas: `http://localhost:3000/<produto>` (lista abaixo)
-5. Dentro de `knexai/`, use `npm run dev:hot` para manter `http://localhost:3700/api/knexai` ativo.
+5. Para motor local:
+   - `npm run serve:vllm` (vLLM na porta 8000)
+   - `npm run serve:anm` (ANM backend na porta 8100, opcional quando `KNEXAI_ENGINE_MODE=anm`)
 
 ## Scripts principais
 
 - `npm run dev`: sobe o workspace (app em 3000 + portal em 3003).
-- `npm run dev:hot` (em `knexai/`): mata processos presos na porta 3700 e inicia `tsx src/server.ts`.
-- `npm run serve:vllm`: levanta o vLLM local com `models/CModelosMistral-7B-Instruct-v0.2-AWQ` usando GPU (`cuda:0`) na porta 8080.
+- `npm run serve:anm`: sobe o ANM backend (`uvicorn anm_backend.main:app`) em `127.0.0.1:8100`.
+- `npm run serve:vllm`: levanta o vLLM local com `models/CModelosMistral-7B-Instruct-v0.2-AWQ` usando GPU (`cuda:0`) na porta 8000.
 - `npm run dev:knexai`: abre automaticamente `http://localhost:3004/knexai` e inicia o Next em 3004.
 - `npm run dev:supadrive`: abre `http://localhost:3005/supadrive` e inicia Next em 3005.
 - `npm run dev:vioclass`: abre `http://localhost:3006/vioclass` e inicia Next em 3006.
@@ -32,7 +34,7 @@ Template com Next.js 14 + Tailwind + Supabase para autenticação (senha, OTP de
 
 Cada pasta dentro de `app/` vira uma rota direta em `http://localhost:3000/<produto>`. Exemplos:
 
-- `/knexai` – chat da Letícia (requere backend em 3700).
+- `/knexai` – chat da Letícia.
 - `/supadrive`, `/knexflow`, `/knexdocs`, `/knexmail`, `/knexpay`, `/knexsearch`.
 - `/vioanalytics`, `/violive`, `/vioread`, `/viorecord`, `/viostudio`, `/vioclass`.
 
@@ -62,7 +64,8 @@ Para testar cada produto basta abrir o URL correspondente depois que o `npm run 
 ## Letícia (chat) – modo mock
 
 - Para testar o streaming sem o modelo local, mantenha `LETICIA_MOCK=1` (padrão em dev).
-- Em produção, defina `LETICIA_MOCK=0` e rode `npm run serve:vllm` para apontar `/api/knexai` ao servidor vLLM.
+- Em produção, defina `LETICIA_MOCK=0` e rode `npm run serve:vllm`.
+- Se `KNEXAI_ENGINE_MODE=anm`, rode também `npm run serve:anm`.
 
 ## Login local
 
@@ -126,6 +129,17 @@ Nunca commite o `.env.local` e nunca cole a chave no codigo.
 
 ## Motor local com vLLM
 
-- Suba o servidor com `npm run serve:vllm` (usa `models/CModelosMistral-7B-Instruct-v0.2-AWQ`, `cuda:0` e porta 8080). Ajuste `concurrency` conforme a carga.
-- Configure as variáveis: `VLLM_BASE_URL`, `VLLM_MODEL`, `VLLM_API_KEY` (se necessário).
-- Deixe no `.env.local`: `VLLM_BASE_URL=http://localhost:8080/v1` e `VLLM_MODEL=mistral-7b-instruct-v0.2-awq`.
+- Suba o servidor com `npm run serve:vllm` (usa `models/CModelosMistral-7B-Instruct-v0.2-AWQ`, publica `--served-model-name mistral-awq`, `cuda:0` e porta 8000). Ajuste `concurrency` conforme a carga.
+- Configure as variáveis: `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_API_KEY`, `LOCAL_LLM_MODEL`, `LLM_MODEL_NAME`, `LLM_API_KEY`.
+- Caminho físico do modelo (disco): `LOCAL_LLM_MODEL=/mnt/c/knexit-workspace/knexit-workspace/models/CModelosMistral-7B-Instruct-v0.2-AWQ`
+- Nome lógico no payload OpenAI-compatible: `LLM_MODEL_NAME=mistral-awq`
+- Deixe no `.env.local`: `LOCAL_LLM_BASE_URL=http://127.0.0.1:8000/v1`, `LLM_BASE_URL=http://127.0.0.1:8000/v1`, `LLM_API_KEY=token-local`.
+
+## ANM backend (encapsulamento opcional)
+
+- Suba com `npm run serve:anm` (FastAPI/uvicorn em `127.0.0.1:8100`).
+- Ative no KnexAI com:
+  - `KNEXAI_ENGINE_MODE=anm`
+  - `ANM_BACKEND_BASE_URL=http://127.0.0.1:8100`
+  - `ANM_BACKEND_TIMEOUT_MS=45000`
+  - `KNEXAI_ANM_FALLBACK_TO_DIRECT=1` (fallback para modo direto se ANM falhar)
