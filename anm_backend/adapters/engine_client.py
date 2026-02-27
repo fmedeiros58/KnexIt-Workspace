@@ -22,6 +22,54 @@ from anm_backend.audit import audit_log
 from anm_backend.contracts import EngineRequest, EngineResponse
 
 
+def _pick_first_non_empty(*values: str | None) -> str:
+    for value in values:
+        candidate = str(value or "").strip()
+        if candidate:
+            return candidate
+    return ""
+
+
+def _resolve_logical_model_name() -> str:
+    explicit = _pick_first_non_empty(os.getenv("ANM_ENGINE_MODEL"), os.getenv("LLM_MODEL_NAME"))
+    if explicit:
+        return explicit
+
+    legacy = _pick_first_non_empty(os.getenv("VLLM_MODEL"))
+    if legacy and "/" not in legacy and "\\" not in legacy:
+        return legacy
+
+    return "mistral-awq"
+
+
+def _resolve_model_candidates(requested_model: str) -> list[str]:
+    local_model_path = _pick_first_non_empty(os.getenv("LOCAL_LLM_MODEL"))
+    local_basename = local_model_path.replace("\\", "/").split("/")[-1] if local_model_path else ""
+    candidates = [
+        requested_model,
+        _pick_first_non_empty(os.getenv("VLLM_MODEL")),
+        local_model_path,
+        local_basename,
+        "models/CModelosMistral-7B-Instruct-v0.2-AWQ",
+    ]
+    ordered = []
+    seen = set()
+    for candidate in candidates:
+        normalized = str(candidate or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _is_model_not_found_error(status_code: int, body: str) -> bool:
+    if status_code != 404:
+        return False
+    signal = (body or "").lower()
+    return ("model" in signal and ("does not exist" in signal or "not found" in signal or "unknown" in signal)) or ("notfounderror" in signal)
+
+
 def _json_headers(api_key: str) -> Dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -68,13 +116,29 @@ class EngineClient:
             None.
         """
 
-        base_url = os.getenv(
-            "ANM_ENGINE_BASE_URL",
-            os.getenv("LLM_BASE_URL", os.getenv("VLLM_BASE_URL", "http://127.0.0.1:8000/v1")),
+        base_url = _pick_first_non_empty(
+            os.getenv("ANM_ENGINE_BASE_URL"),
+            os.getenv("LOCAL_LLM_BASE_URL"),
+            os.getenv("LLM_BASE_URL"),
+            os.getenv("VLLM_BASE_URL"),
+            "http://127.0.0.1:8000/v1",
         ).rstrip("/")
-        model_name = os.getenv("ANM_ENGINE_MODEL", os.getenv("LLM_MODEL_NAME", os.getenv("VLLM_MODEL", "mistral-awq")))
-        api_key = os.getenv("ANM_ENGINE_API_KEY", os.getenv("LLM_API_KEY", os.getenv("VLLM_API_KEY", "")))
-        timeout_seconds = float(os.getenv("ANM_ENGINE_TIMEOUT_S", os.getenv("LLM_TIMEOUT_SECONDS", "45")))
+        model_name = _resolve_logical_model_name()
+        api_key = _pick_first_non_empty(
+            os.getenv("ANM_ENGINE_API_KEY"),
+            os.getenv("LOCAL_LLM_API_KEY"),
+            os.getenv("VLLM_API_KEY"),
+            os.getenv("LLM_API_KEY"),
+            "token-local",
+        )
+        timeout_s_raw = _pick_first_non_empty(os.getenv("ANM_ENGINE_TIMEOUT_S"))
+        timeout_ms_raw = _pick_first_non_empty(os.getenv("LLM_TIMEOUT_MS"), os.getenv("VLLM_TIMEOUT_MS"))
+        if timeout_s_raw:
+            timeout_seconds = float(timeout_s_raw)
+        elif timeout_ms_raw:
+            timeout_seconds = max(1.0, float(timeout_ms_raw) / 1000.0)
+        else:
+            timeout_seconds = 45.0
         return cls(base_url=base_url, model_name=model_name, api_key=api_key, timeout_seconds=timeout_seconds)
 
     def build_request(
@@ -171,40 +235,61 @@ class EngineClient:
         url = f"{self.base_url}/chat/completions"
         started = perf_counter()
         err_text = ""
-        try:
-            req = request.Request(
-                url=url,
-                data=json.dumps(payload).encode("utf-8"),
-                method="POST",
-                headers=_json_headers(self.api_key),
-            )
-            with request.urlopen(req, timeout=self.timeout_seconds) as resp:
-                raw = resp.read().decode("utf-8")
-            parsed = json.loads(raw)
-            latency_ms = int((perf_counter() - started) * 1000)
-            audit_log(
-                component="adapters.engine_client",
-                event="engine_invoked",
-                payload={
-                    "trace_id": trace_id,
-                    "model": str(payload.get("model", self.model_name)),
-                    "base_url": self.base_url,
-                    "latency_ms": latency_ms,
-                    "success": True,
-                    "error": None,
-                },
-                trace_id=trace_id,
-            )
-            return parsed
-        except error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            err_text = f"engine_http_error status={exc.code} body={body[:300]}"
-        except error.URLError as exc:
-            err_text = f"engine_unavailable reason={exc.reason}"
-        except TimeoutError:
-            err_text = "engine_timeout"
-        except json.JSONDecodeError:
-            err_text = "engine_invalid_json"
+        requested_model = str(payload.get("model", self.model_name))
+        model_candidates = _resolve_model_candidates(requested_model)
+        available_models = self._fetch_available_models()
+        if available_models:
+            seen = set(model_candidates)
+            for model_id in available_models:
+                normalized = str(model_id or "").strip()
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                model_candidates.append(normalized)
+
+        for index, model_candidate in enumerate(model_candidates):
+            payload_to_send = dict(payload)
+            payload_to_send["model"] = model_candidate
+            try:
+                req = request.Request(
+                    url=url,
+                    data=json.dumps(payload_to_send).encode("utf-8"),
+                    method="POST",
+                    headers=_json_headers(self.api_key),
+                )
+                with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                    raw = resp.read().decode("utf-8")
+                parsed = json.loads(raw)
+                latency_ms = int((perf_counter() - started) * 1000)
+                audit_log(
+                    component="adapters.engine_client",
+                    event="engine_invoked",
+                    payload={
+                        "trace_id": trace_id,
+                        "model": model_candidate,
+                        "base_url": self.base_url,
+                        "latency_ms": latency_ms,
+                        "success": True,
+                        "error": None,
+                    },
+                    trace_id=trace_id,
+                )
+                return parsed
+            except error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                if _is_model_not_found_error(exc.code, body) and index < len(model_candidates) - 1:
+                    continue
+                err_text = f"engine_http_error status={exc.code} body={body[:300]}"
+                break
+            except error.URLError as exc:
+                err_text = f"engine_unavailable reason={exc.reason}"
+                break
+            except TimeoutError:
+                err_text = "engine_timeout"
+                break
+            except json.JSONDecodeError:
+                err_text = "engine_invalid_json"
+                break
 
         latency_ms = int((perf_counter() - started) * 1000)
         audit_log(
@@ -212,7 +297,7 @@ class EngineClient:
             event="engine_invoked",
             payload={
                 "trace_id": trace_id,
-                "model": str(payload.get("model", self.model_name)),
+                "model": requested_model,
                 "base_url": self.base_url,
                 "latency_ms": latency_ms,
                 "success": False,
@@ -221,6 +306,45 @@ class EngineClient:
             trace_id=trace_id,
         )
         raise RuntimeError(err_text)
+
+    def _fetch_available_models(self) -> list[str]:
+        """
+        Purpose:
+            Read available served model ids from engine `/models`.
+        Parameters:
+            None.
+        Returns:
+            list[str]: Ordered model ids, empty on failure.
+        Side Effects:
+            Performs one lightweight HTTP GET.
+        RAM Impact:
+            Temporary response buffers.
+        Persistence Impact:
+            None.
+        Expected Failures:
+            Never raises; returns empty list.
+        """
+
+        models_url = f"{self.base_url}/models"
+        try:
+            req = request.Request(models_url, method="GET", headers=_json_headers(self.api_key))
+            with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                raw = resp.read().decode("utf-8")
+            payload = json.loads(raw)
+        except Exception:
+            return []
+
+        data = payload.get("data") if isinstance(payload, dict) else []
+        if not isinstance(data, list):
+            return []
+        result: list[str] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            model_id = str(item.get("id", "")).strip()
+            if model_id:
+                result.append(model_id)
+        return result
 
     def parse_engine_response(self, raw: Dict[str, Any], *, trace_id: str) -> EngineResponse:
         """
