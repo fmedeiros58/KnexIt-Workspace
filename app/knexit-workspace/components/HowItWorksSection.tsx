@@ -1,4 +1,9 @@
+"use client";
+
+import { useState } from "react";
+
 export default function HowItWorksSection() {
+  const [activeIndex, setActiveIndex] = useState<number | null>(0);
   const steps = [
     {
       title: "Centralize aulas, turmas e materiais",
@@ -19,25 +24,37 @@ export default function HowItWorksSection() {
   ];
 
   return (
-    <section className="bg-white py-12">
+    <section className="bg-[var(--kx-bg)] pt-6 pb-12">
       <div className="mx-auto max-w-6xl space-y-6 px-4 md:px-6">
         <div className="space-y-2 text-center">
-          <h2 className="text-3xl font-bold text-slate-900">Como o KnexIT Workspace se encaixa no seu dia a dia</h2>
+          <h2 className="text-3xl font-bold text-slate-900">Como o Knexspace One se encaixa no seu dia a dia</h2>
           <p className="text-lg text-slate-600 max-w-3xl mx-auto">
             Fluxo simples para criar, transmitir, organizar e analisar conteúdos em uma única suíte, com IA apoiando cada
             etapa.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          {steps.map((step) => (
-            <div
-              key={step.title}
-              className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:shadow-md transition"
-            >
-              <h3 className="text-lg font-semibold text-slate-900">{step.title}</h3>
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed">{step.body}</p>
-            </div>
-          ))}
+          {steps.map((step, index) => {
+            const isActive = activeIndex === index;
+            return (
+              <button
+                key={step.title}
+                type="button"
+                onClick={() => setActiveIndex(isActive ? null : index)}
+                className={`rounded-2xl border bg-white p-4 text-left shadow-sm transition ${
+                  isActive
+                    ? "border-2 border-[color:var(--kx-primary)] ring-1 ring-[color:var(--kx-primary)] ring-opacity-30"
+                    : "border-slate-200 hover:-translate-y-0.5 hover:shadow-md"
+                }`}
+                aria-expanded={isActive}
+              >
+                <h3 className="text-lg font-semibold text-slate-900">{step.title}</h3>
+                {isActive ? (
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{step.body}</p>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>

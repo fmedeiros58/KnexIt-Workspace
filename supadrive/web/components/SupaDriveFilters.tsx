@@ -105,105 +105,116 @@ export function SupaDriveFilters({ chips, onToggle, onSelectOption, onClear }: S
   }, []);
 
   return (
-    <div className="flex flex-wrap gap-3">
-      {chips.map((chip) => {
-        const isCleanup = chip.id === "cleanup";
+    <div className="flex flex-col gap-2">
+      {/* DEBUG */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+        <span className="font-semibold">DEBUG chips:</span>{" "}
+        {chips
+          .filter((c) => c.id !== "cleanup")
+          .map((c) => `${c.id}=${c.selectedLabel ?? "-"}`)
+          .join(" | ")}
+      </div>
 
-        if (isCleanup) {
-          if (!hasActive) return null;
+      <div className="flex flex-wrap gap-3">
+        {chips.map((chip) => {
+          const isCleanup = chip.id === "cleanup";
+
+          if (isCleanup) {
+            if (!hasActive) return null;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => onToggle?.("cleanup")}
+                className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-slate-600 underline-offset-2 hover:text-slate-800"
+              >
+                {chip.label}
+              </button>
+            );
+          }
+
+          const options = chip.id === "type" ? TYPE_OPTIONS : fallbackOptions;
+
+          // ✅ azul só quando tem selectedLabel
+          const isActive = Boolean(chip.selectedLabel);
+
           return (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => onToggle?.("cleanup")}
-              className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-slate-600 underline-offset-2 hover:text-slate-800"
-            >
-              {chip.label}
-            </button>
-          );
-        }
+            <div key={chip.id} className="relative" data-filter-chip>
+              <button
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => setOpenChip((curr) => (curr === chip.id ? null : chip.id))}
+                className={[
+                  "inline-flex items-center gap-2 rounded-md border px-3 py-1 text-sm font-medium leading-tight whitespace-nowrap transition shadow-sm",
+                  isActive
+                    ? "!border-blue-400 !bg-blue-100 !text-blue-900"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {chip.selectedLabel ?? chip.label}
 
-        const options = chip.id === "type" ? TYPE_OPTIONS : fallbackOptions;
+                <svg viewBox="0 0 12 12" className="ml-1 h-3 w-3 text-slate-500" aria-hidden="true">
+                  <path
+                    d="M3 4l3 3 3-3"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
 
-        // ✅ azul só quando tem selectedLabel
-        const isActive = Boolean(chip.selectedLabel);
+                {chip.selectedLabel ? (
+                  <span className="ml-1 flex items-center gap-2 border-l border-blue-300/70 pl-2">
+                    <button
+                      type="button"
+                      className="text-blue-700 hover:text-blue-900"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onClear?.(chip.id);
+                        setOpenChip(null);
+                      }}
+                      aria-label={`Limpar filtro ${chip.label}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ) : null}
+              </button>
 
-        return (
-          <div key={chip.id} className="relative" data-filter-chip>
-            <button
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => setOpenChip((curr) => (curr === chip.id ? null : chip.id))}
-              className={[
-                "inline-flex items-center gap-2 rounded-md border px-3 py-1 text-sm font-medium leading-tight whitespace-nowrap transition shadow-sm",
-                isActive
-                  ? "!border-blue-400 !bg-blue-100 !text-blue-900"
-                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-              ].join(" ")}
-            >
-              {chip.selectedLabel ?? chip.label}
-
-              <svg viewBox="0 0 12 12" className="ml-1 h-3 w-3 text-slate-500" aria-hidden="true">
-                <path
-                  d="M3 4l3 3 3-3"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-
-              {chip.selectedLabel ? (
-                <span className="ml-1 flex items-center gap-2 border-l border-blue-300/70 pl-2">
-                  <button
-                    type="button"
-                    className="text-blue-700 hover:text-blue-900"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onClear?.(chip.id);
-                      setOpenChip(null);
-                    }}
-                    aria-label={`Limpar filtro ${chip.label}`}
-                  >
-                    ×
-                  </button>
-                </span>
+              {openChip === chip.id ? (
+                <div className="absolute left-0 top-10 z-30 w-64 rounded-md border border-slate-200 bg-white shadow-lg">
+                  <ul className="py-1 text-base text-slate-800">
+                    {options.map((opt) => (
+                      <li key={opt.label}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onSelectOption?.(chip.id, opt.label);
+                            setOpenChip(null);
+                          }}
+                          onClick={(e) => e.preventDefault()}
+                        >
+                          <span className="w-5 text-center">{opt.icon}</span>
+                          <span className="whitespace-nowrap">{opt.label}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
-            </button>
-
-            {openChip === chip.id ? (
-              <div className="absolute left-0 top-10 z-30 w-64 rounded-md border border-slate-200 bg-white shadow-lg">
-                <ul className="py-1 text-base text-slate-800">
-                  {options.map((opt) => (
-                    <li key={opt.label}>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onSelectOption?.(chip.id, opt.label);
-                          setOpenChip(null);
-                        }}
-                        onClick={(e) => e.preventDefault()}
-                      >
-                        <span className="w-5 text-center">{opt.icon}</span>
-                        <span className="whitespace-nowrap">{opt.label}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

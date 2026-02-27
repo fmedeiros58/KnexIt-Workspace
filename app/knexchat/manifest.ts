@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Knexchat",
-    short_name: "knex",
-    start_url: "/knexchat/web/chat",
+    name: "SpaceHub",
+    short_name: "SpaceHub",
+    start_url: "/knexchat/web",
     scope: "/knexchat/",
     display: "standalone",
     background_color: "#ffffff",

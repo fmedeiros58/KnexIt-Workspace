@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsx src/server.ts",
+    "dev": "npm --prefix .. run dev:knexchat",
+    "dev:api": "tsx src/server.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {

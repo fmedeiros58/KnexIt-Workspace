@@ -226,10 +226,11 @@ const SOLUTIONS_RIGHT = [
 const SETORES_LIST = [
   { title: "Saúde e ciências biológicas", href: "/lobby/setores/saude-e-ciencias-biologicas" },
   { title: "Varejo", href: "/lobby/setores/varejo" },
-  { title: "Manufatura", href: "/lobby/setores/manufatura" },
+  { title: "Indústria", href: "/lobby/setores/manufatura" },
   { title: "Governo e setor público", href: "/lobby/setores/governo-setor-publico" },
   { title: "Serviços profissionais", href: "/lobby/setores/servicos-profissionais" },
   { title: "Tecnologia", href: "/lobby/setores/tecnologia" },
+  { title: "Financial Services", href: "/lobby/setores/servicos-financeiros" },
 ];
 
 const DEPARTAMENTOS_LIST = [
@@ -244,7 +245,8 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
   const product = getProduct(productSlug);
   const productPath = product?.homePath ?? `/${productSlug}`;
   const defaultFrom = appBase ? `${appBase}${productPath}` : productPath;
-  const loginLink = loginHref ?? `/login?product=${encodeURIComponent(productSlug)}&from=${encodeURIComponent(defaultFrom)}`;
+  const loginLink =
+    loginHref ?? `/knexit-workspace/acesso?returnTo=${encodeURIComponent(defaultFrom)}`;
   const navRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -281,7 +283,9 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
               onClick={() => toggleMenu("solucoes")}
             >
               <span>Soluções</span>
-              <span aria-hidden className="text-[10px] leading-none">▾</span>
+              {openMenu === "solucoes" ? (
+                <span aria-hidden className="text-[11px] leading-none">▾</span>
+              ) : null}
             </button>
             {openMenu === "solucoes" ? (
               <div className={panelBase}>
@@ -315,7 +319,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                       </div>
                     </div>
                   </div>
-                  <div className="px-10 py-8 flex flex-col gap-6 bg-slate-50 h-full">
+                  <div className="px-10 py-8 flex flex-col gap-6 bg-slate-100 h-full">
                     <div className="text-[13px] font-semibold text-slate-800">Outros públicos</div>
                     <div className="space-y-5">
                       {SOLUTIONS_RIGHT.map((item) => (
@@ -341,7 +345,9 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
               onClick={() => toggleMenu("produtos")}
             >
               <span>Produtos</span>
-              <span aria-hidden className="text-[10px] leading-none">▾</span>
+              {openMenu === "produtos" ? (
+                <span aria-hidden className="text-[11px] leading-none">▾</span>
+              ) : null}
             </button>
             {openMenu === "produtos" ? (
               <div className={panelBase}>
@@ -396,7 +402,9 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
               onClick={() => toggleMenu("setores")}
             >
               <span>Setores</span>
-              <span aria-hidden className="text-[10px] leading-none">▾</span>
+              {openMenu === "setores" ? (
+                <span aria-hidden className="text-[11px] leading-none">▾</span>
+              ) : null}
             </button>
             {openMenu === "setores" ? (
               <div className={panelBase}>
@@ -410,13 +418,13 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                 </button>
                 <div className="grid w-full grid-cols-[2fr_1fr] items-stretch">
                   <div className="border-r border-slate-200 bg-white h-full">
-                    <div className="px-8 py-6 flex flex-col gap-5">
+                    <div className="px-8 py-6 flex flex-col">
                       <div className="text-lg font-semibold text-slate-900">Setores</div>
-                      <div className="border-b border-slate-200" />
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <div className="space-y-5">
+                      <div className="border-b border-slate-200 my-5" />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                        <div className="space-y-8">
                           <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">Setores</div>
-                          <div className="space-y-5">
+                          <div className="space-y-10">
                             {SETORES_LIST.map((item) => (
                               <Link
                                 key={item.title}
@@ -428,9 +436,9 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                             ))}
                           </div>
                         </div>
-                        <div className="space-y-5">
+                        <div className="space-y-8">
                           <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">Departamentos</div>
-                          <div className="space-y-5">
+                          <div className="space-y-10">
                             {DEPARTAMENTOS_LIST.map((item) => (
                               <Link
                                 key={item.title}
@@ -445,7 +453,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                       </div>
                     </div>
                   </div>
-                  <div className="px-10 py-8 flex flex-col gap-6 bg-slate-50 h-full">
+                  <div className="px-10 py-8 flex flex-col gap-6 bg-slate-100 h-full">
                     <Link
                       href="/lobby/setores/seguranca"
                       className="text-sm font-semibold text-slate-900 hover:text-indigo-700 no-underline"
@@ -461,7 +469,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
           <Link href="/branding/knexai" className={pillBase}>
             IA
           </Link>
-          <Link href="/knexit-workspace#planos" className={pillBase} target="_blank">
+          <Link href="/knexit-workspace/precos" className={pillBase}>
             Preços
           </Link>
 
@@ -472,7 +480,9 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
               onClick={() => toggleMenu("recursos")}
             >
               <span>Recursos</span>
-              <span aria-hidden className="text-[10px] leading-none">▾</span>
+              {openMenu === "recursos" ? (
+                <span aria-hidden className="text-[11px] leading-none">▾</span>
+              ) : null}
             </button>
             {openMenu === "recursos" ? (
               <div className={panelBase}>
@@ -493,7 +503,7 @@ export default function LobbyNav({ productSlug, productName, testLabel, loginHre
                       </Link>
                     </div>
                   </div>
-                  <div className="p-5 flex flex-col gap-6 bg-slate-50 h-full">
+                  <div className="p-5 flex flex-col gap-6 bg-slate-100 h-full">
                     <Link href="/lobby/recursos/tutoriais" className="space-y-2 no-underline hover:no-underline">
                       <div className="text-sm font-semibold text-slate-900 hover:text-indigo-700">Tutoriais</div>
                       <div className="text-[12px] text-slate-600">Passo a passo rápido para começar.</div>

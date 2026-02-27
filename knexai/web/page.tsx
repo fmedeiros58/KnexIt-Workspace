@@ -1,42 +1,191 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
-import { LETICIA_SYSTEM_PROMPT } from "@/lib/knexai/spec";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowUp,
+  Bot,
+  CircleEllipsis,
+  Code2,
+  Compass,
+  Image as ImageIcon,
+  LayoutGrid,
+  MessageSquarePlus,
+  Mic,
+  Search,
+  UserPlus,
+} from "lucide-react";
 import { streamLeticia, type LeticiaMessage } from "../lib/client";
 
-const QUICK_PROMPTS = [
-  "Resuma um PDF de aula em 5 topicos claros.",
-  "Gere um roteiro de estudo para a semana com base nas aulas novas.",
-  "Explique o conceito central deste artigo para um aluno iniciante.",
-  "Liste 3 perguntas de revisao para a prova de sexta.",
-];
+type ChatThread = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: LeticiaMessage[];
+};
 
 const initialMessages: LeticiaMessage[] = [
   {
     role: "assistant",
-    content: "Oi! Eu sou a L.E.T.I.C.I.A., IA do ecossistema KnexIT. Envie um prompt ou escolha um atalho para comecar.",
+    content: "Oi! Eu sou a L.E.T.I.C.I.A. Pergunte o que voce precisar.",
   },
 ];
 
+const SIDEBAR_ACTIONS = [
+  { id: "new", label: "Novo chat", icon: MessageSquarePlus },
+  { id: "search", label: "Buscar em chats", icon: Search },
+  { id: "images", label: "Imagens", icon: ImageIcon },
+  { id: "apps", label: "Aplicativos", icon: LayoutGrid },
+  { id: "research", label: "Investigacao", icon: Compass },
+  { id: "code", label: "Codex", icon: Code2 },
+];
+
+function makeThreadId() {
+  return `thread-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function makeThreadTitle(prompt: string) {
+  const base = prompt.trim().replace(/\s+/g, " ");
+  if (!base) return "Novo chat";
+  if (base.length <= 42) return base;
+  return `${base.slice(0, 42)}...`;
+}
+
+type ComposerProps = {
+  docked: boolean;
+  input: string;
+  status: "idle" | "thinking" | "error";
+  onInputChange: (value: string) => void;
+  onSend: () => void;
+};
+
+function Composer({ docked, input, status, onInputChange, onSend }: ComposerProps) {
+  return (
+    <div className={`w-full rounded-[28px] border border-zinc-300 bg-white shadow-sm ${docked ? "" : "max-w-3xl"}`}>
+      <textarea
+        className="h-16 w-full resize-none rounded-t-[28px] border-0 px-6 pt-5 text-[21px] text-zinc-900 outline-none placeholder:text-zinc-500"
+        placeholder="Pergunte alguma coisa"
+        value={input}
+        onChange={(event) => {
+          onInputChange(event.target.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            onSend();
+          }
+        }}
+      />
+
+      <div className="flex items-center justify-between px-4 pb-3">
+        <div className="flex items-center gap-2">
+          <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100">
+            <span className="text-2xl leading-none">+</span>
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            Pensamento estendido
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100">
+            <Mic size={17} />
+          </button>
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={!input.trim() || status === "thinking"}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black text-white disabled:cursor-not-allowed disabled:bg-zinc-400"
+          >
+            <ArrowUp size={18} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function KnexAiPage() {
-  const [messages, setMessages] = useState<LeticiaMessage[]>(initialMessages);
+  const initialThread: ChatThread = useMemo(
+    () => ({
+      id: "thread-inicial",
+      title: "Novo chat",
+      updatedAt: Date.now(),
+      messages: initialMessages,
+    }),
+    [],
+  );
+
+  const [threads, setThreads] = useState<ChatThread[]>([initialThread]);
+  const [activeThreadId, setActiveThreadId] = useState(initialThread.id);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<"idle" | "thinking" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [isChatMode, setIsChatMode] = useState(false);
+
   const endRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const streamIdRef = useRef(0);
+
+  const activeThread = useMemo(() => threads.find((item) => item.id === activeThreadId) ?? threads[0], [activeThreadId, threads]);
+  const activeMessages = activeThread?.messages ?? initialMessages;
+  const hasUserMessages = activeMessages.some((msg) => msg.role === "user");
+  const showChat = isChatMode || hasUserMessages || status === "thinking";
 
   useEffect(() => {
+    if (!showChat) return;
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [activeMessages, showChat]);
+
+  const createNewChat = () => {
+    abortRef.current?.abort();
+    streamIdRef.current += 1;
+    const nextThread: ChatThread = {
+      id: makeThreadId(),
+      title: "Novo chat",
+      updatedAt: Date.now(),
+      messages: initialMessages,
+    };
+    setThreads((prev) => [nextThread, ...prev]);
+    setActiveThreadId(nextThread.id);
+    setInput("");
+    setError(null);
+    setStatus("idle");
+    setIsChatMode(false);
+  };
+
+  const openThread = (threadId: string) => {
+    if (status === "thinking") return;
+    const target = threads.find((thread) => thread.id === threadId);
+    if (!target) return;
+    setActiveThreadId(threadId);
+    setInput("");
+    setError(null);
+    setIsChatMode(target.messages.some((msg) => msg.role === "user"));
+  };
 
   const send = async (prompt: string) => {
     const trimmed = prompt.trim();
-    if (!trimmed || status === "thinking") return;
+    if (!trimmed || status === "thinking" || !activeThread) return;
 
+    setIsChatMode(true);
     const userMsg: LeticiaMessage = { role: "user", content: trimmed };
-    const history = [...messages, userMsg];
-    setMessages([...history, { role: "assistant", content: "" }]);
+    const history = [...activeThread.messages, userMsg];
+
+    setThreads((prev) =>
+      prev.map((thread) => {
+        if (thread.id !== activeThread.id) return thread;
+        return {
+          ...thread,
+          title: thread.title === "Novo chat" ? makeThreadTitle(trimmed) : thread.title,
+          updatedAt: Date.now(),
+          messages: [...history, { role: "assistant", content: "" }],
+        };
+      }),
+    );
+
     setInput("");
     setStatus("thinking");
     setError(null);
@@ -44,152 +193,160 @@ export default function KnexAiPage() {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    const streamId = streamIdRef.current + 1;
+    streamIdRef.current = streamId;
 
     try {
       await streamLeticia(trimmed, history, {
         signal: controller.signal,
         onChunk: (delta) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.role === "assistant") {
-              last.content += delta;
-            }
-            return next;
-          });
+          if (streamIdRef.current !== streamId) return;
+          setThreads((prev) =>
+            prev.map((thread) => {
+              if (thread.id !== activeThread.id) return thread;
+              const lastIndex = thread.messages.length - 1;
+              const last = thread.messages[lastIndex];
+              const nextMessages =
+                last && last.role === "assistant"
+                  ? [...thread.messages.slice(0, lastIndex), { ...last, content: `${last.content}${delta}` }]
+                  : thread.messages;
+              return {
+                ...thread,
+                updatedAt: Date.now(),
+                messages: nextMessages,
+              };
+            }),
+          );
         },
-        onDone: () => setStatus("idle"),
+        onDone: () => {
+          if (streamIdRef.current !== streamId) return;
+          setStatus("idle");
+        },
       });
     } catch (err: any) {
+      if (streamIdRef.current !== streamId) return;
       setStatus("error");
       setError(err?.message ?? "Erro ao falar com a Leticia");
     }
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-900">
-      <div className="mx-auto max-w-6xl px-4 py-10 space-y-8">
-        <header className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-600">Produto</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl md:text-4xl font-bold">KnexAI</h1>
-            <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700">
-              Mistral + Leticia
-            </span>
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                /api/knexai
-              </span>
+    <main className="flex h-screen min-h-screen bg-[#f7f7f8] text-zinc-900">
+      <aside className="hidden h-full w-[300px] flex-col border-r border-zinc-200 bg-[#f0f0f1] lg:flex">
+        <div className="flex items-center justify-between px-4 py-4">
+          <div className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-300 bg-white">
+            <Bot size={17} />
           </div>
-          <p className="text-base text-slate-700 max-w-3xl">
-            Ambiente dedicado de IA nativa. Envie prompts com contexto, receba streaming e integre com os demais produtos do
-            ecossistema (Drive, Read, Review, Search).
-          </p>
+          <button type="button" className="rounded-lg p-1 text-zinc-600 hover:bg-zinc-200">
+            <CircleEllipsis size={18} />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-3 pb-3">
+          <div className="space-y-1">
+            {SIDEBAR_ACTIONS.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={action.id === "new" ? createNewChat : undefined}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[22px] text-zinc-800 hover:bg-zinc-200"
+                >
+                  <Icon size={20} />
+                  <span>{action.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-5">
+            <p className="px-3 text-xs uppercase tracking-[0.14em] text-zinc-500">GPTs</p>
+            <div className="mt-2 space-y-1">
+              {threads.map((thread) => (
+                <button
+                  key={thread.id}
+                  type="button"
+                  onClick={() => openThread(thread.id)}
+                  className={`flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left text-[21px] ${
+                    activeThread?.id === thread.id ? "bg-zinc-200 text-zinc-900" : "text-zinc-700 hover:bg-zinc-200"
+                  }`}
+                >
+                  <span className="mt-0.5 text-zinc-500">◻</span>
+                  <span className="line-clamp-2">{thread.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-auto border-t border-zinc-200 px-4 py-4">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">
+              EU
+            </span>
+            <div>
+              <p className="text-sm font-medium text-zinc-900">Usuario KnexIT</p>
+              <p className="text-xs text-zinc-500">Plano Plus</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 items-center justify-between px-5 lg:px-8">
+          <div className="flex items-center gap-2">
+            <h1 className="text-[34px] font-medium">
+              ChatGPT <span className="font-normal text-zinc-500">5.2 Thinking</span>
+            </h1>
+          </div>
+          <div className="flex items-center gap-3 text-zinc-700">
+            <button type="button" className="rounded-lg p-1 hover:bg-zinc-200">
+              <UserPlus size={18} />
+            </button>
+            <button type="button" className="rounded-lg p-1 hover:bg-zinc-200">
+              <CircleEllipsis size={18} />
+            </button>
+          </div>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <section className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Chat com a Leticia</p>
-                <p className="text-xs text-slate-500">Streaming habilitado; usa historico da conversa.</p>
-              </div>
-              <div className="text-xs">
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${
-                    status === "thinking" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
-                  }`}
-                >
-                  <span className="h-2 w-2 rounded-full bg-current" />
-                  {status === "thinking" ? "Gerando" : "Pronto"}
-                </span>
-              </div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {!showChat ? (
+            <div className="flex flex-1 flex-col items-center justify-center px-6 pb-16">
+              <p className="mb-7 text-center text-5xl font-normal text-zinc-900">O que tem na agenda de hoje?</p>
+              <Composer docked={false} input={input} status={status} onInputChange={setInput} onSend={() => void send(input)} />
             </div>
-
-            <div className="h-[520px] overflow-y-auto px-4 py-4 space-y-3">
-              {messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-                    m.role === "assistant"
-                      ? "bg-indigo-50 text-slate-900"
-                      : "ml-auto bg-slate-900 text-white"
-                  }`}
-                >
-                  {m.content || <span className="text-slate-400">Digitando...</span>}
-                </div>
-              ))}
-              <div ref={endRef} />
-            </div>
-
-            <div className="border-t border-slate-100 px-4 py-3 space-y-2">
-              {error && <p className="text-sm text-rose-600">Falha: {error}</p>}
-              <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-                <textarea
-                  className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-inner focus:border-indigo-400 focus:outline-none"
-                  rows={3}
-                  placeholder="Escreva seu prompt ou cole um contexto..."
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      send(input);
-                    }
-                  }}
-                />
-                <button
-                  className="h-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  onClick={() => send(input)}
-                  disabled={!input.trim() || status === "thinking"}
-                >
-                  Enviar
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {QUICK_PROMPTS.map((p) => (
-                  <button
-                    key={p}
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-700 hover:border-indigo-200 hover:text-indigo-700"
-                    onClick={() => send(p)}
-                    disabled={status === "thinking"}
-                  >
-                    {p}
-                  </button>
+          ) : (
+            <>
+              <div className="mx-auto h-full w-full max-w-4xl flex-1 overflow-y-auto px-6 pt-5 pb-36">
+                {activeMessages.map((message, index) => (
+                  <div key={`${activeThread?.id ?? "thread"}-${index}`} className={`mb-4 flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-[22px] leading-relaxed ${
+                        message.role === "user" ? "bg-zinc-900 text-white" : "bg-white text-zinc-900 shadow-sm"
+                      }`}
+                    >
+                      {message.content || <span className="text-zinc-400">Digitando...</span>}
+                    </div>
+                  </div>
                 ))}
+
+                {error ? (
+                  <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">Falha: {error}</div>
+                ) : null}
+
+                <div ref={endRef} />
               </div>
-            </div>
-          </section>
 
-          <aside className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
-              <p className="text-sm font-semibold text-slate-900">Motor e modelo</p>
-              <p className="text-sm text-slate-700">
-                Endpoint: <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">/api/knexai</code>
-              </p>
-              <p className="text-xs text-slate-500">
-                Em desenvolvimento, LETICIA_MOCK=1 usa respostas simuladas. Para usar modelo local, configure o servidor
-                vLLM com um modelo compatível (por exemplo o GGUF do Mistral) e as variáveis VLLM_* adequadas.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
-              <p className="text-sm font-semibold text-slate-900">Contexto base</p>
-              <pre className="max-h-40 overflow-y-auto rounded-lg bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700">
-                {LETICIA_SYSTEM_PROMPT}
-              </pre>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
-              <p className="text-sm font-semibold text-slate-900">Como integrar</p>
-              <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700">
-                <li>Consuma este chat direto do /knexai.</li>
-                <li>Reutilize o helper em <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">knexai/lib/client.ts</code> para streaming.</li>
-                <li>Conecte as fontes (Drive, Review, Search) enviando contexto no prompt.</li>
-              </ul>
-            </div>
-          </aside>
+              <div className="absolute inset-x-0 bottom-0 border-t border-zinc-200 bg-[#f7f7f8]/95 px-6 py-4 backdrop-blur-sm">
+                <div className="mx-auto w-full max-w-4xl">
+                  <Composer docked input={input} status={status} onInputChange={setInput} onSend={() => void send(input)} />
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </div>
+      </section>
     </main>
   );
 }

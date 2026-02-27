@@ -1,0 +1,31 @@
+
+> knexit-workspace@0.1.0 dev
+> next dev -H localhost -p 3000
+
+  ▲ Next.js 14.2.33
+  - Local:        http://localhost:3000
+  - Network:      http://[::1]:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1980ms
+ ○ Compiling /api/knexchat/realtime-ticket ...
+ ✓ Compiled /api/knexchat/realtime-ticket in 731ms (140 modules)
+ POST /api/knexchat/realtime-ticket 200 in 2036ms
+ ○ Compiling /api/knexchat/realtime ...
+ ✓ Compiled /api/knexchat/realtime in 543ms (142 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /api/knexchat/threads in 3.5s (716 modules)
+ GET /_next/static/chunks/app/layout.js 404 in 3644ms
+ GET /api/knexchat/threads?includeParticipants=1&includeLastMessage=1 200 in 2527ms
+ ✓ Compiled /middleware in 237ms (72 modules)
+ ✓ Compiled / in 412ms (725 modules)
+ GET / 307 in 549ms
+ ✓ Compiled /knexit-workspace in 410ms (763 modules)
+ GET /knexit-workspace 200 in 548ms
+ GET /api/knexchat/threads?includeParticipants=1&includeLastMessage=1 200 in 725ms
+ GET /api/knexchat/threads?includeParticipants=1&includeLastMessage=1 200 in 401ms
+ GET /api/knexchat/threads?includeParticipants=1&includeLastMessage=1 200 in 320ms
+ GET /api/knexchat/threads?includeParticipants=1&includeLastMessage=1 200 in 330ms
+ GET /api/knexchat/threads?includeParticipants=1&includeLastMessage=1 200 in 315ms
+ GET /api/knexchat/threads?includeParticipants=1&includeLastMessage=1 200 in 465ms

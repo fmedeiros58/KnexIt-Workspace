@@ -1,8 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { identitySupabase } from "@/lib/identitySupabaseClient";
 import { getCurrentUser } from "@/lib/auth";
 import { DEFAULT_PRODUCT_SLUG, getProduct, ProductEntry, ProductSlug } from "@/lib/products";
 
@@ -14,7 +16,23 @@ type LoginPageClientProps = {
 };
 
 const DEFAULT_PRODUCT = getProduct(DEFAULT_PRODUCT_SLUG)!;
-const ALLOWED_EMAILS = new Set(["fmedeiros58@gmail.com"]);
+const supabase = identitySupabase();
+const normalizeAllowedDomain = (value: string) => {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return "";
+  return trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+};
+
+const normalizeBaseUrl = (value: string) => value.replace(/\/$/, "");
+
+const getAppBaseUrl = () => {
+  const envBase = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (envBase) return normalizeBaseUrl(envBase);
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+    return normalizeBaseUrl(window.location.origin);
+  }
+  return "https://knexspace.com";
+};
 
 function normalizeRedirect(product: ProductEntry, target: string | null, origin: string) {
   if (!target) return target;
@@ -41,32 +59,93 @@ export default function LoginPageClient({
   initialRedirect = null,
 }: LoginPageClientProps) {
   const router = useRouter();
-  const appBaseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
+  const appBaseUrl = useMemo(() => getAppBaseUrl(), []);
   const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loadingLogin, setLoadingLogin] = useState(false);
-  const allowedDomain = process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "";
-
-  const [name, setName] = useState("");
-  const [signupEmail, setSignupEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [showPass, setShowPass] = useState(false);
-  const [signupLoading, setSignupLoading] = useState(false);
+  const [isSignup, setIsSignup] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [otpPurpose, setOtpPurpose] = useState<"login" | "signup" | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const allowedDomain = normalizeAllowedDomain(process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || "");
+  const RECENT_ACCOUNTS_KEY = "knex_recent_accounts";
+  const ACCOUNT_SESSIONS_KEY = "knex_account_sessions";
+  const TRUSTED_ACCOUNTS_KEY = "knex_trusted_accounts";
 
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const isAllowedEmail = useCallback((email?: string | null) => {
-    if (!email) return false;
-    const lowered = email.toLowerCase();
-    if (ALLOWED_EMAILS.has(lowered)) return true;
-    if (allowedDomain) return lowered.includes(allowedDomain);
-    return true;
-  }, [allowedDomain]);
+  const saveRecentAccount = useCallback((email: string) => {
+    if (typeof window === "undefined") return;
+    const normalized = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return;
+    try {
+      const raw = localStorage.getItem(RECENT_ACCOUNTS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+      const next = [normalized, ...parsed.filter((item) => item !== normalized)].slice(0, 6);
+      localStorage.setItem(RECENT_ACCOUNTS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore storage issues
+    }
+  }, []);
+
+  const saveAccountSession = useCallback(
+    (session: Session) => {
+      if (typeof window === "undefined") return;
+      const email = session.user?.email?.trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+      const metadata = session.user?.user_metadata as {
+        full_name?: string;
+        name?: string;
+        avatar_url?: string;
+        picture?: string;
+        avatar?: string;
+      } | null;
+      const name = String(metadata?.full_name ?? metadata?.name ?? email.split("@")[0] ?? "")
+        .replace(/[._-]/g, " ")
+        .trim();
+      const avatarUrl = String(metadata?.avatar_url ?? metadata?.picture ?? metadata?.avatar ?? "");
+      try {
+        const raw = localStorage.getItem(ACCOUNT_SESSIONS_KEY);
+        const current = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        const next = {
+          ...(current || {}),
+          [email]: {
+            email,
+            name,
+            avatarUrl,
+            accessToken: session.access_token,
+            refreshToken: session.refresh_token,
+            expiresAt: session.expires_at ?? null,
+            lastUsed: new Date().toISOString(),
+          },
+        };
+        localStorage.setItem(ACCOUNT_SESSIONS_KEY, JSON.stringify(next));
+        const trustedRaw = localStorage.getItem(TRUSTED_ACCOUNTS_KEY);
+        const trusted = trustedRaw ? (JSON.parse(trustedRaw) as string[]) : [];
+        if (Array.isArray(trusted) && !trusted.includes(email)) {
+          localStorage.setItem(TRUSTED_ACCOUNTS_KEY, JSON.stringify([email, ...trusted].slice(0, 10)));
+        }
+      } catch {
+        // ignore storage issues
+      }
+      saveRecentAccount(email);
+    },
+    [saveRecentAccount],
+  );
+
+  const isAllowedEmail = useCallback(
+    (email?: string | null) => {
+      if (!email) return false;
+      const lowered = email.toLowerCase();
+      if (!allowedDomain) return true;
+      return lowered.endsWith(`@${allowedDomain}`);
+    },
+    [allowedDomain],
+  );
 
   const { targetRedirect, productLabel, activeProductSlug, hasExplicitProduct } = useMemo(() => {
     const resolveTarget = (value: string | null | undefined, base: string): string | null => {
@@ -110,28 +189,19 @@ export default function LoginPageClient({
     }
   }, [targetRedirect, appBaseUrl]);
 
-  const loginReturnUrl = useMemo(() => {
-    const base =
-      appBaseUrl || (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000");
-    try {
-      const url = new URL(base);
-      url.pathname = "/login";
-      if (targetRedirect) url.searchParams.set("from", targetRedirect);
-      if (activeProductSlug) url.searchParams.set("product", activeProductSlug);
-      return url.toString();
-    } catch {
-      return `${base}/login`;
-    }
-  }, [targetRedirect, activeProductSlug, appBaseUrl]);
-
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && typeof window !== "undefined") {
         const email = session?.user?.email ?? null;
         if (email && !isAllowedEmail(email)) {
-          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          setErr("E-mail não autorizado para acessar o Knexit Workspace.");
           await supabase.auth.signOut();
           return;
+        }
+        if (session) {
+          saveAccountSession(session as Session);
+        } else if (email) {
+          saveRecentAccount(email);
         }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
@@ -140,7 +210,9 @@ export default function LoginPageClient({
         }
       }
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      sub.subscription.unsubscribe();
+    };
   }, [postAuthRedirect, targetRedirect, router, isAllowedEmail]);
 
   useEffect(() => {
@@ -148,9 +220,16 @@ export default function LoginPageClient({
       const user = await getCurrentUser();
       if (user && typeof window !== "undefined") {
         if (!isAllowedEmail(user.email)) {
-          setErr("Apenas e-mails do domínio Knexit são permitidos.");
+          setErr("E-mail não autorizado para acessar o Knexit Workspace.");
           await supabase.auth.signOut();
           return;
+        }
+        const email = user.email ?? "";
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+          saveAccountSession(data.session as Session);
+        } else if (email) {
+          saveRecentAccount(email);
         }
         const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
         localStorage.removeItem("postAuthRedirect");
@@ -176,59 +255,151 @@ export default function LoginPageClient({
     }
   }, []);
 
-  async function handlePasswordLogin(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    if (!resendCooldown) return;
+    const timer = window.setInterval(() => {
+      setResendCooldown((value) => (value > 0 ? value - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendCooldown]);
+
+  useEffect(() => {
+    setOtpPurpose(null);
+    setOtpSent(false);
+    setOtpCode("");
+  }, [isSignup]);
+
+  async function handleRequestCode(
+    e?: React.SyntheticEvent,
+    purposeOverride?: "login" | "signup",
+  ) {
+    e?.preventDefault();
     setErr(null);
-    setLoadingLogin(true);
-    if (!isAllowedEmail(loginEmail)) {
-      setLoadingLogin(false);
-      setErr("Apenas e-mails do domínio Knexit são permitidos.");
+    const email = loginEmail.trim().toLowerCase();
+    if (!isAllowedEmail(email)) {
+      setErr("E-mail não autorizado para acessar o Knexit Workspace.");
       return;
     }
+    const purpose = purposeOverride ?? otpPurpose ?? "login";
+    if (purpose === "signup" && !password) {
+      setErr("Informe sua senha para criar a conta.");
+      return;
+    }
+    setOtpLoading(true);
     if (typeof window !== "undefined" && postAuthRedirect) {
       localStorage.setItem("postAuthRedirect", postAuthRedirect);
     }
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password: loginPassword,
+    const res = await fetch("/api/auth/otp/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        purpose,
+        mode: purpose === "signup" ? "otp_signup" : "otp_login",
+        ...(purpose === "signup" ? { password } : {}),
+      }),
     });
-    setLoadingLogin(false);
+    setOtpLoading(false);
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => ({}))) as { message?: string };
+      setErr(payload?.message ?? "Falha ao enviar código.");
+      return;
+    }
+    setOtpPurpose(purpose);
+    setOtpSent(true);
+    setOtpCode("");
+    setResendCooldown(30);
+  }
+
+  async function handleVerifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const email = loginEmail.trim().toLowerCase();
+    if (!email) {
+      setErr("Informe seu e-mail.");
+      return;
+    }
+    if (!/^\d{6}$/.test(otpCode)) {
+      setErr("Codigo invalido. Use 6 digitos.");
+      return;
+    }
+    const purpose = otpPurpose ?? "login";
+    if (purpose === "signup" && !password) {
+      setErr("Informe sua senha para criar a conta.");
+      return;
+    }
+    setVerifyLoading(true);
+    const res = await fetch("/api/auth/otp/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        token: otpCode,
+        purpose,
+        mode: purpose === "signup" ? "otp_signup" : "otp_login",
+        ...(purpose === "signup" ? { password } : {}),
+      }),
+    });
+    const payload = (await res.json().catch(() => ({}))) as {
+      message?: string;
+      session?: { access_token?: string; refresh_token?: string };
+    };
+    setVerifyLoading(false);
+    if (!res.ok) {
+      setErr(payload?.message ?? "Falha ao validar código.");
+      return;
+    }
+    if (payload?.session?.access_token && payload?.session?.refresh_token) {
+      await supabase.auth.setSession({
+        access_token: payload.session.access_token,
+        refresh_token: payload.session.refresh_token,
+      });
+    }
+    const { data } = await supabase.auth.getSession();
+    if (!data?.session) {
+      setErr("Não foi possível autenticar. Tente novamente.");
+      return;
+    }
+    const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
+    localStorage.removeItem("postAuthRedirect");
+    if (to) router.replace(to);
+  }
+
+  async function handlePasswordAuth(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setNotice(null);
+    const email = loginEmail.trim().toLowerCase();
+    if (!isAllowedEmail(email)) {
+      setErr("E-mail não autorizado para acessar o Knexit Workspace.");
+      return;
+    }
+    if (!password) {
+      setErr("Informe sua senha.");
+      return;
+    }
+    setPasswordLoading(true);
+    if (typeof window !== "undefined" && postAuthRedirect) {
+      localStorage.setItem("postAuthRedirect", postAuthRedirect);
+    }
+    if (isSignup) {
+      setPasswordLoading(false);
+      await handleRequestCode(e, "signup");
+      setNotice("Enviamos um código de 6 dígitos para confirmar sua conta.");
+      return;
+    }
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    setPasswordLoading(false);
     if (error) {
       setErr(error.message);
       return;
     }
-    if (data?.session) {
-      const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
-      localStorage.removeItem("postAuthRedirect");
-      if (to) router.replace(to);
-    }
-  }
-
-  async function handleSignup(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setSignupLoading(true);
-    if (!isAllowedEmail(signupEmail)) {
-      setSignupLoading(false);
-      setErr("Apenas e-mails do domínio Knexit são permitidos.");
-      return;
-    }
-    if (typeof window !== "undefined" && postAuthRedirect) {
-      localStorage.setItem("postAuthRedirect", postAuthRedirect);
-    }
-    const { error } = await supabase.auth.signUp({
-      email: signupEmail,
-      password,
-      options: {
-        data: { name, phone },
-        emailRedirectTo: loginReturnUrl,
-      },
-    });
-    setSignupLoading(false);
-    if (error) setErr(error.message);
-    else {
-      alert("Cadastro iniciado! Verifique seu e-mail para confirmar a conta.");
-    }
+    const to = localStorage.getItem("postAuthRedirect") || postAuthRedirect || targetRedirect;
+    localStorage.removeItem("postAuthRedirect");
+    if (to) router.replace(to);
   }
 
   return (
@@ -258,118 +429,160 @@ export default function LoginPageClient({
               {err}
             </div>
           )}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-            <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="h-9 w-9 rounded bg-neutral-900" aria-hidden />
-              <div>
-                <h2 className="text-lg font-semibold">Cadastre-se para criar sua conta</h2>
-                <p className="text-sm text-neutral-500">Fluxo em duas etapas: cadastro e login com senha.</p>
-              </div>
+          {notice && (
+            <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {notice}
             </div>
-            <form onSubmit={handleSignup} className="grid grid-cols-1 gap-3">
-              <Labeled label="Nome" placeholder="Seu nome" value={name} onChange={(e) => setName(e.target.value)} required />
-              <Labeled
-                type="email"
-                label="E-mail"
-                placeholder="seu@email.com"
-                value={signupEmail}
-                onChange={(e) => setSignupEmail(e.target.value)}
-                required
-              />
-              <Labeled label="Celular" placeholder="(00) 00000-0000" value={phone} onChange={(e) => setPhone(e.target.value)} />
-              <label className="text-sm">
-                <span className="mb-1 block text-neutral-700">Senha cadastro</span>
-                <div className="flex">
-                  <input
-                    type={showPass ? "text" : "password"}
-                    placeholder="••••••••"
-                    className="w-full rounded-l-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                  />
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <div className="space-y-6">
+              <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="h-9 w-9 rounded bg-neutral-900" aria-hidden />
+                  <div>
+                    <h2 className="text-lg font-semibold">Entrar com senha</h2>
+                    <p className="text-sm text-neutral-500">Use seu e-mail e senha do Knexspace.</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handlePasswordAuth} className="space-y-3">
+                  <label className="text-sm block">
+                    <span className="mb-1 block text-neutral-700">E-mail</span>
+                    <input
+                      className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-600/30"
+                      placeholder="seu@email.com"
+                      type="email"
+                      required
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  </label>
+                  <label className="text-sm block">
+                    <span className="mb-1 block text-neutral-700">Senha</span>
+                    <input
+                      className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-600/30"
+                      placeholder="Sua senha"
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete={isSignup ? "new-password" : "current-password"}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={passwordLoading || !loginEmail || !password}
+                    className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {passwordLoading ? "Processando..." : isSignup ? "Criar conta" : "Entrar"}
+                  </button>
                   <button
                     type="button"
-                    onClick={() => setShowPass((v) => !v)}
-                    className="rounded-r-lg border border-l-0 border-neutral-300 bg-neutral-100 px-3 text-xs"
-                    aria-label={showPass ? "Ocultar senha" : "Mostrar senha"}
-                    title={showPass ? "Ocultar" : "Mostrar"}
+                    onClick={() => setIsSignup((prev) => !prev)}
+                    className="text-xs text-blue-600 hover:underline"
                   >
-                    <EyeIcon open={showPass} />
-                    <span className="ml-1">{showPass ? "Ocultar" : "Mostrar"}</span>
+                    {isSignup ? "Já tenho conta, entrar com senha" : "Criar conta com senha"}
                   </button>
+                </form>
+              </section>
+
+              <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="h-9 w-9 rounded bg-blue-600" aria-hidden />
+                  <div>
+                    <h2 className="text-lg font-semibold">Acesse com codigo de 6 digitos</h2>
+                    <p className="text-sm text-neutral-500">Enviamos um codigo para confirmar sua conta.</p>
+                  </div>
                 </div>
-                <p className="mt-1 text-xs text-neutral-500">Mínimo de 6 caracteres, incluindo 1 letra e 1 número</p>
-              </label>
 
-              <div className="flex items-start gap-2 text-xs text-neutral-500">
-                <input type="checkbox" required className="mt-0.5" />
-                <span>
-                  Ao cadastrar-se, você concorda com a nossa{" "}
-                  <a className="underline underline-offset-2" href="#" onClick={(e) => e.preventDefault()}>
-                    Política de Privacidade
-                  </a>
-                  .
-                </span>
-              </div>
+                <form onSubmit={otpSent ? handleVerifyCode : handleRequestCode} className="space-y-3">
+                  <label className="text-sm block">
+                    <span className="mb-1 block text-neutral-700">E-mail</span>
+                    <input
+                      className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-600/30"
+                      placeholder="seu@email.com"
+                      type="email"
+                      required
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  </label>
 
-              <button
-                type="submit"
-                disabled={signupLoading}
-                className="mt-1 inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-60"
-              >
-                {signupLoading ? "Cadastrando..." : "Cadastrar"}
-              </button>
-            </form>
-          </section>
+                  {otpSent && (
+                    <label className="text-sm block">
+                      <span className="mb-1 block text-neutral-700">Codigo de 6 digitos</span>
+                      <input
+                        className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none tracking-[0.3em] text-center focus:ring-2 focus:ring-blue-600/30"
+                        placeholder="000000"
+                        inputMode="numeric"
+                        pattern="\\d{6}"
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\\D/g, "").slice(0, 6))}
+                      />
+                    </label>
+                  )}
 
-          <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="h-9 w-9 rounded bg-orange-500" aria-hidden />
-              <div>
-                <h2 className="text-lg font-semibold">Entre na sua conta para continuar</h2>
-                <p className="text-sm text-neutral-500">Use e-mail e senha cadastrados.</p>
-              </div>
+                  <button
+                    type="submit"
+                    disabled={
+                      otpSent
+                        ? verifyLoading || otpCode.length !== 6 || !loginEmail
+                        : otpLoading || !loginEmail
+                    }
+                    className="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-green-700 disabled:opacity-60"
+                  >
+                    {otpSent
+                      ? verifyLoading
+                        ? "Validando..."
+                        : "Confirmar código"
+                      : otpLoading
+                        ? "Enviando..."
+                        : "Enviar código"}
+                  </button>
+
+                  {otpSent && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
+                      <span>Codigo enviado. Verifique sua caixa de entrada.</span>
+                      <button
+                        type="button"
+                        onClick={handleRequestCode}
+                        disabled={otpLoading || resendCooldown > 0}
+                        className="text-blue-600 hover:underline disabled:text-neutral-400"
+                      >
+                        {resendCooldown > 0 ? `Reenviar em ${resendCooldown}s` : "Reenviar código"}
+                      </button>
+                    </div>
+                  )}
+                </form>
+              </section>
             </div>
-            <form onSubmit={handlePasswordLogin} className="space-y-3">
-              <label className="text-sm block">
-                <span className="mb-1 block text-neutral-700">E-mail</span>
-                <input
-                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-600/30"
-                  placeholder="seu@email.com"
-                  type="email"
-                  required
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  autoComplete="email"
-                  inputMode="email"
-                />
-              </label>
-              <label className="text-sm block">
-                <span className="mb-1 block text-neutral-700">Senha</span>
-                <input
-                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-600/30"
-                  placeholder="********"
-                  type="password"
-                  required
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </label>
 
-              <button
-                type="submit"
-                disabled={loadingLogin || !loginEmail || !loginPassword}
-                className="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-white text-sm font-medium transition-colors hover:bg-green-700 disabled:opacity-60"
-              >
-                {loadingLogin ? "Entrando..." : "Entrar"}
-              </button>
-
-            </form>
-            </section>
+            <div className="space-y-6">
+              <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="h-9 w-9 rounded bg-emerald-500" aria-hidden />
+                  <div>
+                    <h2 className="text-lg font-semibold">Primeiro acesso?</h2>
+                    <p className="text-sm text-neutral-500">Crie sua conta Knexspace One e ative o ecossistema.</p>
+                  </div>
+                </div>
+                <div className="space-y-3 text-sm text-neutral-600">
+                  <p>Configure dominio, convide sua equipe e habilite seus apps.</p>
+                  <Link
+                    href="/knexit-workspace/acesso/novo"
+                    className="inline-flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 no-underline"
+                  >
+                    Criar conta agora
+                  </Link>
+                  <p className="text-xs text-neutral-500">Se ja possui conta, use o codigo de acesso ao lado.</p>
+                </div>
+              </section>
+            </div>
           </div>
         </div>
       </main>
@@ -418,31 +631,6 @@ export default function LoginPageClient({
         </div>
       </footer>
     </div>
-  );
-}
-
-function Labeled(props: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
-  const { label, className, ...rest } = props;
-  return (
-    <label className="text-sm">
-      <span className="mb-1 block text-neutral-700">{label}</span>
-      <input
-        {...rest}
-        className={`w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm ${className ?? ""}`}
-      />
-    </label>
-  );
-}
-
-function EyeIcon({ open }: { open: boolean }) {
-  return open ? (
-    <svg className="inline h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z" />
-    </svg>
-  ) : (
-    <svg className="inline h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M2 12s3-7 10-7c2.1 0 3.9.6 5.5 1.5l1.6-1.6 1.4 1.4-18 18-1.4-1.4 3-3C2.8 17 2 12 2 12zm10 5c-1.1 0-2.1-.3-2.9-.8l1.5-1.5c.4.2.9.3 1.4.3a4 4 0 004-4c0-.5-.1-1-.3-1.4l1.5-1.5c.5.8.8 1.8.8 2.9a6 6 0 01-6 6z" />
-    </svg>
   );
 }
 

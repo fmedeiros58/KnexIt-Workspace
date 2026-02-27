@@ -26,3 +26,4 @@ dev*.out
 dev*.err
 
 .vercel/
+.env*.local

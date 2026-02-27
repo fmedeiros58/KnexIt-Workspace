@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -131,7 +132,14 @@ export default function AdminLoginClient() {
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
                       {account.imageUrl ? (
-                        <img src={account.imageUrl} alt={account.name} className="h-full w-full object-cover" />
+                        <Image
+                          src={account.imageUrl}
+                          alt={account.name}
+                          width={36}
+                          height={36}
+                          className="h-full w-full object-cover"
+                          unoptimized
+                        />
                       ) : (
                         account.initials
                       )}

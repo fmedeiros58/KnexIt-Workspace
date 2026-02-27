@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { identitySupabase } from "@/lib/identitySupabaseClient";
 import { getProduct } from "@/lib/products";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -19,6 +19,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const search = useSearchParams();
   const [authorized, setAuthorized] = useState(false);
   const [checking, setChecking] = useState(true);
+  const supabase = useMemo(() => identitySupabase(), []);
 
   const normalizeRedirectPath = (path: string): string => {
     const parts = path.split("?")[0].split("/").filter(Boolean);
@@ -41,15 +42,21 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    const goLogin = () => {
-      router.replace(`/login?redirect=${redirectTarget}`);
+    const goLogin = (verify?: "otp") => {
+      if (verify === "otp") {
+        router.replace(`/knexit-workspace/acesso?returnTo=${redirectTarget}&verify=otp`);
+        return;
+      }
+      router.replace(`/knexit-workspace/acesso?returnTo=${redirectTarget}`);
     };
 
     const check = async () => {
       const { data, error } = await supabase.auth.getSession();
       if (error || !data?.session) {
         goLogin();
-      } else if (mounted) {
+        return;
+      }
+      if (mounted) {
         setAuthorized(true);
       }
       if (mounted) setChecking(false);
@@ -68,7 +75,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       mounted = false;
       sub?.subscription?.unsubscribe();
     };
-  }, [redirectTarget, router]);
+  }, [redirectTarget, router, supabase]);
 
   if (checking) return null;
   if (!authorized) return null;
