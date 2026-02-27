@@ -1,9 +1,16 @@
 node_modules/
 .next/
+.next-build/
 out/
 dist/
 .tsbuildinfo
 *.tsbuildinfo
+
+# Python cache artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
 models/
 !auth/models/
@@ -18,5 +25,5 @@ Thumbs.db
 dev*.out
 dev*.err
 
-.vercel
+.vercel/
 .env*.local
