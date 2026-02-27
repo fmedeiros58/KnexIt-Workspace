@@ -62,18 +62,19 @@ export async function POST(req: NextRequest) {
 
     // Melhor-esforco de trilha de auditoria para memoria operacional.
     if (role === "user") {
-      admin
-        .from("knexai_memory_events")
-        .insert({
-          session_id: session.id,
-          thread_id: threadId,
-          event: "user_message_received",
-          detail: { chars: content.length },
-        })
-        .then(({ error }) => {
+      void (async () => {
+        try {
+          const { error } = await admin.from("knexai_memory_events").insert({
+            session_id: session.id,
+            thread_id: threadId,
+            event: "user_message_received",
+            detail: { chars: content.length },
+          });
           if (error) console.warn("KNEXAI_MEMORY_EVENT_WRITE_WARN", error.message);
-        })
-        .catch(() => null);
+        } catch {
+          // melhor-esforco: sem impacto na resposta principal
+        }
+      })();
     }
 
     return Response.json(
