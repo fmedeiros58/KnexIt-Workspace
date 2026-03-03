@@ -156,6 +156,16 @@ class WriteChunkPatchRequest(BaseModel):
     summarize_project: bool = Field(default=False)
 
 
+class WriteChunkAutosaveRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=120_000)
+    client_version: int = Field(ge=1, le=1_000_000)
+    autosave_reason: str = Field(default="interval_tick", min_length=1, max_length=64)
+    editor_session_id: Optional[str] = Field(default=None, min_length=3, max_length=128)
+    client_timestamp: Optional[str] = Field(default=None, max_length=64)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    reindex_embedding: bool = Field(default=True)
+
+
 class WriteChunkView(BaseModel):
     chunk_id: str
     project_id: str
@@ -355,6 +365,36 @@ class WriteChunkPatchResponse(BaseModel):
     applied: Dict[str, bool]
     section_summary: Optional[WriteSectionSummaryView]
     project_summary: Optional[WriteProjectGlobalSummaryView]
+
+
+class WriteChunkAutosaveResponse(BaseModel):
+    trace_id: str
+    chunk_id: str
+    project_id: str
+    section_id: str
+    status: str
+    conflict: bool
+    client_version: int
+    server_version: int
+    server_updated_at: str
+    autosave_reason: str
+    editor_session_id: Optional[str]
+    chunk: WriteChunkView
+    version_record: Optional[WriteChunkVersionView]
+    reindex_applied: bool
+
+
+class WriteReindexResponse(BaseModel):
+    trace_id: str
+    scope: str
+    project_id: str
+    section_id: Optional[str]
+    chunk_id: Optional[str]
+    reindexed_chunk_ids: List[str]
+    reindexed_count: int
+    failed_chunk_ids: List[str]
+    embedding_model: str
+    reindexed_at: str
 
 
 class WriteContinueResponse(BaseModel):

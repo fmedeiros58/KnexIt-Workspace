@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Request
 from anm_backend.api.schemas import (
     WriteAssistRequest,
     WriteAssistResponse,
+    WriteChunkAutosaveRequest,
+    WriteChunkAutosaveResponse,
     WriteContinueRequest,
     WriteContinueResponse,
     WriteChunkPatchRequest,
@@ -33,6 +35,7 @@ from anm_backend.api.schemas import (
     WriteProjectResponse,
     WriteProjectSectionsResponse,
     WriteProjectSummarizeResponse,
+    WriteReindexResponse,
     WriteReferenceAttachRequest,
     WriteReferenceResponse,
     WriteSectionSummaryResponse,
@@ -41,6 +44,7 @@ from anm_backend.api.schemas import (
     WriteSectionResponse,
     WriteSectionSummarizeResponse,
 )
+from anm_backend.write.errors import WriteChunkVersionConflictError
 
 router = APIRouter(prefix="/write", tags=["write"])
 
@@ -310,6 +314,63 @@ def get_chunk_versions(request: Request, chunk_id: str) -> WriteChunkVersionsRes
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return WriteChunkVersionsResponse(**payload)
+
+
+@router.patch("/chunks/{chunk_id}/autosave", response_model=WriteChunkAutosaveResponse)
+def autosave_chunk(
+    request: Request,
+    chunk_id: str,
+    payload: WriteChunkAutosaveRequest,
+) -> WriteChunkAutosaveResponse:
+    service = request.app.state.write_service
+    try:
+        data = service.autosave_chunk(
+            chunk_id=chunk_id,
+            content=payload.content,
+            client_version=payload.client_version,
+            autosave_reason=payload.autosave_reason,
+            editor_session_id=payload.editor_session_id,
+            client_timestamp=payload.client_timestamp,
+            metadata=payload.metadata,
+            reindex_embedding=payload.reindex_embedding,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except WriteChunkVersionConflictError as error:
+        raise HTTPException(status_code=409, detail=error.as_dict()) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return WriteChunkAutosaveResponse(**data)
+
+
+@router.post("/chunks/{chunk_id}/reindex", response_model=WriteReindexResponse)
+def reindex_chunk(request: Request, chunk_id: str) -> WriteReindexResponse:
+    service = request.app.state.write_service
+    try:
+        payload = service.reindex_chunk(chunk_id=chunk_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return WriteReindexResponse(**payload)
+
+
+@router.post("/sections/{section_id}/reindex", response_model=WriteReindexResponse)
+def reindex_section(request: Request, section_id: str) -> WriteReindexResponse:
+    service = request.app.state.write_service
+    try:
+        payload = service.reindex_section(section_id=section_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return WriteReindexResponse(**payload)
+
+
+@router.post("/projects/{project_id}/reindex", response_model=WriteReindexResponse)
+def reindex_project(request: Request, project_id: str) -> WriteReindexResponse:
+    service = request.app.state.write_service
+    try:
+        payload = service.reindex_project(project_id=project_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return WriteReindexResponse(**payload)
 
 
 @router.post("/sections/{section_id}/summarize", response_model=WriteSectionSummarizeResponse)

@@ -1,7 +1,10 @@
 import unittest
 
+from fastapi import HTTPException
+
 from anm_backend.api.routes_write import (
     add_process_memory,
+    autosave_chunk,
     attach_reference,
     continue_writing,
     create_project,
@@ -17,11 +20,15 @@ from anm_backend.api.routes_write import (
     patch_chunk,
     patch_project,
     patch_section,
+    reindex_chunk,
+    reindex_project,
+    reindex_section,
     process_memory,
     summarize_project,
     summarize_section,
 )
 from anm_backend.api.schemas import (
+    WriteChunkAutosaveRequest,
     WriteChunkPatchRequest,
     WriteContinueRequest,
     WriteInsertRequest,
@@ -59,6 +66,10 @@ class WriteBootstrapTests(unittest.TestCase):
         self.assertIn("/write/continue", paths)
         self.assertIn("/write/chunks/{chunk_id}", paths)
         self.assertIn("/write/chunks/{chunk_id}/versions", paths)
+        self.assertIn("/write/chunks/{chunk_id}/autosave", paths)
+        self.assertIn("/write/chunks/{chunk_id}/reindex", paths)
+        self.assertIn("/write/sections/{section_id}/reindex", paths)
+        self.assertIn("/write/projects/{project_id}/reindex", paths)
         self.assertIn("/write/projects/{project_id}/summarize", paths)
         self.assertIn("/write/projects/{project_id}/summary", paths)
         self.assertIn("/write/sections/{section_id}/summarize", paths)
@@ -194,6 +205,63 @@ class WriteBootstrapTests(unittest.TestCase):
         self.assertEqual(len(versions_payload.versions), 2)
         self.assertEqual(versions_payload.versions[0].version_number, 2)
         self.assertEqual(versions_payload.versions[1].version_number, 1)
+
+        autosaved_payload = autosave_chunk(
+            request,
+            inserted_chunk_id,
+            WriteChunkAutosaveRequest(
+                content="Trecho manual revisado para maior clareza e continuidade da secao.",
+                client_version=2,
+                autosave_reason="interval_tick",
+                editor_session_id="editor-session-1",
+                reindex_embedding=True,
+            ),
+        )
+        self.assertEqual(autosaved_payload.status, "saved")
+        self.assertFalse(autosaved_payload.conflict)
+        self.assertEqual(autosaved_payload.server_version, 3)
+        self.assertTrue(autosaved_payload.reindex_applied)
+
+        autosave_no_change_payload = autosave_chunk(
+            request,
+            inserted_chunk_id,
+            WriteChunkAutosaveRequest(
+                content="Trecho manual revisado para maior clareza e continuidade da secao.",
+                client_version=3,
+                autosave_reason="focus_lost",
+                editor_session_id="editor-session-1",
+                reindex_embedding=True,
+            ),
+        )
+        self.assertEqual(autosave_no_change_payload.status, "no_change")
+        self.assertEqual(autosave_no_change_payload.server_version, 3)
+        self.assertFalse(autosave_no_change_payload.reindex_applied)
+
+        with self.assertRaises(HTTPException) as conflict_context:
+            autosave_chunk(
+                request,
+                inserted_chunk_id,
+                WriteChunkAutosaveRequest(
+                    content="Novo texto em cliente desatualizado.",
+                    client_version=2,
+                    autosave_reason="interval_tick",
+                    editor_session_id="editor-session-1",
+                    reindex_embedding=True,
+                ),
+            )
+        self.assertEqual(conflict_context.exception.status_code, 409)
+
+        chunk_reindex_payload = reindex_chunk(request, inserted_chunk_id)
+        self.assertEqual(chunk_reindex_payload.scope, "chunk")
+        self.assertEqual(chunk_reindex_payload.reindexed_count, 1)
+
+        section_reindex_payload = reindex_section(request, section_id)
+        self.assertEqual(section_reindex_payload.scope, "section")
+        self.assertGreaterEqual(section_reindex_payload.reindexed_count, 1)
+
+        project_reindex_payload = reindex_project(request, project_id)
+        self.assertEqual(project_reindex_payload.scope, "project")
+        self.assertGreaterEqual(project_reindex_payload.reindexed_count, section_reindex_payload.reindexed_count)
 
         repository = app.state.write_repository
         repository.append_chunk(

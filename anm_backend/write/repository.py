@@ -28,6 +28,7 @@ from anm_backend.write.contracts import (
     WriteSection,
     WriteSectionSummary,
 )
+from anm_backend.write.errors import WriteChunkVersionConflictError
 
 _VALID_SOURCE_TYPES = {"generated", "user_inserted", "edited"}
 _VALID_EDIT_SOURCES = {"generated", "user_inserted", "edited", "user_edit", "system_edit"}
@@ -121,6 +122,7 @@ class WriteWorkspaceRepository(Protocol):
         chunk_id: str,
         content: str,
         edit_source: str,
+        expected_version: Optional[int] = None,
         token_count: Optional[int] = None,
         metadata: Optional[Dict[str, object]] = None,
     ) -> Tuple[WriteProject, WriteSection, WriteChunk, WriteChunkVersion]:
@@ -441,6 +443,7 @@ class InMemoryWriteWorkspaceRepository:
         chunk_id: str,
         content: str,
         edit_source: str,
+        expected_version: Optional[int] = None,
         token_count: Optional[int] = None,
         metadata: Optional[Dict[str, object]] = None,
     ) -> Tuple[WriteProject, WriteSection, WriteChunk, WriteChunkVersion]:
@@ -449,6 +452,13 @@ class InMemoryWriteWorkspaceRepository:
             normalized_content = content.strip()
             if not normalized_content:
                 raise ValueError("chunk content must not be empty")
+            if expected_version is not None and int(expected_version) != int(chunk.version):
+                raise WriteChunkVersionConflictError(
+                    chunk_id=chunk_id,
+                    client_version=int(expected_version),
+                    server_version=int(chunk.version),
+                    server_updated_at=chunk.updated_at,
+                )
 
             now = utc_now_iso()
             next_version = max(1, int(chunk.version) + 1)

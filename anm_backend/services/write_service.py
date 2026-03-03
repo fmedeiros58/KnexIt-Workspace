@@ -311,11 +311,7 @@ class WriteService:
         )
 
         if update_embedding:
-            self.repository.upsert_draft_chunk_embedding(
-                draft_chunk_id=chunk.chunk_id,
-                embedding=self.embedding_provider.embed(chunk.text),
-                embedding_model=self.embedding_provider.model_name,
-            )
+            self._reindex_chunk_embedding(chunk=chunk)
 
         section_summary_payload = None
         project_summary_payload = None
@@ -358,6 +354,210 @@ class WriteService:
             },
             "section_summary": section_summary_payload["summary"] if section_summary_payload else None,
             "project_summary": project_summary_payload["summary"] if project_summary_payload else None,
+        }
+
+    def autosave_chunk(
+        self,
+        *,
+        chunk_id: str,
+        content: str,
+        client_version: int,
+        autosave_reason: str,
+        editor_session_id: Optional[str],
+        client_timestamp: Optional[str],
+        metadata: Optional[Dict[str, Any]],
+        reindex_embedding: bool,
+    ) -> Dict[str, Any]:
+        trace_id = f"trace-{uuid4()}"
+        normalized = content.strip()
+        if not normalized:
+            raise ValueError("content must not be empty")
+
+        current_chunk = self.repository.get_chunk(chunk_id=chunk_id)
+        if not current_chunk:
+            raise KeyError("write chunk not found")
+        if normalized == current_chunk.text.strip():
+            audit_log(
+                component="write_service",
+                event="write_chunk_autosave_no_change",
+                payload={
+                    "chunk_id": chunk_id,
+                    "project_id": current_chunk.project_id,
+                    "section_id": current_chunk.section_id,
+                    "client_version": int(client_version),
+                    "server_version": int(current_chunk.version),
+                    "autosave_reason": autosave_reason,
+                    "editor_session_id": editor_session_id,
+                },
+                trace_id=trace_id,
+            )
+            return {
+                "trace_id": trace_id,
+                "chunk_id": chunk_id,
+                "project_id": current_chunk.project_id,
+                "section_id": current_chunk.section_id,
+                "status": "no_change",
+                "conflict": False,
+                "client_version": int(client_version),
+                "server_version": int(current_chunk.version),
+                "server_updated_at": current_chunk.updated_at,
+                "autosave_reason": autosave_reason,
+                "editor_session_id": editor_session_id,
+                "chunk": self._chunk_view(current_chunk),
+                "version_record": None,
+                "reindex_applied": False,
+            }
+
+        edit_metadata = {
+            "trace_id": trace_id,
+            "source": "write_chunk_autosave",
+            "autosave_reason": autosave_reason,
+            "editor_session_id": editor_session_id,
+            "client_timestamp": client_timestamp,
+            **(metadata or {}),
+        }
+        project, section, chunk, version_record = self.repository.edit_chunk(
+            chunk_id=chunk_id,
+            content=normalized,
+            edit_source="system_edit",
+            expected_version=int(client_version),
+            token_count=None,
+            metadata=edit_metadata,
+        )
+
+        if reindex_embedding:
+            self._reindex_chunk_embedding(chunk=chunk)
+
+        self._refresh_process_summary(project_id=project.project_id)
+        audit_log(
+            component="write_service",
+            event="write_chunk_autosaved",
+            payload={
+                "chunk_id": chunk.chunk_id,
+                "project_id": project.project_id,
+                "section_id": section.section_id,
+                "client_version": int(client_version),
+                "server_version": int(chunk.version),
+                "autosave_reason": autosave_reason,
+                "editor_session_id": editor_session_id,
+                "reindex_embedding": bool(reindex_embedding),
+            },
+            trace_id=trace_id,
+        )
+        return {
+            "trace_id": trace_id,
+            "chunk_id": chunk.chunk_id,
+            "project_id": project.project_id,
+            "section_id": section.section_id,
+            "status": "saved",
+            "conflict": False,
+            "client_version": int(client_version),
+            "server_version": int(chunk.version),
+            "server_updated_at": chunk.updated_at,
+            "autosave_reason": autosave_reason,
+            "editor_session_id": editor_session_id,
+            "chunk": self._chunk_view(chunk),
+            "version_record": self._chunk_version_view(version_record),
+            "reindex_applied": bool(reindex_embedding),
+        }
+
+    def reindex_chunk(self, *, chunk_id: str) -> Dict[str, Any]:
+        trace_id = f"trace-{uuid4()}"
+        chunk = self.repository.get_chunk(chunk_id=chunk_id)
+        if not chunk:
+            raise KeyError("write chunk not found")
+        reindexed_at = self._reindex_chunk_embedding(chunk=chunk)
+        audit_log(
+            component="write_service",
+            event="write_chunk_reindexed",
+            payload={
+                "chunk_id": chunk.chunk_id,
+                "project_id": chunk.project_id,
+                "section_id": chunk.section_id,
+                "chunk_version": chunk.version,
+                "embedding_model": self.embedding_provider.model_name,
+            },
+            trace_id=trace_id,
+        )
+        return {
+            "trace_id": trace_id,
+            "scope": "chunk",
+            "project_id": chunk.project_id,
+            "section_id": chunk.section_id,
+            "chunk_id": chunk.chunk_id,
+            "reindexed_chunk_ids": [chunk.chunk_id],
+            "reindexed_count": 1,
+            "failed_chunk_ids": [],
+            "embedding_model": self.embedding_provider.model_name,
+            "reindexed_at": reindexed_at,
+        }
+
+    def reindex_section(self, *, section_id: str) -> Dict[str, Any]:
+        trace_id = f"trace-{uuid4()}"
+        context = self.repository.get_section_context(section_id=section_id)
+        if not context:
+            raise KeyError("write section not found")
+        project, section = context
+        reindexed_ids: List[str] = []
+        last_reindexed_at = section.updated_at
+        for chunk in section.chunks:
+            last_reindexed_at = self._reindex_chunk_embedding(chunk=chunk)
+            reindexed_ids.append(chunk.chunk_id)
+        audit_log(
+            component="write_service",
+            event="write_section_reindexed",
+            payload={
+                "project_id": project.project_id,
+                "section_id": section.section_id,
+                "reindexed_count": len(reindexed_ids),
+                "embedding_model": self.embedding_provider.model_name,
+            },
+            trace_id=trace_id,
+        )
+        return {
+            "trace_id": trace_id,
+            "scope": "section",
+            "project_id": project.project_id,
+            "section_id": section.section_id,
+            "chunk_id": None,
+            "reindexed_chunk_ids": reindexed_ids,
+            "reindexed_count": len(reindexed_ids),
+            "failed_chunk_ids": [],
+            "embedding_model": self.embedding_provider.model_name,
+            "reindexed_at": last_reindexed_at,
+        }
+
+    def reindex_project(self, *, project_id: str) -> Dict[str, Any]:
+        trace_id = f"trace-{uuid4()}"
+        project = self.repository.get_project(project_id=project_id)
+        if not project:
+            raise KeyError("write project not found")
+        reindexed_ids: List[str] = []
+        last_reindexed_at = project.updated_at
+        for chunk in self.repository.list_project_chunks(project_id=project_id):
+            last_reindexed_at = self._reindex_chunk_embedding(chunk=chunk)
+            reindexed_ids.append(chunk.chunk_id)
+        audit_log(
+            component="write_service",
+            event="write_project_reindexed",
+            payload={
+                "project_id": project.project_id,
+                "reindexed_count": len(reindexed_ids),
+                "embedding_model": self.embedding_provider.model_name,
+            },
+            trace_id=trace_id,
+        )
+        return {
+            "trace_id": trace_id,
+            "scope": "project",
+            "project_id": project.project_id,
+            "section_id": None,
+            "chunk_id": None,
+            "reindexed_chunk_ids": reindexed_ids,
+            "reindexed_count": len(reindexed_ids),
+            "failed_chunk_ids": [],
+            "embedding_model": self.embedding_provider.model_name,
+            "reindexed_at": last_reindexed_at,
         }
 
     def add_process_memory(
@@ -654,6 +854,14 @@ class WriteService:
         }
         payload["chunks"] = [WriteService._chunk_view(chunk) for chunk in section.chunks] if include_chunks else []
         return payload
+
+    def _reindex_chunk_embedding(self, *, chunk: WriteChunk) -> str:
+        row = self.repository.upsert_draft_chunk_embedding(
+            draft_chunk_id=chunk.chunk_id,
+            embedding=self.embedding_provider.embed(chunk.text),
+            embedding_model=self.embedding_provider.model_name,
+        )
+        return row.created_at
 
     @staticmethod
     def _chunk_view(chunk: WriteChunk) -> Dict[str, Any]:

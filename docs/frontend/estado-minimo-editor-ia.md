@@ -12,12 +12,15 @@ Data: 2026-03-03
 - `projectSummary: ProjectSummary | null`
 - `generationStatus: "idle" | "running" | "error"`
 - `currentInstruction: string`
+- `serverVersionByChunk: Record<chunkId, number>`
 
 ## 2) Estado recomendado adicional
 
 - `lastContinueTraceId: string | null`
 - `lastRetrievedChunkIds: string[]`
 - `lastRetrievedMemoryIds: string[]`
+- `autosaveStatus: "idle" | "saving" | "saved" | "conflict" | "error"`
+- `autosaveReason: string | null`
 - `syncStatus: "clean" | "dirty" | "syncing"`
 - `lastSyncAt: string | null`
 

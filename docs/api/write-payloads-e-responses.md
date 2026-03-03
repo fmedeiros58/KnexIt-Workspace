@@ -15,8 +15,12 @@ Base path: /write
 | `/write/sections/{section_id}` | PATCH | sim | pelo menos 1 campo de patch |
 | `/write/insert` | POST | sim | `project_id`, `section_id`, `content` |
 | `/write/chunks/{chunk_id}` | PATCH | sim | `content` |
+| `/write/chunks/{chunk_id}/autosave` | PATCH | sim | `content`, `client_version` |
 | `/write/chunks/{chunk_id}` | GET | nao | - |
 | `/write/chunks/{chunk_id}/versions` | GET | nao | - |
+| `/write/chunks/{chunk_id}/reindex` | POST | sim | - |
+| `/write/sections/{section_id}/reindex` | POST | sim | - |
+| `/write/projects/{project_id}/reindex` | POST | sim | - |
 | `/write/continue` | POST | sim | `project_id`, `instruction` |
 | `/write/sections/{section_id}/summarize` | POST | sim | - |
 | `/write/projects/{project_id}/summarize` | POST | sim | - |
@@ -122,6 +126,44 @@ Response (resumo):
 }
 ```
 
+### PATCH /write/chunks/{chunk_id}/autosave
+
+Request:
+
+```json
+{
+  "content": "Trecho em edicao...",
+  "client_version": 3,
+  "autosave_reason": "interval_tick",
+  "editor_session_id": "editor-session-1",
+  "reindex_embedding": true
+}
+```
+
+Response (resumo):
+
+```json
+{
+  "status": "saved",
+  "client_version": 3,
+  "server_version": 4,
+  "server_updated_at": "2026-03-03T...",
+  "reindex_applied": true
+}
+```
+
+### POST /write/chunks/{chunk_id}/reindex
+
+Response (resumo):
+
+```json
+{
+  "scope": "chunk",
+  "reindexed_count": 1,
+  "embedding_model": "deterministic-hash-embed-v1"
+}
+```
+
 ### POST /write/continue
 
 Request:
@@ -163,12 +205,15 @@ Response (resumo):
 
 - `POST /write/insert` persiste chunk e, opcionalmente, atualiza embedding e resumos.
 - `PATCH /write/chunks/{id}` edita chunk sem destruir historico e gera registro de versao.
+- `PATCH /write/chunks/{id}/autosave` salva com controle de `client_version` para evitar overwrite cego.
+- `POST /write/*/reindex` recalcula embeddings explicitamente por escopo.
 - `POST /write/continue` executa retrieval multi-camada + anti-redundancia + persistencia de novo chunk.
 - Summaries sao atualizados de forma explicita por rota dedicada ou por flag explicita (`insert`/`patch chunk`).
 
 ## 4) Erros comuns
 
 - `404`: projeto/secao/chunk/resumo nao encontrado.
+- `409`: conflito de versao no autosave.
 - `422`: payload invalido (campos, tipos, limites).
 - `503`: falha de engine no fluxo de geracao ou erro interno de dependencia.
 
@@ -179,8 +224,10 @@ Response (resumo):
 3. Carregar secoes com `include_chunks=true` e `include_summaries=true`.
 4. Persistir edicao manual com `/write/insert`.
 5. Revisar blocos com `PATCH /write/chunks/{id}` quando necessario.
-6. Gerar proximo bloco com `/write/continue`.
-7. Atualizar e consultar resumos em checkpoints de edicao.
+6. Usar autosave com `/write/chunks/{id}/autosave` durante digitacao.
+7. Reindexar manualmente se necessario com `/write/chunks/{id}/reindex`.
+8. Gerar proximo bloco com `/write/continue`.
+9. Atualizar e consultar resumos em checkpoints de edicao.
 
 ## 6) Observacao de autenticacao
 

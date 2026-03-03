@@ -17,6 +17,10 @@ As rotas de escrita ficam separadas do chat comum e formam um workspace orientad
 - PATCH `/write/sections/{section_id}`
 - POST `/write/insert`
 - PATCH `/write/chunks/{chunk_id}`
+- PATCH `/write/chunks/{chunk_id}/autosave`
+- POST `/write/chunks/{chunk_id}/reindex`
+- POST `/write/sections/{section_id}/reindex`
+- POST `/write/projects/{project_id}/reindex`
 - POST `/write/continue`
 - POST `/write/projects/{project_id}/memory`
 - POST `/write/sections/{section_id}/summarize`
@@ -41,8 +45,10 @@ As rotas de escrita ficam separadas do chat comum e formam um workspace orientad
 4. Inserir trecho manual/programatico (`POST /write/insert`).
 5. Continuar com IA (`POST /write/continue`).
 6. Editar chunk sem perder historico (`PATCH /write/chunks/{id}`).
-7. Recalcular resumo de secao e global (`POST /write/sections/{id}/summarize` e `POST /write/projects/{id}/summarize`).
-8. Ler resumos (`GET /write/sections/{id}/summary` e `GET /write/projects/{id}/summary`).
+7. Autosave de chunk com controle de versao (`PATCH /write/chunks/{id}/autosave`).
+8. Reindexar embedding quando necessario (`POST /write/chunks/{id}/reindex`, secao/projeto opcionais).
+9. Recalcular resumo de secao e global (`POST /write/sections/{id}/summarize` e `POST /write/projects/{id}/summarize`).
+10. Ler resumos (`GET /write/sections/{id}/summary` e `GET /write/projects/{id}/summary`).
 
 ## 4) Separacao de dominio
 

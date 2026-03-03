@@ -41,6 +41,8 @@ Ao pedir continuacao:
 - carregar estado atual quando necessario: `GET /write/chunks/{chunk_id}`
 - aplicar revisao: `PATCH /write/chunks/{chunk_id}`
 - consultar historico de versoes: `GET /write/chunks/{chunk_id}/versions`
+- autosave continuo: `PATCH /write/chunks/{chunk_id}/autosave` com `client_version`
+- em `409`, recarregar estado do chunk e reconciliar antes de novo autosave
 
 ## 6) Resumos
 
