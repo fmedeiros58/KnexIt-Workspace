@@ -52,6 +52,42 @@ from anm_backend.orchestrator.scheduler import Scheduler
 from anm_backend.services.cognitive_service import CognitiveService
 
 
+def _assert_optional_nvme_base_path() -> None:
+    raw_value = str(os.getenv("NVME_BASE_PATH", "")).strip()
+    if not raw_value:
+        return
+    nvme_path = Path(raw_value)
+    if not nvme_path.exists():
+        raise RuntimeError(
+            f"NVME_BASE_PATH configurado, mas inexistente: '{raw_value}'. "
+            "Verifique montagem/ordem de boot do volume antes de iniciar o ANM backend."
+        )
+    if not nvme_path.is_dir():
+        raise RuntimeError(f"NVME_BASE_PATH invalido (nao e diretorio): '{raw_value}'.")
+
+
+def _assert_read_write_directory(path: Path, *, env_name: str) -> None:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"{env_name} invalido: nao foi possivel criar '{path}'.") from exc
+
+    if not path.is_dir():
+        raise RuntimeError(f"{env_name} invalido: '{path}' nao e diretorio.")
+
+    probe = path / ".anm-rw-probe"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        _ = probe.read_text(encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"{env_name} sem permissao de leitura/escrita em '{path}'.") from exc
+    finally:
+        try:
+            probe.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def _build_default_nodule(nodule_id: str) -> Nodule:
     neurons: Dict[str, Neuron] = {
         f"{nodule_id}-input": Neuron(neuron_id=f"{nodule_id}-input", threshold=0.55),
@@ -66,6 +102,8 @@ def _build_default_nodule(nodule_id: str) -> Nodule:
 
 
 def create_app() -> FastAPI:
+    _assert_optional_nvme_base_path()
+
     cortex = RamCortex()
     regulatory_state = RegulatoryState()
     policies = MemoryPolicies(
@@ -90,6 +128,7 @@ def create_app() -> FastAPI:
     )
 
     checkpoint_dir = Path(os.getenv("ANM_CHECKPOINT_DIR", "anm_backend/data/checkpoints"))
+    _assert_read_write_directory(checkpoint_dir, env_name="ANM_CHECKPOINT_DIR")
     checkpoint_manager = CheckpointManager(base_dir=checkpoint_dir)
     persistence_bridge = PersistenceBridge(memory_manager=memory_manager, checkpoint_manager=checkpoint_manager)
 

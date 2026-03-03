@@ -1,0 +1,295 @@
+{
+  "startedAt": "2026-02-27T17:58:04.898Z",
+  "finishedAt": "2026-02-27T18:01:05.292Z",
+  "iterations": 1,
+  "urls": {
+    "anm": "http://localhost:3000/api/knexai",
+    "direct": "http://localhost:3010/api/knexai"
+  },
+  "summary": [
+    {
+      "mode": "anm",
+      "requests": 8,
+      "success": 8,
+      "errorRatePct": 0,
+      "qualityPassRatePct": 100,
+      "firstChunkP50Ms": 0,
+      "firstChunkP95Ms": 0,
+      "totalP50Ms": 1623,
+      "totalP95Ms": 52198,
+      "charsMedian": 19
+    },
+    {
+      "mode": "direct",
+      "requests": 8,
+      "success": 8,
+      "errorRatePct": 0,
+      "qualityPassRatePct": 100,
+      "firstChunkP50Ms": 0,
+      "firstChunkP95Ms": 0,
+      "totalP50Ms": 1685,
+      "totalP95Ms": 49845,
+      "charsMedian": 32
+    }
+  ],
+  "cases": [
+    {
+      "id": "capital_br",
+      "prompt": "Qual é a capital do Brasil?"
+    },
+    {
+      "id": "math_12x13",
+      "prompt": "Quanto é 12 x 13? Responda apenas o resultado."
+    },
+    {
+      "id": "translate_bom_dia",
+      "prompt": "Traduza para inglês: bom dia."
+    },
+    {
+      "id": "synonym_fast",
+      "prompt": "Dê um sinônimo de rápido em português."
+    },
+    {
+      "id": "http_https",
+      "prompt": "Explique a diferença entre HTTP e HTTPS em 3 tópicos curtos."
+    },
+    {
+      "id": "git_branch",
+      "prompt": "Passo a passo para criar uma branch no git."
+    },
+    {
+      "id": "micro_social",
+      "prompt": "oi"
+    },
+    {
+      "id": "strict_ok",
+      "prompt": "Responda apenas com: ok"
+    }
+  ],
+  "results": [
+    {
+      "mode": "anm",
+      "caseId": "capital_br",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 314,
+      "firstChunkMs": 0,
+      "totalMs": 1623,
+      "chars": 32,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " A capital do Brasil é Brasília."
+    },
+    {
+      "mode": "anm",
+      "caseId": "math_12x13",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 251,
+      "firstChunkMs": 0,
+      "totalMs": 1697,
+      "chars": 19,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " O resultado é 156."
+    },
+    {
+      "mode": "anm",
+      "caseId": "translate_bom_dia",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 262,
+      "firstChunkMs": 0,
+      "totalMs": 1222,
+      "chars": 18,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " Oi, good morning."
+    },
+    {
+      "mode": "anm",
+      "caseId": "synonym_fast",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 241,
+      "firstChunkMs": 0,
+      "totalMs": 4886,
+      "chars": 71,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " A palavra \"rápido\" tem como sinônimos \"pronto\", \"veloz\", \"despachado\"."
+    },
+    {
+      "mode": "anm",
+      "caseId": "http_https",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 257,
+      "firstChunkMs": 0,
+      "totalMs": 18141,
+      "chars": 313,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " HTTP é um protocolo de transferência de dados sobre a web utilizando conexão aberta, enquanto HTTPS é o mesmo protocolo mas com criptografia para garantir segurança.\n\n1) Conexão: HTTP - Aberta, HTTPS - Criptografada.\n2)"
+    },
+    {
+      "mode": "anm",
+      "caseId": "git_branch",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 248,
+      "firstChunkMs": 0,
+      "totalMs": 52198,
+      "chars": 1286,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " I'm glad to help you create a new branch in Git! Here's a step-by-step guide:\n\n1. First, ensure you have the latest version of your repository by running `git pull origin <branch_name>` in your terminal or command promp"
+    },
+    {
+      "mode": "anm",
+      "caseId": "micro_social",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 260,
+      "firstChunkMs": 0,
+      "totalMs": 743,
+      "chars": 4,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " Oi!"
+    },
+    {
+      "mode": "anm",
+      "caseId": "strict_ok",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 259,
+      "firstChunkMs": 0,
+      "totalMs": 584,
+      "chars": 4,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " Ok."
+    },
+    {
+      "mode": "direct",
+      "caseId": "capital_br",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 226,
+      "firstChunkMs": 0,
+      "totalMs": 1522,
+      "chars": 32,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " A capital do Brasil é Brasília."
+    },
+    {
+      "mode": "direct",
+      "caseId": "math_12x13",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 227,
+      "firstChunkMs": 0,
+      "totalMs": 1685,
+      "chars": 19,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " O resultado é 156."
+    },
+    {
+      "mode": "direct",
+      "caseId": "translate_bom_dia",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 222,
+      "firstChunkMs": 0,
+      "totalMs": 4599,
+      "chars": 96,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " Oi, bom dia! You're greeting me in Portuguese-BR. Here's the English translation: Good morning."
+    },
+    {
+      "mode": "direct",
+      "caseId": "synonym_fast",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 233,
+      "firstChunkMs": 0,
+      "totalMs": 5092,
+      "chars": 70,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " O termo \"rápido\" pode ser sinônimo de \"rápido\", \"veloz\" ou \"preciso\"."
+    },
+    {
+      "mode": "direct",
+      "caseId": "http_https",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 225,
+      "firstChunkMs": 0,
+      "totalMs": 31920,
+      "chars": 643,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " HTTP é um protocolo de transferência de dados sobre a web que não oferece segurança, enquanto HTTPS é uma versão segura dessa mesma tecnologia. Diferenças importantes incluem:\n\n1. **Transmissão Segura**: HTTPS criptogra"
+    },
+    {
+      "mode": "direct",
+      "caseId": "git_branch",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 229,
+      "firstChunkMs": 0,
+      "totalMs": 49845,
+      "chars": 1005,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " Para criar uma nova branch em Git, siga esses passos:\n\n1. Certifique-se que você está na branch atual que deseja criar uma nova branch a partir dela. Você pode ver sua branch atual executando `git branch`.\n2. Crie uma n"
+    },
+    {
+      "mode": "direct",
+      "caseId": "micro_social",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 228,
+      "firstChunkMs": 0,
+      "totalMs": 712,
+      "chars": 4,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " Oi!"
+    },
+    {
+      "mode": "direct",
+      "caseId": "strict_ok",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "headerMs": 220,
+      "firstChunkMs": 0,
+      "totalMs": 546,
+      "chars": 4,
+      "qualityPass": true,
+      "error": null,
+      "responsePreview": " Ok."
+    }
+  ]
+}

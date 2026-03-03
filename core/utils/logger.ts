@@ -2,6 +2,7 @@ type Level = "info" | "warn" | "error" | "debug";
 
 const DEFAULT_META_MAX = 120;
 const DEFAULT_META_KEYS = 8;
+const SENSITIVE_KEY_PATTERN = /(token|secret|password|authorization|cookie|api[_-]?key)/i;
 
 function cleanInline(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -40,8 +41,29 @@ function formatValue(value: unknown, max: number, includeStack: boolean) {
   }
 }
 
+function redactSensitiveValue(value: unknown) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return "[REDACTED]";
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return "[REDACTED]";
+  if (Array.isArray(value)) return `[REDACTED_ARRAY(${value.length})]`;
+  return "[REDACTED]";
+}
+
+function sanitizeMeta(meta: Record<string, unknown>) {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      sanitized[key] = redactSensitiveValue(value);
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
 function compactMeta(meta: Record<string, unknown>, max: number, maxKeys: number, includeStack: boolean) {
-  const entries = Object.entries(meta);
+  const sanitized = sanitizeMeta(meta);
+  const entries = Object.entries(sanitized);
   const limited = entries.slice(0, maxKeys);
   const parts = limited.map(([key, value]) => `${key}=${formatValue(value, max, includeStack)}`);
   if (entries.length > maxKeys) {
@@ -57,11 +79,12 @@ function log(level: Level, message: string, meta?: Record<string, unknown>) {
   const includeStack = process.env.LOG_STACK === "1";
 
   if (format === "json") {
+    const safeMeta = meta ? sanitizeMeta(meta) : undefined;
     const payload = {
       ts: new Date().toISOString(),
       level,
       message,
-      ...meta,
+      ...(safeMeta || {}),
     };
     console.log(JSON.stringify(payload));
     return;

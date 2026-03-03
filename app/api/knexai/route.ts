@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { LETICIA_SYSTEM_PROMPT } from "@/lib/knexai/spec";
+import { loadPathConfig } from "@/core/config/paths";
 
 export const runtime = "nodejs";
 
@@ -22,7 +23,6 @@ type LlmConfig = {
   timeoutMs: number;
   contextWindow: number;
   maxTokens: number;
-  useMock: boolean;
 };
 type EngineMode = "direct" | "anm";
 type EngineModeConfig = {
@@ -123,13 +123,14 @@ function resolveLogicalModelName() {
 }
 
 function resolveModelFallbacks(primaryModel: string) {
-  const localModelPath = pickFirstNonEmpty(process.env.LOCAL_LLM_MODEL);
+  const pathConfig = loadPathConfig();
+  const localModelPath = pickFirstNonEmpty(process.env.LOCAL_LLM_MODEL, pathConfig.localLlmModelDefaultPath);
   const localModelPathBasename = localModelPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "";
   const candidates = [
     pickFirstNonEmpty(process.env.VLLM_MODEL),
     localModelPath,
     localModelPathBasename,
-    "models/CModelosMistral-7B-Instruct-v0.2-AWQ",
+    pathConfig.localLlmModelDefaultPath,
   ]
     .map((value) => value.trim())
     .filter(Boolean);
@@ -163,8 +164,7 @@ function readLlmConfig(): LlmConfig {
   const requestedMaxTokens = Number.isFinite(parsedMaxTokens) ? Math.max(64, Math.round(parsedMaxTokens)) : DEFAULT_MAX_TOKENS;
   const maxByContext = Math.max(64, contextWindow - CONTEXT_RESERVE_TOKENS);
   const maxTokens = Math.min(requestedMaxTokens, maxByContext);
-  const useMock = process.env.LETICIA_MOCK === "1";
-  return { baseUrl, model, modelFallbacks, apiKey, timeoutMs, contextWindow, maxTokens, useMock };
+  return { baseUrl, model, modelFallbacks, apiKey, timeoutMs, contextWindow, maxTokens };
 }
 
 function readEngineModeConfig(): EngineModeConfig {
@@ -993,29 +993,6 @@ async function toClientTextStreamResponse(upstream: Response): Promise<Response>
   });
 }
 
-function buildMockStream(prompt: string) {
-  const encoder = new TextEncoder();
-  const text =
-    "Ola! Eu sou a Leticia (modo teste).\n" +
-    `Recebi sua mensagem: "${prompt.slice(0, 200)}".\n` +
-    "Streaming local em funcionamento.\n";
-  let i = 0;
-
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      const timer = setInterval(() => {
-        if (i >= text.length) {
-          clearInterval(timer);
-          controller.close();
-          return;
-        }
-        controller.enqueue(encoder.encode(text[i]));
-        i += 1;
-      }, 8);
-    },
-  });
-}
-
 export async function GET() {
   const config = readLlmConfig();
   const engineMode = readEngineModeConfig();
@@ -1033,7 +1010,6 @@ export async function GET() {
       modelFallbacks: config.modelFallbacks,
       contextWindow: config.contextWindow,
       maxTokens: config.maxTokens,
-      mock: config.useMock,
     },
     { status: 200 },
   );
@@ -1057,13 +1033,6 @@ export async function POST(req: NextRequest) {
     }
     const safeHistory = sanitizeHistoryForModel(ensurePrompt(normalizeHistory(history), safePrompt));
     const effectiveHistory = optimizeHistoryForLatency(resolveEffectiveHistory(safeHistory, safePrompt), safePrompt);
-
-    if (config.useMock) {
-      return new Response(buildMockStream(safePrompt), {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    }
 
     if (engineMode.mode === "anm") {
       if (engineMode.fallbackToDirect) {

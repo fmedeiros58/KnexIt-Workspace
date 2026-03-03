@@ -45,12 +45,17 @@ def _resolve_logical_model_name() -> str:
 def _resolve_model_candidates(requested_model: str) -> list[str]:
     local_model_path = _pick_first_non_empty(os.getenv("LOCAL_LLM_MODEL"))
     local_basename = local_model_path.replace("\\", "/").split("/")[-1] if local_model_path else ""
+    embeddings_base = _pick_first_non_empty(os.getenv("EMBEDDINGS_BASE_PATH"), "models").replace("\\", "/").rstrip("/")
+    default_local_model_path = _pick_first_non_empty(
+        os.getenv("LOCAL_LLM_MODEL_DEFAULT"),
+        f"{embeddings_base}/CModelosMistral-7B-Instruct-v0.2-AWQ",
+    )
     candidates = [
         requested_model,
         _pick_first_non_empty(os.getenv("VLLM_MODEL")),
         local_model_path,
         local_basename,
-        "models/CModelosMistral-7B-Instruct-v0.2-AWQ",
+        default_local_model_path,
     ]
     ordered = []
     seen = set()

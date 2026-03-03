@@ -9,7 +9,7 @@ fastify.post("/chat", async (req) => {
   const body = (req.body as any) ?? {};
   return {
     reply: `KnexAI stub recebeu: ${String(body.prompt ?? "")}`,
-    mode: process.env.LETICIA_MOCK === "0" ? "model" : "mock",
+    mode: "model",
   };
 });
 
