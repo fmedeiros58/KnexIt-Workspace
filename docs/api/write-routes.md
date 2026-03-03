@@ -1,0 +1,62 @@
+# API Write Routes
+
+Data: 2026-03-03
+Base path: /write
+
+## 1) Escopo
+
+As rotas de escrita ficam separadas do chat comum e formam um workspace orientado a editor com IA.
+
+## 2) Rotas de escrita
+
+### Rotas que alteram estado
+
+- POST `/write/projects`
+- PATCH `/write/projects/{project_id}`
+- POST `/write/projects/{project_id}/sections`
+- PATCH `/write/sections/{section_id}`
+- POST `/write/insert`
+- PATCH `/write/chunks/{chunk_id}`
+- POST `/write/continue`
+- POST `/write/projects/{project_id}/memory`
+- POST `/write/sections/{section_id}/summarize`
+- POST `/write/projects/{project_id}/summarize`
+
+### Rotas de consulta
+
+- GET `/write/projects`
+- GET `/write/projects/{project_id}`
+- GET `/write/projects/{project_id}/sections`
+- GET `/write/projects/{project_id}/memory`
+- GET `/write/chunks/{chunk_id}`
+- GET `/write/chunks/{chunk_id}/versions`
+- GET `/write/sections/{section_id}/summary`
+- GET `/write/projects/{project_id}/summary`
+
+## 3) Ciclo minimo suportado
+
+1. Criar projeto (`POST /write/projects`).
+2. Criar secoes (`POST /write/projects/{id}/sections`).
+3. Carregar secoes para montar editor (`GET /write/projects/{id}/sections`).
+4. Inserir trecho manual/programatico (`POST /write/insert`).
+5. Continuar com IA (`POST /write/continue`).
+6. Editar chunk sem perder historico (`PATCH /write/chunks/{id}`).
+7. Recalcular resumo de secao e global (`POST /write/sections/{id}/summarize` e `POST /write/projects/{id}/summarize`).
+8. Ler resumos (`GET /write/sections/{id}/summary` e `GET /write/projects/{id}/summary`).
+
+## 4) Separacao de dominio
+
+- Nenhuma rota `/write/*` reutiliza endpoint de chat comum.
+- Regras de negocio ficam nos services (`WriteService`, `WriteContinueService`, `WriteSummaryService`).
+- Controllers (`routes_write.py`) apenas validam e delegam.
+
+## 5) Observacoes de autenticacao
+
+No backend atual, nao ha middleware de autenticacao aplicado especificamente para `/write/*`. Portanto, as rotas seguem o mesmo nivel de acesso das demais rotas internas existentes.
+
+## 6) Endpoints opcionais fora do escopo minimo
+
+- `POST /write/projects/{project_id}/assist`
+- `POST /write/projects/{project_id}/references`
+
+Esses endpoints existem para suporte complementar, mas nao substituem o fluxo principal do editor com IA.
