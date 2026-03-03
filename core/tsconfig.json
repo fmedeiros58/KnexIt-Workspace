@@ -11,5 +11,5 @@
     "outDir": "dist",
     "rootDir": "./"
   },
-  "include": ["config", "utils", "database", "shared", "index.ts"]
+  "include": ["config", "utils", "database", "rag", "shared", "index.ts"]
 }

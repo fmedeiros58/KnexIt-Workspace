@@ -158,6 +158,9 @@ grant execute on function public.is_tenant_owner(uuid) to authenticated;
 
 -- RLS policies
 alter table public.profiles enable row level security;
+drop policy if exists profiles_select_self on public.profiles;
+drop policy if exists profiles_insert_self on public.profiles;
+drop policy if exists profiles_update_self on public.profiles;
 create policy profiles_select_self on public.profiles
   for select using (auth.uid() = id);
 create policy profiles_insert_self on public.profiles
@@ -166,6 +169,10 @@ create policy profiles_update_self on public.profiles
   for update using (auth.uid() = id);
 
 alter table public.tenants enable row level security;
+drop policy if exists tenants_select_member on public.tenants;
+drop policy if exists tenants_insert_owner on public.tenants;
+drop policy if exists tenants_update_owner on public.tenants;
+drop policy if exists tenants_delete_owner on public.tenants;
 create policy tenants_select_member on public.tenants
   for select using (public.is_tenant_member(id));
 create policy tenants_insert_owner on public.tenants
@@ -176,6 +183,10 @@ create policy tenants_delete_owner on public.tenants
   for delete using (auth.uid() = created_by);
 
 alter table public.memberships enable row level security;
+drop policy if exists memberships_select on public.memberships;
+drop policy if exists memberships_insert on public.memberships;
+drop policy if exists memberships_update on public.memberships;
+drop policy if exists memberships_delete on public.memberships;
 create policy memberships_select on public.memberships
   for select using (user_id = auth.uid() or public.is_tenant_owner(tenant_id));
 create policy memberships_insert on public.memberships
@@ -186,6 +197,10 @@ create policy memberships_delete on public.memberships
   for delete using (public.is_tenant_owner(tenant_id));
 
 alter table public.app_entitlements enable row level security;
+drop policy if exists entitlements_select on public.app_entitlements;
+drop policy if exists entitlements_insert on public.app_entitlements;
+drop policy if exists entitlements_update on public.app_entitlements;
+drop policy if exists entitlements_delete on public.app_entitlements;
 create policy entitlements_select on public.app_entitlements
   for select using (
     (user_id = auth.uid()) or
