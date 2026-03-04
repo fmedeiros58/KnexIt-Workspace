@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from anm_backend.orchestrator.hypothesis_pool import Hypothesis
 
@@ -71,6 +71,8 @@ class PromptBuilder:
         hypotheses: List[Hypothesis],
         readiness_state: str,
         style_hint: str = "",
+        response_plan: Dict[str, Any] | None = None,
+        include_followup_prompt: bool = False,
     ) -> List[Dict[str, str]]:
         """
         Purpose:
@@ -81,6 +83,8 @@ class PromptBuilder:
             hypotheses: Active hypotheses.
             readiness_state: Current readiness state label.
             style_hint: Extra style instruction.
+            response_plan: Optional response sizing guidance.
+            include_followup_prompt: If true, request one follow-up question/suggestion at the end.
         Returns:
             List[Dict[str, str]]: Message list.
         Side Effects:
@@ -100,6 +104,8 @@ class PromptBuilder:
         cycle_metadata = dict(context.get("cycle_metadata", {}))
         regulatory = dict(context.get("regulatory", {}))
         selected_hypotheses = hypotheses[: self.hypothesis_limit]
+        context_signal_count = len(working_items) + len(global_semantic) + len(selected_hypotheses)
+        low_ram_context = context_signal_count <= 1
 
         context_lines: List[str] = ["[RAM Contexto Ativo]"]
         for item in working_items:
@@ -131,15 +137,40 @@ class PromptBuilder:
                     f"- Hipotese alternativa ({hypothesis.hypothesis_id}, score={hypothesis.score:.3f}): "
                     f"{self._truncate(hypothesis.content, 220)}"
                 )
+        context_lines.append(f"- Suficiencia de contexto RAM: {'baixa' if low_ram_context else 'adequada'}")
         context_lines.append(f"- Readiness atual: {readiness_state}")
         context_lines.append(f"- Estado regulatorio: {self._truncate(regulatory, 200)}")
+        plan_payload = dict(response_plan or {})
+        target_tokens_raw = plan_payload.get("target_tokens")
+        try:
+            target_tokens = max(0, int(target_tokens_raw)) if target_tokens_raw is not None else 0
+        except (TypeError, ValueError):
+            target_tokens = 0
 
         system = (
             "Voce opera como casca cognitiva ANM RAM-first. "
             "Responda primeiro com base no contexto ativo de RAM, hipotese dominante e estabilidade regulatoria. "
+            "Se o contexto RAM estiver fraco, responda perguntas genericas usando conhecimento geral confiavel do modelo, "
+            "sem bloquear a resposta com falta de contexto. "
+            "Mantenha progressao logica de inicio, meio e fim; quando a resposta for curta, comprima essa ordem em poucas linhas. "
             "Responda com objetividade e sem preambulo. "
             "Se o usuario pedir resposta curta, cumpra estritamente."
         )
+        system = (
+            f"{system} "
+            "Evite respostas do tipo 'sem base suficiente no contexto' para perguntas gerais. "
+            "Use ressalva breve apenas quando o usuario pedir dado especifico verificavel (numero, diretriz, data ou dosagem)."
+        )
+        if target_tokens > 0:
+            system = (
+                f"{system} "
+                f"Planeje a resposta para aproximadamente {target_tokens} tokens, mantendo apenas o necessario para atender o pedido."
+            )
+        if include_followup_prompt:
+            system = (
+                f"{system} "
+                "No fechamento, inclua 1 pergunta objetiva OU 1 sugestao curta para agregar mais informacao no proximo passo."
+            )
         if style_hint:
             system = f"{system}\nDiretriz de estilo: {style_hint}"
 

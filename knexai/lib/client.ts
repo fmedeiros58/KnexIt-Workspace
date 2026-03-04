@@ -8,6 +8,7 @@ export type PersistedMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type PersistedThread = {
@@ -25,40 +26,308 @@ type StreamHandlers = {
   onDone?: () => void;
 };
 
-/**
- * Consumidor de streaming do endpoint /api/knexai.
- * Usa fetch + ReadableStream para ir anexando os deltas.
- */
-export async function streamLeticia(prompt: string, history: LeticiaMessage[], handlers: StreamHandlers = {}) {
-  const res = await fetch("/api/knexai", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, history }),
-    signal: handlers.signal,
+export type RagChatRequestOptions = {
+  documentId?: number;
+  documentIds?: number[];
+  sourceType?: string;
+  retrievalEmbeddingModel?: string;
+  topK?: number;
+  maxDistance?: number | null;
+  maxResponseTokens?: number;
+  temperature?: number;
+  seed?: number | null;
+};
+
+type RagChatResponse = {
+  ok?: boolean;
+  code?: string;
+  message?: string;
+  reply?: {
+    role?: "assistant" | "user";
+    content?: string;
+  };
+  metadata?: Record<string, unknown>;
+};
+
+const DEFAULT_RAG_MAX_RESPONSE_TOKENS = Math.max(
+  256,
+  Math.min(65_536, Number(process.env.NEXT_PUBLIC_RAG_MAX_RESPONSE_TOKENS || 32768) || 32768),
+);
+const STREAM_DELAY_MS = Math.max(8, Number(process.env.NEXT_PUBLIC_CHAT_STREAM_DELAY_MS || 16) || 16);
+
+function resolvePublicApiKey() {
+  const byPrimary = `${process.env.NEXT_PUBLIC_PUBLIC_API_KEY || ""}`.trim();
+  if (byPrimary) return byPrimary;
+  const byLegacy = `${process.env.NEXT_PUBLIC_API_KEY || ""}`.trim();
+  if (byLegacy) return byLegacy;
+  return "";
+}
+
+function createAbortError() {
+  return new DOMException("The operation was aborted.", "AbortError");
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function normalizeOptionalPositiveInt(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const normalized = Math.round(parsed);
+  return normalized > 0 ? normalized : undefined;
+}
+
+function normalizeOptionalFiniteNumber(value: unknown) {
+  if (value === null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizePositiveIntArray(value: unknown, maxItems = 64): number[] {
+  if (!Array.isArray(value)) return [];
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of value) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) continue;
+    const item = Math.round(parsed);
+    if (item <= 0 || seen.has(item)) continue;
+    seen.add(item);
+    normalized.push(item);
+    if (normalized.length >= maxItems) break;
+  }
+  return normalized;
+}
+
+async function waitWithAbort(ms: number, signal?: AbortSignal) {
+  if (ms <= 0) return;
+  if (signal?.aborted) throw createAbortError();
+  await new Promise<void>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
+      reject(createAbortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
 
-  if (!res.ok) {
-    throw new Error(`LETICIA_HTTP_${res.status}`);
+function splitForDisplayStreaming(content: string) {
+  const segments = content.match(/\S+\s*/g) || [content];
+  const chunks: string[] = [];
+  let buffer = "";
+
+  for (const segment of segments) {
+    buffer += segment;
+    const trimmed = segment.trimEnd();
+    const endsSentence = /[.!?:;)]$/.test(trimmed);
+    if (buffer.length >= 26 || endsSentence || segment.includes("\n")) {
+      chunks.push(buffer);
+      buffer = "";
+    }
   }
-  if (!res.body) {
-    throw new Error("LETICIA_STREAM_EMPTY");
+  if (buffer) chunks.push(buffer);
+  return chunks;
+}
+
+async function emitAsStreaming(content: string, handlers: StreamHandlers) {
+  const chunks = splitForDisplayStreaming(content);
+  for (const chunk of chunks) {
+    if (handlers.signal?.aborted) throw createAbortError();
+    handlers.onChunk?.(chunk);
+    await waitWithAbort(STREAM_DELAY_MS, handlers.signal);
   }
+}
 
-  handlers.onStart?.();
-
-  const reader = res.body.getReader();
+async function consumePlainTextStream(response: Response, handlers: StreamHandlers) {
+  if (!response.body) {
+    throw new Error("RAG_STREAM_EMPTY");
+  }
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
 
   while (true) {
-    const { value, done } = await reader.read();
+    if (handlers.signal?.aborted) throw createAbortError();
+    const { done, value } = await reader.read();
     if (done) break;
     const delta = decoder.decode(value, { stream: true });
     if (delta) handlers.onChunk?.(delta);
   }
   const tail = decoder.decode();
   if (tail) handlers.onChunk?.(tail);
+}
 
-  handlers.onDone?.();
+async function consumeSseStream(response: Response, handlers: StreamHandlers) {
+  if (!response.body) {
+    throw new Error("RAG_STREAM_EMPTY");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const flushEvent = (rawEvent: string) => {
+    const lines = rawEvent.split(/\r?\n/);
+    let eventName = "message";
+    const dataLines: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith("event:")) {
+        eventName = trimmed.slice(6).trim().toLowerCase() || "message";
+        continue;
+      }
+      if (trimmed.startsWith("data:")) {
+        dataLines.push(trimmed.slice(5).trim());
+      }
+    }
+
+    const payloadText = dataLines.join("\n").trim();
+    if (!payloadText) return;
+    let payload: unknown = payloadText;
+    try {
+      payload = JSON.parse(payloadText);
+    } catch {
+      // noop
+    }
+
+    if (eventName === "delta") {
+      if (typeof payload === "string") {
+        handlers.onChunk?.(payload);
+        return;
+      }
+      if (payload && typeof payload === "object" && typeof (payload as { text?: unknown }).text === "string") {
+        handlers.onChunk?.((payload as { text: string }).text);
+      }
+      return;
+    }
+
+    if (eventName === "error") {
+      const message =
+        payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string"
+          ? (payload as { message: string }).message
+          : "RAG_SSE_ERROR";
+      throw new Error(message);
+    }
+  };
+
+  while (true) {
+    if (handlers.signal?.aborted) throw createAbortError();
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx = buffer.indexOf("\n\n");
+    while (idx >= 0) {
+      const rawEvent = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      if (rawEvent.trim()) flushEvent(rawEvent);
+      idx = buffer.indexOf("\n\n");
+    }
+  }
+
+  const tail = decoder.decode();
+  if (tail) {
+    buffer += tail;
+  }
+  if (buffer.trim()) {
+    flushEvent(buffer);
+  }
+}
+
+/**
+ * Cliente do endpoint /chat (RAG).
+ * Preferencialmente consome stream de texto do backend; cai para JSON quando necessario.
+ */
+export async function streamLeticia(
+  prompt: string,
+  history: LeticiaMessage[],
+  handlers: StreamHandlers = {},
+  options: RagChatRequestOptions = {},
+) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const apiKey = resolvePublicApiKey();
+  if (apiKey) {
+    headers["x-api-key"] = apiKey;
+  }
+
+  const scopedDocumentIds = normalizePositiveIntArray(options.documentIds);
+  const fallbackDocumentId = normalizeOptionalPositiveInt(options.documentId);
+  if (!scopedDocumentIds.length && fallbackDocumentId) {
+    scopedDocumentIds.push(fallbackDocumentId);
+  }
+  const primaryDocumentId = scopedDocumentIds.length === 1 ? scopedDocumentIds[0] : fallbackDocumentId;
+  const requestMaxResponseTokens = normalizeOptionalPositiveInt(options.maxResponseTokens) || DEFAULT_RAG_MAX_RESPONSE_TOKENS;
+
+  const res = await fetch("/chat", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      message: prompt,
+      history,
+      maxResponseTokens: requestMaxResponseTokens,
+      stream: true,
+      streamMode: "sse",
+      documentId: primaryDocumentId,
+      documentIds: scopedDocumentIds.length ? scopedDocumentIds : undefined,
+      sourceType: typeof options.sourceType === "string" ? options.sourceType : undefined,
+      retrievalEmbeddingModel:
+        typeof options.retrievalEmbeddingModel === "string" ? options.retrievalEmbeddingModel : undefined,
+      topK: normalizeOptionalPositiveInt(options.topK),
+      maxDistance: normalizeOptionalFiniteNumber(options.maxDistance),
+      temperature: normalizeOptionalFiniteNumber(options.temperature),
+      seed: options.seed === null ? null : normalizeOptionalFiniteNumber(options.seed),
+    }),
+    signal: handlers.signal,
+  });
+
+  if (!res.ok) {
+    let errorCode = `RAG_HTTP_${res.status}`;
+    let errorMessage = "";
+    try {
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      if (contentType.includes("application/json")) {
+        const payload = (await res.json()) as RagChatResponse;
+        if (payload?.code) errorCode = payload.code;
+        if (payload?.message) errorMessage = payload.message;
+      } else {
+        const text = (await res.text()).trim();
+        if (text) errorMessage = text.slice(0, 320);
+      }
+    } catch {
+      // noop
+    }
+    throw new Error(errorMessage ? `${errorCode}: ${errorMessage}` : errorCode);
+  }
+
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  handlers.onStart?.();
+  try {
+    if (contentType.includes("application/json")) {
+      const payload = (await res.json()) as RagChatResponse;
+      if (!payload?.ok) {
+        const code = payload?.code || "RAG_CHAT_FAILED";
+        const message = payload?.message || "";
+        throw new Error(message ? `${code}: ${message}` : code);
+      }
+      const content = `${payload?.reply?.content || ""}`.trim();
+      if (!content) throw new Error("RAG_CHAT_EMPTY_REPLY");
+      await emitAsStreaming(content, handlers);
+    } else if (contentType.includes("text/event-stream")) {
+      await consumeSseStream(res, handlers);
+    } else {
+      await consumePlainTextStream(res, handlers);
+    }
+    handlers.onDone?.();
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw error instanceof Error ? error : new Error("RAG_CHAT_STREAM_RENDER_FAILED");
+  }
 }
 
 function ensureOk(res: Response, label: string) {
@@ -99,4 +368,274 @@ export async function savePersistedMessage(input: {
     body: JSON.stringify(input),
   });
   ensureOk(res, "KNEXAI_MESSAGES_POST");
+}
+
+export type WriteChunkView = {
+  chunk_id: string;
+  project_id: string;
+  section_id: string;
+  role: string;
+  text: string;
+  source_type: string;
+  chunk_order: number;
+  version: number;
+  char_count: number;
+  token_count: number | null;
+  created_at: string;
+  updated_at: string;
+  metadata: Record<string, unknown>;
+};
+
+export type WriteSectionSummaryView = {
+  summary_id: string;
+  project_id: string;
+  section_id: string;
+  summary: string;
+  summary_version: number;
+  source_chunk_count: number;
+  last_chunk_id_processed: string | null;
+  created_at: string;
+  updated_at: string;
+  is_stale: boolean;
+  stale_reasons: string[];
+};
+
+export type WriteProjectGlobalSummaryView = {
+  summary_id: string;
+  project_id: string;
+  summary: string;
+  summary_version: number;
+  source_chunk_count: number;
+  created_at: string;
+  updated_at: string;
+  is_stale: boolean;
+  stale_reasons: string[];
+};
+
+export type WriteSectionView = {
+  section_id: string;
+  project_id: string;
+  title: string;
+  kind: string;
+  order: number;
+  objective: string;
+  outline_notes: string;
+  status: string;
+  content: string;
+  summary: string;
+  summary_record: Record<string, unknown> | null;
+  updated_at: string;
+  chunks: WriteChunkView[];
+};
+
+export type WriteReferenceView = {
+  reference_id: string;
+  document_id: number;
+  source_path: string;
+  note: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type WriteProjectView = {
+  project_id: string;
+  title: string;
+  description: string;
+  objective: string;
+  owner_session_id: string | null;
+  status: string;
+  process_summary: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  sections: WriteSectionView[];
+  references: WriteReferenceView[];
+};
+
+export type WriteProjectListItem = {
+  project_id: string;
+  title: string;
+  status: string;
+  updated_at: string;
+  sections_count: number;
+  references_count: number;
+};
+
+type WriteApiRequestOptions = {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  body?: unknown;
+  signal?: AbortSignal;
+};
+
+function getWriteApiErrorMessage(payload: unknown) {
+  if (payload && typeof payload === "object") {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (detail && typeof detail === "object") {
+      const msg = (detail as { message?: unknown }).message;
+      if (typeof msg === "string" && msg.trim()) return msg.trim();
+    }
+    const message = (payload as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+    const code = (payload as { code?: unknown }).code;
+    if (typeof code === "string" && code.trim()) return code.trim();
+  }
+  return "";
+}
+
+async function requestWriteApi<T>(path: string, options: WriteApiRequestOptions = {}): Promise<T> {
+  const method = options.method || "GET";
+  const headers = new Headers();
+  if (options.body !== undefined) {
+    headers.set("content-type", "application/json");
+  }
+  const res = await fetch(`/api/write${path}`, {
+    method,
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    cache: "no-store",
+    signal: options.signal,
+  });
+
+  const text = await res.text();
+  let payload: unknown = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = text;
+    }
+  }
+
+  if (!res.ok) {
+    const message = getWriteApiErrorMessage(payload) || `WRITE_HTTP_${res.status}`;
+    throw new Error(message);
+  }
+
+  return (payload ?? ({} as T)) as T;
+}
+
+export async function listWriteProjects(limit = 20): Promise<WriteProjectListItem[]> {
+  const payload = await requestWriteApi<{ projects?: WriteProjectListItem[] }>(`/projects?limit=${Math.max(1, Math.min(200, Math.round(limit)))}`);
+  return Array.isArray(payload.projects) ? payload.projects : [];
+}
+
+export async function createWriteProject(input: {
+  title: string;
+  description?: string;
+  objective?: string;
+  session_id?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<WriteProjectView> {
+  const payload = await requestWriteApi<{ project: WriteProjectView }>("/projects", {
+    method: "POST",
+    body: {
+      title: input.title,
+      description: input.description || "",
+      objective: input.objective || "",
+      session_id: input.session_id,
+      metadata: input.metadata || {},
+    },
+  });
+  return payload.project;
+}
+
+export async function getWriteProject(projectId: string): Promise<WriteProjectView> {
+  const payload = await requestWriteApi<{ project: WriteProjectView }>(`/projects/${encodeURIComponent(projectId)}`);
+  return payload.project;
+}
+
+export async function listWriteProjectSections(
+  projectId: string,
+  options: { includeChunks?: boolean; includeSummaries?: boolean } = {},
+): Promise<WriteSectionView[]> {
+  const includeChunks = options.includeChunks ?? true;
+  const includeSummaries = options.includeSummaries ?? true;
+  const query = new URLSearchParams({
+    include_chunks: includeChunks ? "true" : "false",
+    include_summaries: includeSummaries ? "true" : "false",
+  });
+  const payload = await requestWriteApi<{ sections?: WriteSectionView[] }>(
+    `/projects/${encodeURIComponent(projectId)}/sections?${query.toString()}`,
+  );
+  return Array.isArray(payload.sections) ? payload.sections : [];
+}
+
+export async function createWriteSection(
+  projectId: string,
+  input: {
+    title: string;
+    kind?: string;
+    order?: number;
+    objective?: string;
+    outline_notes?: string;
+    status?: string;
+    content?: string;
+  },
+): Promise<WriteSectionView> {
+  const payload = await requestWriteApi<{ section: WriteSectionView }>(`/projects/${encodeURIComponent(projectId)}/sections`, {
+    method: "POST",
+    body: {
+      title: input.title,
+      kind: input.kind || "section",
+      order: input.order ?? 0,
+      objective: input.objective || "",
+      outline_notes: input.outline_notes || "",
+      status: input.status || "planned",
+      content: input.content || "",
+    },
+  });
+  return payload.section;
+}
+
+export async function getWriteSectionSummary(sectionId: string): Promise<WriteSectionSummaryView> {
+  const payload = await requestWriteApi<{ summary: WriteSectionSummaryView }>(
+    `/sections/${encodeURIComponent(sectionId)}/summary`,
+  );
+  return payload.summary;
+}
+
+export async function getWriteProjectGlobalSummary(projectId: string): Promise<WriteProjectGlobalSummaryView> {
+  const payload = await requestWriteApi<{ summary: WriteProjectGlobalSummaryView }>(
+    `/projects/${encodeURIComponent(projectId)}/summary`,
+  );
+  return payload.summary;
+}
+
+export async function continueWrite(input: {
+  project_id: string;
+  section_id?: string;
+  instruction: string;
+  top_k_chunks?: number;
+  top_k_memories?: number;
+  min_paragraphs?: number;
+  max_paragraphs?: number;
+  max_tokens?: number;
+  temperature?: number;
+}): Promise<{
+  trace_id: string;
+  project_id: string;
+  section_id: string;
+  chunk: WriteChunkView;
+  retrieved_chunk_ids: string[];
+  retrieved_memory_ids: string[];
+  section_summary_used: WriteSectionSummaryView | null;
+  project_global_summary_used: WriteProjectGlobalSummaryView | null;
+  top_k_applied: Record<string, number>;
+  parameters: Record<string, unknown>;
+}> {
+  return requestWriteApi("/continue", {
+    method: "POST",
+    body: {
+      project_id: input.project_id,
+      section_id: input.section_id,
+      instruction: input.instruction,
+      top_k_chunks: input.top_k_chunks ?? 6,
+      top_k_memories: input.top_k_memories ?? 6,
+      min_paragraphs: input.min_paragraphs ?? 2,
+      max_paragraphs: input.max_paragraphs ?? 4,
+      max_tokens: input.max_tokens ?? 1200,
+      temperature: input.temperature ?? 0.2,
+    },
+  });
 }

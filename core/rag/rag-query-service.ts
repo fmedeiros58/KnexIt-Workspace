@@ -1,9 +1,17 @@
+import { resolveVectorSearchParams, type VectorSearchParams } from "../database/vector-search-params";
 import { logger } from "../utils/logger";
 import { assembleContextPack, type ContextPackChunk } from "./context-pack";
+import { createDocumentFullTextService, type DocumentFullTextService } from "./document-fulltext-service";
 import { createQueryEmbeddingClient, type QueryEmbeddingClient } from "./embedding-client";
-import { loadRagContextConfig, loadRagGenerationConfig, type RagGenerationConfig } from "./rag-config";
+import {
+  loadRagContextConfig,
+  loadRagGenerationConfig,
+  loadRagResilienceConfig,
+  type RagGenerationConfig,
+  type RagResilienceConfig,
+} from "./rag-config";
 import { RagPipelineError } from "./rag-errors";
-import { createRagRetrievalService, type RagRetrievalService } from "./retrieval-service";
+import { createRagRetrievalService, type RagRetrievalResult, type RagRetrievalService } from "./retrieval-service";
 import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "./vllm-client";
 
 type ChunkAuditRecord = {
@@ -29,6 +37,7 @@ export type RagQueryInput = {
   topK?: number;
   maxDistance?: number | null;
   documentId?: number;
+  documentIds?: number[];
   sourceType?: string;
   retrievalEmbeddingModel?: string;
   maxResponseTokens?: number;
@@ -39,12 +48,20 @@ export type RagQueryInput = {
 export type RagQueryResult = {
   answer: string;
   metadata: {
+    resilience: {
+      embeddingFailureMode: "strict" | "degrade";
+      degraded: boolean;
+      degradedCode: string | null;
+      degradedMessage: string | null;
+      usedDocumentScopeFallback: boolean;
+    };
     retrieval: {
       topK: number;
       maxDistance: number | null;
       strategy: "cosine";
       filters: {
         documentId: number | null;
+        documentIds: number[];
         sourceType: string | null;
         embeddingModel: string | null;
       };
@@ -57,6 +74,25 @@ export type RagQueryResult = {
       maxChars: number;
       usedChars: number;
       truncated: boolean;
+    };
+    fullDocumentRead: {
+      enabled: boolean;
+      attemptedDocs: number;
+      loadedDocs: number;
+      contextDocs: number;
+      failedDocs: number;
+      fullReadChars: number;
+      includedChars: number;
+      truncatedDocs: number;
+      sources: Array<{
+        documentId: number;
+        title: string | null;
+        sourcePath: string;
+        readSource: "extracted_text_file" | "document_chunks";
+        fullChars: number;
+        includedChars: number;
+        truncated: boolean;
+      }>;
     };
     chunks: ChunkAuditRecord[];
     queryEmbedding: {
@@ -91,11 +127,32 @@ type RagQueryServiceOptions = {
   embeddingClient?: QueryEmbeddingClient;
   retrievalService?: RagRetrievalService;
   llmClient?: VllmInternalClient;
+  fullDocumentService?: DocumentFullTextService;
   generationConfig?: RagGenerationConfig;
+  resilienceConfig?: RagResilienceConfig;
   contextConfig?: {
     maxChars: number;
     maxChunks: number;
   };
+};
+
+type QueryDegradationState = {
+  degraded: boolean;
+  code: string | null;
+  message: string | null;
+  usedDocumentScopeFallback: boolean;
+};
+
+type QueryPreparationResult = {
+  retrieval: RagRetrievalResult;
+  embedding: {
+    model: string;
+    dimension: number;
+    elapsedMs: number;
+  };
+  appliedRetrievalModelFilter: string;
+  degradation: QueryDegradationState;
+  fullDocumentSeedIds: number[];
 };
 
 function normalizeString(value: unknown) {
@@ -129,7 +186,7 @@ function toChunkAudit(row: ContextPackChunk): ChunkAuditRecord {
 function clampMaxTokens(value: number | undefined, fallback: number) {
   if (!Number.isFinite(value as number)) return fallback;
   const rounded = Math.round(value as number);
-  return Math.min(8_192, Math.max(32, rounded));
+  return Math.min(65_536, Math.max(32, rounded));
 }
 
 function clampTemperature(value: number | undefined, fallback: number) {
@@ -165,18 +222,193 @@ function normalizeHistory(history: RagChatHistoryItem[] | undefined, config: Rag
   return selectedReversed.reverse();
 }
 
+function normalizeDocumentId(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const normalized = Math.trunc(parsed);
+  return normalized > 0 ? normalized : null;
+}
+
+function normalizeDocumentIds(values: unknown, maxItems = 64): number[] {
+  if (!Array.isArray(values)) return [];
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of values) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) continue;
+    const value = Math.trunc(parsed);
+    if (value <= 0 || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+    if (normalized.length >= maxItems) break;
+  }
+  return normalized;
+}
+
+function buildEmptyRetrievalResult(input: Pick<RagQueryInput, "topK" | "maxDistance">): RagRetrievalResult {
+  const params: VectorSearchParams = resolveVectorSearchParams({
+    topK: input.topK,
+    maxDistance: input.maxDistance,
+  });
+  return {
+    hits: [],
+    params,
+    elapsedMs: 0,
+  };
+}
+
 export class RagQueryService {
   private readonly generationConfig: RagGenerationConfig;
   private readonly contextConfig: { maxChars: number; maxChunks: number };
+  private readonly resilienceConfig: RagResilienceConfig;
 
   constructor(
     private readonly embeddingClient: QueryEmbeddingClient = createQueryEmbeddingClient(),
     private readonly retrievalService: RagRetrievalService = createRagRetrievalService(),
     private readonly llmClient: VllmInternalClient = createVllmInternalClient(),
+    private readonly fullDocumentService: DocumentFullTextService = createDocumentFullTextService(),
     options?: RagQueryServiceOptions,
   ) {
     this.generationConfig = options?.generationConfig ?? loadRagGenerationConfig();
     this.contextConfig = options?.contextConfig ?? loadRagContextConfig();
+    this.resilienceConfig = options?.resilienceConfig ?? loadRagResilienceConfig();
+  }
+
+  private canDegradeFromEmbeddingError(error: unknown) {
+    if (this.resilienceConfig.embeddingFailureMode !== "degrade") return false;
+    if (!(error instanceof RagPipelineError)) return false;
+    return error.code.startsWith("RAG_EMBEDDING_");
+  }
+
+  private canDegradeFromRetrievalError(error: unknown) {
+    if (this.resilienceConfig.embeddingFailureMode !== "degrade") return false;
+    if (!(error instanceof RagPipelineError)) return false;
+    return error.code === "RAG_RETRIEVAL_ERROR";
+  }
+
+  private buildDegradedPreparation(
+    input: RagQueryInput,
+    opts: {
+      code: string;
+      message: string;
+      requestId: string | null;
+      embedding: { model: string; dimension: number; elapsedMs: number };
+    },
+  ): QueryPreparationResult {
+    const fallbackDocumentIds = normalizeDocumentIds(input.documentIds);
+    const fallbackDocumentId = normalizeDocumentId(input.documentId);
+    const fullDocumentSeedIds = fallbackDocumentIds.length
+      ? fallbackDocumentIds
+      : fallbackDocumentId
+        ? [fallbackDocumentId]
+        : [];
+    logger.warn("RAG_QUERY_DEGRADED_NO_VECTOR_CONTEXT", {
+      requestId: opts.requestId,
+      code: opts.code,
+      message: opts.message,
+      embeddingModel: opts.embedding.model,
+      usedDocumentScopeFallback: fullDocumentSeedIds.length > 0,
+      failureMode: this.resilienceConfig.embeddingFailureMode,
+    });
+
+    return {
+      retrieval: buildEmptyRetrievalResult(input),
+      embedding: opts.embedding,
+      appliedRetrievalModelFilter: "",
+      degradation: {
+        degraded: true,
+        code: opts.code,
+        message: opts.message,
+        usedDocumentScopeFallback: fullDocumentSeedIds.length > 0,
+      },
+      fullDocumentSeedIds,
+    };
+  }
+
+  private async prepareQuery(input: RagQueryInput, question: string): Promise<QueryPreparationResult> {
+    const requestId = input.requestId || null;
+    const sourceType = normalizeString(input.sourceType) || undefined;
+    const scopedDocumentIds = normalizeDocumentIds(input.documentIds);
+    const explicitRetrievalModelFilter = normalizeString(input.retrievalEmbeddingModel);
+    const embeddingStartedAt = Date.now();
+
+    let embeddingResult: Awaited<ReturnType<QueryEmbeddingClient["embedQuery"]>>;
+    try {
+      embeddingResult = await this.embeddingClient.embedQuery(question);
+    } catch (error) {
+      if (!this.canDegradeFromEmbeddingError(error)) throw error;
+      const pipelineError = error as RagPipelineError;
+      return this.buildDegradedPreparation(input, {
+        code: pipelineError.code,
+        message: pipelineError.message,
+        requestId,
+        embedding: {
+          model: "unavailable",
+          dimension: this.embeddingClient.getConfig().expectedDimension,
+          elapsedMs: Date.now() - embeddingStartedAt,
+        },
+      });
+    }
+
+    let appliedRetrievalModelFilter = explicitRetrievalModelFilter || embeddingResult.model;
+    try {
+      let retrieval = await this.retrievalService.search({
+        queryVector: embeddingResult.vector,
+        topK: input.topK,
+        maxDistance: input.maxDistance,
+        documentId: input.documentId,
+        documentIds: scopedDocumentIds,
+        sourceType,
+        embeddingModel: appliedRetrievalModelFilter || undefined,
+      });
+
+      if (!retrieval.hits.length && !explicitRetrievalModelFilter) {
+        logger.warn("RAG_QUERY_RETRIEVAL_MODEL_FALLBACK", {
+          requestId,
+          queryEmbeddingModel: embeddingResult.model,
+          reason: "zero_hits_with_model_filter",
+        });
+        retrieval = await this.retrievalService.search({
+          queryVector: embeddingResult.vector,
+          topK: input.topK,
+          maxDistance: input.maxDistance,
+          documentId: input.documentId,
+          documentIds: scopedDocumentIds,
+          sourceType,
+        });
+        appliedRetrievalModelFilter = "";
+      }
+
+      return {
+        retrieval,
+        embedding: {
+          model: embeddingResult.model,
+          dimension: embeddingResult.dimension,
+          elapsedMs: embeddingResult.elapsedMs,
+        },
+        appliedRetrievalModelFilter,
+        degradation: {
+          degraded: false,
+          code: null,
+          message: null,
+          usedDocumentScopeFallback: false,
+        },
+        fullDocumentSeedIds: [],
+      };
+    } catch (error) {
+      if (!this.canDegradeFromRetrievalError(error)) throw error;
+      const pipelineError = error as RagPipelineError;
+      return this.buildDegradedPreparation(input, {
+        code: pipelineError.code,
+        message: pipelineError.message,
+        requestId,
+        embedding: {
+          model: embeddingResult.model,
+          dimension: embeddingResult.dimension,
+          elapsedMs: embeddingResult.elapsedMs,
+        },
+      });
+    }
   }
 
   async query(input: RagQueryInput): Promise<RagQueryResult> {
@@ -192,34 +424,12 @@ export class RagQueryService {
       topK: input.topK,
       sourceType: input.sourceType || null,
       documentId: input.documentId ?? null,
+      documentIds: normalizeDocumentIds(input.documentIds),
     });
 
-    const embedding = await this.embeddingClient.embedQuery(question);
-    const explicitRetrievalModelFilter = normalizeString(input.retrievalEmbeddingModel);
-    let appliedRetrievalModelFilter = explicitRetrievalModelFilter || embedding.model;
-    let retrieval = await this.retrievalService.search({
-      queryVector: embedding.vector,
-      topK: input.topK,
-      maxDistance: input.maxDistance,
-      documentId: input.documentId,
-      sourceType: normalizeString(input.sourceType) || undefined,
-      embeddingModel: appliedRetrievalModelFilter || undefined,
-    });
-    if (!retrieval.hits.length && !explicitRetrievalModelFilter) {
-      logger.warn("RAG_QUERY_RETRIEVAL_MODEL_FALLBACK", {
-        requestId: input.requestId || null,
-        queryEmbeddingModel: embedding.model,
-        reason: "zero_hits_with_model_filter",
-      });
-      retrieval = await this.retrievalService.search({
-        queryVector: embedding.vector,
-        topK: input.topK,
-        maxDistance: input.maxDistance,
-        documentId: input.documentId,
-        sourceType: normalizeString(input.sourceType) || undefined,
-      });
-      appliedRetrievalModelFilter = "";
-    }
+    const prepared = await this.prepareQuery(input, question);
+    const retrieval = prepared.retrieval;
+    const appliedRetrievalModelFilter = prepared.appliedRetrievalModelFilter;
 
     const contextAssemblyStartedAt = Date.now();
     const contextPack = assembleContextPack({
@@ -227,12 +437,17 @@ export class RagQueryService {
       maxChars: this.contextConfig.maxChars,
       maxChunks: this.contextConfig.maxChunks,
     });
+    const fullDocContext =
+      prepared.fullDocumentSeedIds.length > 0
+        ? await this.fullDocumentService.buildContextFromDocumentIds(prepared.fullDocumentSeedIds)
+        : await this.fullDocumentService.buildContextFromHits(retrieval.hits);
+    const combinedContext = [contextPack.text, fullDocContext.text].filter(Boolean).join("\n\n");
     const contextAssemblyMs = Date.now() - contextAssemblyStartedAt;
 
     const history = normalizeHistory(input.history, this.generationConfig);
     const llmResult = await this.llmClient.completeWithContext({
       question,
-      contextPack: contextPack.text,
+      contextPack: combinedContext,
       history,
       maxTokens: clampMaxTokens(input.maxResponseTokens, this.generationConfig.maxTokens),
       temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
@@ -240,12 +455,20 @@ export class RagQueryService {
     });
 
     const metadata: RagQueryResult["metadata"] = {
+      resilience: {
+        embeddingFailureMode: this.resilienceConfig.embeddingFailureMode,
+        degraded: prepared.degradation.degraded,
+        degradedCode: prepared.degradation.code,
+        degradedMessage: prepared.degradation.message,
+        usedDocumentScopeFallback: prepared.degradation.usedDocumentScopeFallback,
+      },
       retrieval: {
         topK: retrieval.params.topK,
         maxDistance: retrieval.params.maxDistance,
         strategy: retrieval.params.strategy,
         filters: {
           documentId: input.documentId ?? null,
+          documentIds: normalizeDocumentIds(input.documentIds),
           sourceType: normalizeString(input.sourceType) || null,
           embeddingModel: appliedRetrievalModelFilter || null,
         },
@@ -259,10 +482,11 @@ export class RagQueryService {
         usedChars: contextPack.usedChars,
         truncated: contextPack.truncated,
       },
+      fullDocumentRead: fullDocContext.audit,
       chunks: contextPack.chunks.map((row) => toChunkAudit(row)),
       queryEmbedding: {
-        model: embedding.model,
-        dimension: embedding.dimension,
+        model: prepared.embedding.model,
+        dimension: prepared.embedding.dimension,
       },
       llm: {
         provider: "vllm_internal",
@@ -275,7 +499,7 @@ export class RagQueryService {
         usage: llmResult.usage,
       },
       timingsMs: {
-        embedding: embedding.elapsedMs,
+        embedding: prepared.embedding.elapsedMs,
         retrieval: retrieval.elapsedMs,
         contextAssembly: contextAssemblyMs,
         llm: llmResult.elapsedMs,
@@ -288,8 +512,11 @@ export class RagQueryService {
       answerChars: llmResult.answer.length,
       retrievedChunks: retrieval.hits.length,
       selectedChunks: contextPack.chunks.length,
+      fullDocLoaded: fullDocContext.audit.loadedDocs,
+      fullDocIncludedChars: fullDocContext.audit.includedChars,
       topK: retrieval.params.topK,
       model: llmResult.model,
+      degraded: prepared.degradation.degraded,
     });
 
     return {
@@ -297,11 +524,70 @@ export class RagQueryService {
       metadata,
     };
   }
+
+  async queryStream(input: RagQueryInput): Promise<ReadableStream<Uint8Array>> {
+    const question = normalizeString(input.question);
+    if (!question) {
+      throw new RagPipelineError(400, "RAG_QUESTION_REQUIRED", "Campo question e obrigatorio.");
+    }
+
+    logger.info("RAG_QUERY_STREAM_START", {
+      requestId: input.requestId || null,
+      questionChars: question.length,
+      topK: input.topK,
+      sourceType: input.sourceType || null,
+      documentId: input.documentId ?? null,
+      documentIds: normalizeDocumentIds(input.documentIds),
+    });
+
+    const prepared = await this.prepareQuery(input, question);
+    const retrieval = prepared.retrieval;
+    const appliedRetrievalModelFilter = prepared.appliedRetrievalModelFilter;
+
+    const contextPack = assembleContextPack({
+      hits: retrieval.hits,
+      maxChars: this.contextConfig.maxChars,
+      maxChunks: this.contextConfig.maxChunks,
+    });
+    const fullDocContext =
+      prepared.fullDocumentSeedIds.length > 0
+        ? await this.fullDocumentService.buildContextFromDocumentIds(prepared.fullDocumentSeedIds)
+        : await this.fullDocumentService.buildContextFromHits(retrieval.hits);
+    const combinedContext = [contextPack.text, fullDocContext.text].filter(Boolean).join("\n\n");
+    const history = normalizeHistory(input.history, this.generationConfig);
+
+    logger.info("RAG_QUERY_STREAM_READY", {
+      requestId: input.requestId || null,
+      retrievedChunks: retrieval.hits.length,
+      selectedChunks: contextPack.chunks.length,
+      contextChars: contextPack.usedChars,
+      fullDocLoaded: fullDocContext.audit.loadedDocs,
+      fullDocIncludedChars: fullDocContext.audit.includedChars,
+      embeddingModelFilter: appliedRetrievalModelFilter || null,
+      degraded: prepared.degradation.degraded,
+    });
+
+    return this.llmClient.streamWithContext({
+      question,
+      contextPack: combinedContext,
+      history,
+      maxTokens: clampMaxTokens(input.maxResponseTokens, this.generationConfig.maxTokens),
+      temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
+      seed: normalizeSeed(input.seed, this.generationConfig.seed),
+    });
+  }
 }
 
 export function createRagQueryService(rawEnv = process.env) {
-  return new RagQueryService(createQueryEmbeddingClient(rawEnv), createRagRetrievalService(), createVllmInternalClient(rawEnv), {
-    generationConfig: loadRagGenerationConfig(rawEnv),
-    contextConfig: loadRagContextConfig(rawEnv),
-  });
+  return new RagQueryService(
+    createQueryEmbeddingClient(rawEnv),
+    createRagRetrievalService(),
+    createVllmInternalClient(rawEnv),
+    createDocumentFullTextService(rawEnv),
+    {
+      generationConfig: loadRagGenerationConfig(rawEnv),
+      resilienceConfig: loadRagResilienceConfig(rawEnv),
+      contextConfig: loadRagContextConfig(rawEnv),
+    },
+  );
 }

@@ -6,6 +6,7 @@ type JsonObject = Record<string, unknown>;
 export type VectorTopKQuery = VectorSearchParamsInput & {
   queryVector: number[];
   documentId?: number;
+  documentIds?: number[];
   sourceType?: string;
   embeddingModel?: string;
 };
@@ -55,6 +56,21 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizePositiveIntList(values: unknown[], maxItems = 64) {
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of values) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) continue;
+    const value = Math.trunc(parsed);
+    if (value <= 0 || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+    if (normalized.length >= maxItems) break;
+  }
+  return normalized;
+}
+
 function normalizeMetadata(value: JsonObject | null | undefined): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value;
@@ -87,16 +103,23 @@ export class VectorRetrievalRepository {
   constructor(private readonly vectorDb: VectorDatabaseClient = createVectorDatabaseClient()) {}
 
   async searchTopK(params: VectorTopKQuery): Promise<VectorTopKResult[]> {
-    const { queryVector, documentId, sourceType, embeddingModel } = params;
+    const { queryVector, documentId, documentIds, sourceType, embeddingModel } = params;
     validateQueryVector(queryVector, this.vectorDb.embeddingDimension);
 
     const resolved = resolveVectorSearchParams({ topK: params.topK, maxDistance: params.maxDistance });
-    const values: Array<string | number> = [vectorToLiteral(queryVector), resolved.topK];
+    const values: Array<string | number | number[]> = [vectorToLiteral(queryVector), resolved.topK];
     const filters: string[] = [`d.status = '${DEFAULT_DOCUMENT_STATUS}'`];
 
-    if (typeof documentId === "number" && Number.isFinite(documentId)) {
-      values.push(Math.trunc(documentId));
+    const scopeDocIds = normalizePositiveIntList([
+      ...(Array.isArray(documentIds) ? documentIds : []),
+      documentId,
+    ]);
+    if (scopeDocIds.length === 1) {
+      values.push(scopeDocIds[0]);
       filters.push(`d.id = $${values.length}`);
+    } else if (scopeDocIds.length > 1) {
+      values.push(scopeDocIds);
+      filters.push(`d.id = ANY($${values.length}::int[])`);
     }
 
     if (typeof sourceType === "string" && sourceType.trim()) {

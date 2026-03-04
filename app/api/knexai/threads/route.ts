@@ -19,6 +19,7 @@ type DbMessageRow = {
   role: "user" | "assistant" | "system";
   content: string;
   created_at: string;
+  metadata: Record<string, unknown> | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
     if (includeMessages && threadIds.length) {
       const { data: messagesData, error: messagesError } = await admin
         .from("knexai_messages")
-        .select("id, thread_id, role, content, created_at")
+        .select("id, thread_id, role, content, created_at, metadata")
         .in("thread_id", threadIds)
         .order("created_at", { ascending: true })
         .limit(MAX_MESSAGES);
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
         role: message.role,
         content: message.content,
         createdAt: message.created_at,
+        metadata: message.metadata ?? {},
       })),
     }));
 

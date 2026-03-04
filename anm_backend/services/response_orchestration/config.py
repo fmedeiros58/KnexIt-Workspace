@@ -1,0 +1,97 @@
+"""
+FILE: services/response_orchestration/config.py
+RESPONSIBILITY: Feature flags and limits for secondary process memory orchestration.
+FLOW ROLE: Centralize environment-driven behavior toggles and hard limits.
+READS: Process environment.
+RAM WRITES: None.
+PERSISTS: None.
+PRIMARY RISK: Invalid env values causing unintended strategy selection.
+"""
+
+from __future__ import annotations
+
+import os
+
+from typing import Literal
+
+EmissionMode = Literal["chat", "write"]
+
+
+def env_bool(name: str, *, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "1" if default else "0")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, *, default: int, low: int, high: int) -> int:
+    raw = str(os.getenv(name, str(default))).strip()
+    try:
+        parsed = int(raw)
+    except ValueError:
+        parsed = default
+    return max(low, min(high, parsed))
+
+
+def env_float(name: str, *, default: float, low: float, high: float) -> float:
+    raw = str(os.getenv(name, str(default))).strip()
+    try:
+        parsed = float(raw)
+    except ValueError:
+        parsed = default
+    return max(low, min(high, parsed))
+
+
+def is_secondary_process_memory_enabled(mode: EmissionMode) -> bool:
+    global_enabled = env_bool("SECONDARY_PROCESS_MEMORY_ENABLED", default=True)
+    if not global_enabled:
+        return False
+    if mode == "chat":
+        return env_bool("CHAT_SECONDARY_PROCESS_MEMORY_ENABLED", default=global_enabled)
+    return env_bool("WRITE_SECONDARY_PROCESS_MEMORY_ENABLED", default=global_enabled)
+
+
+def is_cross_call_secondary_memory_enabled(mode: EmissionMode) -> bool:
+    global_enabled = env_bool("SECONDARY_PROCESS_MEMORY_CROSS_CALL_ENABLED", default=True)
+    if not global_enabled:
+        return False
+    if mode == "chat":
+        return env_bool("CHAT_SECONDARY_PROCESS_MEMORY_CROSS_CALL_ENABLED", default=global_enabled)
+    return env_bool("WRITE_SECONDARY_PROCESS_MEMORY_CROSS_CALL_ENABLED", default=global_enabled)
+
+
+def resolve_mode_max_cycles(mode: EmissionMode) -> int:
+    global_default = env_int("RESPONSE_ORCHESTRATION_MAX_CYCLES", default=3, low=1, high=8)
+    if mode == "chat":
+        return env_int("CHAT_MAX_RESPONSE_CYCLES", default=global_default, low=1, high=8)
+    return env_int("WRITE_MAX_RESPONSE_CYCLES", default=global_default, low=1, high=8)
+
+
+def resolve_target_chunk_tokens() -> int:
+    return env_int("TARGET_CHUNK_TOKENS", default=320, low=80, high=4096)
+
+
+def resolve_max_total_response_tokens() -> int:
+    return env_int("MAX_TOTAL_RESPONSE_TOKENS", default=4096, low=256, high=32768)
+
+
+def resolve_continuity_summary_max_tokens() -> int:
+    return env_int("CONTINUITY_SUMMARY_MAX_TOKENS", default=180, low=40, high=1200)
+
+
+def resolve_redundancy_threshold() -> float:
+    return env_float("REDUNDANCY_THRESHOLD", default=0.86, low=0.60, high=0.99)
+
+
+def contradiction_check_enabled() -> bool:
+    return env_bool("CONTRADICTION_CHECK_ENABLED", default=False)
+
+
+def force_final_synthesis() -> bool:
+    return env_bool("FORCE_FINAL_SYNTHESIS", default=False)
+
+
+def resolve_secondary_memory_ttl_seconds() -> int:
+    return env_int("SECONDARY_PROCESS_MEMORY_TTL_SECONDS", default=900, low=30, high=86_400)
+
+
+def resolve_secondary_memory_max_sessions() -> int:
+    return env_int("SECONDARY_PROCESS_MEMORY_MAX_SESSIONS", default=512, low=16, high=20_000)
