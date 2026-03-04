@@ -6,13 +6,16 @@ import { createQueryEmbeddingClient, type QueryEmbeddingClient } from "./embeddi
 import {
   loadRagContextConfig,
   loadRagGenerationConfig,
+  loadRagPipelineFlags,
   loadRagResilienceConfig,
   type RagGenerationConfig,
+  type RagPipelineFlags,
   type RagResilienceConfig,
 } from "./rag-config";
 import { RagPipelineError } from "./rag-errors";
 import { createRagRetrievalService, type RagRetrievalResult, type RagRetrievalService } from "./retrieval-service";
 import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "./vllm-client";
+import { RagOrchestratorV2 } from "./v2/orchestrator_v2";
 
 type ChunkAuditRecord = {
   chunkId: number;
@@ -34,6 +37,7 @@ export type RagQueryInput = {
   question: string;
   history?: RagChatHistoryItem[];
   requestId?: string;
+  pipelineVersion?: "v1" | "v2";
   topK?: number;
   maxDistance?: number | null;
   documentId?: number;
@@ -58,7 +62,7 @@ export type RagQueryResult = {
     retrieval: {
       topK: number;
       maxDistance: number | null;
-      strategy: "cosine";
+      strategy: "cosine" | "hybrid_v2";
       filters: {
         documentId: number | null;
         documentIds: number[];
@@ -74,6 +78,11 @@ export type RagQueryResult = {
       maxChars: number;
       usedChars: number;
       truncated: boolean;
+      budget?: {
+        contextBudgetTokens: number;
+        answerBudgetTokens: number;
+        safetyMarginTokens: number;
+      };
     };
     fullDocumentRead: {
       enabled: boolean;
@@ -92,7 +101,7 @@ export type RagQueryResult = {
         fullChars: number;
         includedChars: number;
         truncated: boolean;
-      }>;
+      } | Record<string, unknown>>;
     };
     chunks: ChunkAuditRecord[];
     queryEmbedding: {
@@ -120,6 +129,17 @@ export type RagQueryResult = {
       llm: number;
       total: number;
     };
+    citations?: {
+      enabled: boolean;
+      count: number;
+      uncoveredClaims: number;
+    };
+    v2?: {
+      runId: string;
+      pipelineVersion: "v2";
+      queryHash: string;
+      traceStages: Array<{ stage: string; elapsedMs: number }>;
+    };
   };
 };
 
@@ -134,6 +154,7 @@ type RagQueryServiceOptions = {
     maxChars: number;
     maxChunks: number;
   };
+  pipelineFlags?: RagPipelineFlags;
 };
 
 type QueryDegradationState = {
@@ -261,6 +282,8 @@ export class RagQueryService {
   private readonly generationConfig: RagGenerationConfig;
   private readonly contextConfig: { maxChars: number; maxChunks: number };
   private readonly resilienceConfig: RagResilienceConfig;
+  private readonly pipelineFlags: RagPipelineFlags;
+  private readonly orchestratorV2: RagOrchestratorV2;
 
   constructor(
     private readonly embeddingClient: QueryEmbeddingClient = createQueryEmbeddingClient(),
@@ -272,6 +295,32 @@ export class RagQueryService {
     this.generationConfig = options?.generationConfig ?? loadRagGenerationConfig();
     this.contextConfig = options?.contextConfig ?? loadRagContextConfig();
     this.resilienceConfig = options?.resilienceConfig ?? loadRagResilienceConfig();
+    this.pipelineFlags = options?.pipelineFlags ?? loadRagPipelineFlags();
+    this.orchestratorV2 = new RagOrchestratorV2(
+      this.embeddingClient,
+      undefined,
+      this.llmClient,
+      this.generationConfig,
+      this.contextConfig,
+      this.resilienceConfig,
+      this.pipelineFlags,
+    );
+  }
+
+  private resolvePipelineVersion(input: RagQueryInput): "v1" | "v2" {
+    if (input.pipelineVersion === "v2") return "v2";
+    if (input.pipelineVersion === "v1") return "v1";
+    return this.pipelineFlags.pipelineVersion;
+  }
+
+  private toPlainTextStream(answer: string): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(answer));
+        controller.close();
+      },
+    });
   }
 
   private canDegradeFromEmbeddingError(error: unknown) {
@@ -416,6 +465,36 @@ export class RagQueryService {
     if (!question) {
       throw new RagPipelineError(400, "RAG_QUESTION_REQUIRED", "Campo question e obrigatorio.");
     }
+    const pipelineVersion = this.resolvePipelineVersion(input);
+    if (pipelineVersion === "v2") {
+      const history = normalizeHistory(input.history, this.generationConfig);
+      const v2Result = await this.orchestratorV2.query({
+        requestId: input.requestId || `ragv2-${Date.now()}`,
+        question,
+        history,
+        topK: input.topK,
+        maxDistance: input.maxDistance,
+        documentId: input.documentId,
+        documentIds: input.documentIds,
+        sourceType: input.sourceType,
+        retrievalEmbeddingModel: input.retrievalEmbeddingModel,
+        maxResponseTokens: input.maxResponseTokens,
+        temperature: input.temperature,
+        seed: input.seed,
+      });
+      return {
+        answer: v2Result.answer,
+        metadata: {
+          ...v2Result.metadata,
+          contextPack: {
+            ...v2Result.metadata.contextPack,
+            totalCandidateChunks:
+              v2Result.metadata.contextPack.selectedChunks + v2Result.metadata.contextPack.omittedChunks,
+          },
+          chunks: [],
+        },
+      };
+    }
 
     const startedAt = Date.now();
     logger.info("RAG_QUERY_START", {
@@ -530,6 +609,11 @@ export class RagQueryService {
     if (!question) {
       throw new RagPipelineError(400, "RAG_QUESTION_REQUIRED", "Campo question e obrigatorio.");
     }
+    const pipelineVersion = this.resolvePipelineVersion(input);
+    if (pipelineVersion === "v2") {
+      const result = await this.query({ ...input, question, pipelineVersion: "v2" });
+      return this.toPlainTextStream(result.answer);
+    }
 
     logger.info("RAG_QUERY_STREAM_START", {
       requestId: input.requestId || null,
@@ -588,6 +672,7 @@ export function createRagQueryService(rawEnv = process.env) {
       generationConfig: loadRagGenerationConfig(rawEnv),
       resilienceConfig: loadRagResilienceConfig(rawEnv),
       contextConfig: loadRagContextConfig(rawEnv),
+      pipelineFlags: loadRagPipelineFlags(rawEnv),
     },
   );
 }

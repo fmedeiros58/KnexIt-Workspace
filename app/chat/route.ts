@@ -81,6 +81,13 @@ function parseOptionalBoolean(value: unknown) {
   return undefined;
 }
 
+function parsePipelineVersion(value: unknown): "v1" | "v2" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "v1" || normalized === "v2") return normalized;
+  return undefined;
+}
+
 function truncateHistoryContent(value: string) {
   if (value.length <= MAX_HISTORY_ITEM_CHARS) return value;
   const maxBaseLength = Math.max(64, MAX_HISTORY_ITEM_CHARS - HISTORY_ITEM_TRUNCATE_SUFFIX.length);
@@ -167,6 +174,7 @@ export async function POST(req: NextRequest) {
       });
     }
     const history = normalizedHistory.items;
+    const pipelineVersion = parsePipelineVersion(body?.pipeline) || parsePipelineVersion(req.headers.get("x-pipeline"));
     const wantsStream = parseOptionalBoolean(body?.stream) === true;
     const requestedStreamMode = parseStreamMode(body?.streamMode);
     const acceptHeader = `${req.headers.get("accept") || ""}`.toLowerCase();
@@ -176,6 +184,7 @@ export async function POST(req: NextRequest) {
         question: message,
         history,
         requestId: context.requestId,
+        pipelineVersion,
         topK: parseOptionalPositiveInt(body?.topK),
         maxDistance: parseOptionalDistance(body?.maxDistance),
         documentId: parseOptionalPositiveInt(body?.documentId),
@@ -205,6 +214,7 @@ export async function POST(req: NextRequest) {
       question: message,
       history,
       requestId: context.requestId,
+      pipelineVersion,
       topK: parseOptionalPositiveInt(body?.topK),
       maxDistance: parseOptionalDistance(body?.maxDistance),
       documentId: parseOptionalPositiveInt(body?.documentId),

@@ -17,7 +17,7 @@ export const runtime = "nodejs";
 const ragService = createRagQueryService();
 const ROUTE_OPTIONS = { methods: ["POST"], requireApiKey: true } as const;
 const MAX_OPENAI_MESSAGES = Number(process.env.PUBLIC_API_MAX_OPENAI_MESSAGES || 30);
-const MAX_OPENAI_MESSAGE_CHARS = Number(process.env.PUBLIC_API_MAX_OPENAI_MESSAGE_CHARS || 4000);
+const MAX_OPENAI_MESSAGE_CHARS = Number(process.env.PUBLIC_API_MAX_OPENAI_MESSAGE_CHARS || 32000);
 
 type OpenAiLikeMessage = {
   role?: unknown;
@@ -52,6 +52,13 @@ function parseOptionalSeed(value: unknown) {
   if (value === undefined || value === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : undefined;
+}
+
+function parsePipelineVersion(value: unknown): "v1" | "v2" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "v1" || normalized === "v2") return normalized;
+  return undefined;
 }
 
 function normalizeMessages(value: unknown) {
@@ -159,11 +166,16 @@ export async function POST(req: NextRequest) {
     const retrievalEmbeddingModel =
       normalizeString(body?.retrieval_embedding_model ?? body?.retrievalEmbeddingModel ?? body?.extra_body?.retrievalEmbeddingModel) ||
       undefined;
+    const pipelineVersion =
+      parsePipelineVersion(body?.pipeline) ||
+      parsePipelineVersion(body?.extra_body?.pipeline) ||
+      parsePipelineVersion(req.headers.get("x-pipeline"));
 
     const result = await ragService.query({
       question,
       history,
       requestId: context.requestId,
+      pipelineVersion,
       topK,
       maxDistance,
       documentId,

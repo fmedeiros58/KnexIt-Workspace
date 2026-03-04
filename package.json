@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -H localhost -p 3000",
+    "dev:restart": "powershell -ExecutionPolicy Bypass -File scripts/dev-restart.ps1",
     "dev:app": "next dev -H localhost -p 3000",
     "dev:knexchat": "node scripts/dev-knexchat.cjs",
     "dev:knexai": "start \"\" http://localhost:3004/knexai && next dev -H 127.0.0.1 -p 3004",
@@ -18,7 +19,10 @@
     "lint": "next lint",
     "serve:anm": "powershell -ExecutionPolicy Bypass -File scripts/serve-anm-wsl.ps1",
     "serve:embeddings:cpu": "powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-wsl.ps1",
-    "serve:vllm": "vllm serve models/CModelosMistral-7B-Instruct-v0.2-AWQ --host 0.0.0.0 --port 8000 --served-model-name mistral-awq --max-num-seqs 4",
+    "serve:embeddings:cpu:restart": "powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-restart.ps1",
+    "serve:vllm:wsl": "powershell -ExecutionPolicy Bypass -File scripts/serve-vllm-wsl.ps1",
+    "serve:vllm:wsl:restart": "powershell -ExecutionPolicy Bypass -File scripts/serve-vllm-restart.ps1",
+    "serve:vllm": "vllm serve models/CModelosMistral-7B-Instruct-v0.2-AWQ --host 0.0.0.0 --port 8000 --served-model-name mistral-awq --max-num-seqs 2 --max-model-len 4096 --gpu-memory-utilization 0.90",
     "email:test": "node scripts/email-test.mjs",
     "supabase:local:start": "powershell -ExecutionPolicy Bypass -File scripts/supabase-local-start.ps1",
     "supabase:local:prep-nvme": "powershell -ExecutionPolicy Bypass -File scripts/configure-docker-nvme2.ps1",
@@ -28,7 +32,8 @@
     "verify:nvme": "powershell -ExecutionPolicy Bypass -File scripts/verify-nvme-setup.ps1",
     "verify:nvme:sh": "bash scripts/verify-nvme-setup.sh",
     "smoke:api": "bash scripts/smoke-test-api.sh",
-    "smoke:rag": "bash scripts/smoke-test-rag.sh"
+    "smoke:rag": "bash scripts/smoke-test-rag.sh",
+    "smoke:rag:v2": "bash scripts/smoke_rag_v2"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.15",

@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 const ragService = createRagQueryService();
 const ROUTE_OPTIONS = { methods: ["POST"], requireApiKey: true } as const;
-const MAX_QUESTION_CHARS = Number(process.env.PUBLIC_API_MAX_QUESTION_CHARS || 4000);
+const MAX_QUESTION_CHARS = Number(process.env.PUBLIC_API_MAX_QUESTION_CHARS || 32000);
 
 function normalizeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -47,6 +47,13 @@ function parseOptionalSeed(value: unknown) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : undefined;
 }
 
+function parsePipelineVersion(value: unknown): "v1" | "v2" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "v1" || normalized === "v2") return normalized;
+  return undefined;
+}
+
 export async function POST(req: NextRequest) {
   const { context, response } = enforcePublicApiRequest(req, ROUTE_OPTIONS);
   if (response) return response;
@@ -67,10 +74,12 @@ export async function POST(req: NextRequest) {
         `question excede limite maximo (${MAX_QUESTION_CHARS} caracteres).`,
       );
     }
+    const pipelineVersion = parsePipelineVersion(body?.pipeline) || parsePipelineVersion(req.headers.get("x-pipeline"));
 
     const result = await ragService.query({
       question,
       requestId: context.requestId,
+      pipelineVersion,
       topK: parseOptionalPositiveInt(body?.topK),
       maxDistance: parseOptionalDistance(body?.maxDistance),
       documentId: parseOptionalPositiveInt(body?.documentId),

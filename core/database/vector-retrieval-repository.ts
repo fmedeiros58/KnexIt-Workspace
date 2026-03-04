@@ -11,6 +11,14 @@ export type VectorTopKQuery = VectorSearchParamsInput & {
   embeddingModel?: string;
 };
 
+export type LexicalTopKQuery = {
+  queryText: string;
+  topK?: number;
+  documentId?: number;
+  documentIds?: number[];
+  sourceType?: string;
+};
+
 export type VectorTopKResult = {
   chunkId: number;
   documentId: number;
@@ -26,6 +34,7 @@ export type VectorTopKResult = {
   sourcePath: string;
   title: string | null;
   metadata: JsonObject;
+  lexicalRank?: number | null;
 };
 
 type VectorTopKRow = {
@@ -42,6 +51,7 @@ type VectorTopKRow = {
   source_path: string;
   title: string | null;
   metadata: JsonObject | null;
+  lexical_rank?: string | number | null;
 };
 
 const DEFAULT_DOCUMENT_STATUS = "processed";
@@ -182,6 +192,83 @@ export class VectorRetrievalRepository {
         sourcePath: row.source_path,
         title: row.title,
         metadata: normalizeMetadata(row.metadata),
+        lexicalRank: row.lexical_rank === null || row.lexical_rank === undefined ? null : toNumber(row.lexical_rank, 0),
+      };
+    });
+  }
+
+  async searchLexicalTopK(params: LexicalTopKQuery): Promise<VectorTopKResult[]> {
+    const queryText = `${params.queryText || ""}`.trim();
+    if (!queryText) return [];
+    const topK = Math.max(1, Math.min(200, Math.trunc(params.topK || 20)));
+
+    const values: Array<string | number | number[]> = [queryText, topK];
+    const filters: string[] = [
+      `d.status = '${DEFAULT_DOCUMENT_STATUS}'`,
+      `to_tsvector('simple', dc.text) @@ websearch_to_tsquery('simple', $1)`,
+    ];
+
+    const scopeDocIds = normalizePositiveIntList([
+      ...(Array.isArray(params.documentIds) ? params.documentIds : []),
+      params.documentId,
+    ]);
+    if (scopeDocIds.length === 1) {
+      values.push(scopeDocIds[0]);
+      filters.push(`d.id = $${values.length}`);
+    } else if (scopeDocIds.length > 1) {
+      values.push(scopeDocIds);
+      filters.push(`d.id = ANY($${values.length}::int[])`);
+    }
+
+    if (typeof params.sourceType === "string" && params.sourceType.trim()) {
+      values.push(params.sourceType.trim());
+      filters.push(`d.source_type = $${values.length}`);
+    }
+
+    const whereClause = filters.length ? `where ${filters.join(" and ")}` : "";
+    const sql = `
+      select
+        dc.id as chunk_id,
+        dc.document_id,
+        dc.chunk_index,
+        dc.text as chunk_text,
+        dc.token_count,
+        dc.char_start,
+        dc.char_end,
+        (1 - ts_rank_cd(to_tsvector('simple', dc.text), websearch_to_tsquery('simple', $1))) as distance,
+        ts_rank_cd(to_tsvector('simple', dc.text), websearch_to_tsquery('simple', $1)) as lexical_rank,
+        'lexical'::text as embedding_model,
+        d.source_type,
+        d.source_path,
+        d.title,
+        d.metadata
+      from vector_store.document_chunks dc
+      inner join vector_store.documents d
+        on d.id = dc.document_id
+      ${whereClause}
+      order by lexical_rank desc, dc.id asc
+      limit $2
+    `;
+    const { rows } = await this.vectorDb.query<VectorTopKRow>(sql, values);
+    return rows.map((row) => {
+      const lexicalRank = row.lexical_rank === null || row.lexical_rank === undefined ? 0 : toNumber(row.lexical_rank, 0);
+      const distance = toNumber(row.distance, 1);
+      return {
+        chunkId: toInteger(row.chunk_id),
+        documentId: toInteger(row.document_id),
+        chunkIndex: toInteger(row.chunk_index),
+        text: row.chunk_text,
+        tokenCount: row.token_count === null ? null : toInteger(row.token_count),
+        charStart: toInteger(row.char_start),
+        charEnd: toInteger(row.char_end),
+        distance,
+        score: lexicalRank,
+        embeddingModel: row.embedding_model,
+        sourceType: row.source_type,
+        sourcePath: row.source_path,
+        title: row.title,
+        metadata: normalizeMetadata(row.metadata),
+        lexicalRank,
       };
     });
   }
