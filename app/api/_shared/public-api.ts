@@ -34,7 +34,7 @@ export type PublicApiContext = {
 };
 
 const ALLOW_HEADERS = "authorization, content-type, x-api-key";
-const DEFAULT_PUBLIC_API_MAX_BODY_BYTES = 64 * 1024;
+const DEFAULT_PUBLIC_API_MAX_BODY_BYTES = 256 * 1024;
 const DEFAULT_PUBLIC_API_RATE_LIMIT_WINDOW_MS = 60_000;
 const DEFAULT_PUBLIC_API_RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_PRUNE_EVERY = 500;
@@ -221,6 +221,18 @@ function buildCorsHeaders(context: PublicApiContext, methods: readonly string[])
   return headers;
 }
 
+export function buildResponseHeadersWithCors(
+  context: PublicApiContext,
+  options: Pick<PublicApiOptions, "methods">,
+  extraHeaders: Record<string, string> = {},
+) {
+  const headers = buildCorsHeaders(context, options.methods);
+  for (const [key, value] of Object.entries(extraHeaders)) {
+    headers.set(key, value);
+  }
+  return headers;
+}
+
 export function createPublicApiContext(req: NextRequest): PublicApiContext {
   const requestId = randomUUID();
   const origin = normalizeOrigin(req.headers.get("origin"));
@@ -250,10 +262,7 @@ export function jsonWithCors(
   options: Pick<PublicApiOptions, "methods">,
   extraHeaders: Record<string, string> = {},
 ) {
-  const headers = buildCorsHeaders(context, options.methods);
-  for (const [key, value] of Object.entries(extraHeaders)) {
-    headers.set(key, value);
-  }
+  const headers = buildResponseHeadersWithCors(context, options, extraHeaders);
   headers.set("Content-Type", "application/json; charset=utf-8");
   return new Response(JSON.stringify(body), { status, headers });
 }

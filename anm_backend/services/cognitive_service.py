@@ -33,6 +33,7 @@ from anm_backend.services.response_orchestration import (
     ResponseOrchestrator,
     is_secondary_process_memory_enabled,
 )
+from anm_backend.utils import detect_user_language
 
 
 def _clamp(value: float) -> float:
@@ -208,7 +209,13 @@ def _classify_prompt_complexity(prompt: str) -> str:
     if has_complex_signal or word_count >= 45 or char_count >= 260:
         return "complex"
     if word_count <= 4 and not has_complex_signal:
-        return "direct"
+        if re.search(
+            r"\b(o que e|como|por que|porque|quais?|impact|consequenc|riscos?|causas?|sintomas?|tratamento|prevenc)\b",
+            canonical,
+            re.IGNORECASE,
+        ):
+            return "medium"
+        return "short"
     if _is_short_prompt(normalized):
         return "short"
     return "medium"
@@ -279,7 +286,7 @@ def _resolve_generation_profile(prompt: str) -> Dict[str, Any]:
             "max_tokens": min(hard_cap, 2048),
             "temperature": 0.24,
             "top_p": 0.88,
-            "style_hint": "Resposta equilibrada em 1 a 3 paragrafos curtos, com exemplos quando util.",
+            "style_hint": "Resposta aprofundada em 3 a 6 paragrafos curtos, com progressao logica e exemplos quando util.",
             "context_limit": 8,
         }
     return {
@@ -287,7 +294,7 @@ def _resolve_generation_profile(prompt: str) -> Dict[str, Any]:
         "max_tokens": hard_cap,
         "temperature": 0.24,
         "top_p": 0.84,
-        "style_hint": "Resposta estruturada e objetiva com foco no pedido, sem prolixidade.",
+        "style_hint": "Resposta estruturada e aprofundada em 4 a 7 paragrafos, com sintese final clara.",
         "context_limit": 8,
     }
 
@@ -444,6 +451,7 @@ class CognitiveService:
         msg = message.strip()
         if not msg:
             raise ValueError("message is required")
+        response_language = detect_user_language(msg)
         profile = _resolve_generation_profile(msg)
         prompt_complexity = str(profile.get("complexity", "medium"))
 
@@ -529,6 +537,7 @@ class CognitiveService:
                     temperature=float(gen_request.temperature),
                     top_p=float(gen_request.top_p),
                     style_hint=str(profile["style_hint"]),
+                    response_language=response_language,
                     include_followup_prompt=include_followup_prompt,
                     trace_id=gen_request.trace_id,
                 )
@@ -547,6 +556,7 @@ class CognitiveService:
                         "Continue a resposta sem reiniciar o raciocinio; avance com continuidade e sem repeticao. "
                         "Neste ciclo, entregue 1 paragrafo substantivo (entre 4 e 7 frases), sem listas ou bullets."
                     ),
+                    response_language=response_language,
                     include_followup_prompt=False,
                     trace_id=gen_request.trace_id,
                 )
@@ -594,6 +604,7 @@ class CognitiveService:
                         "flow": "chat_turn",
                         "prompt_complexity": prompt_complexity,
                         "adaptive_multi_pass": bool(orchestration_directives["prefer_multi_pass"]),
+                        "response_language": response_language,
                     },
                 )
             )
@@ -621,6 +632,7 @@ class CognitiveService:
                 temperature=float(profile["temperature"]),
                 top_p=float(profile["top_p"]),
                 style_hint=str(profile["style_hint"]),
+                response_language=response_language,
                 include_followup_prompt=include_followup_prompt,
                 trace_id=trace_id,
             )
@@ -673,6 +685,7 @@ class CognitiveService:
                 "max_tokens": int(profile["max_tokens"]),
                 "temperature": float(profile["temperature"]),
                 "top_p": float(profile["top_p"]),
+                "response_language": response_language,
                 "followup_prompt_included": include_followup_prompt,
                 "orchestration_enabled": orchestration_payload["enabled"],
                 "orchestration_response_mode": orchestration_payload["response_mode"],
@@ -704,6 +717,7 @@ class CognitiveService:
             "engine": {
                 "model": response_model,
                 "usage": response_usage,
+                "response_language": response_language,
                 "followup_prompt_included": include_followup_prompt,
                 "orchestration": orchestration_payload,
             },

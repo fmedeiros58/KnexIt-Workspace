@@ -405,6 +405,51 @@ class RamCortex:
             self.cycle_metadata["trace_id"] = trace_id
             self.cycle_metadata["last_updated"] = utc_now_iso()
 
+    def get_cycle_metadata_value(self, key: str, default: Any = None) -> Any:
+        """
+        Purpose:
+            Safely read one metadata field from cycle metadata map.
+        Parameters:
+            key: Metadata key.
+            default: Fallback value when key is absent.
+        Returns:
+            Any: Stored value or fallback.
+        Side Effects:
+            None.
+        RAM Impact:
+            None.
+        Persistence Impact:
+            None.
+        Expected Failures:
+            None.
+        """
+
+        with self._lock:
+            return self.cycle_metadata.get(key, default)
+
+    def set_cycle_metadata_value(self, key: str, value: Any) -> None:
+        """
+        Purpose:
+            Safely upsert one metadata field used by chat-turn coordination.
+        Parameters:
+            key: Metadata key.
+            value: Metadata value.
+        Returns:
+            None.
+        Side Effects:
+            Updates cycle timestamp.
+        RAM Impact:
+            Mutates cycle metadata map.
+        Persistence Impact:
+            Included in snapshots.
+        Expected Failures:
+            None.
+        """
+
+        with self._lock:
+            self.cycle_metadata[str(key)] = value
+            self.cycle_metadata["last_updated"] = utc_now_iso()
+
     def set_regulatory_summary(self, summary: Dict[str, float]) -> None:
         """
         Purpose:

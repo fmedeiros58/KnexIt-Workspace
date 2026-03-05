@@ -173,6 +173,24 @@ class WriteWorkspaceRepository(Protocol):
     ) -> List[WriteProcessMemoryItem]:
         ...
 
+    def update_process_memory_item(
+        self,
+        *,
+        memory_id: str,
+        memory_type: Optional[str] = None,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        priority: Optional[int] = None,
+        is_active: Optional[bool] = None,
+        section_id: Optional[str] = None,
+        deactivation_reason: Optional[str] = None,
+        consolidated_into_memory_id: Optional[str] = None,
+    ) -> WriteProcessMemoryItem:
+        ...
+
+    def mark_process_memory_used(self, *, memory_id: str) -> WriteProcessMemoryItem:
+        ...
+
     def upsert_draft_chunk_embedding(
         self,
         *,
@@ -559,6 +577,11 @@ class InMemoryWriteWorkspaceRepository:
                 content=content.strip(),
                 priority=max(0, min(1000, int(priority))),
                 is_active=bool(is_active),
+                use_count=0,
+                last_used_at=None,
+                deactivated_at=None if is_active else now,
+                deactivation_reason="" if is_active else "created_inactive",
+                consolidated_into_memory_id=None,
                 created_at=now,
                 updated_at=now,
             )
@@ -584,8 +607,76 @@ class InMemoryWriteWorkspaceRepository:
                 entries = [item for item in entries if item.section_id == section_id or item.section_id is None]
             if active_only:
                 entries = [item for item in entries if item.is_active]
-            entries.sort(key=lambda item: (-item.priority, item.updated_at))
+            entries.sort(key=self._memory_sort_key, reverse=True)
             return [deepcopy(item) for item in entries]
+
+    def update_process_memory_item(
+        self,
+        *,
+        memory_id: str,
+        memory_type: Optional[str] = None,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        priority: Optional[int] = None,
+        is_active: Optional[bool] = None,
+        section_id: Optional[str] = None,
+        deactivation_reason: Optional[str] = None,
+        consolidated_into_memory_id: Optional[str] = None,
+    ) -> WriteProcessMemoryItem:
+        with self._lock:
+            item = self._require_process_memory(memory_id)
+            project = self._require_project(item.project_id)
+            now = utc_now_iso()
+
+            if memory_type is not None:
+                item.memory_type = self._normalize_memory_type(memory_type)
+            if title is not None:
+                item.title = title.strip() or item.title
+            if content is not None:
+                item.content = content.strip() or item.content
+            if priority is not None:
+                item.priority = max(0, min(1000, int(priority)))
+            if section_id is not None:
+                if section_id:
+                    _ = self._require_section(project, section_id)
+                    item.section_id = section_id
+                else:
+                    item.section_id = None
+            if consolidated_into_memory_id is not None:
+                if consolidated_into_memory_id:
+                    _ = self._require_process_memory(consolidated_into_memory_id)
+                    item.consolidated_into_memory_id = consolidated_into_memory_id
+                else:
+                    item.consolidated_into_memory_id = None
+            if is_active is not None:
+                item.is_active = bool(is_active)
+                if item.is_active:
+                    item.deactivated_at = None
+                    if deactivation_reason is not None:
+                        item.deactivation_reason = deactivation_reason.strip()
+                    else:
+                        item.deactivation_reason = ""
+                    item.consolidated_into_memory_id = None
+                else:
+                    item.deactivated_at = now
+                    item.deactivation_reason = (deactivation_reason or "manual_deactivation").strip()
+            elif deactivation_reason is not None:
+                item.deactivation_reason = deactivation_reason.strip()
+
+            item.updated_at = now
+            project.updated_at = now
+            return deepcopy(item)
+
+    def mark_process_memory_used(self, *, memory_id: str) -> WriteProcessMemoryItem:
+        with self._lock:
+            item = self._require_process_memory(memory_id)
+            now = utc_now_iso()
+            item.use_count = max(0, int(item.use_count)) + 1
+            item.last_used_at = now
+            item.updated_at = now
+            project = self._require_project(item.project_id)
+            project.updated_at = now
+            return deepcopy(item)
 
     def upsert_draft_chunk_embedding(
         self,
@@ -865,3 +956,13 @@ class InMemoryWriteWorkspaceRepository:
         if normalized in _VALID_EDIT_SOURCES:
             return normalized
         return "user_edit"
+
+    @staticmethod
+    def _memory_sort_key(item: WriteProcessMemoryItem) -> Tuple[int, int, int, str]:
+        usage_recency = item.last_used_at or item.updated_at
+        return (
+            int(bool(item.is_active)),
+            int(item.priority),
+            int(item.use_count),
+            str(usage_recency),
+        )

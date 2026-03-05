@@ -1,0 +1,7 @@
+
+> knexit-workspace@0.1.0 serve:embeddings:cpu
+> powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-wsl.ps1
+
+INFO:     127.0.0.1:57590 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57604 - "POST /v1/embeddings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46314 - "POST /v1/embeddings HTTP/1.1" 200 OK

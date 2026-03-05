@@ -131,6 +131,11 @@ class WriteProcessMemoryItem:
     content: str
     priority: int = 100
     is_active: bool = True
+    use_count: int = 0
+    last_used_at: Optional[str] = None
+    deactivated_at: Optional[str] = None
+    deactivation_reason: str = ""
+    consolidated_into_memory_id: Optional[str] = None
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 

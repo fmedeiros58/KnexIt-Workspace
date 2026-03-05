@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { execFileSync } from "node:child_process";
 import { LETICIA_SYSTEM_PROMPT } from "@/lib/knexai/spec";
 import { loadPathConfig } from "@/core/config/paths";
 
@@ -17,12 +18,14 @@ type GenerationProfile = {
 };
 type LlmConfig = {
   baseUrl: string;
+  fallbackBaseUrls: string[];
   model: string;
   modelFallbacks: string[];
   apiKey: string;
   timeoutMs: number;
   contextWindow: number;
   maxTokens: number;
+  hostOnly: boolean;
 };
 type EngineMode = "direct" | "anm";
 type EngineModeConfig = {
@@ -36,14 +39,34 @@ type AnmChatResult = {
   answer: string;
   traceId: string | null;
 };
+type EngineAttempt<T> = {
+  source: "anm" | "direct";
+  ok: true;
+  value: T;
+} | {
+  source: "anm" | "direct";
+  ok: false;
+  error: unknown;
+};
+type EngineHealthProbeResult = {
+  ok: boolean;
+  status: number;
+  detail: string;
+  checkedAt: number;
+  baseUrl?: string;
+  attemptedBaseUrls?: string[];
+};
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1";
 const DEFAULT_MODEL = "mistral-awq";
 const DEFAULT_TIMEOUT_MS = 45_000;
-const DEFAULT_MAX_TOKENS = 2_048;
-const DEFAULT_CONTEXT_WINDOW = 2_048;
+const DEFAULT_MAX_TOKENS = 8_192;
+const DEFAULT_CONTEXT_WINDOW = 8_192;
 const CONTEXT_RESERVE_TOKENS = 256;
 const AVAILABLE_MODELS_CACHE_TTL_MS = 30_000;
+const ENGINE_HEALTH_CACHE_TTL_MS = Math.max(500, Number(process.env.KNEXAI_ENGINE_HEALTH_CACHE_TTL_MS || 3_000));
+const ENGINE_HEALTH_TIMEOUT_MS = Math.max(200, Number(process.env.KNEXAI_ENGINE_HEALTH_TIMEOUT_MS || 1_500));
+const WSL_DISCOVERY_CACHE_MS = 60_000;
 const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 const DEFAULT_ANM_SOFT_TIMEOUT_MS = 200;
@@ -56,6 +79,9 @@ type AvailableModelsCache = {
 };
 
 let availableModelsCache: AvailableModelsCache | null = null;
+let anmHealthProbeCache: { key: string; expiresAt: number; result: EngineHealthProbeResult } | null = null;
+let llmHealthProbeCache: { key: string; expiresAt: number; result: EngineHealthProbeResult } | null = null;
+let wslDiscoveryCache: { key: string; checkedAt: number; urls: string[] } | null = null;
 
 function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   for (const value of values) {
@@ -63,6 +89,86 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
     if (trimmed) return trimmed;
   }
   return "";
+}
+
+function normalizeUrl(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+function parseBooleanFlag(value: string | undefined, fallback: boolean) {
+  const normalized = (value || "").trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseBaseUrlList(value: string) {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const token of value.split(/[,\n;]+/g)) {
+    const normalized = normalizeUrl(token.trim());
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function enforceLoopbackBaseUrl(baseUrl: string) {
+  try {
+    const parsed = new URL(baseUrl);
+    const hostname = `${parsed.hostname || ""}`.trim().toLowerCase();
+    if (hostname === "localhost") {
+      parsed.hostname = "127.0.0.1";
+    }
+    return normalizeUrl(parsed.toString());
+  } catch {
+    return normalizeUrl(baseUrl);
+  }
+}
+
+function isLoopbackHostname(hostname: string) {
+  const normalized = (hostname || "").trim().toLowerCase();
+  return normalized === "127.0.0.1" || normalized === "localhost";
+}
+
+function isIpv4Address(value: string) {
+  const parts = value.trim().split(".");
+  if (parts.length !== 4) return false;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return false;
+    const parsed = Number(part);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 255) return false;
+  }
+  return true;
+}
+
+function replaceHostname(baseUrl: string, host: string) {
+  try {
+    const parsed = new URL(baseUrl);
+    parsed.hostname = host;
+    return normalizeUrl(parsed.toString());
+  } catch {
+    return "";
+  }
+}
+
+function tryDiscoverWslHostIp() {
+  try {
+    const output = execFileSync(
+      "wsl.exe",
+      ["-e", "bash", "-lc", "hostname -I 2>/dev/null | awk '{print $1}'"],
+      {
+        encoding: "utf8",
+        timeout: 1200,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    return `${output || ""}`.trim();
+  } catch {
+    return "";
+  }
 }
 
 function normalizeTemporalPrompt(prompt: string) {
@@ -149,10 +255,21 @@ class LlmRouteError extends Error {
 }
 
 function readLlmConfig(): LlmConfig {
-  const baseUrl = pickFirstNonEmpty(process.env.LOCAL_LLM_BASE_URL, process.env.LLM_BASE_URL, process.env.VLLM_BASE_URL, DEFAULT_BASE_URL).replace(
-    /\/+$/,
-    "",
+  const hostOnly = parseBooleanFlag(process.env.KNEXAI_LLM_HOST_ONLY, true);
+  const resolvedBaseUrl = normalizeUrl(
+    pickFirstNonEmpty(process.env.LOCAL_LLM_BASE_URL, process.env.LLM_BASE_URL, process.env.VLLM_BASE_URL, DEFAULT_BASE_URL),
   );
+  const baseUrl = hostOnly ? enforceLoopbackBaseUrl(resolvedBaseUrl) : resolvedBaseUrl;
+  const fallbackBaseUrls = hostOnly
+    ? []
+    : parseBaseUrlList(
+    pickFirstNonEmpty(
+      process.env.KNEXAI_LLM_FALLBACK_BASE_URLS,
+      process.env.LOCAL_LLM_FALLBACK_BASE_URLS,
+      process.env.LLM_FALLBACK_BASE_URLS,
+      "",
+    ),
+  ).filter((item) => item !== baseUrl);
   const model = resolveLogicalModelName();
   const modelFallbacks = resolveModelFallbacks(model);
   const apiKey = pickFirstNonEmpty(process.env.LOCAL_LLM_API_KEY, process.env.VLLM_API_KEY, process.env.LLM_API_KEY, "token-local");
@@ -164,7 +281,7 @@ function readLlmConfig(): LlmConfig {
   const requestedMaxTokens = Number.isFinite(parsedMaxTokens) ? Math.max(64, Math.round(parsedMaxTokens)) : DEFAULT_MAX_TOKENS;
   const maxByContext = Math.max(64, contextWindow - CONTEXT_RESERVE_TOKENS);
   const maxTokens = Math.min(requestedMaxTokens, maxByContext);
-  return { baseUrl, model, modelFallbacks, apiKey, timeoutMs, contextWindow, maxTokens };
+  return { baseUrl, fallbackBaseUrls, model, modelFallbacks, apiKey, timeoutMs, contextWindow, maxTokens, hostOnly };
 }
 
 function readEngineModeConfig(): EngineModeConfig {
@@ -182,8 +299,263 @@ function readEngineModeConfig(): EngineModeConfig {
   return { mode, anmBaseUrl, anmTimeoutMs, anmSoftTimeoutMs, fallbackToDirect };
 }
 
+function resolveDynamicLlmFallbackUrls(seedUrls: string[]) {
+  if (parseBooleanFlag(process.env.KNEXAI_LLM_HOST_ONLY, true)) return [];
+  if (!parseBooleanFlag(process.env.KNEXAI_LLM_WSL_DISCOVERY_ENABLED, true)) return [];
+  if (process.platform !== "win32") return [];
+
+  const loopbackSeeds = seedUrls.filter((baseUrl) => {
+    try {
+      return isLoopbackHostname(new URL(baseUrl).hostname);
+    } catch {
+      return false;
+    }
+  });
+  if (!loopbackSeeds.length) return [];
+
+  const cacheKey = loopbackSeeds.join("|");
+  const now = Date.now();
+  if (wslDiscoveryCache && wslDiscoveryCache.key === cacheKey && now - wslDiscoveryCache.checkedAt < WSL_DISCOVERY_CACHE_MS) {
+    return wslDiscoveryCache.urls;
+  }
+
+  const configuredHost = pickFirstNonEmpty(
+    process.env.KNEXAI_WSL_HOST_IP,
+    process.env.LOCAL_WSL_HOST_IP,
+    process.env.RAG_LLM_WSL_HOST_IP,
+  );
+  const discoveredHosts: string[] = [];
+  if (isIpv4Address(configuredHost)) {
+    discoveredHosts.push(configuredHost);
+  } else {
+    const discoveredHost = tryDiscoverWslHostIp();
+    if (isIpv4Address(discoveredHost)) {
+      discoveredHosts.push(discoveredHost);
+    }
+  }
+
+  const urls = Array.from(
+    new Set(
+      discoveredHosts.flatMap((host) =>
+        loopbackSeeds
+          .map((baseUrl) => replaceHostname(baseUrl, host))
+          .filter(Boolean),
+      ),
+    ),
+  );
+  wslDiscoveryCache = {
+    key: cacheKey,
+    checkedAt: now,
+    urls,
+  };
+  if (urls.length) {
+    console.info("KNEXAI_DYNAMIC_LLM_FALLBACKS", {
+      discoveredHosts,
+      dynamicUrls: urls,
+    });
+  }
+  return urls;
+}
+
+function resolveLlmBaseUrlCandidates(config: LlmConfig) {
+  if (config.hostOnly) {
+    return [normalizeUrl(config.baseUrl)];
+  }
+  const seedUrls = [
+    normalizeUrl(config.baseUrl),
+    ...config.fallbackBaseUrls.map((item) => normalizeUrl(item)),
+  ];
+  const dynamicFallbacks = resolveDynamicLlmFallbackUrls(seedUrls);
+  const ordered = [...seedUrls, ...dynamicFallbacks];
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of ordered) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function applyResolvedLlmBaseUrl(config: LlmConfig, baseUrl: string | null | undefined) {
+  const normalized = normalizeUrl(baseUrl || "");
+  if (!normalized || normalized === config.baseUrl) return config;
+  return { ...config, baseUrl: normalized };
+}
+
 function safeBackendError(status: number, code: string, message: string) {
   return Response.json({ code, message }, { status });
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function describeEngineError(error: unknown) {
+  if (error instanceof LlmRouteError) return `${error.code}: ${error.message}`;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function toAttemptOk<T>(source: "anm" | "direct", value: T): EngineAttempt<T> {
+  return { source, ok: true, value };
+}
+
+function toAttemptError(source: "anm" | "direct", error: unknown): EngineAttempt<never> {
+  return { source, ok: false, error };
+}
+
+async function probeEngineHealth(input: {
+  url: string;
+  timeoutMs: number;
+  headers?: Record<string, string>;
+}): Promise<EngineHealthProbeResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), Math.max(200, input.timeoutMs));
+  const checkedAt = Date.now();
+  try {
+    const response = await fetch(input.url, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: input.headers || {},
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        detail: `HTTP_${response.status}`,
+        checkedAt,
+      };
+    }
+    const contentType = `${response.headers.get("content-type") || ""}`.toLowerCase();
+    if (contentType.includes("application/json")) {
+      try {
+        const payload = (await response.json()) as { ok?: unknown; detail?: unknown; error?: unknown };
+        if (payload && payload.ok === false) {
+          const detail = typeof payload.detail === "string" ? payload.detail : typeof payload.error === "string" ? payload.error : "ok_false";
+          return {
+            ok: false,
+            status: response.status,
+            detail,
+            checkedAt,
+          };
+        }
+      } catch {
+        // Ignore JSON parse issues in health probe and keep status-based success.
+      }
+    }
+    return {
+      ok: true,
+      status: response.status,
+      detail: "ok",
+      checkedAt,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: isAbortError(error) ? 504 : 0,
+      detail: isAbortError(error) ? "timeout" : describeEngineError(error),
+      checkedAt,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function probeAnmHealth(config: EngineModeConfig): Promise<EngineHealthProbeResult> {
+  const key = `${config.anmBaseUrl}`;
+  const now = Date.now();
+  if (anmHealthProbeCache && anmHealthProbeCache.key === key && anmHealthProbeCache.expiresAt > now) {
+    return anmHealthProbeCache.result;
+  }
+  const result = await probeEngineHealth({
+    url: `${config.anmBaseUrl}/healthz`,
+    timeoutMs: Math.min(config.anmSoftTimeoutMs, ENGINE_HEALTH_TIMEOUT_MS),
+  });
+  anmHealthProbeCache = {
+    key,
+    expiresAt: now + ENGINE_HEALTH_CACHE_TTL_MS,
+    result,
+  };
+  return result;
+}
+
+async function probeDirectHealth(config: LlmConfig): Promise<EngineHealthProbeResult> {
+  const candidates = resolveLlmBaseUrlCandidates(config);
+  const key = `${candidates.join("|")}|${config.apiKey}`;
+  const now = Date.now();
+  if (llmHealthProbeCache && llmHealthProbeCache.key === key && llmHealthProbeCache.expiresAt > now) {
+    return llmHealthProbeCache.result;
+  }
+
+  let firstFailure: EngineHealthProbeResult | null = null;
+  for (const baseUrl of candidates) {
+    const result = await probeEngineHealth({
+      url: `${baseUrl}/models`,
+      timeoutMs: Math.min(config.timeoutMs, ENGINE_HEALTH_TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+    });
+    const decorated: EngineHealthProbeResult = {
+      ...result,
+      baseUrl,
+      attemptedBaseUrls: candidates,
+    };
+    if (decorated.ok) {
+      if (baseUrl !== config.baseUrl) {
+        console.warn("KNEXAI_LLM_BASEURL_FAILOVER", {
+          configuredBaseUrl: config.baseUrl,
+          selectedBaseUrl: baseUrl,
+          attemptedBaseUrls: candidates,
+        });
+      }
+      llmHealthProbeCache = {
+        key,
+        expiresAt: now + ENGINE_HEALTH_CACHE_TTL_MS,
+        result: decorated,
+      };
+      return decorated;
+    }
+    if (!firstFailure) firstFailure = decorated;
+  }
+
+  const result = firstFailure || {
+    ok: false,
+    status: 503,
+    detail: "unreachable",
+    checkedAt: now,
+    baseUrl: config.baseUrl,
+    attemptedBaseUrls: candidates,
+  };
+  llmHealthProbeCache = {
+    key,
+    expiresAt: now + ENGINE_HEALTH_CACHE_TTL_MS,
+    result,
+  };
+  return result;
+}
+
+function buildEngineCompositeError(attempts: Array<EngineAttempt<unknown>>) {
+  const failed = attempts.filter((attempt) => !attempt.ok);
+  const summary = failed
+    .map((attempt) =>
+      `${attempt.source.toUpperCase()}=${describeEngineError("error" in attempt ? attempt.error : "unknown_error")}`,
+    )
+    .join(" | ");
+  return new LlmRouteError(
+    503,
+    "ENGINE_PATHS_UNAVAILABLE",
+    summary ? `Todos os caminhos de inferencia falharam. ${summary}` : "Todos os caminhos de inferencia falharam.",
+  );
+}
+
+function toAnmTextResponse(anm: AnmChatResult) {
+  const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
+  if (anm.traceId) headers["X-KnexAI-Trace-Id"] = anm.traceId;
+  return new Response(createChunkedTextStream(anm.answer), {
+    status: 200,
+    headers,
+  });
 }
 
 function normalizeHistory(value: unknown): ChatHistoryItem[] {
@@ -388,7 +760,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
     return {
       temperature: 0.12,
       topP: 0.8,
-      maxTokens: Math.min(config.maxTokens, 96),
+      maxTokens: Math.min(config.maxTokens, 256),
       repetitionPenalty: 1.12,
       brevityInstruction:
         "Resposta objetiva e pontual: va direto ao ponto em no maximo 2 frases curtas (ou lista curta), sem explicacao longa.",
@@ -399,7 +771,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
     return {
       temperature: 0.2,
       topP: 0.85,
-      maxTokens: Math.min(config.maxTokens, 240),
+      maxTokens: Math.min(config.maxTokens, 768),
       repetitionPenalty: 1.16,
       brevityInstruction:
         "Resposta curta e direta: use no maximo 3 frases curtas, sem repeticao de palavras e sem rodeios.",
@@ -410,7 +782,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
     return {
       temperature: 0.28,
       topP: 0.9,
-      maxTokens: Math.min(config.maxTokens, 700),
+      maxTokens: Math.min(config.maxTokens, 2048),
       repetitionPenalty: 1.1,
       brevityInstruction:
         "Resposta equilibrada: explique com clareza e profundidade moderada, em 1 a 3 paragrafos curtos, com exemplos quando util.",
@@ -420,7 +792,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
   return {
     temperature: 0.32,
     topP: 0.92,
-    maxTokens: Math.min(config.maxTokens, 1200),
+    maxTokens: config.maxTokens,
     repetitionPenalty: 1.08,
     brevityInstruction:
       "Resposta aprofundada e estruturada: traga contexto, explicacao tecnica, trade-offs e conclusao pratica, sem repeticoes.",
@@ -445,9 +817,24 @@ function buildSystemInstruction(profile: GenerationProfile) {
   ].join("\n");
 }
 
+function shouldUseSystemRoleForChatCompletions() {
+  const raw = pickFirstNonEmpty(process.env.KNEXAI_CHAT_USE_SYSTEM_ROLE, "0").toLowerCase();
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
 function buildChatMessages(history: ChatHistoryItem[], profile: GenerationProfile): ModelChatMessage[] {
   if (!history.length) return [];
-  return [{ role: "system", content: buildSystemInstruction(profile) }, ...history];
+  if (shouldUseSystemRoleForChatCompletions()) {
+    return [{ role: "system", content: buildSystemInstruction(profile) }, ...history];
+  }
+
+  const injected = history.map((item) => ({ ...item }));
+  const firstUserIndex = injected.findIndex((row) => row.role === "user");
+  if (firstUserIndex >= 0) {
+    const firstUser = injected[firstUserIndex];
+    firstUser.content = `${buildSystemInstruction(profile)}\n\nPergunta atual:\n${firstUser.content}`.trim();
+  }
+  return injected;
 }
 
 function buildCompletionPrompt(history: ChatHistoryItem[], profile: GenerationProfile) {
@@ -1006,6 +1393,8 @@ export async function GET() {
       anmSoftTimeoutMs: engineMode.anmSoftTimeoutMs,
       anmFallbackToDirect: engineMode.fallbackToDirect,
       baseUrl: config.baseUrl,
+      fallbackBaseUrls: config.fallbackBaseUrls,
+      resolvedCandidates: resolveLlmBaseUrlCandidates(config),
       model: config.model,
       modelFallbacks: config.modelFallbacks,
       contextWindow: config.contextWindow,
@@ -1036,67 +1425,131 @@ export async function POST(req: NextRequest) {
 
     if (engineMode.mode === "anm") {
       if (engineMode.fallbackToDirect) {
-        const anmPromise = requestAnmChat({ ...engineMode, anmTimeoutMs: engineMode.anmSoftTimeoutMs }, safePrompt)
-          .then((anm) => ({ source: "anm" as const, ok: true as const, anm }))
-          .catch((error: unknown) => ({ source: "anm" as const, ok: false as const, error }));
-        const directPromise = requestLlmStreaming(config, effectiveHistory, safePrompt)
-          .then((upstream) => ({ source: "direct" as const, ok: true as const, upstream }))
-          .catch((error: unknown) => ({ source: "direct" as const, ok: false as const, error }));
+        const [anmHealth, directHealth] = await Promise.all([probeAnmHealth(engineMode), probeDirectHealth(config)]);
+        const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
+        console.info("KNEXAI_ENGINE_HEALTH_SNAPSHOT", {
+          mode: engineMode.mode,
+          anmOk: anmHealth.ok,
+          anmStatus: anmHealth.status,
+          anmDetail: anmHealth.detail,
+          directOk: directHealth.ok,
+          directStatus: directHealth.status,
+          directDetail: directHealth.detail,
+          directConfiguredBaseUrl: config.baseUrl,
+          directSelectedBaseUrl: directConfig.baseUrl,
+          directAttemptedBaseUrls: directHealth.attemptedBaseUrls || [],
+        });
 
-        const first = await Promise.race([anmPromise, directPromise]);
+        if (anmHealth.ok && !directHealth.ok) {
+          const anmAttempt = await requestAnmChat(engineMode, safePrompt)
+            .then((anm) => toAttemptOk("anm", anm))
+            .catch((error: unknown) => toAttemptError("anm", error));
+          if (anmAttempt.ok && anmAttempt.source === "anm") {
+            console.info("KNEXAI_ANM_CHAT_OK", {
+              traceId: anmAttempt.value.traceId,
+              anmBaseUrl: engineMode.anmBaseUrl,
+              answerChars: anmAttempt.value.answer.length,
+              routePolicy: "anm_only_due_direct_unhealthy",
+            });
+            return toAnmTextResponse(anmAttempt.value);
+          }
+          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, safePrompt)
+            .then((upstream) => toAttemptOk("direct", upstream))
+            .catch((error: unknown) => toAttemptError("direct", error));
+          if (directAttempt.ok && directAttempt.source === "direct") {
+            return toClientTextStreamResponse(directAttempt.value);
+          }
+          throw buildEngineCompositeError([anmAttempt, directAttempt]);
+        }
+
+        if (!anmHealth.ok && directHealth.ok) {
+          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, safePrompt)
+            .then((upstream) => toAttemptOk("direct", upstream))
+            .catch((error: unknown) => toAttemptError("direct", error));
+          if (directAttempt.ok && directAttempt.source === "direct") {
+            return toClientTextStreamResponse(directAttempt.value);
+          }
+          const anmAttempt = await requestAnmChat(engineMode, safePrompt)
+            .then((anm) => toAttemptOk("anm", anm))
+            .catch((error: unknown) => toAttemptError("anm", error));
+          if (anmAttempt.ok && anmAttempt.source === "anm") {
+            console.info("KNEXAI_ANM_CHAT_OK", {
+              traceId: anmAttempt.value.traceId,
+              anmBaseUrl: engineMode.anmBaseUrl,
+              answerChars: anmAttempt.value.answer.length,
+              routePolicy: "anm_fallback_after_direct_failure",
+            });
+            return toAnmTextResponse(anmAttempt.value);
+          }
+          throw buildEngineCompositeError([directAttempt, anmAttempt]);
+        }
+
+        if (!anmHealth.ok && !directHealth.ok) {
+          throw new LlmRouteError(
+            503,
+            "ENGINE_PATHS_UNAVAILABLE",
+            `ANM indisponivel (${anmHealth.detail}) e LLM direta indisponivel (${directHealth.detail}).` +
+              ` Endpoints diretos tentados: ${(directHealth.attemptedBaseUrls || [config.baseUrl]).join(", ")}.`,
+          );
+        }
+
+        const anmSoftPromise = requestAnmChat({ ...engineMode, anmTimeoutMs: engineMode.anmSoftTimeoutMs }, safePrompt)
+          .then((anm) => toAttemptOk("anm", anm))
+          .catch((error: unknown) => toAttemptError("anm", error));
+        const directPromise = requestLlmStreaming(directConfig, effectiveHistory, safePrompt)
+          .then((upstream) => toAttemptOk("direct", upstream))
+          .catch((error: unknown) => toAttemptError("direct", error));
+
+        const first = await Promise.race([anmSoftPromise, directPromise]);
         if (first.ok && first.source === "anm") {
+          const anm = first.value as AnmChatResult;
           console.info("KNEXAI_ANM_CHAT_OK", {
-            traceId: first.anm.traceId,
+            traceId: anm.traceId,
             anmBaseUrl: engineMode.anmBaseUrl,
-            answerChars: first.anm.answer.length,
+            answerChars: anm.answer.length,
+            routePolicy: "anm_soft_won_race",
           });
-          const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
-          if (first.anm.traceId) headers["X-KnexAI-Trace-Id"] = first.anm.traceId;
-          return new Response(createChunkedTextStream(first.anm.answer), {
-            status: 200,
-            headers,
-          });
+          return toAnmTextResponse(anm);
         }
         if (first.ok && first.source === "direct") {
-          return toClientTextStreamResponse(first.upstream);
+          const upstream = first.value as Response;
+          return toClientTextStreamResponse(upstream);
         }
+
         if (!first.ok && first.source === "anm") {
-          const err = first.error;
-          if (err instanceof LlmRouteError) {
-            console.warn("KNEXAI_ANM_FALLBACK_TO_DIRECT", {
-              code: err.code,
-              status: err.status,
-              message: err.message,
-            });
-          }
           const second = await directPromise;
           if (second.ok && second.source === "direct") {
-            return toClientTextStreamResponse(second.upstream);
+            return toClientTextStreamResponse(second.value);
           }
-          if (!second.ok && second.source === "direct" && second.error instanceof LlmRouteError) {
-            throw second.error;
-          }
-          throw new LlmRouteError(503, "LLM_UNAVAILABLE", "Falha ao consultar ANM e stream direto.");
-        }
-        if (!first.ok && first.source === "direct") {
-          const second = await anmPromise;
-          if (second.ok && second.source === "anm") {
+          const hardAnm = await requestAnmChat(engineMode, safePrompt)
+            .then((anm) => toAttemptOk("anm", anm))
+            .catch((error: unknown) => toAttemptError("anm", error));
+          if (hardAnm.ok && hardAnm.source === "anm") {
             console.info("KNEXAI_ANM_CHAT_OK", {
-              traceId: second.anm.traceId,
+              traceId: hardAnm.value.traceId,
               anmBaseUrl: engineMode.anmBaseUrl,
-              answerChars: second.anm.answer.length,
+              answerChars: hardAnm.value.answer.length,
+              routePolicy: "anm_hard_retry_after_soft_timeout",
             });
-            const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
-            if (second.anm.traceId) headers["X-KnexAI-Trace-Id"] = second.anm.traceId;
-            return new Response(createChunkedTextStream(second.anm.answer), {
-              status: 200,
-              headers,
+            return toAnmTextResponse(hardAnm.value);
+          }
+          throw buildEngineCompositeError([first, second, hardAnm]);
+        }
+
+        if (!first.ok && first.source === "direct") {
+          const hardAnm = await requestAnmChat(engineMode, safePrompt)
+            .then((anm) => toAttemptOk("anm", anm))
+            .catch((error: unknown) => toAttemptError("anm", error));
+          if (hardAnm.ok && hardAnm.source === "anm") {
+            console.info("KNEXAI_ANM_CHAT_OK", {
+              traceId: hardAnm.value.traceId,
+              anmBaseUrl: engineMode.anmBaseUrl,
+              answerChars: hardAnm.value.answer.length,
+              routePolicy: "anm_hard_after_direct_failure",
             });
+            return toAnmTextResponse(hardAnm.value);
           }
-          if (!second.ok && second.source === "anm" && second.error instanceof LlmRouteError) {
-            throw second.error;
-          }
-          throw new LlmRouteError(503, "LLM_UNAVAILABLE", "Falha ao consultar stream direto e ANM.");
+          throw buildEngineCompositeError([first, hardAnm]);
         }
       } else {
         const anm = await requestAnmChat(engineMode, safePrompt);
@@ -1105,16 +1558,20 @@ export async function POST(req: NextRequest) {
           anmBaseUrl: engineMode.anmBaseUrl,
           answerChars: anm.answer.length,
         });
-        const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
-        if (anm.traceId) headers["X-KnexAI-Trace-Id"] = anm.traceId;
-        return new Response(createChunkedTextStream(anm.answer), {
-          status: 200,
-          headers,
-        });
+        return toAnmTextResponse(anm);
       }
     }
 
-    const upstream = await requestLlmStreaming(config, effectiveHistory, safePrompt);
+    const directHealth = await probeDirectHealth(config);
+    if (!directHealth.ok) {
+      throw new LlmRouteError(
+        503,
+        "LLM_UNAVAILABLE",
+        `Motor local indisponivel em ${config.baseUrl}. Endpoints tentados: ${(directHealth.attemptedBaseUrls || [config.baseUrl]).join(", ")}.`,
+      );
+    }
+    const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
+    const upstream = await requestLlmStreaming(directConfig, effectiveHistory, safePrompt);
     return toClientTextStreamResponse(upstream);
   } catch (error) {
     if (error instanceof LlmRouteError) {

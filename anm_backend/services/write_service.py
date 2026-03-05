@@ -11,6 +11,8 @@ PRIMARY RISK: Coupling write logic with chat flow if boundaries are bypassed.
 from __future__ import annotations
 
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
@@ -18,9 +20,16 @@ from uuid import uuid4
 from anm_backend.adapters.llm_adapter import LLMAdapter
 from anm_backend.audit import audit_log
 from anm_backend.memory.memory_manager import MemoryManager
-from anm_backend.write.contracts import WriteChunk, WriteChunkVersion, WriteProject, WriteReference, WriteSection
+from anm_backend.write.contracts import (
+    WriteChunk,
+    WriteChunkVersion,
+    WriteProcessMemoryItem,
+    WriteProject,
+    WriteReference,
+    WriteSection,
+)
 from anm_backend.write.repository import WriteWorkspaceRepository
-from anm_backend.write.semantic_embeddings import DeterministicEmbeddingProvider
+from anm_backend.write.semantic_embeddings import DeterministicEmbeddingProvider, cosine_similarity
 
 if TYPE_CHECKING:
     from anm_backend.services.write_summary_service import WriteSummaryService
@@ -560,6 +569,240 @@ class WriteService:
             "reindexed_at": last_reindexed_at,
         }
 
+    def resummarize_chunk(self, *, chunk_id: str) -> Dict[str, Any]:
+        if not self.summary_service:
+            raise RuntimeError("write_summary_service_unavailable")
+        trace_id = f"trace-{uuid4()}"
+        chunk = self.repository.get_chunk(chunk_id=chunk_id)
+        if not chunk:
+            raise KeyError("write chunk not found")
+        section_payload = self.summary_service.summarize_section(section_id=chunk.section_id)
+        project_payload = self.summary_service.summarize_project(project_id=chunk.project_id)
+        audit_log(
+            component="write_service",
+            event="write_chunk_resummarized",
+            payload={
+                "chunk_id": chunk.chunk_id,
+                "project_id": chunk.project_id,
+                "section_id": chunk.section_id,
+                "section_summary_version": section_payload["summary"]["summary_version"],
+                "project_summary_version": project_payload["summary"]["summary_version"],
+            },
+            trace_id=trace_id,
+        )
+        return {
+            "trace_id": trace_id,
+            "chunk_id": chunk.chunk_id,
+            "project_id": chunk.project_id,
+            "section_id": chunk.section_id,
+            "section_summary": section_payload["summary"],
+            "project_summary": project_payload["summary"],
+        }
+
+    def section_summary_staleness(self, *, section_id: str) -> Dict[str, Any]:
+        if not self.summary_service:
+            raise RuntimeError("write_summary_service_unavailable")
+        stale, stale_reasons = self.summary_service.section_summary_staleness(section_id=section_id)
+        return {
+            "section_id": section_id,
+            "is_stale": bool(stale),
+            "stale_reasons": list(stale_reasons),
+        }
+
+    def project_summary_staleness(self, *, project_id: str) -> Dict[str, Any]:
+        if not self.summary_service:
+            raise RuntimeError("write_summary_service_unavailable")
+        stale, stale_reasons = self.summary_service.project_summary_staleness(project_id=project_id)
+        return {
+            "project_id": project_id,
+            "is_stale": bool(stale),
+            "stale_reasons": list(stale_reasons),
+        }
+
+    def update_process_memory_item(
+        self,
+        *,
+        memory_id: str,
+        memory_type: Optional[str],
+        title: Optional[str],
+        content: Optional[str],
+        priority: Optional[int],
+        is_active: Optional[bool],
+        section_id: Optional[str],
+        deactivation_reason: Optional[str],
+        consolidated_into_memory_id: Optional[str],
+    ) -> Dict[str, Any]:
+        trace_id = f"trace-{uuid4()}"
+        item = self.repository.update_process_memory_item(
+            memory_id=memory_id,
+            memory_type=memory_type,
+            title=title,
+            content=content,
+            priority=priority,
+            is_active=is_active,
+            section_id=section_id,
+            deactivation_reason=deactivation_reason,
+            consolidated_into_memory_id=consolidated_into_memory_id,
+        )
+        self.repository.upsert_process_memory_embedding(
+            process_memory_id=item.memory_id,
+            embedding=self.embedding_provider.embed(f"{item.title}\n{item.content}"),
+            embedding_model=self.embedding_provider.model_name,
+        )
+        audit_log(
+            component="write_service",
+            event="write_process_memory_updated",
+            payload={
+                "memory_id": item.memory_id,
+                "project_id": item.project_id,
+                "is_active": item.is_active,
+                "priority": item.priority,
+                "consolidated_into_memory_id": item.consolidated_into_memory_id,
+            },
+            trace_id=trace_id,
+        )
+        return self._process_memory_item_view(item)
+
+    def list_inactive_process_memory(self, *, project_id: str) -> Dict[str, Any]:
+        project = self.repository.get_project(project_id)
+        if not project:
+            raise KeyError("write project not found")
+        inactive_items = self.repository.list_process_memory_items(project_id=project_id, active_only=False)
+        payload = [self._process_memory_item_view(item) for item in inactive_items if not item.is_active]
+        return {"project_id": project_id, "inactive_memory": payload}
+
+    def consolidate_process_memory(
+        self,
+        *,
+        project_id: str,
+        similarity_threshold: float,
+        ttl_days: int,
+        low_priority_max: int,
+        dry_run: bool,
+    ) -> Dict[str, Any]:
+        project = self.repository.get_project(project_id)
+        if not project:
+            raise KeyError("write project not found")
+        trace_id = f"trace-{uuid4()}"
+        threshold = max(0.6, min(float(similarity_threshold), 1.0))
+        ttl = max(0, min(int(ttl_days), 3650))
+        low_priority = max(0, min(int(low_priority_max), 1000))
+
+        all_items = self.repository.list_process_memory_items(project_id=project_id, active_only=False)
+        active_items = [item for item in all_items if item.is_active]
+        duplicate_groups: List[Dict[str, Any]] = []
+        deactivated_ids: List[str] = []
+        kept_ids: List[str] = []
+
+        visited: set[str] = set()
+        for item in active_items:
+            if item.memory_id in visited:
+                continue
+            group = [item]
+            visited.add(item.memory_id)
+            item_embedding = self.repository.get_process_memory_embedding(process_memory_id=item.memory_id)
+            for candidate in active_items:
+                if candidate.memory_id in visited:
+                    continue
+                if candidate.memory_type != item.memory_type:
+                    continue
+                if self._normalized_memory_key(item) == self._normalized_memory_key(candidate):
+                    group.append(candidate)
+                    visited.add(candidate.memory_id)
+                    continue
+                if item_embedding:
+                    candidate_embedding = self.repository.get_process_memory_embedding(process_memory_id=candidate.memory_id)
+                    if candidate_embedding:
+                        similarity = cosine_similarity(item_embedding.embedding, candidate_embedding.embedding)
+                        if similarity >= threshold:
+                            group.append(candidate)
+                            visited.add(candidate.memory_id)
+            if len(group) < 2:
+                continue
+
+            ordered_group = sorted(
+                group,
+                key=lambda row: (row.priority, row.use_count, row.last_used_at or row.updated_at, row.updated_at),
+                reverse=True,
+            )
+            primary = ordered_group[0]
+            duplicates = ordered_group[1:]
+            kept_ids.append(primary.memory_id)
+            duplicate_groups.append(
+                {
+                    "primary_memory_id": primary.memory_id,
+                    "duplicate_memory_ids": [row.memory_id for row in duplicates],
+                }
+            )
+            if dry_run:
+                continue
+            for duplicate in duplicates:
+                self.repository.update_process_memory_item(
+                    memory_id=duplicate.memory_id,
+                    is_active=False,
+                    deactivation_reason=f"deduplicated_into:{primary.memory_id}",
+                    consolidated_into_memory_id=primary.memory_id,
+                )
+                deactivated_ids.append(duplicate.memory_id)
+
+        ttl_deactivated_ids: List[str] = []
+        if ttl > 0:
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(days=ttl)
+            refreshed_items = self.repository.list_process_memory_items(project_id=project_id, active_only=True)
+            for item in refreshed_items:
+                if item.priority > low_priority:
+                    continue
+                if int(item.use_count) > 0:
+                    continue
+                last_signal_raw = item.last_used_at or item.updated_at
+                if _parse_timestamp(last_signal_raw) >= cutoff:
+                    continue
+                if dry_run:
+                    ttl_deactivated_ids.append(item.memory_id)
+                    continue
+                self.repository.update_process_memory_item(
+                    memory_id=item.memory_id,
+                    is_active=False,
+                    deactivation_reason=f"ttl_inactive:{ttl}d",
+                )
+                ttl_deactivated_ids.append(item.memory_id)
+
+        final_items = self.repository.list_process_memory_items(project_id=project_id, active_only=False)
+        active_count = sum(1 for item in final_items if item.is_active)
+        inactive_count = len(final_items) - active_count
+
+        audit_log(
+            component="write_service",
+            event="write_process_memory_consolidated",
+            payload={
+                "project_id": project_id,
+                "dry_run": bool(dry_run),
+                "similarity_threshold": threshold,
+                "ttl_days": ttl,
+                "low_priority_max": low_priority,
+                "duplicate_groups": duplicate_groups,
+                "deactivated_memory_ids": deactivated_ids,
+                "deactivated_by_ttl_ids": ttl_deactivated_ids,
+                "active_count": active_count,
+                "inactive_count": inactive_count,
+            },
+            trace_id=trace_id,
+        )
+        return {
+            "trace_id": trace_id,
+            "project_id": project_id,
+            "dry_run": bool(dry_run),
+            "similarity_threshold": threshold,
+            "ttl_days": ttl,
+            "low_priority_max": low_priority,
+            "duplicate_groups": duplicate_groups,
+            "deactivated_memory_ids": deactivated_ids,
+            "kept_memory_ids": kept_ids,
+            "deactivated_by_ttl_ids": ttl_deactivated_ids,
+            "active_count": active_count,
+            "inactive_count": inactive_count,
+        }
+
     def add_process_memory(
         self,
         *,
@@ -599,18 +842,7 @@ class WriteService:
             },
             trace_id=trace_id,
         )
-        return {
-            "memory_id": item.memory_id,
-            "project_id": item.project_id,
-            "section_id": item.section_id,
-            "memory_type": item.memory_type,
-            "title": item.title,
-            "content": item.content,
-            "priority": item.priority,
-            "is_active": item.is_active,
-            "created_at": item.created_at,
-            "updated_at": item.updated_at,
-        }
+        return self._process_memory_item_view(item)
 
     def attach_reference(
         self,
@@ -716,10 +948,17 @@ class WriteService:
         project = self.repository.get_project(project_id)
         if not project:
             raise KeyError("write project not found")
-        process_memory_items = self.repository.list_process_memory_items(project_id=project_id)
+        process_memory_items = self.repository.list_process_memory_items(project_id=project_id, active_only=False)
+        active_items = [item for item in process_memory_items if item.is_active]
+        inactive_items = [item for item in process_memory_items if not item.is_active]
         return {
             "status": project.status,
             "process_summary": project.process_summary,
+            "counts": {
+                "total": len(process_memory_items),
+                "active": len(active_items),
+                "inactive": len(inactive_items),
+            },
             "sections": [
                 {
                     "section_id": section.section_id,
@@ -742,19 +981,9 @@ class WriteService:
                 }
                 for reference in project.references
             ],
-            "items": [
-                {
-                    "memory_id": item.memory_id,
-                    "section_id": item.section_id,
-                    "memory_type": item.memory_type,
-                    "title": item.title,
-                    "content": item.content,
-                    "priority": item.priority,
-                    "is_active": item.is_active,
-                    "updated_at": item.updated_at,
-                }
-                for item in process_memory_items
-            ],
+            "items": [self._process_memory_item_view(item) for item in process_memory_items],
+            "active_items": [self._process_memory_item_view(item) for item in active_items],
+            "inactive_items": [self._process_memory_item_view(item) for item in inactive_items],
             "rag_ready": bool(project.references),
         }
 
@@ -920,3 +1149,45 @@ class WriteService:
             "created_at": summary_row.created_at,
             "updated_at": summary_row.updated_at,
         }
+
+    @staticmethod
+    def _process_memory_item_view(item: WriteProcessMemoryItem) -> Dict[str, Any]:
+        return {
+            "memory_id": item.memory_id,
+            "project_id": item.project_id,
+            "section_id": item.section_id,
+            "memory_type": item.memory_type,
+            "title": item.title,
+            "content": item.content,
+            "priority": item.priority,
+            "is_active": item.is_active,
+            "use_count": item.use_count,
+            "last_used_at": item.last_used_at,
+            "deactivated_at": item.deactivated_at,
+            "deactivation_reason": item.deactivation_reason,
+            "consolidated_into_memory_id": item.consolidated_into_memory_id,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+
+    @staticmethod
+    def _normalized_memory_key(item: WriteProcessMemoryItem) -> str:
+        parts = [
+            item.memory_type.strip().lower(),
+            re.sub(r"\s+", " ", item.title.strip().lower()),
+            re.sub(r"\s+", " ", item.content.strip().lower()),
+        ]
+        return "||".join(parts)
+
+
+def _parse_timestamp(value: str) -> datetime:
+    raw = str(value or "").strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

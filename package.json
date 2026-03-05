@@ -12,17 +12,19 @@
     "dev:vioclass": "start \"\" http://localhost:3006/vioclass && next dev -H 127.0.0.1 -p 3006",
     "dev:vioread": "start \"\" http://localhost:3007/vioread && next dev -H 127.0.0.1 -p 3007",
     "build": "next build",
+    "test": "jest --runInBand",
     "db:types:gen": "node scripts/gen-supabase-types.mjs",
     "db:types:check": "node scripts/check-supabase-types.mjs",
     "db:types:doctor": "node scripts/doctor-supabase-types.mjs",
     "start": "next start -H localhost -p 3000",
     "lint": "next lint",
     "serve:anm": "powershell -ExecutionPolicy Bypass -File scripts/serve-anm-wsl.ps1",
+    "serve:next:wsl": "powershell -ExecutionPolicy Bypass -File scripts/serve-next-wsl.ps1",
     "serve:embeddings:cpu": "powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-wsl.ps1",
     "serve:embeddings:cpu:restart": "powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-restart.ps1",
     "serve:vllm:wsl": "powershell -ExecutionPolicy Bypass -File scripts/serve-vllm-wsl.ps1",
     "serve:vllm:wsl:restart": "powershell -ExecutionPolicy Bypass -File scripts/serve-vllm-restart.ps1",
-    "serve:vllm": "vllm serve models/CModelosMistral-7B-Instruct-v0.2-AWQ --host 0.0.0.0 --port 8000 --served-model-name mistral-awq --max-num-seqs 2 --max-model-len 4096 --gpu-memory-utilization 0.90",
+    "serve:vllm": "vllm serve models/CModelosMistral-7B-Instruct-v0.2-AWQ --host 127.0.0.1 --port 8000 --served-model-name mistral-awq --max-num-seqs 2 --max-model-len 4096 --gpu-memory-utilization 0.90",
     "email:test": "node scripts/email-test.mjs",
     "supabase:local:start": "powershell -ExecutionPolicy Bypass -File scripts/supabase-local-start.ps1",
     "supabase:local:prep-nvme": "powershell -ExecutionPolicy Bypass -File scripts/configure-docker-nvme2.ps1",
@@ -33,7 +35,10 @@
     "verify:nvme:sh": "bash scripts/verify-nvme-setup.sh",
     "smoke:api": "bash scripts/smoke-test-api.sh",
     "smoke:rag": "bash scripts/smoke-test-rag.sh",
-    "smoke:rag:v2": "bash scripts/smoke_rag_v2"
+    "smoke:rag:v2": "bash scripts/smoke_rag_v2",
+    "rag:reindex:gaps": "node scripts/rag-reindex-gapped-docs.mjs --auto-gaps",
+    "bench:rag:router": "node scripts/bench-rag-router.mjs",
+    "bench:rag:router:wsl": "powershell -ExecutionPolicy Bypass -File scripts/bench-rag-router-wsl.ps1"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.15",
@@ -48,6 +53,7 @@
     "emoji-picker-react": "^4.17.3",
     "epubjs": "^0.3.93",
     "fastify": "^5.6.2",
+    "franc-min": "^6.2.0",
     "livekit-client": "^2.15.8",
     "livekit-server-sdk": "^2.14.0",
     "lru-cache": "^11.2.6",
@@ -66,6 +72,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "20.14.12",
     "@types/pg": "^8.18.0",
     "@types/react": "18.3.5",
@@ -73,9 +80,11 @@
     "autoprefixer": "10.4.19",
     "eslint": "8.57.1",
     "eslint-config-next": "14.2.3",
+    "jest": "^30.2.0",
     "npm-run-all": "^4.1.5",
     "postcss": "8.4.38",
     "tailwindcss": "3.4.10",
+    "ts-jest": "^29.4.6",
     "typescript": "5.4.5"
   },
   "overrides": {

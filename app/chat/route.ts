@@ -8,6 +8,7 @@ import {
   readJsonBodyWithLimit,
   sanitizePublicErrorMessage,
 } from "@/app/api/_shared/public-api";
+import { createAssistantPipelineOrchestratorService } from "@/core/assistant/pipeline/pipeline-orchestrator.service";
 import { RagPipelineError } from "@/core/rag/rag-errors";
 import { createRagQueryService } from "@/core/rag/rag-query-service";
 import { toSseStream } from "@/core/rag/streaming-response";
@@ -16,6 +17,7 @@ import { logger } from "@/core/utils/logger";
 export const runtime = "nodejs";
 
 const ragService = createRagQueryService();
+const assistantOrchestrator = createAssistantPipelineOrchestratorService(ragService);
 const ROUTE_OPTIONS = { methods: ["POST"], requireApiKey: true } as const;
 const MAX_MESSAGE_CHARS = Number(process.env.PUBLIC_API_MAX_MESSAGE_CHARS || 32000);
 const MAX_HISTORY_ITEMS = Number(process.env.PUBLIC_API_MAX_HISTORY_ITEMS || 20);
@@ -133,6 +135,21 @@ function parseStreamMode(value: unknown) {
   return "";
 }
 
+function parseOptionalLanguageId(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, 32);
+}
+
+function buildAttachmentsFromComposer(
+  composerAttachmentIds: number[] | undefined,
+  scopedDocumentIds: number[] | undefined,
+) {
+  const ids = (composerAttachmentIds && composerAttachmentIds.length ? composerAttachmentIds : scopedDocumentIds) || [];
+  return ids.map((id) => ({ id: `${id}`, kind: "file" as const, name: `documento-${id}` }));
+}
+
 export async function OPTIONS(req: NextRequest) {
   return handlePublicApiPreflight(req, ROUTE_OPTIONS);
 }
@@ -174,27 +191,51 @@ export async function POST(req: NextRequest) {
       });
     }
     const history = normalizedHistory.items;
+    const composerBound = parseOptionalBoolean(body?.composerBound);
+    const composerAttachmentIds = parseOptionalPositiveIntArray(body?.composerAttachmentIds);
+    const topK = parseOptionalPositiveInt(body?.topK);
+    const maxDistance = parseOptionalDistance(body?.maxDistance);
+    const documentId = parseOptionalPositiveInt(body?.documentId);
+    const documentIds = parseOptionalPositiveIntArray(body?.documentIds);
+    const sourceType = normalizeString(body?.sourceType) || undefined;
+    const retrievalEmbeddingModel = normalizeString(body?.retrievalEmbeddingModel) || undefined;
+    const preferredResponseLanguageId = parseOptionalLanguageId(body?.preferredResponseLanguageId);
+    const maxResponseTokens = parseOptionalPositiveInt(body?.maxResponseTokens);
+    const temperature = parseOptionalFiniteNumber(body?.temperature);
+    const seed = parseOptionalSeed(body?.seed);
     const pipelineVersion = parsePipelineVersion(body?.pipeline) || parsePipelineVersion(req.headers.get("x-pipeline"));
     const wantsStream = parseOptionalBoolean(body?.stream) === true;
     const requestedStreamMode = parseStreamMode(body?.streamMode);
     const acceptHeader = `${req.headers.get("accept") || ""}`.toLowerCase();
     const streamMode = requestedStreamMode || (acceptHeader.includes("text/event-stream") ? "sse" : "plain");
     if (wantsStream) {
-      const plainStream = await ragService.queryStream({
-        question: message,
-        history,
+      const run = await assistantOrchestrator.run({
         requestId: context.requestId,
-        pipelineVersion,
-        topK: parseOptionalPositiveInt(body?.topK),
-        maxDistance: parseOptionalDistance(body?.maxDistance),
-        documentId: parseOptionalPositiveInt(body?.documentId),
-        documentIds: parseOptionalPositiveIntArray(body?.documentIds),
-        sourceType: normalizeString(body?.sourceType) || undefined,
-        retrievalEmbeddingModel: normalizeString(body?.retrievalEmbeddingModel) || undefined,
-        maxResponseTokens: parseOptionalPositiveInt(body?.maxResponseTokens),
-        temperature: parseOptionalFiniteNumber(body?.temperature),
-        seed: parseOptionalSeed(body?.seed),
+        mode: "chat",
+        stream: true,
+        message,
+        conversation: history,
+        attachments: buildAttachmentsFromComposer(composerAttachmentIds, documentIds),
+        ragInput: {
+          pipelineVersion,
+          composerBound,
+          composerAttachmentIds,
+          topK,
+          maxDistance,
+          documentId,
+          documentIds,
+          sourceType,
+          retrievalEmbeddingModel,
+          preferredResponseLanguageId,
+          maxResponseTokens,
+          temperature,
+          seed,
+        },
       });
+      const plainStream = run.stream;
+      if (!plainStream) {
+        throw new RagPipelineError(500, "ASSISTANT_STREAM_MISSING", "Falha ao abrir stream do assistant pipeline.");
+      }
       const responseStream = streamMode === "sse" ? toSseStream(plainStream) : plainStream;
       logger.info("PUBLIC_CHAT_STREAM_OPEN", {
         requestId: context.requestId,
@@ -210,26 +251,36 @@ export async function POST(req: NextRequest) {
       return new Response(responseStream, { status: 200, headers });
     }
 
-    const result = await ragService.query({
-      question: message,
-      history,
+    const run = await assistantOrchestrator.run({
       requestId: context.requestId,
-      pipelineVersion,
-      topK: parseOptionalPositiveInt(body?.topK),
-      maxDistance: parseOptionalDistance(body?.maxDistance),
-      documentId: parseOptionalPositiveInt(body?.documentId),
-      documentIds: parseOptionalPositiveIntArray(body?.documentIds),
-      sourceType: normalizeString(body?.sourceType) || undefined,
-      retrievalEmbeddingModel: normalizeString(body?.retrievalEmbeddingModel) || undefined,
-      maxResponseTokens: parseOptionalPositiveInt(body?.maxResponseTokens),
-      temperature: parseOptionalFiniteNumber(body?.temperature),
-      seed: parseOptionalSeed(body?.seed),
+      mode: "chat",
+      stream: false,
+      message,
+      conversation: history,
+      attachments: buildAttachmentsFromComposer(composerAttachmentIds, documentIds),
+      ragInput: {
+        pipelineVersion,
+        composerBound,
+        composerAttachmentIds,
+        topK,
+        maxDistance,
+        documentId,
+        documentIds,
+        sourceType,
+        retrievalEmbeddingModel,
+        preferredResponseLanguageId,
+        maxResponseTokens,
+        temperature,
+        seed,
+      },
     });
+    const content = `${run.content || ""}`.trim();
+    const metadata = run.ragMetadata || null;
     logger.info("PUBLIC_CHAT_SUCCESS", {
       requestId: context.requestId,
-      answerChars: result.answer.length,
-      totalMs: result.metadata.timingsMs.total,
-      retrievedChunks: result.metadata.retrieval.returnedChunks,
+      answerChars: content.length,
+      totalMs: metadata?.timingsMs?.total ?? null,
+      retrievedChunks: metadata?.retrieval?.returnedChunks ?? null,
     });
 
     return jsonWithCors(
@@ -238,9 +289,10 @@ export async function POST(req: NextRequest) {
         ok: true,
         reply: {
           role: "assistant",
-          content: result.answer,
+          content,
         },
-        metadata: result.metadata,
+        metadata,
+        meta: run.meta,
       },
       200,
       { methods: ROUTE_OPTIONS.methods },

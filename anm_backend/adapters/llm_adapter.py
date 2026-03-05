@@ -236,6 +236,7 @@ class LLMAdapter:
         temperature: float = 0.3,
         top_p: float = 0.9,
         style_hint: str = "",
+        response_language: str | None = None,
         include_followup_prompt: bool = False,
         trace_id: str | None = None,
     ) -> EngineResponse:
@@ -248,6 +249,7 @@ class LLMAdapter:
             hypotheses: Active hypotheses.
             readiness_state: Current readiness state label.
             max_tokens: Token budget.
+            response_language: Optional forced output language tag.
             include_followup_prompt: If true, ask model to close with one follow-up question/suggestion.
             trace_id: Optional trace id.
         Returns:
@@ -269,6 +271,7 @@ class LLMAdapter:
             hypotheses=hypotheses,
             readiness_state=readiness_state,
             style_hint=style_hint,
+            response_language=response_language,
             include_followup_prompt=include_followup_prompt,
         )
         draft_plan = self._plan_token_budget(user_input=user_input, messages=draft_messages, requested_max_tokens=max_tokens)
@@ -279,6 +282,7 @@ class LLMAdapter:
             readiness_state=readiness_state,
             style_hint=style_hint,
             response_plan={"target_tokens": draft_plan.target_output_tokens},
+            response_language=response_language,
             include_followup_prompt=include_followup_prompt,
         )
         token_plan = self._plan_token_budget(

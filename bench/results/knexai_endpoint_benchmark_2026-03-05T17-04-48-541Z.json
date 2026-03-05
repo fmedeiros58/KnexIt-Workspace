@@ -1,0 +1,63 @@
+{
+  "startedAt": "2026-03-05T17:04:46.833Z",
+  "finishedAt": "2026-03-05T17:04:48.540Z",
+  "url": "http://localhost:3000/api/knexai",
+  "scenarios": [
+    {
+      "id": "fast_date_path",
+      "requests": 20,
+      "concurrency": 5,
+      "elapsedMs": 574,
+      "success": 20,
+      "failures": 0,
+      "errorRatePct": 0,
+      "statusMap": {
+        "200": 20
+      },
+      "latencyMs": {
+        "p50": 107,
+        "p95": 230,
+        "p99": 261,
+        "min": 62,
+        "max": 261
+      },
+      "chars": {
+        "median": 67,
+        "min": 67,
+        "max": 67
+      },
+      "sampleError": null
+    },
+    {
+      "id": "llm_path",
+      "requests": 20,
+      "concurrency": 5,
+      "elapsedMs": 1130,
+      "success": 0,
+      "failures": 20,
+      "errorRatePct": 100,
+      "statusMap": {
+        "504": 20
+      },
+      "latencyMs": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "min": 0,
+        "max": 0
+      },
+      "chars": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sampleError": {
+        "ok": false,
+        "status": 504,
+        "totalMs": 263,
+        "chars": 75,
+        "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+      }
+    }
+  ]
+}

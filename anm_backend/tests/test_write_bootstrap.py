@@ -6,6 +6,7 @@ from anm_backend.api.routes_write import (
     add_process_memory,
     autosave_chunk,
     attach_reference,
+    consolidate_process_memory,
     continue_writing,
     create_project,
     create_section,
@@ -13,7 +14,9 @@ from anm_backend.api.routes_write import (
     get_project,
     get_project_summary,
     get_chunk_versions,
+    process_memory_inactive,
     insert_chunk,
+    patch_process_memory,
     get_section_summary,
     list_project_sections,
     list_projects,
@@ -23,6 +26,7 @@ from anm_backend.api.routes_write import (
     reindex_chunk,
     reindex_project,
     reindex_section,
+    resummarize_chunk,
     process_memory,
     summarize_project,
     summarize_section,
@@ -32,8 +36,10 @@ from anm_backend.api.schemas import (
     WriteChunkPatchRequest,
     WriteContinueRequest,
     WriteInsertRequest,
+    WriteMemoryConsolidateRequest,
     WriteProjectPatchRequest,
     WriteProcessMemoryCreateRequest,
+    WriteProcessMemoryPatchRequest,
     WriteProjectCreateRequest,
     WriteReferenceAttachRequest,
     WriteSectionPatchRequest,
@@ -74,6 +80,10 @@ class WriteBootstrapTests(unittest.TestCase):
         self.assertIn("/write/projects/{project_id}/summary", paths)
         self.assertIn("/write/sections/{section_id}/summarize", paths)
         self.assertIn("/write/sections/{section_id}/summary", paths)
+        self.assertIn("/write/chunks/{chunk_id}/resummarize", paths)
+        self.assertIn("/write/projects/{project_id}/memory/consolidate", paths)
+        self.assertIn("/write/memory/{memory_id}", paths)
+        self.assertIn("/write/projects/{project_id}/memory/inactive", paths)
 
         created = create_project(
             request,
@@ -161,6 +171,21 @@ class WriteBootstrapTests(unittest.TestCase):
             ),
         )
         self.assertEqual(memory_item.memory.memory_type, "terminology")
+        self.assertEqual(memory_item.memory.use_count, 0)
+
+        duplicate_memory_item = add_process_memory(
+            request,
+            project_id,
+            WriteProcessMemoryCreateRequest(
+                section_id=section_id,
+                memory_type="terminology",
+                title="Termo padrao",
+                content="Usar 'framework de evidencia' como termo padrao do manuscrito.",
+                priority=780,
+                is_active=True,
+            ),
+        )
+        self.assertEqual(duplicate_memory_item.memory.memory_type, "terminology")
 
         inserted_payload = insert_chunk(
             request,
@@ -356,6 +381,52 @@ class WriteBootstrapTests(unittest.TestCase):
         self.assertEqual(continue_payload.top_k_applied["memories"], 4)
         self.assertEqual(continue_payload.parameters["paragraphs_min"], 2)
         self.assertEqual(continue_payload.parameters["paragraphs_max"], 4)
+
+        memory_after_continue = process_memory(request, project_id)
+        memory_index = {item["memory_id"]: item for item in memory_after_continue.process_memory["items"]}
+        self.assertGreaterEqual(memory_index[memory_item.memory.memory_id]["use_count"], 1)
+
+        stale_section_summary = get_section_summary(request, section_id)
+        stale_project_summary = get_project_summary(request, project_id)
+        self.assertTrue(stale_section_summary.summary.is_stale)
+        self.assertTrue(stale_project_summary.summary.is_stale)
+
+        resummarized_payload = resummarize_chunk(request, continue_payload.chunk.chunk_id)
+        self.assertEqual(resummarized_payload.project_id, project_id)
+        self.assertEqual(resummarized_payload.section_id, section_id)
+        self.assertFalse(resummarized_payload.section_summary.is_stale)
+        self.assertFalse(resummarized_payload.project_summary.is_stale)
+
+        refreshed_section_summary = get_section_summary(request, section_id)
+        refreshed_project_summary = get_project_summary(request, project_id)
+        self.assertFalse(refreshed_section_summary.summary.is_stale)
+        self.assertFalse(refreshed_project_summary.summary.is_stale)
+
+        consolidation_payload = consolidate_process_memory(
+            request,
+            project_id,
+            WriteMemoryConsolidateRequest(
+                similarity_threshold=0.96,
+                ttl_days=0,
+                low_priority_max=200,
+                dry_run=False,
+            ),
+        )
+        self.assertEqual(consolidation_payload.project_id, project_id)
+        self.assertGreaterEqual(consolidation_payload.inactive_count, 1)
+
+        inactive_payload = process_memory_inactive(request, project_id)
+        self.assertGreaterEqual(len(inactive_payload.inactive_memory), 1)
+
+        reactivated_memory = patch_process_memory(
+            request,
+            inactive_payload.inactive_memory[0].memory_id,
+            WriteProcessMemoryPatchRequest(
+                is_active=True,
+                deactivation_reason="manual_reactivation_for_editor",
+            ),
+        )
+        self.assertTrue(reactivated_memory.memory.is_active)
 
 
 if __name__ == "__main__":

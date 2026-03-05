@@ -111,6 +111,24 @@ class WriteProcessMemoryCreateRequest(BaseModel):
     is_active: bool = Field(default=True)
 
 
+class WriteProcessMemoryPatchRequest(BaseModel):
+    memory_type: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    title: Optional[str] = Field(default=None, min_length=1, max_length=240)
+    content: Optional[str] = Field(default=None, min_length=1, max_length=20_000)
+    priority: Optional[int] = Field(default=None, ge=0, le=1000)
+    is_active: Optional[bool] = None
+    section_id: Optional[str] = Field(default=None, max_length=128)
+    deactivation_reason: Optional[str] = Field(default=None, max_length=240)
+    consolidated_into_memory_id: Optional[str] = Field(default=None, max_length=128)
+
+
+class WriteMemoryConsolidateRequest(BaseModel):
+    similarity_threshold: float = Field(default=0.96, ge=0.6, le=1.0)
+    ttl_days: int = Field(default=45, ge=0, le=3650)
+    low_priority_max: int = Field(default=200, ge=0, le=1000)
+    dry_run: bool = Field(default=False)
+
+
 class WriteContinueRequest(BaseModel):
     project_id: str = Field(min_length=3, max_length=128)
     instruction: str = Field(min_length=1, max_length=16_000)
@@ -282,6 +300,11 @@ class WriteProcessMemoryItemView(BaseModel):
     content: str
     priority: int
     is_active: bool
+    use_count: int
+    last_used_at: Optional[str]
+    deactivated_at: Optional[str]
+    deactivation_reason: str
+    consolidated_into_memory_id: Optional[str]
     created_at: str
     updated_at: str
 
@@ -291,8 +314,44 @@ class WriteProcessMemoryResponse(BaseModel):
     process_memory: Dict[str, Any]
 
 
+class WriteProcessMemoryInactiveResponse(BaseModel):
+    project_id: str
+    inactive_memory: List[WriteProcessMemoryItemView]
+
+
 class WriteProcessMemoryCreateResponse(BaseModel):
     memory: WriteProcessMemoryItemView
+
+
+class WriteProcessMemoryPatchResponse(BaseModel):
+    memory: WriteProcessMemoryItemView
+
+
+class WriteMemoryConsolidateResponse(BaseModel):
+    trace_id: str
+    project_id: str
+    dry_run: bool
+    similarity_threshold: float
+    ttl_days: int
+    low_priority_max: int
+    duplicate_groups: List[Dict[str, Any]]
+    deactivated_memory_ids: List[str]
+    kept_memory_ids: List[str]
+    deactivated_by_ttl_ids: List[str]
+    active_count: int
+    inactive_count: int
+
+
+class WriteSectionStalenessResponse(BaseModel):
+    section_id: str
+    is_stale: bool
+    stale_reasons: List[str]
+
+
+class WriteProjectStalenessResponse(BaseModel):
+    project_id: str
+    is_stale: bool
+    stale_reasons: List[str]
 
 
 class WriteSectionSummaryView(BaseModel):
@@ -305,6 +364,8 @@ class WriteSectionSummaryView(BaseModel):
     last_chunk_id_processed: Optional[str]
     created_at: str
     updated_at: str
+    is_stale: bool = False
+    stale_reasons: List[str] = Field(default_factory=list)
 
 
 class WriteProjectGlobalSummaryView(BaseModel):
@@ -315,6 +376,17 @@ class WriteProjectGlobalSummaryView(BaseModel):
     source_chunk_count: int
     created_at: str
     updated_at: str
+    is_stale: bool = False
+    stale_reasons: List[str] = Field(default_factory=list)
+
+
+class WriteChunkResummarizeResponse(BaseModel):
+    trace_id: str
+    chunk_id: str
+    project_id: str
+    section_id: str
+    section_summary: WriteSectionSummaryView
+    project_summary: WriteProjectGlobalSummaryView
 
 
 class WriteSectionSummaryResponse(BaseModel):

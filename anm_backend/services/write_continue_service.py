@@ -13,12 +13,19 @@ from __future__ import annotations
 import os
 import re
 import unicodedata
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from anm_backend.adapters.llm_adapter import LLMAdapter
 from anm_backend.audit import audit_log
+from anm_backend.services.response_orchestration import (
+    OrchestrationRequest,
+    ResponseOrchestrator,
+    is_secondary_process_memory_enabled,
+)
+from anm_backend.utils import describe_language, detect_user_language
 from anm_backend.write.continue_prompt_builder import (
     ContinueWritingContextPack,
     ContinueWritingPromptBuilder,
@@ -59,6 +66,10 @@ def _normalize_paragraph_window(min_paragraphs: int, max_paragraphs: int) -> Tup
     return floor, ceil
 
 
+def _should_use_system_role() -> bool:
+    return str(os.getenv("ANM_ENGINE_USE_SYSTEM_ROLE", "0")).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _normalize_generated_block(value: str, *, max_paragraphs: int) -> str:
     text = str(value or "").strip()
     if not text:
@@ -73,6 +84,7 @@ def _normalize_generated_block(value: str, *, max_paragraphs: int) -> str:
 class WriteContinueService:
     repository: WriteWorkspaceRepository
     llm_adapter: LLMAdapter
+    response_orchestrator: Optional[ResponseOrchestrator] = None
     prompt_builder: ContinueWritingPromptBuilder = field(default_factory=ContinueWritingPromptBuilder)
     embedding_provider: DeterministicEmbeddingProvider = field(
         default_factory=lambda: DeterministicEmbeddingProvider(
@@ -101,6 +113,7 @@ class WriteContinueService:
         normalized_instruction = _normalize_text(instruction)
         if not normalized_instruction:
             raise ValueError("instruction must not be empty")
+        response_language = detect_user_language(normalized_instruction)
 
         target_section = self._resolve_target_section(project=project, explicit_section_id=section_id, instruction=normalized_instruction)
         if not target_section:
@@ -137,6 +150,8 @@ class WriteContinueService:
             query_embedding=query_embedding,
             top_k=top_memories,
         )
+        for memory in memory_context:
+            self.repository.mark_process_memory_used(memory_id=memory.memory_id)
 
         context_pack = ContinueWritingContextPack(
             project_id=project.project_id,
@@ -159,13 +174,135 @@ class WriteContinueService:
         assembled_prompt = self.prompt_builder.build_prompt(context_pack)
 
         trace_id = f"trace-{uuid4()}"
-        response = self._invoke_llm(
-            prompt=assembled_prompt,
-            trace_id=trace_id,
-            max_tokens=token_cap,
-            temperature=sampling_temperature,
-        )
-        normalized_chunk_text = _normalize_generated_block(response.text, max_paragraphs=paragraphs_max)
+        if self.response_orchestrator and is_secondary_process_memory_enabled("write"):
+            def _single_pass(gen_request):
+                return self._invoke_llm(
+                    prompt=assembled_prompt,
+                    trace_id=gen_request.trace_id,
+                    max_tokens=int(gen_request.max_tokens),
+                    temperature=float(gen_request.temperature),
+                    response_language=response_language,
+                )
+
+            def _cycle_pass(gen_request):
+                return self._invoke_llm(
+                    prompt=str(gen_request.prompt),
+                    trace_id=gen_request.trace_id,
+                    max_tokens=int(gen_request.max_tokens),
+                    temperature=float(gen_request.temperature),
+                    response_language=response_language,
+                )
+
+            orchestration_result = self.response_orchestrator.orchestrate(
+                request=OrchestrationRequest(
+                    request_id=trace_id,
+                    mode="write",
+                    user_id=project.owner_session_id or "write-session",
+                    project_id=project.project_id,
+                    thread_id=target_section.section_id,
+                    prompt_original=normalized_instruction,
+                    objective_current=(
+                        f"Gerar proximo bloco para secao '{target_section.title}' "
+                        f"respeitando objetivo e anti-redundancia."
+                    ),
+                    context_payload={
+                        "project": {
+                            "project_id": project.project_id,
+                            "title": project.title,
+                            "objective": project.objective,
+                        },
+                        "section": {
+                            "section_id": target_section.section_id,
+                            "title": target_section.title,
+                            "objective": target_section.objective,
+                            "outline_notes": target_section.outline_notes,
+                            "status": target_section.status,
+                        },
+                        "section_summary": section_summary_row.summary if section_summary_row else None,
+                        "project_global_summary": project_summary_row.summary if project_summary_row else None,
+                        "retrieved_chunks": [
+                            {
+                                "chunk_id": item.chunk_id,
+                                "section_id": item.section_id,
+                                "similarity": item.similarity,
+                                "text": item.text,
+                            }
+                            for item in chunk_context
+                        ],
+                        "retrieved_memories": [
+                            {
+                                "memory_id": item.memory_id,
+                                "memory_type": item.memory_type,
+                                "title": item.title,
+                                "content": item.content,
+                                "priority": item.priority,
+                                "similarity": item.similarity,
+                            }
+                            for item in memory_context
+                        ],
+                        "assembled_prompt": assembled_prompt,
+                    },
+                    max_tokens=token_cap,
+                    temperature=sampling_temperature,
+                    top_p=0.9,
+                    tone_hint=(
+                        "Modo escrita: manter continuidade argumentativa, evitar repeticao, "
+                        "preservar terminologia e objetivo da secao."
+                    ),
+                    planner_hints=[
+                        target_section.title,
+                        target_section.objective or target_section.outline_notes,
+                    ],
+                    locked_terminology=[
+                        item.title
+                        for item in memory_context
+                        if item.memory_type in {"terminology", "definition"}
+                    ],
+                    constraints=[
+                        "nao repetir trechos ja cobertos",
+                        "aprofundar quando tema ja abordado",
+                        "respeitar objetivo da secao atual",
+                    ],
+                    prefer_multi_pass=True,
+                    single_pass_generator=_single_pass,
+                    cycle_generator=_cycle_pass,
+                    metadata={
+                        "flow": "write_continue",
+                        "top_k_chunks": top_chunks,
+                        "top_k_memories": top_memories,
+                    },
+                )
+            )
+            generated_text = orchestration_result.response_text
+            completion_tokens = int(orchestration_result.usage.get("completion_tokens", 0))
+            orchestration_payload = {
+                "enabled": True,
+                "response_mode": orchestration_result.response_mode,
+                "cycle_count": orchestration_result.cycle_count,
+                "stop_reason": orchestration_result.stop_reason,
+                "fallback_used": orchestration_result.fallback_used,
+                "session_id": orchestration_result.session_id,
+            }
+        else:
+            response = self._invoke_llm(
+                prompt=assembled_prompt,
+                trace_id=trace_id,
+                max_tokens=token_cap,
+                temperature=sampling_temperature,
+                response_language=response_language,
+            )
+            generated_text = response.text
+            completion_tokens = int(response.usage.get("completion_tokens", 0)) if isinstance(response.usage, dict) else 0
+            orchestration_payload = {
+                "enabled": False,
+                "response_mode": "single_pass_direct",
+                "cycle_count": 1,
+                "stop_reason": "direct_invoke",
+                "fallback_used": False,
+                "session_id": None,
+            }
+
+        normalized_chunk_text = _normalize_generated_block(generated_text, max_paragraphs=paragraphs_max)
         if not normalized_chunk_text:
             raise RuntimeError("write_continue_empty_response")
 
@@ -175,7 +312,7 @@ class WriteContinueService:
             role="assistant",
             text=normalized_chunk_text,
             source_type="generated",
-            token_count=response.usage.get("completion_tokens") if isinstance(response.usage, dict) else None,
+            token_count=completion_tokens if completion_tokens > 0 else None,
             metadata={
                 "trace_id": trace_id,
                 "source": "write_continue",
@@ -184,6 +321,7 @@ class WriteContinueService:
                 "top_k_chunks": top_chunks,
                 "top_k_memories": top_memories,
                 "paragraph_window": {"min": paragraphs_min, "max": paragraphs_max},
+                "orchestration": orchestration_payload,
             },
         )
         self.repository.upsert_draft_chunk_embedding(
@@ -207,6 +345,7 @@ class WriteContinueService:
                 "top_k_memories": top_memories,
                 "max_tokens": token_cap,
                 "temperature": sampling_temperature,
+                "orchestration": orchestration_payload,
             },
             trace_id=trace_id,
         )
@@ -228,20 +367,28 @@ class WriteContinueService:
                 "temperature": sampling_temperature,
                 "embedding_model": self.embedding_provider.model_name,
                 "prompt_builder": self.prompt_builder.__class__.__name__,
+                "orchestration": orchestration_payload,
             },
         }
 
-    def _invoke_llm(self, *, prompt: str, trace_id: str, max_tokens: int, temperature: float):
+    def _invoke_llm(self, *, prompt: str, trace_id: str, max_tokens: int, temperature: float, response_language: str):
         engine_client = self.llm_adapter.engine_client
+        language_label = describe_language(response_language)
         system_prompt = (
             "Voce escreve em modo de continuidade de manuscrito. "
-            "Responda apenas com o proximo bloco textual da secao alvo."
+            "Responda apenas com o proximo bloco textual da secao alvo. "
+            f"Idioma obrigatorio da resposta: {language_label} ({response_language}). "
+            "Nao troque de idioma sem pedido explicito."
         )
-        req = engine_client.build_request(
-            messages=[
+        if _should_use_system_role():
+            messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
-            ],
+            ]
+        else:
+            messages = [{"role": "user", "content": f"{system_prompt}\n\n{prompt}".strip()}]
+        req = engine_client.build_request(
+            messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=0.9,
@@ -357,24 +504,35 @@ class WriteContinueService:
         )
         if not scoped_items:
             return []
-        scored: List[RetrievedMemoryContext] = []
+        scored: List[Tuple[float, RetrievedMemoryContext]] = []
+        now = datetime.now(tz=timezone.utc)
         for item in scoped_items:
             embedding = self.repository.get_process_memory_embedding(process_memory_id=item.memory_id)
             if not embedding:
                 continue
             score = cosine_similarity(query_embedding, embedding.embedding)
+            usage_timestamp = _parse_timestamp(item.last_used_at or item.updated_at)
+            recency_days = max((now - usage_timestamp).total_seconds() / 86400.0, 0.0)
+            recency_score = 1.0 / (1.0 + recency_days)
+            priority_score = max(0.0, min(float(item.priority) / 1000.0, 1.0))
+            usage_score = max(0.0, min(float(item.use_count) / 50.0, 1.0))
+            type_score = _memory_type_weight(item.memory_type)
+            ranking_score = (score * 0.60) + (priority_score * 0.20) + (recency_score * 0.15) + (usage_score * 0.03) + (type_score * 0.02)
             scored.append(
-                RetrievedMemoryContext(
-                    memory_id=item.memory_id,
-                    memory_type=item.memory_type,
-                    title=item.title,
-                    content=item.content,
-                    priority=item.priority,
-                    similarity=score,
+                (
+                    ranking_score,
+                    RetrievedMemoryContext(
+                        memory_id=item.memory_id,
+                        memory_type=item.memory_type,
+                        title=item.title,
+                        content=item.content,
+                        priority=item.priority,
+                        similarity=score,
+                    ),
                 )
             )
-        scored.sort(key=lambda item: (item.similarity, item.priority), reverse=True)
-        return scored[:top_k]
+        scored.sort(key=lambda item: (item[0], item[1].similarity, item[1].priority), reverse=True)
+        return [item[1] for item in scored[:top_k]]
 
     def _build_retrieval_query(
         self,
@@ -442,3 +600,28 @@ class WriteContinueService:
             "created_at": summary_row.created_at,
             "updated_at": summary_row.updated_at,
         }
+
+
+def _memory_type_weight(memory_type: str) -> float:
+    normalized = (memory_type or "").strip().lower()
+    return {
+        "constraint": 1.0,
+        "decision": 0.95,
+        "terminology": 0.90,
+        "rule": 0.85,
+        "definition": 0.80,
+        "warning": 0.75,
+    }.get(normalized, 0.70)
+
+
+def _parse_timestamp(value: Optional[str]) -> datetime:
+    raw = str(value or "").strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

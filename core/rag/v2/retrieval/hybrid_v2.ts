@@ -13,6 +13,8 @@ export type HybridRetrievalInput = {
   maxDistance?: number | null;
   documentId?: number;
   documentIds?: number[];
+  priorityDocumentIds?: number[];
+  priorityBoost?: number;
   sourceType?: string;
   embeddingModel?: string;
   weightVector?: number;
@@ -21,6 +23,7 @@ export type HybridRetrievalInput = {
   mmrEnabled?: boolean;
   mmrLambda?: number;
   cacheEnabled?: boolean;
+  allowScopeFallback?: boolean;
 };
 
 export type HybridHit = VectorTopKResult & {
@@ -28,13 +31,14 @@ export type HybridHit = VectorTopKResult & {
   lexicalScore: number;
   structBoost: number;
   hybridScore: number;
-  rankSource: "vector" | "lexical" | "mixed";
+  rankSource: "vector" | "lexical" | "mixed" | "scope_fallback";
 };
 
 export type HybridRetrievalResult = {
   hits: HybridHit[];
   vectorCount: number;
   lexicalCount: number;
+  usedScopeFallback: boolean;
   usedCache: boolean;
 };
 
@@ -129,6 +133,7 @@ function mmrDiversify(hits: HybridHit[], topK: number, lambdaValue: number) {
 
 function makeCacheKey(input: HybridRetrievalInput) {
   const docScope = Array.isArray(input.documentIds) ? input.documentIds.join(",") : "";
+  const priorityScope = Array.isArray(input.priorityDocumentIds) ? input.priorityDocumentIds.join(",") : "";
   return [
     normalizeText(input.queryText),
     input.topK,
@@ -137,6 +142,8 @@ function makeCacheKey(input: HybridRetrievalInput) {
     input.maxDistance ?? "",
     input.documentId ?? "",
     docScope,
+    priorityScope,
+    input.priorityBoost ?? "",
     input.sourceType || "",
     input.embeddingModel || "",
     input.weightVector ?? "",
@@ -144,6 +151,7 @@ function makeCacheKey(input: HybridRetrievalInput) {
     input.weightStruct ?? "",
     input.mmrEnabled ? "1" : "0",
     input.mmrLambda ?? "",
+    input.allowScopeFallback === false ? "no_scope_fallback" : "scope_fallback_ok",
   ].join("|");
 }
 
@@ -181,6 +189,15 @@ export class HybridRetrieverV2 {
     const weightVector = clamp(Number.isFinite(input.weightVector as number) ? Number(input.weightVector) : 0.60, 0, 1);
     const weightLexical = clamp(Number.isFinite(input.weightLexical as number) ? Number(input.weightLexical) : 0.30, 0, 1);
     const weightStruct = clamp(Number.isFinite(input.weightStruct as number) ? Number(input.weightStruct) : 0.10, 0, 1);
+    const priorityBoost = clamp(Number.isFinite(input.priorityBoost as number) ? Number(input.priorityBoost) : 0.18, 0, 0.6);
+    const priorityDocumentIds = Array.isArray(input.priorityDocumentIds)
+      ? input.priorityDocumentIds
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .map((value) => Math.trunc(value))
+          .slice(0, 64)
+      : [];
+    const prioritySet = new Set<number>(priorityDocumentIds);
 
     const [vectorHits, lexicalHits] = await Promise.all([
       input.queryVector && input.queryVector.length
@@ -205,6 +222,7 @@ export class HybridRetrieverV2 {
 
     const maxLexicalRank = lexicalHits.reduce((max, row) => Math.max(max, Number(row.lexicalRank || row.score || 0)), 0);
     const byChunk = new Map<number, HybridHit>();
+    let usedScopeFallback = false;
 
     for (const row of vectorHits) {
       const vectorScore = normalizedVectorScore(row.distance);
@@ -237,16 +255,49 @@ export class HybridRetrieverV2 {
       });
     }
 
+    if (prioritySet.size > 0) {
+      for (const row of byChunk.values()) {
+        if (!prioritySet.has(row.documentId)) continue;
+        row.hybridScore = clamp(row.hybridScore + priorityBoost, 0, 2);
+      }
+    }
+
     const ranked = Array.from(byChunk.values()).sort((a, b) => {
       if (b.hybridScore !== a.hybridScore) return b.hybridScore - a.hybridScore;
       if (a.distance !== b.distance) return a.distance - b.distance;
       return a.chunkId - b.chunkId;
     });
-    const finalHits = input.mmrEnabled ? mmrDiversify(ranked, safeTopK, Number(input.mmrLambda || 0.75)) : ranked.slice(0, safeTopK);
+    let finalHits = input.mmrEnabled ? mmrDiversify(ranked, safeTopK, Number(input.mmrLambda || 0.75)) : ranked.slice(0, safeTopK);
+    const hasDocumentScope = Boolean(input.documentId) || (Array.isArray(input.documentIds) && input.documentIds.length > 0);
+    const allowScopeFallback = input.allowScopeFallback !== false;
+    if (finalHits.length === 0 && hasDocumentScope && allowScopeFallback) {
+      const scopedFallback = await this.repository.searchScopedChunksFallback({
+        topK: safeTopK,
+        documentId: input.documentId,
+        documentIds: input.documentIds,
+        sourceType: input.sourceType,
+      });
+      if (scopedFallback.length > 0) {
+        usedScopeFallback = true;
+        finalHits = scopedFallback.map((row) => {
+          const structBoost = computeStructBoost(row, input.queryText);
+          const baseScore = clamp(0.20 + structBoost * 0.20, 0, 1);
+          return {
+            ...row,
+            vectorScore: 0,
+            lexicalScore: 0,
+            structBoost,
+            hybridScore: baseScore,
+            rankSource: "scope_fallback",
+          };
+        });
+      }
+    }
     const result: HybridRetrievalResult = {
       hits: finalHits,
       vectorCount: vectorHits.length,
       lexicalCount: lexicalHits.length,
+      usedScopeFallback,
       usedCache: false,
     };
     if (cacheEnabled) {

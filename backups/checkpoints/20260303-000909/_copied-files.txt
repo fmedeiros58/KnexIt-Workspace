@@ -1,0 +1,14 @@
+app/ingest
+app/knexai/ingest
+core/rag/document-ingestion-service.ts
+core/rag/text-extractor.ts
+docs/api/ingestao-documentos.md
+docs/infra/pipeline-ingestao-documentos.md
+knexai/README.md
+knexai/web/page.tsx
+package.json
+README.md
+scripts/dev-restart.ps1
+scripts/serve-embeddings-cpu-restart.ps1
+scripts/smoke-test-api.sh
+scripts/smoke-test-rag.sh

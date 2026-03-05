@@ -39,8 +39,27 @@ if ([string]::IsNullOrWhiteSpace($entryScriptPath)) {
   throw "Entry script de embeddings CPU vazio. Defina EMBEDDING_CPU_WSL_ENTRY_SCRIPT ou use -EntryScript."
 }
 
+$allowLoopbackRaw = ""
+if ($null -ne $env:EMBEDDING_CPU_ALLOW_LOOPBACK_BIND) {
+  $allowLoopbackRaw = "$($env:EMBEDDING_CPU_ALLOW_LOOPBACK_BIND)"
+}
+$allowLoopbackBind = @("1", "true", "yes", "on") -contains $allowLoopbackRaw.Trim().ToLowerInvariant()
+
+$effectiveEmbeddingHost = ""
+if ($null -ne $env:EMBEDDING_CPU_HOST) {
+  $effectiveEmbeddingHost = "$($env:EMBEDDING_CPU_HOST)"
+}
+$effectiveEmbeddingHost = $effectiveEmbeddingHost.Trim()
+if ([string]::IsNullOrWhiteSpace($effectiveEmbeddingHost)) {
+  $effectiveEmbeddingHost = "0.0.0.0"
+} elseif (($effectiveEmbeddingHost -eq "127.0.0.1" -or $effectiveEmbeddingHost -eq "localhost") -and -not $allowLoopbackBind) {
+  Write-Warning "EMBEDDING_CPU_HOST=$effectiveEmbeddingHost limita acesso Windows->WSL. Forcando 0.0.0.0."
+  $effectiveEmbeddingHost = "0.0.0.0"
+}
+
 $safeWorkspacePath = Escape-BashDoubleQuoted $WorkspacePath
 $safeEntryScriptPath = Escape-BashDoubleQuoted $entryScriptPath
+$safeEmbeddingHost = Escape-BashDoubleQuoted $effectiveEmbeddingHost
 
 & wsl -e bash -lc "test -d `"$safeWorkspacePath`"" 1>$null 2>$null
 if ($LASTEXITCODE -ne 0) {
@@ -52,7 +71,7 @@ if ($LASTEXITCODE -ne 0) {
   throw "Entry script de embeddings CPU nao encontrado no workspace WSL: $WorkspacePath/$entryScriptPath"
 }
 
-$command = "cd `"$safeWorkspacePath`" && bash `"$safeEntryScriptPath`""
+$command = "cd `"$safeWorkspacePath`" && EMBEDDING_CPU_HOST=`"$safeEmbeddingHost`" bash `"$safeEntryScriptPath`""
 
 wsl -e bash -lc $command
 if ($LASTEXITCODE -ne 0) {

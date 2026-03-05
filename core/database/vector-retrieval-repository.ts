@@ -19,6 +19,13 @@ export type LexicalTopKQuery = {
   sourceType?: string;
 };
 
+export type ScopedChunkFallbackQuery = {
+  topK?: number;
+  documentId?: number;
+  documentIds?: number[];
+  sourceType?: string;
+};
+
 export type VectorTopKResult = {
   chunkId: number;
   documentId: number;
@@ -269,6 +276,77 @@ export class VectorRetrievalRepository {
         title: row.title,
         metadata: normalizeMetadata(row.metadata),
         lexicalRank,
+      };
+    });
+  }
+
+  async searchScopedChunksFallback(params: ScopedChunkFallbackQuery): Promise<VectorTopKResult[]> {
+    const topK = Math.max(1, Math.min(200, Math.trunc(params.topK || 20)));
+    const values: Array<string | number | number[]> = [topK];
+    const filters: string[] = [`d.status = '${DEFAULT_DOCUMENT_STATUS}'`];
+
+    const scopeDocIds = normalizePositiveIntList([
+      ...(Array.isArray(params.documentIds) ? params.documentIds : []),
+      params.documentId,
+    ]);
+    if (scopeDocIds.length === 1) {
+      values.push(scopeDocIds[0]);
+      filters.push(`d.id = $${values.length}`);
+    } else if (scopeDocIds.length > 1) {
+      values.push(scopeDocIds);
+      filters.push(`d.id = ANY($${values.length}::int[])`);
+    } else {
+      return [];
+    }
+
+    if (typeof params.sourceType === "string" && params.sourceType.trim()) {
+      values.push(params.sourceType.trim());
+      filters.push(`d.source_type = $${values.length}`);
+    }
+
+    const whereClause = `where ${filters.join(" and ")}`;
+    const sql = `
+      select
+        dc.id as chunk_id,
+        dc.document_id,
+        dc.chunk_index,
+        dc.text as chunk_text,
+        dc.token_count,
+        dc.char_start,
+        dc.char_end,
+        0.5::double precision as distance,
+        null::double precision as lexical_rank,
+        'scope_fallback'::text as embedding_model,
+        d.source_type,
+        d.source_path,
+        d.title,
+        d.metadata
+      from vector_store.document_chunks dc
+      inner join vector_store.documents d
+        on d.id = dc.document_id
+      ${whereClause}
+      order by dc.document_id asc, dc.chunk_index asc
+      limit $1
+    `;
+    const { rows } = await this.vectorDb.query<VectorTopKRow>(sql, values);
+    return rows.map((row) => {
+      const distance = toNumber(row.distance, 0.5);
+      return {
+        chunkId: toInteger(row.chunk_id),
+        documentId: toInteger(row.document_id),
+        chunkIndex: toInteger(row.chunk_index),
+        text: row.chunk_text,
+        tokenCount: row.token_count === null ? null : toInteger(row.token_count),
+        charStart: toInteger(row.char_start),
+        charEnd: toInteger(row.char_end),
+        distance,
+        score: mapScoreFromCosineDistance(distance),
+        embeddingModel: row.embedding_model,
+        sourceType: row.source_type,
+        sourcePath: row.source_path,
+        title: row.title,
+        metadata: normalizeMetadata(row.metadata),
+        lexicalRank: row.lexical_rank === null || row.lexical_rank === undefined ? null : toNumber(row.lexical_rank, 0),
       };
     });
   }

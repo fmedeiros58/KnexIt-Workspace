@@ -16,12 +16,17 @@ Base path: /write
 | `/write/insert` | POST | sim | `project_id`, `section_id`, `content` |
 | `/write/chunks/{chunk_id}` | PATCH | sim | `content` |
 | `/write/chunks/{chunk_id}/autosave` | PATCH | sim | `content`, `client_version` |
+| `/write/chunks/{chunk_id}/resummarize` | POST | sim | - |
 | `/write/chunks/{chunk_id}` | GET | nao | - |
 | `/write/chunks/{chunk_id}/versions` | GET | nao | - |
 | `/write/chunks/{chunk_id}/reindex` | POST | sim | - |
 | `/write/sections/{section_id}/reindex` | POST | sim | - |
 | `/write/projects/{project_id}/reindex` | POST | sim | - |
 | `/write/continue` | POST | sim | `project_id`, `instruction` |
+| `/write/projects/{project_id}/memory` | POST | sim | `memory_type`, `title`, `content` |
+| `/write/memory/{memory_id}` | PATCH | sim | pelo menos 1 campo de patch |
+| `/write/projects/{project_id}/memory/consolidate` | POST | sim | opcional (`dry_run`, `similarity_threshold`, `ttl_days`, `low_priority_max`) |
+| `/write/projects/{project_id}/memory/inactive` | GET | nao | - |
 | `/write/sections/{section_id}/summarize` | POST | sim | - |
 | `/write/projects/{project_id}/summarize` | POST | sim | - |
 | `/write/sections/{section_id}/summary` | GET | nao | - |
@@ -106,6 +111,19 @@ Request:
 }
 ```
 
+### POST /write/chunks/{chunk_id}/resummarize
+
+Response (resumo):
+
+```json
+{
+  "trace_id": "trace-...",
+  "chunk_id": "wrc-...",
+  "section_summary": { "summary_version": 3, "is_stale": false },
+  "project_summary": { "summary_version": 2, "is_stale": false }
+}
+```
+
 Response (resumo):
 
 ```json
@@ -182,6 +200,33 @@ Request:
 }
 ```
 
+### POST /write/projects/{project_id}/memory/consolidate
+
+Request:
+
+```json
+{
+  "similarity_threshold": 0.96,
+  "ttl_days": 45,
+  "low_priority_max": 200,
+  "dry_run": false
+}
+```
+
+Response (resumo):
+
+```json
+{
+  "trace_id": "trace-...",
+  "duplicate_groups": [
+    { "primary_memory_id": "wpm-a", "duplicate_memory_ids": ["wpm-b"] }
+  ],
+  "deactivated_memory_ids": ["wpm-b"],
+  "active_count": 7,
+  "inactive_count": 2
+}
+```
+
 Response (resumo):
 
 ```json
@@ -206,13 +251,17 @@ Response (resumo):
 - `POST /write/insert` persiste chunk e, opcionalmente, atualiza embedding e resumos.
 - `PATCH /write/chunks/{id}` edita chunk sem destruir historico e gera registro de versao.
 - `PATCH /write/chunks/{id}/autosave` salva com controle de `client_version` para evitar overwrite cego.
+- `POST /write/chunks/{id}/resummarize` recalcula secao e resumo global apos edicao relevante.
 - `POST /write/*/reindex` recalcula embeddings explicitamente por escopo.
 - `POST /write/continue` executa retrieval multi-camada + anti-redundancia + persistencia de novo chunk.
+- `POST /write/projects/{id}/memory/consolidate` aplica deduplicacao/poda leve sem exclusao fisica.
+- `PATCH /write/memory/{id}` permite desativar/reativar e ajustar prioridade de memoria.
 - Summaries sao atualizados de forma explicita por rota dedicada ou por flag explicita (`insert`/`patch chunk`).
 
 ## 4) Erros comuns
 
 - `404`: projeto/secao/chunk/resumo nao encontrado.
+- `404`: memoria tambem pode retornar nao encontrado (`/write/memory/{id}`).
 - `409`: conflito de versao no autosave.
 - `422`: payload invalido (campos, tipos, limites).
 - `503`: falha de engine no fluxo de geracao ou erro interno de dependencia.
@@ -227,7 +276,8 @@ Response (resumo):
 6. Usar autosave com `/write/chunks/{id}/autosave` durante digitacao.
 7. Reindexar manualmente se necessario com `/write/chunks/{id}/reindex`.
 8. Gerar proximo bloco com `/write/continue`.
-9. Atualizar e consultar resumos em checkpoints de edicao.
+9. Consolidar memoria periodicamente com `/write/projects/{id}/memory/consolidate`.
+10. Atualizar e consultar resumos em checkpoints de edicao, incluindo `/write/chunks/{id}/resummarize` quando necessario.
 
 ## 6) Observacao de autenticacao
 

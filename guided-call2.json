@@ -1,0 +1,38 @@
+{
+  "trace_id": "trace-415b44bc-31de-4e3a-ba91-7fca7aa1abb4",
+  "answer": "Neuroplasticity's clinical applications include neurorehabilitation, where the brain adapts to recover functions lost due to injury or disease. For",
+  "collapsed_hypothesis": {
+    "id": "fused-hyp-2351726b-48f9-41e0-87cf-2d3bb617fa94-hyp-030e6764-81ed-4436-83c0-659da737ea45",
+    "score": 0.6666666666666666,
+    "origin_nodule": "language_nodule|critic_nodule",
+    "stimulus_coherence": 0.7464000000000002
+  },
+  "readiness": {
+    "score": 0.607062951416875,
+    "state": "STABLE",
+    "dominant_factors": [
+      "stimulus_coherence",
+      "stress_load",
+      "recovery_margin"
+    ]
+  },
+  "regulatory_state": {
+    "stress_load": 0.29279279062499997,
+    "context_stability": 0.6813255989583333
+  },
+  "engine": {
+    "model": "mistral-awq",
+    "usage": {
+      "completion_tokens": 32
+    },
+    "followup_prompt_included": true,
+    "orchestration": {
+      "enabled": true,
+      "response_mode": "single_pass",
+      "cycle_count": 1,
+      "stop_reason": "single_pass",
+      "fallback_used": false,
+      "session_id": "spm-51114333-252f-4df1-9a4c-2451eb3bd666"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "trace_id": "trace-2702f23e-e9b6-47bd-9fcb-5acb6a2d2c90",
+  "answer": "Neuroplasticity refers to the brain's ability to adapt and change in response to new experiences and learning. It encompasses the neuronal connections' reorganization and the formation of new neurons, known as neurogenesis. This process is crucial for learning and memory formation throughout life. For instance, when we learn a new skill, such as playing an instrument or speaking a new language, our brain forms new neural connections to facilitate this ability. Neuroplastic changes occur in various brain regions, including the hippocampus, which is essential for memory formation, and the cerebellum, which plays a role in motor coordination.\n\nMoreover, neuroplasticity plays a significant role in recovery from brain injuries. When a part of the brain is damaged, the remaining healthy brain tissue can reorganize and take over the functions of the injured area. This process, called neuroplastic compensation, can help individuals regain some lost abilities. For example, after a stroke, the brain may reroute signals around the damaged area to restore some motor function.\n\nIn summary, neuroplasticity is the brain's capacity to",
+  "collapsed_hypothesis": {
+    "id": "hyp-73344fc9-f85f-46b9-b9ed-d4a39882d151",
+    "score": 0.3333333333333333,
+    "origin_nodule": "language_nodule",
+    "stimulus_coherence": 0.6360000000000001
+  },
+  "readiness": {
+    "score": 0.6005017770000001,
+    "state": "STABLE",
+    "dominant_factors": [
+      "stress_load",
+      "recovery_margin",
+      "affective_safety"
+    ]
+  },
+  "regulatory_state": {
+    "stress_load": 0.28406625,
+    "context_stability": 0.5738229166666666
+  },
+  "engine": {
+    "model": "mistral-awq",
+    "usage": {
+      "completion_tokens": 240
+    },
+    "followup_prompt_included": false,
+    "orchestration": {
+      "enabled": true,
+      "response_mode": "single_pass",
+      "cycle_count": 1,
+      "stop_reason": "single_pass",
+      "fallback_used": false,
+      "session_id": "spm-7fd6f13d-0548-4a44-a407-034f0c8186b5"
+    }
+  }
+}

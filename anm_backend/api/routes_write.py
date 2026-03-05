@@ -17,6 +17,7 @@ from anm_backend.api.schemas import (
     WriteAssistResponse,
     WriteChunkAutosaveRequest,
     WriteChunkAutosaveResponse,
+    WriteChunkResummarizeResponse,
     WriteContinueRequest,
     WriteContinueResponse,
     WriteChunkPatchRequest,
@@ -25,8 +26,13 @@ from anm_backend.api.schemas import (
     WriteChunkVersionsResponse,
     WriteInsertRequest,
     WriteInsertResponse,
+    WriteMemoryConsolidateRequest,
+    WriteMemoryConsolidateResponse,
     WriteProcessMemoryCreateRequest,
     WriteProcessMemoryCreateResponse,
+    WriteProcessMemoryInactiveResponse,
+    WriteProcessMemoryPatchRequest,
+    WriteProcessMemoryPatchResponse,
     WriteProcessMemoryResponse,
     WriteProjectGlobalSummaryResponse,
     WriteProjectCreateRequest,
@@ -218,6 +224,64 @@ def process_memory(request: Request, project_id: str) -> WriteProcessMemoryRespo
     return WriteProcessMemoryResponse(project_id=project_id, process_memory=process_data)
 
 
+@router.get("/projects/{project_id}/memory/inactive", response_model=WriteProcessMemoryInactiveResponse)
+def process_memory_inactive(request: Request, project_id: str) -> WriteProcessMemoryInactiveResponse:
+    service = request.app.state.write_service
+    try:
+        payload = service.list_inactive_process_memory(project_id=project_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return WriteProcessMemoryInactiveResponse(**payload)
+
+
+@router.patch("/memory/{memory_id}", response_model=WriteProcessMemoryPatchResponse)
+def patch_process_memory(
+    request: Request,
+    memory_id: str,
+    payload: WriteProcessMemoryPatchRequest,
+) -> WriteProcessMemoryPatchResponse:
+    service = request.app.state.write_service
+    try:
+        memory = service.update_process_memory_item(
+            memory_id=memory_id,
+            memory_type=payload.memory_type,
+            title=payload.title,
+            content=payload.content,
+            priority=payload.priority,
+            is_active=payload.is_active,
+            section_id=payload.section_id,
+            deactivation_reason=payload.deactivation_reason,
+            consolidated_into_memory_id=payload.consolidated_into_memory_id,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return WriteProcessMemoryPatchResponse(memory=memory)
+
+
+@router.post("/projects/{project_id}/memory/consolidate", response_model=WriteMemoryConsolidateResponse)
+def consolidate_process_memory(
+    request: Request,
+    project_id: str,
+    payload: WriteMemoryConsolidateRequest,
+) -> WriteMemoryConsolidateResponse:
+    service = request.app.state.write_service
+    try:
+        data = service.consolidate_process_memory(
+            project_id=project_id,
+            similarity_threshold=payload.similarity_threshold,
+            ttl_days=payload.ttl_days,
+            low_priority_max=payload.low_priority_max,
+            dry_run=payload.dry_run,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return WriteMemoryConsolidateResponse(**data)
+
+
 @router.post("/continue", response_model=WriteContinueResponse)
 def continue_writing(request: Request, payload: WriteContinueRequest) -> WriteContinueResponse:
     continue_service = request.app.state.write_continue_service
@@ -381,6 +445,18 @@ def summarize_section(request: Request, section_id: str) -> WriteSectionSummariz
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return WriteSectionSummarizeResponse(**payload)
+
+
+@router.post("/chunks/{chunk_id}/resummarize", response_model=WriteChunkResummarizeResponse)
+def resummarize_chunk(request: Request, chunk_id: str) -> WriteChunkResummarizeResponse:
+    service = request.app.state.write_service
+    try:
+        payload = service.resummarize_chunk(chunk_id=chunk_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=f"write_resummarize_error: {error}") from error
+    return WriteChunkResummarizeResponse(**payload)
 
 
 @router.get("/sections/{section_id}/summary", response_model=WriteSectionSummaryResponse)

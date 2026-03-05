@@ -1,0 +1,271 @@
+{
+  "startedAt": "2026-03-05T21:54:19.748Z",
+  "finishedAt": "2026-03-05T22:01:27.584Z",
+  "target": {
+    "chatUrl": "http://127.0.0.1:3001/api/chat",
+    "metricsUrl": "http://127.0.0.1:3001/api/chat/router-metrics"
+  },
+  "iterations": 1,
+  "cases": [
+    {
+      "id": "micro_oi",
+      "message": "oi"
+    },
+    {
+      "id": "ack_ok",
+      "message": "ok"
+    },
+    {
+      "id": "short_question",
+      "message": "qual a capital do brasil?"
+    },
+    {
+      "id": "direct_request",
+      "message": "resuma em 1 paragrafo o conceito de cache"
+    },
+    {
+      "id": "complex_plan",
+      "message": "analise esse fluxo e crie um plano passo a passo com checklist"
+    },
+    {
+      "id": "code_patch",
+      "message": "implemente um patch no endpoint para tratar timeout e retries"
+    },
+    {
+      "id": "error_log",
+      "message": "analise este erro de timeout ECONNREFUSED e diga causa provavel"
+    }
+  ],
+  "phases": [
+    {
+      "id": "before_full",
+      "pipelineMode": "full"
+    },
+    {
+      "id": "after_auto",
+      "pipelineMode": "auto"
+    }
+  ],
+  "summary": [
+    {
+      "phase": "before_full",
+      "requests": 7,
+      "success": 1,
+      "errorRatePct": 85.71,
+      "latencyMs": {
+        "p50": 22474,
+        "p95": 22474,
+        "avg": 22474
+      },
+      "router": {
+        "total": 11,
+        "lite": 0,
+        "full": 11,
+        "fullNearLite": 0,
+        "fullPct": 100,
+        "litePct": 0,
+        "fullNearLitePct": 0
+      },
+      "errorHistogram": {
+        "TIMEOUT": 4,
+        "HTTP_4XX": 2
+      }
+    },
+    {
+      "phase": "after_auto",
+      "requests": 7,
+      "success": 1,
+      "errorRatePct": 85.71,
+      "latencyMs": {
+        "p50": 16816,
+        "p95": 16816,
+        "avg": 16816
+      },
+      "router": {
+        "total": 13,
+        "lite": 2,
+        "full": 11,
+        "fullNearLite": 0,
+        "fullPct": 84.6,
+        "litePct": 15.4,
+        "fullNearLitePct": 0
+      },
+      "errorHistogram": {
+        "TIMEOUT": 4,
+        "HTTP_4XX": 2
+      }
+    }
+  ],
+  "rows": [
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45003,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 22474,
+      "errorClass": null,
+      "error": null,
+      "chars": 1832,
+      "preview": "Concluido.\n\n## Tema e Problema\n## Tema e Problema Cache é uma estrutura de armazenamento temporário de dados utilizada por sistemas informacionais e redes de computadores, com o ob"
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 2383,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 3299,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 16816,
+      "errorClass": null,
+      "error": null,
+      "chars": 1814,
+      "preview": "Concluido.\n\n## Tema e Problema\n## Tema e Problema Cache é uma estrutura de armazenamento temporário de dados utilizada por sistemas informacionais e redes de computadores, com o ob"
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 2581,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45000,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 2521,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    }
+  ]
+}

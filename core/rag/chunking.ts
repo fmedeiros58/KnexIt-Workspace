@@ -55,7 +55,6 @@ export function chunkTextDeterministic(input: ChunkingInput): TextChunk[] {
   if (!normalizedText.trim()) return chunks;
 
   let start = 0;
-  const stride = Math.max(1, chunkSizeChars - chunkOverlapChars);
 
   while (start < normalizedText.length) {
     if (chunks.length >= maxChunks) {
@@ -78,9 +77,10 @@ export function chunkTextDeterministic(input: ChunkingInput): TextChunk[] {
     }
 
     if (end >= normalizedText.length) break;
-    start = Math.max(start + stride, end - chunkOverlapChars);
+    // Garante continuidade entre janelas: sem lacunas entre chunks quando o split suave
+    // encerra antes do limite duro.
+    start = Math.max(end - chunkOverlapChars, start + 1);
   }
 
   return chunks;
 }
-

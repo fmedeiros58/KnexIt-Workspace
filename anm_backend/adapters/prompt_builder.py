@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from anm_backend.orchestrator.hypothesis_pool import Hypothesis
+from anm_backend.utils import describe_language, detect_user_language
 
 
 @dataclass
@@ -72,6 +73,7 @@ class PromptBuilder:
         readiness_state: str,
         style_hint: str = "",
         response_plan: Dict[str, Any] | None = None,
+        response_language: str | None = None,
         include_followup_prompt: bool = False,
     ) -> List[Dict[str, str]]:
         """
@@ -147,6 +149,9 @@ class PromptBuilder:
         except (TypeError, ValueError):
             target_tokens = 0
 
+        language_tag = str(response_language or "").strip() or detect_user_language(user_input)
+        language_label = describe_language(language_tag)
+
         system = (
             "Voce opera como casca cognitiva ANM RAM-first. "
             "Responda primeiro com base no contexto ativo de RAM, hipotese dominante e estabilidade regulatoria. "
@@ -154,7 +159,9 @@ class PromptBuilder:
             "sem bloquear a resposta com falta de contexto. "
             "Mantenha progressao logica de inicio, meio e fim; quando a resposta for curta, comprima essa ordem em poucas linhas. "
             "Responda com objetividade e sem preambulo. "
-            "Se o usuario pedir resposta curta, cumpra estritamente."
+            "Se o usuario pedir resposta curta, cumpra estritamente. "
+            f"Idioma obrigatorio da resposta: {language_label} ({language_tag}). "
+            "Nao mude de idioma sem pedido explicito de traducao."
         )
         system = (
             f"{system} "

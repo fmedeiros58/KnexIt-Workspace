@@ -1,0 +1,279 @@
+{
+  "startedAt": "2026-03-05T16:56:22.217Z",
+  "finishedAt": "2026-03-05T16:56:26.578Z",
+  "iterations": 1,
+  "urls": {
+    "anm": "http://localhost:3000/api/knexai",
+    "direct": "http://localhost:3000/api/knexai"
+  },
+  "summary": [
+    {
+      "mode": "anm",
+      "requests": 8,
+      "success": 0,
+      "errorRatePct": 100,
+      "qualityPassRatePct": 0,
+      "firstChunkP50Ms": 0,
+      "firstChunkP95Ms": 0,
+      "totalP50Ms": 0,
+      "totalP95Ms": 0,
+      "charsMedian": 0
+    },
+    {
+      "mode": "direct",
+      "requests": 8,
+      "success": 0,
+      "errorRatePct": 100,
+      "qualityPassRatePct": 0,
+      "firstChunkP50Ms": 0,
+      "firstChunkP95Ms": 0,
+      "totalP50Ms": 0,
+      "totalP95Ms": 0,
+      "charsMedian": 0
+    }
+  ],
+  "cases": [
+    {
+      "id": "capital_br",
+      "prompt": "Qual é a capital do Brasil?"
+    },
+    {
+      "id": "math_12x13",
+      "prompt": "Quanto é 12 x 13? Responda apenas o resultado."
+    },
+    {
+      "id": "translate_bom_dia",
+      "prompt": "Traduza para inglês: bom dia."
+    },
+    {
+      "id": "synonym_fast",
+      "prompt": "Dê um sinônimo de rápido em português."
+    },
+    {
+      "id": "http_https",
+      "prompt": "Explique a diferença entre HTTP e HTTPS em 3 tópicos curtos."
+    },
+    {
+      "id": "git_branch",
+      "prompt": "Passo a passo para criar uma branch no git."
+    },
+    {
+      "id": "micro_social",
+      "prompt": "oi"
+    },
+    {
+      "id": "strict_ok",
+      "prompt": "Responda apenas com: ok"
+    }
+  ],
+  "results": [
+    {
+      "mode": "anm",
+      "caseId": "capital_br",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 251,
+      "firstChunkMs": null,
+      "totalMs": 252,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "anm",
+      "caseId": "math_12x13",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 233,
+      "firstChunkMs": null,
+      "totalMs": 234,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "anm",
+      "caseId": "translate_bom_dia",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 235,
+      "firstChunkMs": null,
+      "totalMs": 235,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "anm",
+      "caseId": "synonym_fast",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 234,
+      "firstChunkMs": null,
+      "totalMs": 235,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "anm",
+      "caseId": "http_https",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 233,
+      "firstChunkMs": null,
+      "totalMs": 233,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "anm",
+      "caseId": "git_branch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 233,
+      "firstChunkMs": null,
+      "totalMs": 234,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "anm",
+      "caseId": "micro_social",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 250,
+      "firstChunkMs": null,
+      "totalMs": 251,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "anm",
+      "caseId": "strict_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 248,
+      "firstChunkMs": null,
+      "totalMs": 248,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "capital_br",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 232,
+      "firstChunkMs": null,
+      "totalMs": 232,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "math_12x13",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 236,
+      "firstChunkMs": null,
+      "totalMs": 236,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "translate_bom_dia",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 236,
+      "firstChunkMs": null,
+      "totalMs": 237,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "synonym_fast",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 232,
+      "firstChunkMs": null,
+      "totalMs": 232,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "http_https",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 231,
+      "firstChunkMs": null,
+      "totalMs": 232,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "git_branch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 233,
+      "firstChunkMs": null,
+      "totalMs": 233,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "micro_social",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 233,
+      "firstChunkMs": null,
+      "totalMs": 234,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    },
+    {
+      "mode": "direct",
+      "caseId": "strict_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "headerMs": 232,
+      "firstChunkMs": null,
+      "totalMs": 233,
+      "chars": 0,
+      "qualityPass": false,
+      "error": "{\"code\":\"ANM_TIMEOUT\",\"message\":\"Tempo limite ao consultar o ANM backend.\"}"
+    }
+  ]
+}

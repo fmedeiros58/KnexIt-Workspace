@@ -10,7 +10,7 @@ const DEFAULT_LLM_RETRY_BACKOFF_MS = 250;
 const DEFAULT_LLM_STRICT_CONTEXT_ONLY = false;
 const DEFAULT_CONTEXT_MAX_CHARS = 18_000;
 const DEFAULT_CONTEXT_MAX_CHUNKS = 20;
-const DEFAULT_RESPONSE_MAX_TOKENS = 4_096;
+const DEFAULT_RESPONSE_MAX_TOKENS = 12_288;
 const DEFAULT_RESPONSE_TEMPERATURE = 0;
 const DEFAULT_RESPONSE_SEED = 42;
 const DEFAULT_CHAT_HISTORY_MAX_MESSAGES = 16;
@@ -39,6 +39,7 @@ export type RagLlmConfig = {
   retryAttempts: number;
   retryBackoffMs: number;
   requireInternalBaseUrl: boolean;
+  hostOnly: boolean;
   strictContextOnly: boolean;
 };
 
@@ -157,6 +158,19 @@ function parsePipelineVersion(value: string | undefined): RagPipelineVersion {
   return "v1";
 }
 
+function enforceLoopbackBaseUrl(baseUrl: string) {
+  try {
+    const parsed = new URL(baseUrl);
+    const hostname = `${parsed.hostname || ""}`.trim().toLowerCase();
+    if (hostname === "localhost") {
+      parsed.hostname = "127.0.0.1";
+    }
+    return normalizeBaseUrl(parsed.toString(), DEFAULT_INTERNAL_BASE_URL);
+  } catch {
+    return normalizeBaseUrl(baseUrl, DEFAULT_INTERNAL_BASE_URL);
+  }
+}
+
 export function loadRagEmbeddingConfig(raw: NodeJS.ProcessEnv = process.env): RagEmbeddingConfig {
   const vectorConfig = loadVectorDatabaseConfig(raw);
   const configuredBaseUrl = normalizeBaseUrl(
@@ -194,15 +208,19 @@ export function loadRagEmbeddingConfig(raw: NodeJS.ProcessEnv = process.env): Ra
 }
 
 export function loadRagLlmConfig(raw: NodeJS.ProcessEnv = process.env): RagLlmConfig {
-  const configuredBaseUrl = normalizeBaseUrl(
+  const hostOnly = parseBooleanFlag(raw.RAG_LLM_HOST_ONLY, true);
+  const resolvedBaseUrl = normalizeBaseUrl(
     pickFirstNonEmpty(raw.RAG_LLM_BASE_URL, raw.LOCAL_LLM_BASE_URL, raw.LLM_BASE_URL, raw.VLLM_BASE_URL),
     DEFAULT_INTERNAL_BASE_URL,
   );
+  const configuredBaseUrl = hostOnly ? enforceLoopbackBaseUrl(resolvedBaseUrl) : resolvedBaseUrl;
   const envFallbacks = parseCsvUrls(raw.RAG_LLM_BASE_URL_FALLBACKS);
   const autoLoopbackFallbacks = deriveLoopbackFallbacks(configuredBaseUrl);
-  const fallbackBaseUrls = uniqueUrls([...envFallbacks, ...autoLoopbackFallbacks]).filter(
-    (url) => normalizeBaseUrl(url, "") !== configuredBaseUrl,
-  );
+  const fallbackBaseUrls = hostOnly
+    ? []
+    : uniqueUrls([...envFallbacks, ...autoLoopbackFallbacks]).filter(
+        (url) => normalizeBaseUrl(url, "") !== configuredBaseUrl,
+      );
   const apiKey = pickFirstNonEmpty(raw.RAG_LLM_API_KEY, raw.LOCAL_LLM_API_KEY, raw.LLM_API_KEY, raw.VLLM_API_KEY, "token-local");
   const model = pickFirstNonEmpty(raw.RAG_LLM_MODEL_NAME, raw.LLM_MODEL_NAME, raw.VLLM_MODEL, DEFAULT_LLM_MODEL);
   const timeoutMs = parsePositiveInt(raw.RAG_LLM_TIMEOUT_MS, DEFAULT_LLM_TIMEOUT_MS, 3_000, 180_000);
@@ -224,6 +242,7 @@ export function loadRagLlmConfig(raw: NodeJS.ProcessEnv = process.env): RagLlmCo
     retryAttempts,
     retryBackoffMs,
     requireInternalBaseUrl,
+    hostOnly,
     strictContextOnly,
   };
 }

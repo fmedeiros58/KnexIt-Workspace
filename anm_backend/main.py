@@ -51,6 +51,7 @@ from anm_backend.orchestrator.resonance_engine import ResonanceEngine
 from anm_backend.orchestrator.router import Router
 from anm_backend.orchestrator.scheduler import Scheduler
 from anm_backend.services.cognitive_service import CognitiveService
+from anm_backend.services.response_orchestration import ResponseOrchestrator
 from anm_backend.services.write_continue_service import WriteContinueService
 from anm_backend.services.write_service import WriteService
 from anm_backend.services.write_summary_service import WriteSummaryService
@@ -179,6 +180,7 @@ def create_app() -> FastAPI:
 
     engine_client = EngineClient.from_env()
     llm_adapter = LLMAdapter(engine_client=engine_client, prompt_builder=PromptBuilder(), response_parser=ResponseParser())
+    response_orchestrator = ResponseOrchestrator(llm_adapter=llm_adapter)
     write_repository = InMemoryWriteWorkspaceRepository()
     write_summary_service = WriteSummaryService(repository=write_repository)
     write_service = WriteService(
@@ -190,6 +192,7 @@ def create_app() -> FastAPI:
     write_continue_service = WriteContinueService(
         repository=write_repository,
         llm_adapter=llm_adapter,
+        response_orchestrator=response_orchestrator,
     )
     cognitive_service = CognitiveService(
         memory_manager=memory_manager,
@@ -202,6 +205,7 @@ def create_app() -> FastAPI:
         contextual_gate=contextual_gate,
         graph=graph,
         myelination_engine=myelination_engine,
+        response_orchestrator=response_orchestrator,
     )
 
     app = FastAPI(title="ANM Backend", version="0.2.0")
@@ -227,6 +231,7 @@ def create_app() -> FastAPI:
     app.state.resonance_engine = resonance_engine
     app.state.engine_client = engine_client
     app.state.llm_adapter = llm_adapter
+    app.state.response_orchestrator = response_orchestrator
     app.state.plasticity_readiness = plasticity_readiness
     app.state.contextual_gate = contextual_gate
     app.state.cognitive_service = cognitive_service
@@ -242,9 +247,11 @@ def create_app() -> FastAPI:
     @app.get("/healthz")
     def healthz() -> Dict[str, object]:
         readiness = plasticity_readiness.latest()
+        engine_health = engine_client.health()
         return {
-            "ok": True,
+            "ok": bool(engine_health.get("ok", False)),
             "engine_model": engine_client.model_name,
+            "engine_health": engine_health,
             "readiness_state": readiness.readiness_state.value if readiness else "UNKNOWN",
         }
 

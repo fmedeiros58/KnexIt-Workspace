@@ -1,12 +1,26 @@
 param(
   [string]$WorkspacePath = "",
-  [string]$EntryScript = "scripts/serve-anm.sh"
+  [string]$EntryScript = "scripts/serve-anm.sh",
+  [string]$Distro = "",
+  [string]$User = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 function Escape-BashDoubleQuoted([string]$value) {
   return $value.Replace('"', '\"')
+}
+
+function Invoke-WslBash([string]$bashCommand) {
+  $args = @()
+  if (-not [string]::IsNullOrWhiteSpace($Distro)) {
+    $args += @("-d", $Distro)
+  }
+  if (-not [string]::IsNullOrWhiteSpace($User)) {
+    $args += @("-u", $User)
+  }
+  $args += @("-e", "bash", "-lc", $bashCommand)
+  & wsl @args
 }
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -17,6 +31,15 @@ if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
 
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $WorkspacePath = $env:ANM_WSL_WORKSPACE_DIR
+}
+if ([string]::IsNullOrWhiteSpace($Distro)) {
+  $Distro = $env:ANM_WSL_DISTRO
+}
+if ([string]::IsNullOrWhiteSpace($Distro)) {
+  $Distro = $env:WSL_DISTRO_NAME
+}
+if ([string]::IsNullOrWhiteSpace($User)) {
+  $User = $env:ANM_WSL_USER
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $repoRootWindows = $repoRoot.Path.Replace("\", "/")
@@ -39,19 +62,19 @@ if ([string]::IsNullOrWhiteSpace($entryScriptPath)) {
 $safeWorkspacePath = Escape-BashDoubleQuoted $WorkspacePath
 $safeEntryScriptPath = Escape-BashDoubleQuoted $entryScriptPath
 
-& wsl -e bash -lc "test -d `"$safeWorkspacePath`"" 1>$null 2>$null
+Invoke-WslBash "test -d `"$safeWorkspacePath`"" 1>$null 2>$null
 if ($LASTEXITCODE -ne 0) {
   throw "Workspace WSL inexistente: $WorkspacePath"
 }
 
-& wsl -e bash -lc "test -f `"$safeWorkspacePath/$safeEntryScriptPath`"" 1>$null 2>$null
+Invoke-WslBash "test -f `"$safeWorkspacePath/$safeEntryScriptPath`"" 1>$null 2>$null
 if ($LASTEXITCODE -ne 0) {
   throw "Entry script do ANM nao encontrado no workspace WSL: $WorkspacePath/$entryScriptPath"
 }
 
 $command = "cd `"$safeWorkspacePath`" && bash `"$safeEntryScriptPath`""
 
-wsl -e bash -lc $command
+Invoke-WslBash $command
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }

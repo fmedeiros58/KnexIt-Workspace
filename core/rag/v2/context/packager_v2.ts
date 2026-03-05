@@ -80,7 +80,7 @@ function readSectionPath(hit: HybridHit) {
   return sectionPath || null;
 }
 
-function formatHeader(block: PackedEvidenceBlock) {
+function formatHeader(block: PackedEvidenceBlock, sourceIndex: number) {
   const pages =
     block.pageStart && block.pageEnd
       ? block.pageStart === block.pageEnd
@@ -88,7 +88,7 @@ function formatHeader(block: PackedEvidenceBlock) {
         : `${block.pageStart}-${block.pageEnd}`
       : "na";
   const section = block.sectionPath || "na";
-  return `[DOC=${block.docId} CHUNK=${block.chunkId} PAGES=${pages} SECTION=${section} SCORE=${block.score.toFixed(4)}]`;
+  return `[FONTE=${sourceIndex} PAGINAS=${pages} SECAO=${section} RELEVANCIA=${block.score.toFixed(4)}]`;
 }
 
 export class ContextPackagerV2 {
@@ -122,7 +122,7 @@ export class ContextPackagerV2 {
         score: hit.hybridScore,
         text,
       };
-      const rendered = `${formatHeader(block)}\n${block.text}`;
+      const rendered = `${formatHeader(block, selected.length + 1)}\n${block.text}`;
       const separatorLen = blocks.length ? 2 : 0;
       if (usedChars + separatorLen + rendered.length > maxContextChars) break;
       blocks.push(rendered);

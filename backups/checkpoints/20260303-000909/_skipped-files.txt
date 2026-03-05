@@ -1,0 +1,7 @@
+.emb-venv
+data/rag
+dev.err
+dev.log
+embcpu.err
+embcpu.log
+vllm.log

@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import {
+  AlertTriangle,
   ArrowUp,
   Bold,
   Bot,
   Bookmark,
+  Check,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -15,7 +17,16 @@ import {
   Code2,
   Compass,
   Copy,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileImage,
   FilePenLine,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  FileVideoCamera,
+  Folder,
   Heading1,
   Image as ImageIcon,
   Italic,
@@ -26,7 +37,6 @@ import {
   Mic,
   Minus,
   MoreHorizontal,
-  PanelRightClose,
   RefreshCw,
   RotateCcw,
   RotateCw,
@@ -37,6 +47,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import {
   continueWrite,
   createWriteProject,
@@ -50,6 +61,7 @@ import {
   loadPersistedThreads,
   savePersistedMessage,
   streamLeticia,
+  type StreamProgressEvent,
   type LeticiaMessage,
   type PersistedThread,
   type WriteChunkView,
@@ -58,6 +70,15 @@ import {
   type WriteSectionSummaryView,
   type WriteSectionView,
 } from "../lib/client";
+import {
+  buildTransientStatusFromProgressEvent,
+  createInitialTransientStatus,
+  getLongWaitTransientMessage,
+  getNextTransientDisplayCursor,
+  getTransientStageCursor,
+  getTransientStageLabel,
+  type ResponseTransientStage,
+} from "../lib/response-status-presenter";
 
 type ChatThread = {
   id: string;
@@ -66,6 +87,19 @@ type ChatThread = {
   updatedAt: number;
   messages: LeticiaMessage[];
   documentScopeIds: number[];
+};
+
+type ChatResponsePassIndicator = {
+  threadId: string;
+  assistantIndex: number;
+  stage: ResponseTransientStage;
+  text: string;
+  elapsedMs: number | null;
+  startedAtMs: number;
+  lastProgressAtMs: number;
+  progressMenu: string[];
+  progressCursor: number;
+  displayCursor: number;
 };
 
 type CachedThread = {
@@ -82,11 +116,41 @@ type AssistantRenderData = {
   mode: AssistantRenderMode;
   content: string;
 };
+type EmbeddingStatus = "completed" | "failed" | "pending";
 type IngestSingleResult = {
   documentId: number;
   sourcePath: string;
   title: string | null;
-  embeddingStatus: "completed" | "failed" | "pending";
+  embeddingStatus: EmbeddingStatus;
+};
+type ChatAttachment = {
+  documentId: number;
+  title: string;
+  sourcePath: string;
+  embeddingStatus: EmbeddingStatus;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+};
+type PendingComposerFileStatus = "queued" | "uploading" | "indexing" | "completed" | "failed";
+type PendingComposerFile = {
+  id: string;
+  file: File;
+  status: PendingComposerFileStatus;
+  errorMessage: string | null;
+  documentId: number | null;
+  sourcePath: string | null;
+  title: string | null;
+  embeddingStatus: EmbeddingStatus | null;
+  totalChunks: number | null;
+  embeddedChunks: number | null;
+};
+type FileVisualCategory = "pdf" | "doc" | "sheet" | "image" | "video" | "audio" | "archive" | "code" | "text" | "generic";
+type FileVisualToken = {
+  icon: LucideIcon;
+  shortLabel: string;
+  iconClassName: string;
+  badgeClassName: string;
 };
 type IngestSingleResponse = {
   ok: boolean;
@@ -97,9 +161,44 @@ type WritingWork = {
   documentId: number;
   sourcePath: string;
   title: string;
-  embeddingStatus: "completed" | "failed" | "pending";
+  embeddingStatus: EmbeddingStatus;
   createdAt: string;
   updatedAt: string;
+};
+type ComposerAttachmentView = {
+  id: string;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  status: PendingComposerFileStatus;
+  errorMessage: string | null;
+  totalChunks: number | null;
+  embeddedChunks: number | null;
+};
+type DocumentLookupResponse = {
+  ok: boolean;
+  message?: string;
+  document?: {
+    id: number;
+    status?: string;
+    embeddingStatus?: EmbeddingStatus;
+    totalChunks?: number;
+    embeddedChunks?: number;
+    ragReady?: boolean;
+    metadata?: Record<string, unknown> | null;
+  };
+};
+type ComposerDocumentReadiness = {
+  embeddingStatus: EmbeddingStatus;
+  ragReady: boolean;
+  totalChunks: number;
+  embeddedChunks: number;
+};
+type ScopedDocumentState = {
+  documentId: number;
+  title: string;
+  embeddingStatus: EmbeddingStatus;
+  ragReady: boolean;
 };
 type WritingFormatCommand = "bold" | "italic" | "underline" | "insertUnorderedList" | "insertOrderedList" | "formatBlock";
 type WritingPageFormat = "a4";
@@ -180,19 +279,268 @@ function normalizeDocumentScopeIds(value: unknown, maxItems = 24) {
   return normalized;
 }
 
-function mergeDocumentScopeIds(current: number[], incoming: number[], maxItems = 24) {
-  return normalizeDocumentScopeIds([...current, ...incoming], maxItems);
+function normalizeMessageMetadata(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
 }
 
-function resolveDefaultDocumentScopeIds(works: WritingWork[], limit = 8) {
-  if (!Array.isArray(works) || !works.length) return [];
-  const sorted = [...works].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-  const completed = sorted.filter((item) => item.embeddingStatus === "completed");
-  const fallback = sorted.filter((item) => item.embeddingStatus !== "completed");
-  return normalizeDocumentScopeIds(
-    [...completed.map((item) => item.documentId), ...fallback.map((item) => item.documentId)].slice(0, limit),
-    limit,
-  );
+function normalizeEmbeddingStatus(value: unknown): EmbeddingStatus {
+  if (value === "completed" || value === "failed" || value === "pending") {
+    return value;
+  }
+  return "pending";
+}
+
+function extractMessageRagDocumentIds(message: LeticiaMessage) {
+  const metadata = normalizeMessageMetadata(message.metadata);
+  return normalizeDocumentScopeIds(metadata?.rag_document_ids, 64);
+}
+
+function resolveLatestThreadScopedDocumentIds(messages: LeticiaMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const ids = extractMessageRagDocumentIds(messages[index]);
+    if (ids.length) return ids;
+  }
+  return [];
+}
+
+function extractMessageAttachments(message: LeticiaMessage): ChatAttachment[] {
+  const metadata = normalizeMessageMetadata(message.metadata);
+  const raw = metadata?.rag_attachments;
+  if (!Array.isArray(raw)) return [];
+  const attachments: ChatAttachment[] = [];
+  const seen = new Set<number>();
+  for (const row of raw) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const item = row as Record<string, unknown>;
+    const parsedId = Number(item.documentId);
+    if (!Number.isFinite(parsedId)) continue;
+    const documentId = Math.round(parsedId);
+    if (documentId <= 0 || seen.has(documentId)) continue;
+    seen.add(documentId);
+    const sourcePath = typeof item.sourcePath === "string" ? item.sourcePath.trim() : "";
+    const fallbackTitle = sourcePath ? normalizeWorkTitle(sourcePath, documentId) : `Documento ${documentId}`;
+    const titleRaw = typeof item.title === "string" ? item.title.trim() : "";
+    const title = titleRaw || fallbackTitle;
+    const fileNameRaw = typeof item.fileName === "string" ? item.fileName.trim() : "";
+    const fileName = fileNameRaw || title;
+    const embeddingStatus = normalizeEmbeddingStatus(item.embeddingStatus);
+    attachments.push({
+      documentId,
+      title,
+      sourcePath,
+      embeddingStatus,
+      fileName,
+      mimeType: typeof item.mimeType === "string" && item.mimeType.trim() ? item.mimeType.trim() : null,
+      sizeBytes: Number.isFinite(Number(item.sizeBytes)) ? Math.max(0, Math.round(Number(item.sizeBytes))) : null,
+    });
+  }
+  return attachments;
+}
+
+function hasFileDrag(dataTransfer: DataTransfer | null | undefined) {
+  if (!dataTransfer) return false;
+  if (Array.from(dataTransfer.types || []).includes("Files")) return true;
+  const items = Array.from(dataTransfer.items || []);
+  return items.some((item) => item.kind === "file");
+}
+
+function extractFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
+  if (!dataTransfer) return [] as File[];
+  const fromItems = Array.from(dataTransfer.items || [])
+    .map((item) => (item.kind === "file" ? item.getAsFile() : null))
+    .filter((file): file is File => Boolean(file));
+  if (fromItems.length) return fromItems;
+  return Array.from(dataTransfer.files || []);
+}
+
+function formatSizeLabel(sizeBytes: number | null) {
+  if (!Number.isFinite(sizeBytes as number) || (sizeBytes as number) <= 0) return "";
+  const value = sizeBytes as number;
+  if (value < 1024) return `${value} B`;
+  const kb = value / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb >= 100 ? 0 : 1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(gb >= 100 ? 0 : 1)} GB`;
+}
+
+const DOC_EXTENSIONS = new Set(["doc", "docx", "odt", "rtf"]);
+const SHEET_EXTENSIONS = new Set(["xls", "xlsx", "ods", "csv", "tsv"]);
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "heic", "heif", "tiff", "avif"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "mkv", "m4v", "avi"]);
+const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "ogg", "m4a", "aac", "flac", "opus"]);
+const ARCHIVE_EXTENSIONS = new Set(["zip", "rar", "7z", "tar", "gz", "bz2", "xz"]);
+const CODE_EXTENSIONS = new Set([
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "py",
+  "java",
+  "go",
+  "rs",
+  "c",
+  "cpp",
+  "h",
+  "hpp",
+  "cs",
+  "php",
+  "rb",
+  "swift",
+  "kt",
+  "sql",
+  "sh",
+]);
+const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "json", "yaml", "yml", "xml", "ini", "cfg", "log"]);
+
+function resolveFileExtension(fileName: string) {
+  const normalized = fileName.trim().toLowerCase();
+  const match = normalized.match(/\.([a-z0-9]{1,12})$/i);
+  return match?.[1] ?? "";
+}
+
+function formatShortFileName(fileName: string, maxChars = 34) {
+  const normalized = (fileName || "").trim() || "arquivo";
+  if (normalized.length <= maxChars) return normalized;
+  const extension = resolveFileExtension(normalized);
+  if (!extension) return `${normalized.slice(0, Math.max(1, maxChars - 3))}...`;
+  const suffix = `.${extension}`;
+  const headLength = Math.max(6, maxChars - suffix.length - 3);
+  return `${normalized.slice(0, headLength)}...${suffix}`;
+}
+
+function resolveFileVisualCategory(fileName: string, mimeType: string | null | undefined): FileVisualCategory {
+  const extension = resolveFileExtension(fileName);
+  const normalizedMime = (mimeType || "").trim().toLowerCase();
+
+  if (normalizedMime === "application/pdf" || extension === "pdf") return "pdf";
+  if (
+    normalizedMime.includes("word") ||
+    normalizedMime.includes("officedocument.wordprocessingml") ||
+    DOC_EXTENSIONS.has(extension)
+  ) {
+    return "doc";
+  }
+  if (
+    normalizedMime.includes("sheet") ||
+    normalizedMime.includes("excel") ||
+    normalizedMime === "text/csv" ||
+    SHEET_EXTENSIONS.has(extension)
+  ) {
+    return "sheet";
+  }
+  if (normalizedMime.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)) return "image";
+  if (normalizedMime.startsWith("video/") || VIDEO_EXTENSIONS.has(extension)) return "video";
+  if (normalizedMime.startsWith("audio/") || AUDIO_EXTENSIONS.has(extension)) return "audio";
+  if (
+    normalizedMime.includes("zip") ||
+    normalizedMime.includes("compressed") ||
+    normalizedMime.includes("tar") ||
+    ARCHIVE_EXTENSIONS.has(extension)
+  ) {
+    return "archive";
+  }
+  if (
+    normalizedMime.includes("javascript") ||
+    normalizedMime.includes("typescript") ||
+    normalizedMime.includes("json") ||
+    normalizedMime.includes("xml") ||
+    normalizedMime.includes("yaml") ||
+    normalizedMime.includes("x-python") ||
+    normalizedMime.includes("x-sh") ||
+    CODE_EXTENSIONS.has(extension)
+  ) {
+    return "code";
+  }
+  if (normalizedMime.startsWith("text/") || TEXT_EXTENSIONS.has(extension)) return "text";
+  return "generic";
+}
+
+function resolveFileVisualToken(fileName: string, mimeType: string | null | undefined): FileVisualToken {
+  const extension = resolveFileExtension(fileName);
+  const fallbackLabel = extension ? extension.slice(0, 4).toUpperCase() : "FILE";
+  const category = resolveFileVisualCategory(fileName, mimeType);
+
+  if (category === "pdf") {
+    return {
+      icon: FileText,
+      shortLabel: "PDF",
+      iconClassName: "text-red-600",
+      badgeClassName: "border-red-200 bg-red-50 text-red-700",
+    };
+  }
+  if (category === "doc") {
+    return {
+      icon: FileType2,
+      shortLabel: "DOC",
+      iconClassName: "text-blue-600",
+      badgeClassName: "border-blue-200 bg-blue-50 text-blue-700",
+    };
+  }
+  if (category === "sheet") {
+    return {
+      icon: FileSpreadsheet,
+      shortLabel: "XLS",
+      iconClassName: "text-emerald-600",
+      badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  }
+  if (category === "image") {
+    return {
+      icon: FileImage,
+      shortLabel: "IMG",
+      iconClassName: "text-fuchsia-600",
+      badgeClassName: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+    };
+  }
+  if (category === "video") {
+    return {
+      icon: FileVideoCamera,
+      shortLabel: "VID",
+      iconClassName: "text-violet-600",
+      badgeClassName: "border-violet-200 bg-violet-50 text-violet-700",
+    };
+  }
+  if (category === "audio") {
+    return {
+      icon: FileAudio,
+      shortLabel: "AUDIO",
+      iconClassName: "text-amber-600",
+      badgeClassName: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+  if (category === "archive") {
+    return {
+      icon: FileArchive,
+      shortLabel: "ZIP",
+      iconClassName: "text-orange-600",
+      badgeClassName: "border-orange-200 bg-orange-50 text-orange-700",
+    };
+  }
+  if (category === "code") {
+    return {
+      icon: FileCode,
+      shortLabel: "CODE",
+      iconClassName: "text-indigo-600",
+      badgeClassName: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    };
+  }
+  if (category === "text") {
+    return {
+      icon: FileText,
+      shortLabel: "TXT",
+      iconClassName: "text-sky-600",
+      badgeClassName: "border-sky-200 bg-sky-50 text-sky-700",
+    };
+  }
+  return {
+    icon: FileText,
+    shortLabel: fallbackLabel,
+    iconClassName: "text-zinc-600",
+    badgeClassName: "border-zinc-200 bg-zinc-100 text-zinc-700",
+  };
 }
 
 function formatWorkDate(value: string) {
@@ -249,12 +597,36 @@ function resolveEmbeddingStatusMeta(status: WritingWork["embeddingStatus"]) {
   return { label: "Pendente", className: "border-amber-300 bg-amber-50 text-amber-700" };
 }
 
+function resolveComposerAttachmentStatusMeta(status: PendingComposerFileStatus) {
+  if (status === "completed") {
+    return { label: "Indexado", className: "border-emerald-300 bg-emerald-50 text-emerald-700", tone: "completed" as const };
+  }
+  if (status === "failed") {
+    return { label: "Erro", className: "border-rose-300 bg-rose-50 text-rose-700", tone: "failed" as const };
+  }
+  if (status === "uploading") {
+    return { label: "Enviando", className: "border-sky-300 bg-sky-50 text-sky-700", tone: "active" as const };
+  }
+  if (status === "indexing") {
+    return { label: "RAG", className: "border-amber-300 bg-amber-50 text-amber-700", tone: "active" as const };
+  }
+  return { label: "Na fila", className: "border-zinc-300 bg-zinc-100 text-zinc-700", tone: "queued" as const };
+}
+
 const initialMessages: LeticiaMessage[] = [
   {
     role: "assistant",
     content: "Oi! Eu sou a L.E.T.I.C.I.A. Pergunte o que voce precisar.",
   },
 ];
+const INITIAL_THINKING_TEXT = "Enviando solicitacao";
+const THINKING_ROTATE_INTERVAL_MS = 1400;
+const THINKING_STALE_PROGRESS_MS = 2200;
+const THINKING_LONG_WAIT_MS = 12000;
+const WRITE_PANEL_TRANSITION_MS = 320;
+const COMPOSER_INDEXING_POLL_MS = 1500;
+const COMPOSER_INDEXING_ERROR_RETRY_LIMIT = 5;
+const COMPOSER_INDEXING_TIMEOUT_MS = 240000;
 
 const SIDEBAR_ACTIONS = [
   { id: "new", label: "Novo chat", icon: MessageSquarePlus },
@@ -276,9 +648,29 @@ function makeThreadTitle(prompt: string) {
   return `${base.slice(0, 42)}...`;
 }
 
+function formatElapsedLabel(elapsedMs: number | null) {
+  if (!Number.isFinite(elapsedMs as number) || (elapsedMs as number) < 0) return "";
+  const value = Math.round(elapsedMs as number);
+  if (value < 1000) return `${value}ms`;
+  const seconds = value / 1000;
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remSeconds = Math.round(seconds % 60);
+  if (remSeconds <= 0) return `${minutes}m`;
+  return `${minutes}m ${remSeconds}s`;
+}
+
+function sanitizePersistedAssistantContent(content: string) {
+  return `${content || ""}`.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "").replace(/\u0000/g, "");
+}
+
 function toModelHistory(messages: LeticiaMessage[]): LeticiaMessage[] {
   return messages.filter((message, index) => {
     if (index === 0 && message.role === "assistant" && message.content === initialMessages[0]?.content) {
+      return false;
+    }
+    const metadata = normalizeMessageMetadata(message.metadata);
+    if (metadata?.rag_attachment_notice === true) {
       return false;
     }
     return message.role === "user" || message.role === "assistant";
@@ -322,22 +714,17 @@ async function parseJsonResponse<T>(response: Response): Promise<T | null> {
 }
 
 function toLocalThread(thread: PersistedThread): ChatThread {
-  const documentScopeFromMessages = normalizeDocumentScopeIds(
-    thread.messages.flatMap((message) => {
-      if (!message || typeof message !== "object") return [];
-      const metadata = (message as { metadata?: unknown }).metadata;
-      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
-      return Array.isArray((metadata as { rag_document_ids?: unknown }).rag_document_ids)
-        ? ((metadata as { rag_document_ids: unknown[] }).rag_document_ids ?? [])
-        : [];
-    }),
-  );
   const messages =
     thread.messages.length > 0
       ? thread.messages
           .filter((message) => message.role === "user" || message.role === "assistant")
-          .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }))
+          .map((message) => ({
+            role: message.role as "user" | "assistant",
+            content: message.content,
+            metadata: normalizeMessageMetadata(message.metadata),
+          }))
       : initialMessages;
+  const documentScopeFromMessages = resolveLatestThreadScopedDocumentIds(messages);
   return {
     id: thread.id,
     storageId: thread.id,
@@ -356,13 +743,19 @@ function sanitizeCachedThreads(raw: string | null): ChatThread[] {
     return parsed
       .map((thread) => {
         const safeMessages = Array.isArray(thread.messages)
-          ? thread.messages.filter(
-              (message) =>
-                message &&
-                (message.role === "user" || message.role === "assistant") &&
-                typeof message.content === "string" &&
-                message.content.trim(),
-            )
+          ? thread.messages
+              .filter(
+                (message) =>
+                  message &&
+                  (message.role === "user" || message.role === "assistant") &&
+                  typeof message.content === "string" &&
+                  message.content.trim(),
+              )
+              .map((message) => ({
+                role: message.role,
+                content: message.content,
+                metadata: normalizeMessageMetadata(message.metadata),
+              }))
           : [];
         return {
           id: typeof thread.id === "string" && thread.id ? thread.id : makeThreadId(),
@@ -386,10 +779,12 @@ type ComposerProps = {
   isUploadingFiles: boolean;
   uploadNotice: string | null;
   uploadError: string | null;
+  pendingAttachments: ComposerAttachmentView[];
   onInputChange: (value: string) => void;
   onSend: () => void;
   onPickFiles: () => void;
   onFilesSelected: (files: File[]) => void;
+  onRemoveAttachment: (attachmentId: string) => void;
 };
 
 function Composer({
@@ -399,16 +794,74 @@ function Composer({
   isUploadingFiles,
   uploadNotice,
   uploadError,
+  pendingAttachments,
   onInputChange,
   onSend,
   onPickFiles,
   onFilesSelected,
+  onRemoveAttachment,
 }: ComposerProps) {
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const dragDepthRef = useRef(0);
+  const hasFailedAttachments = pendingAttachments.some((attachment) => attachment.status === "failed");
+  const hasActiveAttachments = pendingAttachments.some(
+    (attachment) => attachment.status === "queued" || attachment.status === "uploading" || attachment.status === "indexing",
+  );
+  const hasCompletedAttachments = pendingAttachments.some((attachment) => attachment.status === "completed");
+  const canSend =
+    (input.trim().length > 0 || hasCompletedAttachments) &&
+    status !== "thinking" &&
+    !isUploadingFiles &&
+    !hasFailedAttachments &&
+    !hasActiveAttachments;
+
+  const handleDragEnter = (event: ReactDragEvent<HTMLElement>) => {
+    if (!hasFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  };
+
+  const handleDragOver = (event: ReactDragEvent<HTMLElement>) => {
+    if (!hasFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    if (!isDraggingFiles) setIsDraggingFiles(true);
+  };
+
+  const handleDragLeave = (event: ReactDragEvent<HTMLElement>) => {
+    if (!isDraggingFiles) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFiles(false);
+  };
+
+  const handleDrop = (event: ReactDragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+    const files = extractFilesFromDataTransfer(event.dataTransfer);
+    if (!files.length) return;
+    onFilesSelected(files);
+  };
+
   return (
-    <div className={`w-full rounded-[28px] border border-zinc-300 bg-white shadow-sm ${docked ? "" : "max-w-3xl"}`}>
+    <div
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`w-full rounded-[28px] border bg-white shadow-sm transition-colors ${docked ? "" : "max-w-3xl"} ${
+        isDraggingFiles ? "border-zinc-500 ring-2 ring-zinc-300" : "border-zinc-300"
+      }`}
+    >
       <textarea
         className="h-16 w-full resize-none rounded-t-[28px] border-0 px-6 pt-5 text-[21px] text-zinc-900 outline-none placeholder:text-zinc-500"
-        placeholder={isUploadingFiles ? "Enviando arquivo para ingestao..." : "Pergunte alguma coisa"}
+        placeholder={isUploadingFiles ? "Enviando arquivo para ingestao..." : "Escreva as orientacoes para o arquivo"}
         value={input}
         onChange={(event) => {
           onInputChange(event.target.value);
@@ -421,16 +874,6 @@ function Composer({
           event.preventDefault();
           onFilesSelected(files);
         }}
-        onDragOver={(event) => {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "copy";
-        }}
-        onDrop={(event) => {
-          const files = Array.from(event.dataTransfer?.files ?? []);
-          if (!files.length) return;
-          event.preventDefault();
-          onFilesSelected(files);
-        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -438,6 +881,100 @@ function Composer({
           }
         }}
       />
+      {pendingAttachments.length ? (
+        <div className="flex flex-wrap gap-2 px-4 pb-2">
+          {pendingAttachments.map((attachment) => {
+            const visual = resolveFileVisualToken(attachment.fileName, attachment.mimeType);
+            const statusMeta = resolveComposerAttachmentStatusMeta(attachment.status);
+            const Icon = visual.icon;
+            const shortName = formatShortFileName(attachment.fileName, 38);
+            const sizeLabel = formatSizeLabel(attachment.sizeBytes);
+            const totalChunks = Number.isFinite(attachment.totalChunks as number) ? Math.round(attachment.totalChunks as number) : 0;
+            const embeddedChunksRaw = Number.isFinite(attachment.embeddedChunks as number)
+              ? Math.round(attachment.embeddedChunks as number)
+              : 0;
+            const embeddedChunks = Math.max(0, Math.min(embeddedChunksRaw, totalChunks > 0 ? totalChunks : embeddedChunksRaw));
+            const hasChunkProgress = totalChunks > 0 && Number.isFinite(attachment.embeddedChunks as number);
+            const chunksLabel = hasChunkProgress ? `${embeddedChunks}/${totalChunks} chunks` : "";
+            const progressRatio = hasChunkProgress
+              ? Math.max(0, Math.min(1, embeddedChunks / Math.max(1, totalChunks)))
+              : statusMeta.tone === "completed"
+                ? 1
+                : statusMeta.tone === "failed"
+                  ? 1
+                  : attachment.status === "uploading"
+                    ? 0.2
+                    : attachment.status === "indexing"
+                      ? 0.45
+                      : 0.08;
+            const progressDegrees = Math.round(progressRatio * 360);
+            const progressColor =
+              statusMeta.tone === "completed"
+                ? "#059669"
+                : statusMeta.tone === "failed"
+                  ? "#e11d48"
+                  : attachment.status === "uploading"
+                    ? "#0284c7"
+                    : attachment.status === "indexing"
+                      ? "#d97706"
+                      : "#71717a";
+            const ringClassName = statusMeta.tone === "active" && !hasChunkProgress ? "animate-spin" : "";
+            return (
+              <div
+                key={attachment.id}
+                className="inline-flex max-w-full items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5"
+                title={attachment.fileName}
+              >
+                <span className="relative inline-flex h-8 w-8 items-center justify-center">
+                  <span
+                    className={`pointer-events-none absolute inset-0 z-10 rounded-full ${ringClassName}`}
+                    style={{
+                      background: `conic-gradient(${progressColor} ${progressDegrees}deg, rgba(161,161,170,0.25) ${progressDegrees}deg 360deg)`,
+                    }}
+                  />
+                  <span className="pointer-events-none absolute inset-[2px] z-10 rounded-full bg-zinc-50" />
+                  <span className={`relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border ${visual.badgeClassName}`}>
+                    <Icon size={13} className={visual.iconClassName} />
+                  </span>
+                  {statusMeta.tone === "completed" ? (
+                    <span className="absolute -right-1 -bottom-1 z-30 inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50">
+                      <Check size={9} className="text-emerald-600" />
+                    </span>
+                  ) : null}
+                  {statusMeta.tone === "failed" ? (
+                    <span className="absolute -right-1 -bottom-1 z-30 inline-flex h-4 w-4 items-center justify-center rounded-full border border-rose-200 bg-rose-50">
+                      <AlertTriangle size={9} className="text-rose-600" />
+                    </span>
+                  ) : null}
+                </span>
+                <div className="min-w-0">
+                  <p className="max-w-[220px] truncate text-xs font-medium text-zinc-800">{shortName}</p>
+                  {attachment.errorMessage ? (
+                    <p className="max-w-[220px] truncate text-[10px] text-rose-600">{attachment.errorMessage}</p>
+                  ) : chunksLabel && (attachment.status === "uploading" || attachment.status === "indexing") ? (
+                    <p className="text-[10px] text-amber-700">{chunksLabel}</p>
+                  ) : sizeLabel ? (
+                    <p className="text-[10px] text-zinc-500">{sizeLabel}</p>
+                  ) : null}
+                </div>
+                <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusMeta.className}`}>
+                  {statusMeta.label}
+                </span>
+                <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${visual.badgeClassName}`}>{visual.shortLabel}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveAttachment(attachment.id)}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
+                  aria-label={`Remover ${attachment.fileName}`}
+                  title="Remover"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between px-4 pb-3">
         <div className="flex items-center gap-2">
@@ -465,7 +1002,7 @@ function Composer({
           <button
             type="button"
             onClick={onSend}
-            disabled={!input.trim() || status === "thinking"}
+            disabled={!canSend}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black text-white disabled:cursor-not-allowed disabled:bg-zinc-400"
           >
             <ArrowUp size={18} />
@@ -475,7 +1012,13 @@ function Composer({
       {uploadNotice ? <p className="px-4 pb-1 text-xs text-emerald-700">{uploadNotice}</p> : null}
       {uploadError ? <p className="px-4 pb-2 text-xs text-rose-600">{uploadError}</p> : null}
       {!uploadNotice && !uploadError ? (
-        <p className="px-4 pb-2 text-xs text-zinc-500">Cole, solte ou use + para enviar arquivos para ingestao RAG.</p>
+        <p className="px-4 pb-2 text-xs text-zinc-500">
+          {hasActiveAttachments
+            ? "Aguarde a indexacao dos arquivos para liberar o envio."
+            : hasFailedAttachments
+              ? "Remova os arquivos com erro para continuar."
+              : "Anexe arquivos, escreva as instrucoes e pressione Enter para enviar."}
+        </p>
       ) : null}
     </div>
   );
@@ -497,10 +1040,13 @@ export default function KnexAiPage() {
   const [threads, setThreads] = useState<ChatThread[]>([initialThread]);
   const [activeThreadId, setActiveThreadId] = useState(initialThread.id);
   const [input, setInput] = useState("");
+  const [composerPendingFiles, setComposerPendingFiles] = useState<PendingComposerFile[]>([]);
   const [status, setStatus] = useState<"idle" | "thinking" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [isChatMode, setIsChatMode] = useState(false);
   const [activeMode, setActiveMode] = useState<WorkspaceMode>("chat");
+  const [isWritePanelMounted, setIsWritePanelMounted] = useState(false);
+  const [isWritePanelVisible, setIsWritePanelVisible] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [composerReservePx, setComposerReservePx] = useState(180);
   const [writeProjects, setWriteProjects] = useState<WriteProjectListItem[]>([]);
@@ -543,6 +1089,7 @@ export default function KnexAiPage() {
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [chatPassIndicator, setChatPassIndicator] = useState<ChatResponsePassIndicator | null>(null);
   const writingPageFormat = WRITING_DEFAULT_PAGE_FORMAT;
   const writingPagePreset = WRITING_PAGE_FORMAT_PRESETS[writingPageFormat];
   const writingPageWidthPx = writingPagePreset.widthPx;
@@ -571,19 +1118,12 @@ export default function KnexAiPage() {
   const threadStoreLocksRef = useRef<Record<string, Promise<string | null>>>({});
   const pendingDeltaRef = useRef("");
   const flushFrameRef = useRef<number | null>(null);
+  const writePanelUnmountTimerRef = useRef<number | null>(null);
+  const composerIngestionTasksRef = useRef(new Map<string, { cancelled: boolean }>());
 
   const activeThread = useMemo(() => threads.find((item) => item.id === activeThreadId) ?? threads[0], [activeThreadId, threads]);
   const activeMessages = activeThread?.messages ?? initialMessages;
-  const activeThreadDocumentScopeIds = useMemo(() => {
-    const explicit = normalizeDocumentScopeIds(activeThread?.documentScopeIds ?? []);
-    if (explicit.length) return explicit;
-    return resolveDefaultDocumentScopeIds(writingWorks);
-  }, [activeThread?.documentScopeIds, writingWorks]);
-  const activeThreadDocumentWorks = useMemo(() => {
-    if (!activeThreadDocumentScopeIds.length || !writingWorks.length) return [] as WritingWork[];
-    const worksById = new Map<number, WritingWork>(writingWorks.map((item) => [item.documentId, item]));
-    return activeThreadDocumentScopeIds.map((docId) => worksById.get(docId)).filter((item): item is WritingWork => Boolean(item));
-  }, [activeThreadDocumentScopeIds, writingWorks]);
+  const writingWorksById = useMemo(() => new Map<number, WritingWork>(writingWorks.map((item) => [item.documentId, item])), [writingWorks]);
   const assistantRenderData = useMemo(
     () => activeMessages.map((message) => (message.role === "assistant" ? resolveAssistantRenderData(message.content) : null)),
     [activeMessages],
@@ -638,6 +1178,36 @@ export default function KnexAiPage() {
   }, [activeMode]);
 
   useEffect(() => {
+    if (writePanelUnmountTimerRef.current !== null) {
+      window.clearTimeout(writePanelUnmountTimerRef.current);
+      writePanelUnmountTimerRef.current = null;
+    }
+
+    if (activeMode === "write") {
+      setIsWritePanelMounted(true);
+      window.requestAnimationFrame(() => {
+        setIsWritePanelVisible(true);
+      });
+      return;
+    }
+
+    setIsWritePanelVisible(false);
+    writePanelUnmountTimerRef.current = window.setTimeout(() => {
+      setIsWritePanelMounted(false);
+      writePanelUnmountTimerRef.current = null;
+    }, WRITE_PANEL_TRANSITION_MS);
+  }, [activeMode]);
+
+  useEffect(() => {
+    return () => {
+      if (writePanelUnmountTimerRef.current !== null) {
+        window.clearTimeout(writePanelUnmountTimerRef.current);
+        writePanelUnmountTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!showChat) return;
     endRef.current?.scrollIntoView({
       behavior: status === "thinking" ? "auto" : "smooth",
@@ -653,6 +1223,48 @@ export default function KnexAiPage() {
       bubble.scrollTop = bubble.scrollHeight;
     }
   }, [activeMessages, status]);
+
+  useEffect(() => {
+    if (status !== "thinking") return;
+    if (!chatPassIndicator) return;
+    const activeThreadForIndicator = activeThread?.id || "";
+    if (!activeThreadForIndicator || chatPassIndicator.threadId !== activeThreadForIndicator) return;
+
+    const intervalId = window.setInterval(() => {
+      setChatPassIndicator((current) => {
+        if (!current) return current;
+        if (current.threadId !== activeThreadForIndicator) return current;
+        const now = Date.now();
+        const elapsedMs = now - current.startedAtMs;
+        const staleMs = now - current.lastProgressAtMs;
+        if (staleMs < THINKING_STALE_PROGRESS_MS) {
+          return {
+            ...current,
+            elapsedMs,
+          };
+        }
+        if (elapsedMs >= THINKING_LONG_WAIT_MS) {
+          return {
+            ...current,
+            elapsedMs,
+            text: getLongWaitTransientMessage(elapsedMs),
+          };
+        }
+        const rotated = getNextTransientDisplayCursor(current.displayCursor);
+        const nextText = rotated.text || current.text;
+        return {
+          ...current,
+          elapsedMs,
+          displayCursor: rotated.cursor,
+          text: nextText,
+        };
+      });
+    }, THINKING_ROTATE_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [status, chatPassIndicator?.threadId, activeThread?.id]);
 
   useEffect(() => {
     if (!showChat) return;
@@ -819,22 +1431,6 @@ export default function KnexAiPage() {
   }, [sessionId, writingWorks]);
 
   useEffect(() => {
-    if (!activeThread || activeThread.documentScopeIds.length || !writingWorks.length) return;
-    const defaults = resolveDefaultDocumentScopeIds(writingWorks);
-    if (!defaults.length) return;
-    setThreads((previous) =>
-      previous.map((thread) =>
-        thread.id === activeThread.id
-          ? {
-              ...thread,
-              documentScopeIds: defaults,
-            }
-          : thread,
-      ),
-    );
-  }, [activeThread, writingWorks]);
-
-  useEffect(() => {
     if (!isWritingModeOpen) return;
     let cancelled = false;
     const hydrateWriteWorkspace = async () => {
@@ -907,9 +1503,10 @@ export default function KnexAiPage() {
           return mapped.map((thread) => {
             const existing = previousById.get(thread.id);
             if (!existing) return thread;
+            const existingScope = resolveLatestThreadScopedDocumentIds(existing.messages);
             return {
               ...thread,
-              documentScopeIds: normalizeDocumentScopeIds(existing.documentScopeIds),
+              documentScopeIds: existingScope.length ? existingScope : thread.documentScopeIds,
             };
           });
         });
@@ -982,9 +1579,10 @@ export default function KnexAiPage() {
     content: string,
     metadata?: Record<string, unknown>,
   ) => {
-    if (!sessionId || !threadId || !content.trim()) return;
+    const safeContent = role === "assistant" ? sanitizePersistedAssistantContent(content) : content;
+    if (!sessionId || !threadId || !safeContent.trim()) return;
     try {
-      await savePersistedMessage({ sessionId, threadId, role, content, metadata });
+      await savePersistedMessage({ sessionId, threadId, role, content: safeContent, metadata });
     } catch (persistError) {
       console.warn("KNEXAI_MESSAGE_PERSIST_WARN", persistError);
     }
@@ -1019,7 +1617,10 @@ export default function KnexAiPage() {
     if (!response.ok || !payload?.ok || !payload.result) {
       throw new Error(payload?.message || `Falha ao ingerir "${file.name}" (HTTP ${response.status}).`);
     }
-    return payload.result;
+    return {
+      ...payload.result,
+      embeddingStatus: normalizeEmbeddingStatus(payload.result.embeddingStatus),
+    };
   };
 
   const registerIngestedWorks = (results: IngestSingleResult[]) => {
@@ -1046,6 +1647,398 @@ export default function KnexAiPage() {
     });
   };
 
+  const buildPendingComposerFileId = (file: File) =>
+    `${file.name.trim().toLowerCase()}::${file.size}::${file.lastModified}::${(file.type || "").toLowerCase()}`;
+
+  const updateComposerPendingFile = (
+    attachmentId: string,
+    mutator: (current: PendingComposerFile) => PendingComposerFile,
+  ) => {
+    setComposerPendingFiles((prev) => {
+      let changed = false;
+      const next = prev.map((item) => {
+        if (item.id !== attachmentId) return item;
+        changed = true;
+        return mutator(item);
+      });
+      return changed ? next : prev;
+    });
+  };
+
+  const fetchComposerDocumentReadiness = async (documentId: number): Promise<ComposerDocumentReadiness> => {
+    const response = await fetch(`/api/documents/${documentId}?limit=1&offset=0`, { method: "GET" });
+    const payload = await parseJsonResponse<DocumentLookupResponse>(response);
+    if (!response.ok || !payload?.ok || !payload.document) {
+      throw new Error(payload?.message || `Falha ao consultar indexacao do documento ${documentId}.`);
+    }
+    const document = payload.document;
+    const metadata = payload.document.metadata;
+    const bag = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : {};
+    const embeddingStatus = normalizeEmbeddingStatus(document.embeddingStatus ?? bag.embedding_status ?? bag.embeddingStatus);
+    const totalChunks = Number.isFinite(Number(document.totalChunks)) ? Math.max(0, Math.round(Number(document.totalChunks))) : 0;
+    const embeddedChunks = Number.isFinite(Number(document.embeddedChunks)) ? Math.max(0, Math.round(Number(document.embeddedChunks))) : 0;
+    const totalChunksFromMetadata = Number.isFinite(Number(bag.total_chunks ?? bag.totalChunks))
+      ? Math.max(0, Math.round(Number(bag.total_chunks ?? bag.totalChunks)))
+      : 0;
+    const embeddedChunksFromMetadata = Number.isFinite(Number(bag.embedded_chunks ?? bag.embeddedChunks))
+      ? Math.max(0, Math.round(Number(bag.embedded_chunks ?? bag.embeddedChunks)))
+      : 0;
+    const effectiveTotalChunks = Math.max(totalChunks, totalChunksFromMetadata);
+    const effectiveEmbeddedChunks = Math.max(embeddedChunks, embeddedChunksFromMetadata);
+    const pendingChunks = Number.isFinite(Number(bag.pending_chunks ?? bag.pendingChunks))
+      ? Math.max(0, Math.round(Number(bag.pending_chunks ?? bag.pendingChunks)))
+      : null;
+    const failedChunks = Number.isFinite(Number(bag.failed_chunks ?? bag.failedChunks))
+      ? Math.max(0, Math.round(Number(bag.failed_chunks ?? bag.failedChunks)))
+      : null;
+    const status = typeof document.status === "string" ? document.status.trim().toLowerCase() : "";
+    const hasChunkInventory = effectiveTotalChunks > 0;
+    const ragReadyFromCounts =
+      status === "processed" &&
+      embeddingStatus === "completed" &&
+      hasChunkInventory &&
+      effectiveEmbeddedChunks >= effectiveTotalChunks;
+    const ragReadyFromMetadata =
+      status === "processed" &&
+      embeddingStatus === "completed" &&
+      hasChunkInventory &&
+      (pendingChunks === 0 || pendingChunks === null) &&
+      (failedChunks === 0 || failedChunks === null);
+    return {
+      embeddingStatus,
+      ragReady: Boolean(document.ragReady) || ragReadyFromCounts || ragReadyFromMetadata,
+      totalChunks: effectiveTotalChunks,
+      embeddedChunks: effectiveEmbeddedChunks,
+    };
+  };
+
+  const resolveScopedDocumentStates = async (documentIds: number[]) => {
+    const normalized = normalizeDocumentScopeIds(documentIds);
+    if (!normalized.length) {
+      return {
+        readyIds: [] as number[],
+        pending: [] as ScopedDocumentState[],
+        failed: [] as ScopedDocumentState[],
+      };
+    }
+
+    const states = await Promise.all(
+      normalized.map(async (documentId): Promise<ScopedDocumentState> => {
+        const known = writingWorksById.get(documentId);
+        const title = known?.title?.trim() || `doc:${documentId}`;
+        try {
+          const readiness = await fetchComposerDocumentReadiness(documentId);
+          return {
+            documentId,
+            title,
+            embeddingStatus: readiness.embeddingStatus,
+            ragReady: readiness.ragReady,
+          };
+        } catch {
+          return {
+            documentId,
+            title,
+            embeddingStatus: known?.embeddingStatus || "pending",
+            ragReady: false,
+          };
+        }
+      }),
+    );
+
+    const failed = states.filter((item) => item.embeddingStatus === "failed");
+    const pending = states.filter((item) => item.embeddingStatus !== "failed" && !item.ragReady);
+    const readyIds = normalizeDocumentScopeIds(
+      states
+        .filter((item) => item.ragReady && item.embeddingStatus === "completed")
+        .map((item) => item.documentId),
+    );
+    return { readyIds, pending, failed };
+  };
+
+  const waitForComposerEmbeddingStatus = async (
+    documentId: number,
+    taskToken: { cancelled: boolean },
+    onTick?: (readiness: ComposerDocumentReadiness) => void,
+  ): Promise<EmbeddingStatus> => {
+    let consecutiveErrors = 0;
+    const startedAt = Date.now();
+    while (!taskToken.cancelled) {
+      if (Date.now() - startedAt >= COMPOSER_INDEXING_TIMEOUT_MS) {
+        throw new Error(`Tempo limite excedido na indexacao do documento ${documentId}.`);
+      }
+      try {
+        const readiness = await fetchComposerDocumentReadiness(documentId);
+        consecutiveErrors = 0;
+        onTick?.(readiness);
+        if (readiness.embeddingStatus === "failed") return "failed";
+        if (readiness.ragReady) return "completed";
+      } catch (pollError: unknown) {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= COMPOSER_INDEXING_ERROR_RETRY_LIMIT) {
+          if (pollError instanceof Error) throw pollError;
+          throw new Error(`Falha ao acompanhar indexacao do documento ${documentId}.`);
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, COMPOSER_INDEXING_POLL_MS));
+    }
+    return "pending";
+  };
+
+  const ingestAndTrackComposerFile = async (entry: PendingComposerFile) => {
+    const taskToken = { cancelled: false };
+    composerIngestionTasksRef.current.set(entry.id, taskToken);
+    updateComposerPendingFile(entry.id, (current) => ({
+      ...current,
+      status: "uploading",
+      errorMessage: null,
+      embeddingStatus: null,
+      totalChunks: null,
+      embeddedChunks: null,
+    }));
+
+    try {
+      const result = await ingestFile(entry.file);
+      if (taskToken.cancelled) return;
+
+      const normalizedTitle = (result.title || "").trim() || normalizeWorkTitle(result.sourcePath, result.documentId);
+      const initialStatus = normalizeEmbeddingStatus(result.embeddingStatus);
+      registerIngestedWorks([
+        {
+          ...result,
+          title: normalizedTitle,
+          embeddingStatus: initialStatus,
+        },
+      ]);
+
+      updateComposerPendingFile(entry.id, (current) => ({
+        ...current,
+        status: initialStatus === "failed" ? "failed" : "indexing",
+        errorMessage:
+          initialStatus === "failed" ? `Falha ao indexar "${entry.file.name || "arquivo"}".` : null,
+        documentId: result.documentId,
+        sourcePath: result.sourcePath,
+        title: normalizedTitle,
+        embeddingStatus: initialStatus,
+        totalChunks: null,
+        embeddedChunks: null,
+      }));
+
+      if (initialStatus === "failed") return;
+
+      const polledStatus = await waitForComposerEmbeddingStatus(result.documentId, taskToken, (readiness) => {
+        updateComposerPendingFile(entry.id, (current) => ({
+          ...current,
+          totalChunks: readiness.totalChunks > 0 ? readiness.totalChunks : current.totalChunks,
+          embeddedChunks:
+            readiness.totalChunks > 0 ? Math.max(0, Math.min(readiness.embeddedChunks, readiness.totalChunks)) : current.embeddedChunks,
+          status: readiness.ragReady ? "completed" : readiness.embeddingStatus === "failed" ? "failed" : "indexing",
+          embeddingStatus: readiness.ragReady ? "completed" : readiness.embeddingStatus,
+        }));
+      });
+      if (taskToken.cancelled) return;
+
+      updateComposerPendingFile(entry.id, (current) => ({
+        ...current,
+        status: polledStatus === "completed" ? "completed" : polledStatus === "failed" ? "failed" : "indexing",
+        errorMessage: polledStatus === "failed" ? `Falha ao indexar "${entry.file.name || "arquivo"}".` : null,
+        embeddingStatus: polledStatus,
+        embeddedChunks: polledStatus === "completed" ? current.totalChunks ?? current.embeddedChunks : current.embeddedChunks,
+      }));
+
+      registerIngestedWorks([
+        {
+          ...result,
+          title: normalizedTitle,
+          embeddingStatus: polledStatus,
+        },
+      ]);
+    } catch (ingestError: unknown) {
+      if (taskToken.cancelled) return;
+      const message = ingestError instanceof Error ? ingestError.message : "";
+      const base = `Falha ao processar "${entry.file.name || "arquivo"}" para indexacao.`;
+      const composed = message ? `${base} ${message}` : base;
+      updateComposerPendingFile(entry.id, (current) => ({
+        ...current,
+        status: "failed",
+        errorMessage: composed,
+        embeddingStatus: "failed",
+        totalChunks: current.totalChunks,
+        embeddedChunks: current.embeddedChunks,
+      }));
+    } finally {
+      composerIngestionTasksRef.current.delete(entry.id);
+    }
+  };
+
+  const queueComposerFiles = (files: File[]) => {
+    const validFiles = files.filter((file) => file && file.size > 0);
+    if (!validFiles.length) return;
+    const queuedEntries: PendingComposerFile[] = [];
+    setComposerPendingFiles((prev) => {
+      const next = [...prev];
+      const seen = new Set(prev.map((entry) => entry.id));
+      for (const file of validFiles) {
+        const id = buildPendingComposerFileId(file);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const entry: PendingComposerFile = {
+          id,
+          file,
+          status: "queued",
+          errorMessage: null,
+          documentId: null,
+          sourcePath: null,
+          title: null,
+          embeddingStatus: null,
+          totalChunks: null,
+          embeddedChunks: null,
+        };
+        next.push(entry);
+        queuedEntries.push(entry);
+      }
+      return next;
+    });
+    if (!queuedEntries.length) return;
+    setUploadError(null);
+    for (const entry of queuedEntries) {
+      void ingestAndTrackComposerFile(entry);
+    }
+  };
+
+  const removeComposerPendingFile = (attachmentId: string) => {
+    const token = composerIngestionTasksRef.current.get(attachmentId);
+    if (token) {
+      token.cancelled = true;
+      composerIngestionTasksRef.current.delete(attachmentId);
+    }
+    setComposerPendingFiles((prev) => prev.filter((item) => item.id !== attachmentId));
+  };
+
+  const clearComposerPendingFiles = () => {
+    for (const token of composerIngestionTasksRef.current.values()) {
+      token.cancelled = true;
+    }
+    composerIngestionTasksRef.current.clear();
+    setComposerPendingFiles([]);
+  };
+
+  const composerPendingAttachmentViews = useMemo(
+    () =>
+      composerPendingFiles.map((item) => ({
+        id: item.id,
+        fileName: item.file.name || "arquivo",
+        mimeType: item.file.type || null,
+        sizeBytes: Number.isFinite(item.file.size) ? Math.max(0, Math.round(item.file.size)) : null,
+        status: item.status,
+        errorMessage: item.errorMessage,
+        totalChunks: item.totalChunks,
+        embeddedChunks: item.embeddedChunks,
+      })),
+    [composerPendingFiles],
+  );
+
+  useEffect(() => {
+    if (activeMode !== "chat") return;
+    if (!composerPendingFiles.length) {
+      setUploadNotice(null);
+      setUploadError(null);
+      return;
+    }
+
+    const failed = composerPendingFiles.filter((item) => item.status === "failed");
+    if (failed.length) {
+      const failedNames = failed
+        .map((item) => `"${item.file.name || "arquivo"}"`)
+        .slice(0, 4)
+        .join(", ");
+      const suffix = failed.length > 4 ? ` e mais ${failed.length - 4}` : "";
+      setUploadError(`Falha na indexacao do(s) arquivo(s): ${failedNames}${suffix}.`);
+      setUploadNotice(null);
+      return;
+    }
+
+    const active = composerPendingFiles.filter(
+      (item) => item.status === "queued" || item.status === "uploading" || item.status === "indexing",
+    );
+    if (active.length) {
+      setUploadNotice(
+        active.length === 1
+          ? `Processando embeddings e RAG de "${active[0].file.name || "arquivo"}"...`
+          : `${active.length} arquivo(s) em processamento de embeddings e RAG...`,
+      );
+      setUploadError(null);
+      return;
+    }
+
+    const completed = composerPendingFiles.filter((item) => item.status === "completed").length;
+    if (completed > 0) {
+      setUploadNotice(
+        completed === 1
+          ? "Arquivo pronto para uso no RAG e envio."
+          : `${completed} arquivo(s) pronto(s) para uso no RAG e envio.`,
+      );
+      setUploadError(null);
+      return;
+    }
+
+    setUploadNotice(null);
+    setUploadError(null);
+  }, [activeMode, composerPendingFiles]);
+
+  useEffect(
+    () => () => {
+      for (const token of composerIngestionTasksRef.current.values()) {
+        token.cancelled = true;
+      }
+      composerIngestionTasksRef.current.clear();
+    },
+    [],
+  );
+
+  const ingestComposerFileBatch = async (files: File[]) => {
+    const validFiles = files.filter((file) => file && file.size > 0);
+    if (!validFiles.length) {
+      return {
+        results: [] as IngestSingleResult[],
+        attachments: [] as ChatAttachment[],
+        noticeBase: "",
+        noticeEmbeddings: "",
+      };
+    }
+    const results: IngestSingleResult[] = [];
+    const attachments: ChatAttachment[] = [];
+    for (const file of validFiles) {
+      const result = await ingestFile(file);
+      results.push(result);
+      const title = (result.title || "").trim() || normalizeWorkTitle(result.sourcePath, result.documentId);
+      attachments.push({
+        documentId: result.documentId,
+        title,
+        sourcePath: result.sourcePath,
+        embeddingStatus: result.embeddingStatus,
+        fileName: file.name || title,
+        mimeType: file.type || null,
+        sizeBytes: Number.isFinite(file.size) ? Math.max(0, Math.round(file.size)) : null,
+      });
+    }
+    registerIngestedWorks(results);
+    const pendingEmbeddings = results.filter((result) => result.embeddingStatus === "pending").length;
+    const completedEmbeddings = results.filter((result) => result.embeddingStatus === "completed").length;
+    const noticeBase = `${results.length} arquivo(s) enviado(s) para ingestao no RAG.`;
+    const noticeEmbeddings =
+      pendingEmbeddings > 0
+        ? ` ${pendingEmbeddings} em processamento de embeddings.`
+        : completedEmbeddings > 0
+          ? " Embeddings concluidos."
+          : "";
+    return {
+      results,
+      attachments,
+      noticeBase,
+      noticeEmbeddings,
+    };
+  };
+
   const handleComposerFiles = async (files: File[]) => {
     const validFiles = files.filter((file) => file && file.size > 0);
     if (!validFiles.length || isUploadingFiles) return;
@@ -1054,36 +2047,10 @@ export default function KnexAiPage() {
     setUploadError(null);
     setIsUploadingFiles(true);
     try {
-      const results: IngestSingleResult[] = [];
-      for (const file of validFiles) {
-        const result = await ingestFile(file);
-        results.push(result);
-      }
-      const pendingEmbeddings = results.filter((result) => result.embeddingStatus === "pending").length;
-      const completedEmbeddings = results.filter((result) => result.embeddingStatus === "completed").length;
-      const noticeBase = `${results.length} arquivo(s) enviado(s) para ingestao no RAG.`;
-      const noticeEmbeddings =
-        pendingEmbeddings > 0
-          ? ` ${pendingEmbeddings} em processamento de embeddings.`
-          : completedEmbeddings > 0
-            ? " Embeddings concluidos."
-            : "";
-      registerIngestedWorks(results);
-      const uploadedDocumentIds = normalizeDocumentScopeIds(results.map((item) => item.documentId));
-      if (activeMode === "chat" && activeThread && uploadedDocumentIds.length) {
-        setThreads((previous) =>
-          previous.map((thread) =>
-            thread.id === activeThread.id
-              ? {
-                  ...thread,
-                  updatedAt: Date.now(),
-                  documentScopeIds: mergeDocumentScopeIds(thread.documentScopeIds, uploadedDocumentIds),
-                }
-              : thread,
-          ),
-        );
-      }
-      setUploadNotice(`${noticeBase}${noticeEmbeddings} Obras registradas no painel lateral direito.`);
+      const ingestion = await ingestComposerFileBatch(validFiles);
+      if (!ingestion.results.length) return;
+      const scopeLabel = activeMode === "chat" ? "deste chat" : "do contexto RAG";
+      setUploadNotice(`${ingestion.noticeBase}${ingestion.noticeEmbeddings} Arquivo(s) anexado(s) ao contexto ${scopeLabel}.`);
       setUploadError(null);
     } catch (ingestError: unknown) {
       const message = ingestError instanceof Error ? ingestError.message : "Falha ao enviar arquivo para ingestao.";
@@ -1092,6 +2059,14 @@ export default function KnexAiPage() {
     } finally {
       setIsUploadingFiles(false);
     }
+  };
+
+  const handleComposerFilesForCurrentMode = (files: File[]) => {
+    if (activeMode === "chat") {
+      queueComposerFiles(files);
+      return;
+    }
+    void handleComposerFiles(files);
   };
 
   const handlePickFiles = () => {
@@ -1398,10 +2373,7 @@ export default function KnexAiPage() {
     try {
       const worksContext = writingWorks
         .slice(0, 24)
-        .map(
-          (work, index) =>
-            `${index + 1}. [doc:${work.documentId}] ${work.title} | ${work.sourcePath} | embeddings:${work.embeddingStatus}`,
-        )
+        .map((work, index) => `${index + 1}. ${work.title} | disponibilidade:${work.embeddingStatus}`)
         .join("\n");
       const promptWithWorks = worksContext
         ? [
@@ -1462,8 +2434,10 @@ export default function KnexAiPage() {
     setThreads((prev) => [nextThread, ...prev]);
     setActiveThreadId(nextThread.id);
     setInput("");
+    clearComposerPendingFiles();
     setError(null);
     setStatus("idle");
+    setChatPassIndicator(null);
     setIsChatMode(false);
   };
 
@@ -1478,22 +2452,136 @@ export default function KnexAiPage() {
     pendingDeltaRef.current = "";
     setActiveThreadId(threadId);
     setInput("");
+    clearComposerPendingFiles();
     setError(null);
+    if (chatPassIndicator && chatPassIndicator.threadId !== threadId) {
+      setChatPassIndicator(null);
+    }
     setIsChatMode(target.messages.some((msg) => msg.role === "user"));
   };
 
   const send = async (prompt: string) => {
     const trimmed = prompt.trim();
-    if (!trimmed || status === "thinking" || !activeThread) return;
+    if (status === "thinking" || !activeThread || isUploadingFiles) return;
+
+    const formatAttachmentNames = (items: PendingComposerFile[]) => {
+      const names = items
+        .map((item) => `"${item.file.name || "arquivo"}"`)
+        .slice(0, 4)
+        .join(", ");
+      const suffix = items.length > 4 ? ` e mais ${items.length - 4}` : "";
+      return `${names}${suffix}`;
+    };
+
+    const failedEntries = composerPendingFiles.filter((entry) => entry.status === "failed");
+    if (failedEntries.length) {
+      setUploadError(`Falha na indexacao do(s) arquivo(s): ${formatAttachmentNames(failedEntries)}.`);
+      setUploadNotice(null);
+      return;
+    }
+
+    const inFlightEntries = composerPendingFiles.filter(
+      (entry) => entry.status === "queued" || entry.status === "uploading" || entry.status === "indexing",
+    );
+    if (inFlightEntries.length) {
+      setUploadError(`Aguarde a indexacao concluir para enviar: ${formatAttachmentNames(inFlightEntries)}.`);
+      setUploadNotice(null);
+      return;
+    }
+
+    const completedEntries = composerPendingFiles.filter((entry) => entry.status === "completed");
+    const invalidCompletedEntries = completedEntries.filter(
+      (entry) => !entry.documentId || !entry.sourcePath || !entry.title,
+    );
+    if (invalidCompletedEntries.length) {
+      setUploadError(`Arquivo(s) sem vinculo de documento indexado: ${formatAttachmentNames(invalidCompletedEntries)}.`);
+      setUploadNotice(null);
+      return;
+    }
+
+    const uploadedAttachments: ChatAttachment[] = completedEntries.map((entry) => ({
+      documentId: entry.documentId as number,
+      title: (entry.title || "").trim() || normalizeWorkTitle(entry.sourcePath || "", entry.documentId as number),
+      sourcePath: entry.sourcePath || "",
+      embeddingStatus: normalizeEmbeddingStatus(entry.embeddingStatus),
+      fileName: entry.file.name || "arquivo",
+      mimeType: entry.file.type || null,
+      sizeBytes: Number.isFinite(entry.file.size) ? Math.max(0, Math.round(entry.file.size)) : null,
+    }));
+    const uploadedDocumentIds = normalizeDocumentScopeIds(uploadedAttachments.map((item) => item.documentId));
+
+    if (!trimmed && !uploadedAttachments.length) return;
 
     setIsChatMode(true);
-    const nextTitle = activeThread.title === "Novo chat" ? makeThreadTitle(trimmed) : activeThread.title;
-    const userMsg: LeticiaMessage = { role: "user", content: trimmed };
-    const historyForUi = [...activeThread.messages, userMsg];
-    const historyForModel = [...toModelHistory(activeThread.messages), userMsg];
-    const scopedDocumentIds = normalizeDocumentScopeIds(
-      activeThread.documentScopeIds.length ? activeThread.documentScopeIds : resolveDefaultDocumentScopeIds(writingWorks),
+    const titleSeed = trimmed || uploadedAttachments[0]?.fileName || "Novo chat";
+    const nextTitle = activeThread.title === "Novo chat" ? makeThreadTitle(titleSeed) : activeThread.title;
+    const previousScopeDocumentIds = activeThread.documentScopeIds.length
+      ? activeThread.documentScopeIds
+      : resolveLatestThreadScopedDocumentIds(activeThread.messages);
+    const requestedScopeDocumentIds = normalizeDocumentScopeIds(
+      uploadedDocumentIds.length ? uploadedDocumentIds : previousScopeDocumentIds,
     );
+    const scopedState = await resolveScopedDocumentStates(requestedScopeDocumentIds);
+    const formatScopedLabels = (items: ScopedDocumentState[]) => {
+      const labels = items
+        .map((item) => `"${item.title}"`)
+        .slice(0, 4)
+        .join(", ");
+      const suffix = items.length > 4 ? ` e mais ${items.length - 4}` : "";
+      return `${labels}${suffix}`;
+    };
+    if (scopedState.failed.length) {
+      setUploadError(`Falha na indexacao do(s) documento(s) do escopo: ${formatScopedLabels(scopedState.failed)}.`);
+      setUploadNotice(null);
+      return;
+    }
+    if (scopedState.pending.length) {
+      setUploadError(`Aguarde a indexacao concluir para: ${formatScopedLabels(scopedState.pending)}.`);
+      setUploadNotice(null);
+      return;
+    }
+    const scopedDocumentIds = scopedState.readyIds;
+    if (uploadedAttachments.length) {
+      clearComposerPendingFiles();
+      setUploadError(null);
+    }
+    const isAttachmentOnlyMessage = !trimmed && uploadedAttachments.length > 0;
+    const userMessageContent = trimmed || (uploadedAttachments.length === 1 ? "Arquivo anexado." : `${uploadedAttachments.length} arquivos anexados.`);
+    const userMsgMetadata: Record<string, unknown> = {};
+    if (scopedDocumentIds.length) userMsgMetadata.rag_document_ids = scopedDocumentIds;
+    if (uploadedAttachments.length) userMsgMetadata.rag_attachments = uploadedAttachments;
+    if (isAttachmentOnlyMessage) userMsgMetadata.rag_attachment_notice = true;
+    const safeUserMetadata = Object.keys(userMsgMetadata).length ? userMsgMetadata : undefined;
+    const userMsg: LeticiaMessage = { role: "user", content: userMessageContent, metadata: safeUserMetadata };
+
+    if (isAttachmentOnlyMessage) {
+      setThreads((prev) =>
+        prev.map((thread) => {
+          if (thread.id !== activeThread.id) return thread;
+          return {
+            ...thread,
+            title: nextTitle,
+            updatedAt: Date.now(),
+            messages: [...thread.messages, userMsg],
+            documentScopeIds: scopedDocumentIds,
+          };
+        }),
+      );
+      setInput("");
+      setError(null);
+      setStatus("idle");
+      setChatPassIndicator(null);
+      let storedThreadId = activeThread.storageId;
+      if (!storedThreadId) {
+        storedThreadId = await ensureThreadStored({ ...activeThread, title: nextTitle }, nextTitle);
+      }
+      void persistMessage(storedThreadId, "user", userMessageContent, safeUserMetadata);
+      return;
+    }
+
+    const historyForUi = [...activeThread.messages, userMsg];
+    const assistantIndex = historyForUi.length;
+    const historyForModel = [...toModelHistory(activeThread.messages), userMsg];
 
     setThreads((prev) =>
       prev.map((thread) => {
@@ -1503,6 +2591,7 @@ export default function KnexAiPage() {
           title: nextTitle,
           updatedAt: Date.now(),
           messages: [...historyForUi, { role: "assistant", content: "" }],
+          documentScopeIds: scopedDocumentIds,
         };
       }),
     );
@@ -1522,6 +2611,24 @@ export default function KnexAiPage() {
     const streamId = streamIdRef.current + 1;
     streamIdRef.current = streamId;
     const targetThreadId = activeThread.id;
+    const startedAtMs = Date.now();
+    const initialTransientStatus = createInitialTransientStatus();
+    const composingStageCursor = getTransientStageCursor("composing");
+    const finalizingStageCursor = getTransientStageCursor("finalizing");
+    const composingStageLabel = getTransientStageLabel("composing");
+    const finalizingStageLabel = getTransientStageLabel("finalizing");
+    setChatPassIndicator({
+      threadId: targetThreadId,
+      assistantIndex,
+      stage: initialTransientStatus.stage,
+      text: initialTransientStatus.text,
+      elapsedMs: null,
+      startedAtMs,
+      lastProgressAtMs: startedAtMs,
+      progressMenu: initialTransientStatus.progressMenu,
+      progressCursor: initialTransientStatus.progressCursor,
+      displayCursor: initialTransientStatus.progressCursor,
+    });
 
     const flushPendingDelta = () => {
       if (streamIdRef.current !== streamId) return;
@@ -1559,11 +2666,35 @@ export default function KnexAiPage() {
     if (!storedThreadId) {
       storedThreadId = await ensureThreadStored({ ...activeThread, title: nextTitle }, nextTitle);
     }
-    void persistMessage(storedThreadId, "user", trimmed, {
-      rag_document_ids: scopedDocumentIds,
-    });
+    void persistMessage(storedThreadId, "user", userMessageContent, safeUserMetadata);
 
     let assistantResponse = "";
+    const handleProgress = (event: StreamProgressEvent) => {
+      if (streamIdRef.current !== streamId) return;
+      setChatPassIndicator((current) => {
+        if (!current || current.threadId !== targetThreadId || current.assistantIndex !== assistantIndex) return current;
+        const mapped = buildTransientStatusFromProgressEvent(event);
+        const now = Date.now();
+        const nextElapsed =
+          Number.isFinite(Number(event.elapsedMs)) && Number(event.elapsedMs) >= 0
+            ? Math.round(Number(event.elapsedMs))
+            : current.elapsedMs;
+        const nextCursor = Math.max(current.progressCursor, mapped.progressCursor);
+        const keepCurrentStage = nextCursor > mapped.progressCursor;
+        const fallbackText = mapped.progressMenu[nextCursor] || current.text;
+        const nextText = keepCurrentStage ? fallbackText : mapped.text;
+        return {
+          ...current,
+          stage: keepCurrentStage ? current.stage : mapped.stage,
+          elapsedMs: nextElapsed,
+          lastProgressAtMs: now,
+          progressMenu: mapped.progressMenu,
+          progressCursor: nextCursor,
+          displayCursor: keepCurrentStage ? current.displayCursor : mapped.progressCursor,
+          text: nextText,
+        };
+      });
+    };
     try {
       await streamLeticia(
         trimmed,
@@ -1575,6 +2706,19 @@ export default function KnexAiPage() {
             assistantResponse += delta;
             pendingDeltaRef.current += delta;
             scheduleFlush();
+            setChatPassIndicator((current) => {
+              if (!current || current.threadId !== targetThreadId || current.assistantIndex !== assistantIndex) return current;
+              const canPromoteToCompose = current.progressCursor <= composingStageCursor;
+              const now = Date.now();
+              return {
+                ...current,
+                stage: canPromoteToCompose ? "composing" : current.stage,
+                lastProgressAtMs: now,
+                progressCursor: canPromoteToCompose ? composingStageCursor : current.progressCursor,
+                displayCursor: canPromoteToCompose ? composingStageCursor : current.displayCursor,
+                text: canPromoteToCompose ? composingStageLabel : current.text,
+              };
+            });
           },
           onDone: () => {
             if (streamIdRef.current !== streamId) return;
@@ -1584,11 +2728,31 @@ export default function KnexAiPage() {
             }
             flushPendingDelta();
             setStatus("idle");
+            setChatPassIndicator((current) => {
+              if (!current || current.threadId !== targetThreadId || current.assistantIndex !== assistantIndex) return current;
+              const fallbackElapsed = Date.now() - current.startedAtMs;
+              const canPromoteToFinalize = current.progressCursor <= finalizingStageCursor;
+              return {
+                ...current,
+                stage: canPromoteToFinalize ? "finalizing" : current.stage,
+                lastProgressAtMs: Date.now(),
+                progressCursor: canPromoteToFinalize ? finalizingStageCursor : current.progressCursor,
+                displayCursor: canPromoteToFinalize ? finalizingStageCursor : current.displayCursor,
+                text: canPromoteToFinalize ? finalizingStageLabel : current.text,
+                elapsedMs:
+                  Number.isFinite(current.elapsedMs as number) && (current.elapsedMs as number) >= 0
+                    ? current.elapsedMs
+                    : fallbackElapsed,
+              };
+            });
           },
+          onProgress: handleProgress,
         },
         {
           documentIds: scopedDocumentIds,
           documentId: scopedDocumentIds.length === 1 ? scopedDocumentIds[0] : undefined,
+          topK: scopedDocumentIds.length ? 24 : undefined,
+          maxDistance: scopedDocumentIds.length ? null : undefined,
         },
       );
       await persistMessage(storedThreadId, "assistant", assistantResponse);
@@ -1600,38 +2764,16 @@ export default function KnexAiPage() {
       }
       flushPendingDelta();
       setStatus("error");
+      setChatPassIndicator((current) => {
+        if (!current || current.threadId !== targetThreadId || current.assistantIndex !== assistantIndex) return current;
+        return {
+          ...current,
+          text: "Falha durante a geracao da resposta.",
+          elapsedMs: Date.now() - current.startedAtMs,
+        };
+      });
       setError(err?.message ?? "Erro ao falar com a Leticia");
     }
-  };
-
-  const removeActiveThreadDocument = (documentId: number) => {
-    if (!activeThread) return;
-    setThreads((previous) =>
-      previous.map((thread) =>
-        thread.id === activeThread.id
-          ? {
-              ...thread,
-              documentScopeIds: thread.documentScopeIds.filter((item) => item !== documentId),
-              updatedAt: Date.now(),
-            }
-          : thread,
-      ),
-    );
-  };
-
-  const clearActiveThreadDocumentScope = () => {
-    if (!activeThread) return;
-    setThreads((previous) =>
-      previous.map((thread) =>
-        thread.id === activeThread.id
-          ? {
-              ...thread,
-              documentScopeIds: [],
-              updatedAt: Date.now(),
-            }
-          : thread,
-      ),
-    );
   };
 
   return (
@@ -1640,12 +2782,13 @@ export default function KnexAiPage() {
         ref={fileInputRef}
         type="file"
         multiple
+        accept=".pdf,.docx,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           event.currentTarget.value = "";
           if (!files.length) return;
-          void handleComposerFiles(files);
+          handleComposerFilesForCurrentMode(files);
         }}
       />
       <aside className="hidden h-full w-[300px] flex-col border-r border-zinc-200 bg-[#f0f0f1] lg:flex">
@@ -1677,7 +2820,7 @@ export default function KnexAiPage() {
           </div>
 
           <div className="mt-5">
-            <p className="px-3 text-xs uppercase tracking-[0.14em] text-zinc-500">GPTs</p>
+            <p className="px-3 text-xs uppercase tracking-[0.14em] text-zinc-500">LeticIA</p>
             <div className="mt-2 space-y-1">
               {threads.map((thread) => (
                 <button
@@ -1711,43 +2854,23 @@ export default function KnexAiPage() {
 
       <section className="flex min-w-0 flex-1 flex-col bg-white">
         <header className="flex h-14 items-center justify-between px-5 lg:px-8">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-medium sm:text-[34px]">
-              L.E.T.I.C.I.A. <span className="font-normal text-zinc-500">KnexAI</span>
-            </h1>
-            <span
-              className={`inline-flex items-center border px-2 py-0.5 text-xs font-medium uppercase tracking-[0.09em] ${
-                activeMode === "write"
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                  : "border-blue-300 bg-blue-50 text-blue-700"
-              }`}
-            >
-              {activeMode === "write" ? "Modo Escrever" : "Modo Chat"}
-            </span>
+          <div className="flex items-center gap-2">
+            <Folder size={20} className="text-zinc-500" />
+            <ChevronRight size={20} className="text-zinc-400" />
+            <h1 className="text-xl font-medium sm:text-[34px]">LeticIA</h1>
           </div>
           <div className="flex items-center gap-2 text-zinc-700">
-            <div className="inline-flex items-center border border-zinc-300 bg-zinc-100 p-0.5">
-              <button
-                type="button"
-                onClick={() => setActiveMode("chat")}
-                className={`px-3 py-1 text-sm font-medium ${activeMode === "chat" ? "bg-white text-zinc-900" : "text-zinc-600 hover:bg-zinc-200"}`}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveMode("write");
-                  setWritingError(null);
-                  setWritingNotice(null);
-                }}
-                className={`px-3 py-1 text-sm font-medium ${
-                  activeMode === "write" ? "bg-white text-zinc-900" : "text-zinc-600 hover:bg-zinc-200"
-                }`}
-              >
-                Escrever
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveMode("write");
+                setWritingError(null);
+                setWritingNotice(null);
+              }}
+              className="inline-flex items-center rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-200"
+            >
+              Modo escrita
+            </button>
             <Link
               href="/knexai/ingest"
               className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-zinc-200"
@@ -1762,192 +2885,163 @@ export default function KnexAiPage() {
         </header>
 
         <div className="relative flex min-h-0 flex-1 flex-col">
-          {activeMode === "chat" ? (
-            !showChat ? (
-              <div className="flex flex-1 flex-col items-center justify-center px-6 pb-16">
-                <p className="mb-7 text-center text-5xl font-normal text-zinc-900">O que tem na agenda de hoje?</p>
-                <Composer
-                  docked={false}
-                  input={input}
-                  status={status}
-                  isUploadingFiles={isUploadingFiles}
-                  uploadNotice={uploadNotice}
-                  uploadError={uploadError}
-                  onInputChange={setInput}
-                  onSend={() => void send(input)}
-                  onPickFiles={handlePickFiles}
-                  onFilesSelected={(files) => {
-                    void handleComposerFiles(files);
-                  }}
-                />
-                {activeThreadDocumentWorks.length ? (
-                  <div className="mt-4 w-full max-w-3xl rounded-2xl border border-zinc-300 bg-zinc-50 px-4 py-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-600">
-                        Documentos RAG ativos neste chat
-                      </p>
-                      <button
-                        type="button"
-                        onClick={clearActiveThreadDocumentScope}
-                        className="text-xs font-medium text-zinc-600 hover:text-zinc-800"
-                      >
-                        Limpar escopo
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {activeThreadDocumentWorks.map((work) => (
-                        <span
-                          key={work.documentId}
-                          className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs text-zinc-700"
-                          title={work.sourcePath}
-                        >
-                          <span>{`doc:${work.documentId} ${work.title}`}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeActiveThreadDocument(work.documentId)}
-                            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
-                            aria-label={`Remover documento ${work.documentId} do escopo do chat`}
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]" style={{ scrollPaddingBottom: `${composerReservePx}px` }}>
-                  <div className={`mx-auto w-full px-6 pt-5 pb-6 ${hasStructuredAssistantResponse ? "max-w-6xl" : "max-w-4xl"}`}>
-                    {activeMessages.map((message, index) => (
-                      <div
-                        key={`${activeThread?.id ?? "thread"}-${index}`}
-                        className={`mb-4 flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                      >
-                        {(() => {
-                          const isLastAssistant = message.role === "assistant" && index === activeMessages.length - 1;
-                          const currentAssistantData = assistantRenderData[index];
-                          const assistantMode = currentAssistantData?.mode;
-                          const contentToRender =
-                            message.role === "assistant" && currentAssistantData ? currentAssistantData.content : message.content;
-                          const whitespaceClass = message.role === "assistant" && assistantMode === "plain" ? "whitespace-pre" : "whitespace-pre-wrap";
-                          return (
-                            <div
-                              ref={isLastAssistant ? lastAssistantBubbleRef : null}
-                              className={`${whitespaceClass} text-[22px] leading-relaxed ${
-                                message.role === "user"
-                                  ? "max-w-[85%] rounded-2xl bg-zinc-900 px-4 py-3 text-white"
-                                  : assistantMode === "plain"
-                                    ? "w-full max-w-none overflow-x-auto rounded-2xl bg-zinc-100 px-4 py-3 font-mono text-zinc-900"
-                                    : "w-full max-w-none text-zinc-900"
-                              }`}
-                            >
-                              {contentToRender || (
-                                <span className="text-zinc-400">
-                                  {message.role === "assistant" ? "Pensando para te responder melhor..." : "Digitando..."}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    ))}
-
-                    {error ? (
-                      <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">Falha: {error}</div>
-                    ) : null}
-
-                    <div ref={endRef} style={{ height: `${composerReservePx}px` }} />
-                  </div>
-                </div>
-
-                <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 bg-transparent px-6 py-4">
-                  <div className="mx-auto w-full max-w-4xl">
-                    {activeThreadDocumentWorks.length ? (
-                      <div className="mb-2 rounded-2xl border border-zinc-300 bg-zinc-50 px-4 py-2">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-600">
-                            Documentos RAG ativos neste chat
-                          </p>
-                          <button
-                            type="button"
-                            onClick={clearActiveThreadDocumentScope}
-                            className="text-xs font-medium text-zinc-600 hover:text-zinc-800"
-                          >
-                            Limpar escopo
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {activeThreadDocumentWorks.map((work) => (
-                            <span
-                              key={work.documentId}
-                              className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs text-zinc-700"
-                              title={work.sourcePath}
-                            >
-                              <span>{`doc:${work.documentId} ${work.title}`}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeActiveThreadDocument(work.documentId)}
-                                className="inline-flex h-4 w-4 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
-                                aria-label={`Remover documento ${work.documentId} do escopo do chat`}
-                              >
-                                <X size={12} />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    <Composer
-                      docked
-                      input={input}
-                      status={status}
-                      isUploadingFiles={isUploadingFiles}
-                      uploadNotice={uploadNotice}
-                      uploadError={uploadError}
-                      onInputChange={setInput}
-                      onSend={() => void send(input)}
-                      onPickFiles={handlePickFiles}
-                      onFilesSelected={(files) => {
-                        void handleComposerFiles(files);
-                      }}
-                    />
-                  </div>
-                </div>
-              </>
-            )
-          ) : (
-            <div className="flex flex-1 items-center justify-center px-6 text-center">
-              <div className="max-w-2xl border border-zinc-300 bg-zinc-50 px-6 py-8">
-                <p className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">Modo Escrever</p>
-                <p className="mt-2 text-lg text-zinc-800">Workspace de escrita ativo. Use o editor, secoes e resumos no painel principal.</p>
-              </div>
+          {!showChat ? (
+            <div className="flex flex-1 flex-col items-center justify-center px-6 pb-16">
+              <p className="mb-7 text-center text-5xl font-normal text-zinc-900">O que tem na agenda de hoje?</p>
+              <Composer
+                docked={false}
+                input={input}
+                status={status}
+                isUploadingFiles={isUploadingFiles}
+                uploadNotice={uploadNotice}
+                uploadError={uploadError}
+                pendingAttachments={composerPendingAttachmentViews}
+                onInputChange={setInput}
+                onSend={() => void send(input)}
+                onPickFiles={handlePickFiles}
+                onFilesSelected={(files) => {
+                  queueComposerFiles(files);
+                }}
+                onRemoveAttachment={removeComposerPendingFile}
+              />
             </div>
+          ) : (
+            <>
+              <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]" style={{ scrollPaddingBottom: `${composerReservePx}px` }}>
+                <div className={`mx-auto w-full px-6 pt-5 pb-6 ${hasStructuredAssistantResponse ? "max-w-6xl" : "max-w-4xl"}`}>
+                  {activeMessages.map((message, index) => (
+                    <div
+                      key={`${activeThread?.id ?? "thread"}-${index}`}
+                      className={`mb-4 flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      {(() => {
+                        const isLastAssistant = message.role === "assistant" && index === activeMessages.length - 1;
+                        const currentAssistantData = assistantRenderData[index];
+                        const assistantMode = currentAssistantData?.mode;
+                        const messageMetadata = normalizeMessageMetadata(message.metadata);
+                        const attachmentItems = message.role === "user" ? extractMessageAttachments(message) : [];
+                        const hasPassIndicator =
+                          message.role === "assistant" &&
+                          Boolean(chatPassIndicator) &&
+                          activeThread?.id === chatPassIndicator?.threadId &&
+                          index === chatPassIndicator?.assistantIndex;
+                        const elapsedLabel = hasPassIndicator ? formatElapsedLabel(chatPassIndicator?.elapsedMs ?? null) : "";
+                        const passLineText = hasPassIndicator
+                          ? status === "thinking"
+                            ? chatPassIndicator?.text || `${INITIAL_THINKING_TEXT}...`
+                            : status === "error"
+                              ? chatPassIndicator?.text || ""
+                              : elapsedLabel
+                                ? `Pensou por ${elapsedLabel}`
+                                : "Pensou por alguns instantes"
+                          : "";
+                        const contentToRender =
+                          message.role === "assistant" && currentAssistantData ? currentAssistantData.content : message.content;
+                        const hideMessageTextForAttachmentNotice =
+                          message.role === "user" && messageMetadata?.rag_attachment_notice === true && attachmentItems.length > 0;
+                        const shouldRenderContent = Boolean(contentToRender) && !hideMessageTextForAttachmentNotice;
+                        const whitespaceClass = message.role === "assistant" && assistantMode === "plain" ? "whitespace-pre" : "whitespace-pre-wrap";
+                        const showTypingPlaceholder =
+                          !shouldRenderContent && !(message.role === "assistant" && hasPassIndicator) && !attachmentItems.length;
+                        return (
+                          <div
+                            ref={isLastAssistant ? lastAssistantBubbleRef : null}
+                            className={`${whitespaceClass} relative text-[22px] leading-relaxed ${
+                              message.role === "user"
+                                ? "max-w-[85%] rounded-2xl bg-zinc-900 px-4 py-3 text-white"
+                                : assistantMode === "plain"
+                                  ? "w-full max-w-none overflow-x-auto rounded-2xl bg-zinc-100 px-4 py-3 font-mono text-zinc-900"
+                                  : "w-full max-w-none text-zinc-900"
+                            }`}
+                          >
+                            {passLineText ? <div className="mb-2 text-sm text-zinc-500">{passLineText}</div> : null}
+                            {shouldRenderContent ? <span>{contentToRender}</span> : null}
+                            {showTypingPlaceholder ? (
+                              <span className={message.role === "assistant" ? "text-zinc-400" : "text-zinc-300"}>
+                                {message.role === "assistant" ? "Pensando para te responder melhor..." : "Digitando..."}
+                              </span>
+                            ) : null}
+                            {attachmentItems.length ? (
+                              <div className={`${shouldRenderContent ? "mt-3" : ""} space-y-2`}>
+                                {attachmentItems.map((attachment) => {
+                                  const visual = resolveFileVisualToken(attachment.fileName, attachment.mimeType);
+                                  const Icon = visual.icon;
+                                  const shortName = formatShortFileName(attachment.fileName, 40);
+                                  return (
+                                    <div
+                                      key={`${attachment.documentId}-${attachment.sourcePath}`}
+                                      className="flex items-center gap-3 rounded-xl border border-zinc-700/70 bg-zinc-800/70 px-3 py-2 text-left"
+                                      title={attachment.fileName}
+                                    >
+                                      <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full border ${visual.badgeClassName}`}>
+                                        <Icon size={14} className={visual.iconClassName} />
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="line-clamp-1 text-sm font-medium text-zinc-100">{shortName}</p>
+                                      </div>
+                                      <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${visual.badgeClassName}`}>
+                                        {visual.shortLabel}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ))}
+
+                  {error ? (
+                    <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">Falha: {error}</div>
+                  ) : null}
+
+                  <div ref={endRef} style={{ height: `${composerReservePx}px` }} />
+                </div>
+              </div>
+
+              <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 bg-transparent px-6 py-4">
+                <div className="mx-auto w-full max-w-4xl">
+                  <Composer
+                    docked
+                    input={input}
+                    status={status}
+                    isUploadingFiles={isUploadingFiles}
+                    uploadNotice={uploadNotice}
+                    uploadError={uploadError}
+                    pendingAttachments={composerPendingAttachmentViews}
+                    onInputChange={setInput}
+                    onSend={() => void send(input)}
+                    onPickFiles={handlePickFiles}
+                    onFilesSelected={(files) => {
+                      queueComposerFiles(files);
+                    }}
+                    onRemoveAttachment={removeComposerPendingFile}
+                  />
+                </div>
+              </div>
+            </>
           )}
         </div>
       </section>
 
-      {activeMode === "write" ? (
-      <div className="fixed inset-0 z-[60] pointer-events-auto" aria-hidden={false}>
+      {isWritePanelMounted ? (
+      <div
+        className={`fixed inset-0 z-[60] ${isWritePanelVisible ? "pointer-events-auto" : "pointer-events-none"}`}
+        aria-hidden={false}
+      >
         <div
-          className="absolute inset-0 bg-black/10"
+          className={`absolute inset-0 bg-black/10 transition-opacity duration-[320ms] [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] ${
+            isWritePanelVisible ? "opacity-100" : "opacity-0"
+          }`}
           onClick={() => setActiveMode("chat")}
         />
         <section
-          className="absolute inset-y-0 right-0 flex w-full flex-col bg-[#f4f4f5]"
+          className={`absolute inset-y-0 right-0 flex w-full transform-gpu flex-col bg-[#f4f4f5] will-change-transform transition-transform duration-[320ms] [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] ${
+            isWritePanelVisible ? "translate-x-0" : "translate-x-full"
+          }`}
         >
-          <button
-            type="button"
-            onClick={() => setActiveMode("chat")}
-            className="absolute bottom-6 right-6 z-10 inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white/95 px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm backdrop-blur hover:bg-white"
-            aria-label="Colapsar modo escrita para a direita e voltar ao chat"
-            title="Voltar ao chat"
-          >
-            <PanelRightClose size={16} />
-            <span className="hidden sm:inline">Voltar ao chat</span>
-          </button>
-
           <header className="flex h-16 items-center justify-between border-b border-zinc-200 bg-white px-5 lg:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-900 text-white">
@@ -2000,10 +3094,10 @@ export default function KnexAiPage() {
               <button
                 type="button"
                 onClick={() => setActiveMode("chat")}
-                className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-100"
-                aria-label="Fechar modo escrita"
+                className="inline-flex items-center rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-200"
+                aria-label="Voltar ao chat"
               >
-                <X size={18} />
+                Voltar ao chat
               </button>
             </div>
           </header>
@@ -2474,12 +3568,14 @@ export default function KnexAiPage() {
                     isUploadingFiles={isUploadingFiles}
                     uploadNotice={uploadNotice}
                     uploadError={uploadError}
+                    pendingAttachments={[]}
                     onInputChange={setWritingPrompt}
                     onSend={() => void sendWritingAssist(writingPrompt)}
                     onPickFiles={handlePickFiles}
                     onFilesSelected={(files) => {
                       void handleComposerFiles(files);
                     }}
+                    onRemoveAttachment={() => {}}
                   />
                 </div>
               </div>

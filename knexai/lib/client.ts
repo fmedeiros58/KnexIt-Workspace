@@ -1,6 +1,7 @@
 export type LeticiaMessage = {
   role: "user" | "assistant";
   content: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type PersistedMessage = {
@@ -24,6 +25,37 @@ type StreamHandlers = {
   onChunk?: (delta: string) => void;
   onStart?: () => void;
   onDone?: () => void;
+  onProgress?: (event: StreamProgressEvent) => void;
+};
+
+export type StreamProgressEvent = {
+  stage: string;
+  text: string;
+  type?: string | null;
+  phase?: string | null;
+  runId?: string | null;
+  requestId?: string | null;
+  ts?: string | null;
+  substage?: string | null;
+  progressPct?: number | null;
+  counters?: Record<string, number> | null;
+  target?: {
+    docName?: string | null;
+    docId?: string | null;
+    chapter?: string | null;
+    section?: string | null;
+    pageCurrent?: number | null;
+    pageStart?: number | null;
+    pageEnd?: number | null;
+    pageTotal?: number | null;
+    chunkCurrent?: number | null;
+    chunkTotal?: number | null;
+  } | null;
+  detail?: Record<string, unknown> | null;
+  sectionIndex?: number | null;
+  sectionTotal?: number | null;
+  sectionTitle?: string | null;
+  elapsedMs?: number | null;
 };
 
 export type RagChatRequestOptions = {
@@ -31,6 +63,7 @@ export type RagChatRequestOptions = {
   documentIds?: number[];
   sourceType?: string;
   retrievalEmbeddingModel?: string;
+  preferredResponseLanguageId?: string;
   topK?: number;
   maxDistance?: number | null;
   maxResponseTokens?: number;
@@ -98,6 +131,45 @@ function normalizePositiveIntArray(value: unknown, maxItems = 64): number[] {
     if (normalized.length >= maxItems) break;
   }
   return normalized;
+}
+
+function detectPreferredResponseLanguageIdFromPrompt(prompt: string): string | null {
+  const raw = `${prompt || ""}`.trim();
+  if (!raw) return null;
+  const normalized = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ");
+
+  if (/[\u4E00-\u9FFF]/.test(raw)) return "zh-CN";
+  if (/[\u3040-\u30FF]/.test(raw)) return "ja-JP";
+  if (/[\uAC00-\uD7AF]/.test(raw)) return "ko-KR";
+  if (/[\u0600-\u06FF]/.test(raw)) return "ar-SA";
+  if (/[\u0590-\u05FF]/.test(raw)) return "he-IL";
+  if (/[\u0900-\u097F]/.test(raw)) return "hi-IN";
+  if (/[\u0980-\u09FF]/.test(raw)) return "bn-BD";
+  if (/[\u0400-\u04FF]/.test(raw)) return /[іїєґ]/i.test(raw) ? "uk-UA" : "ru-RU";
+
+  if (/\b(responda|responder|escreva|answer|reply|respond)\s+(em|in)\s+(ingles|english)\b/.test(normalized)) return "en-US";
+  if (/\b(responda|responder|escreva|answer|reply|respond)\s+(em|in)\s+(portugues|portuguese)\b/.test(normalized))
+    return "pt-BR";
+  if (/\b(responda|responder|escreva|answer|reply|respond)\s+(em|in)\s+(espanhol|espanol|spanish)\b/.test(normalized))
+    return "es-ES";
+
+  const tokens = normalized.split(/[^a-z0-9]+/g).filter(Boolean);
+  const score = (hints: string[]) => hints.reduce((acc, hint) => (tokens.includes(hint) ? acc + 1 : acc), 0);
+  const ptScore = score(["de", "do", "da", "para", "como", "resenha", "critica", "obra", "texto"]);
+  const enScore = score(["the", "and", "with", "what", "which", "analysis", "review", "text", "work"]);
+  const esScore = score(["de", "del", "para", "como", "resena", "critica", "texto"]);
+  const frScore = score(["de", "du", "pour", "comme", "analyse", "texte"]);
+
+  if (ptScore >= enScore && ptScore >= esScore && ptScore >= frScore && ptScore > 0) return "pt-BR";
+  if (enScore > ptScore && enScore >= esScore && enScore >= frScore && enScore > 0) return "en-US";
+  if (esScore > ptScore && esScore >= enScore && esScore >= frScore && esScore > 0) return "es-ES";
+  if (frScore > 0 && frScore >= ptScore && frScore >= enScore && frScore >= esScore) return "fr-FR";
+
+  return "pt-BR";
 }
 
 async function waitWithAbort(ms: number, signal?: AbortSignal) {
@@ -207,6 +279,72 @@ async function consumeSseStream(response: Response, handlers: StreamHandlers) {
       return;
     }
 
+    if (eventName === "progress") {
+      if (payload && typeof payload === "object") {
+        const parsed = payload as {
+          stage?: unknown;
+          type?: unknown;
+          phase?: unknown;
+          runId?: unknown;
+          requestId?: unknown;
+          ts?: unknown;
+          substage?: unknown;
+          progressPct?: unknown;
+          counters?: unknown;
+          target?: unknown;
+          detail?: unknown;
+          text?: unknown;
+          sectionIndex?: unknown;
+          sectionTotal?: unknown;
+          sectionTitle?: unknown;
+          elapsedMs?: unknown;
+        };
+        const rawTarget = parsed.target && typeof parsed.target === "object" ? (parsed.target as Record<string, unknown>) : null;
+        const rawPage = rawTarget?.page && typeof rawTarget.page === "object" ? (rawTarget.page as Record<string, unknown>) : null;
+        const rawChunk = rawTarget?.chunk && typeof rawTarget.chunk === "object" ? (rawTarget.chunk as Record<string, unknown>) : null;
+        const text = typeof parsed.text === "string" ? parsed.text : "";
+        const stage = typeof parsed.stage === "string" ? parsed.stage : "progress";
+        handlers.onProgress?.({
+          stage,
+          text,
+          type: typeof parsed.type === "string" ? parsed.type : null,
+          phase: typeof parsed.phase === "string" ? parsed.phase : null,
+          runId: typeof parsed.runId === "string" ? parsed.runId : null,
+          requestId: typeof parsed.requestId === "string" ? parsed.requestId : null,
+          ts: typeof parsed.ts === "string" ? parsed.ts : null,
+          substage: typeof parsed.substage === "string" ? parsed.substage : null,
+          progressPct: Number.isFinite(Number(parsed.progressPct)) ? Number(parsed.progressPct) : null,
+          counters:
+            parsed.counters && typeof parsed.counters === "object" && !Array.isArray(parsed.counters)
+              ? (parsed.counters as Record<string, number>)
+              : null,
+          target: rawTarget
+            ? {
+                docName: typeof rawTarget.doc_name === "string" ? rawTarget.doc_name : null,
+                docId: typeof rawTarget.doc_id === "string" ? rawTarget.doc_id : null,
+                chapter: typeof rawTarget.chapter === "string" ? rawTarget.chapter : null,
+                section: typeof rawTarget.section === "string" ? rawTarget.section : null,
+                pageCurrent: Number.isFinite(Number(rawPage?.current)) ? Number(rawPage?.current) : null,
+                pageStart: Number.isFinite(Number(rawPage?.start)) ? Number(rawPage?.start) : null,
+                pageEnd: Number.isFinite(Number(rawPage?.end)) ? Number(rawPage?.end) : null,
+                pageTotal: Number.isFinite(Number(rawPage?.total)) ? Number(rawPage?.total) : null,
+                chunkCurrent: Number.isFinite(Number(rawChunk?.current)) ? Number(rawChunk?.current) : null,
+                chunkTotal: Number.isFinite(Number(rawChunk?.total)) ? Number(rawChunk?.total) : null,
+              }
+            : null,
+          detail:
+            parsed.detail && typeof parsed.detail === "object" && !Array.isArray(parsed.detail)
+              ? (parsed.detail as Record<string, unknown>)
+              : null,
+          sectionIndex: Number.isFinite(Number(parsed.sectionIndex)) ? Number(parsed.sectionIndex) : null,
+          sectionTotal: Number.isFinite(Number(parsed.sectionTotal)) ? Number(parsed.sectionTotal) : null,
+          sectionTitle: typeof parsed.sectionTitle === "string" ? parsed.sectionTitle : null,
+          elapsedMs: Number.isFinite(Number(parsed.elapsedMs)) ? Number(parsed.elapsedMs) : null,
+        });
+      }
+      return;
+    }
+
     if (eventName === "error") {
       const message =
         payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string"
@@ -263,11 +401,16 @@ export async function streamLeticia(
   }
   const primaryDocumentId = scopedDocumentIds.length === 1 ? scopedDocumentIds[0] : fallbackDocumentId;
   const requestMaxResponseTokens = normalizeOptionalPositiveInt(options.maxResponseTokens) || DEFAULT_RAG_MAX_RESPONSE_TOKENS;
+  const preferredResponseLanguageId =
+    (typeof options.preferredResponseLanguageId === "string" && options.preferredResponseLanguageId.trim()) ||
+    detectPreferredResponseLanguageIdFromPrompt(prompt) ||
+    undefined;
 
   const res = await fetch("/chat", {
     method: "POST",
     headers,
     body: JSON.stringify({
+      pipeline: "v2",
       message: prompt,
       history,
       maxResponseTokens: requestMaxResponseTokens,
@@ -275,9 +418,12 @@ export async function streamLeticia(
       streamMode: "sse",
       documentId: primaryDocumentId,
       documentIds: scopedDocumentIds.length ? scopedDocumentIds : undefined,
+      composerBound: scopedDocumentIds.length > 0,
+      composerAttachmentIds: scopedDocumentIds.length ? scopedDocumentIds : undefined,
       sourceType: typeof options.sourceType === "string" ? options.sourceType : undefined,
       retrievalEmbeddingModel:
         typeof options.retrievalEmbeddingModel === "string" ? options.retrievalEmbeddingModel : undefined,
+      preferredResponseLanguageId,
       topK: normalizeOptionalPositiveInt(options.topK),
       maxDistance: normalizeOptionalFiniteNumber(options.maxDistance),
       temperature: normalizeOptionalFiniteNumber(options.temperature),

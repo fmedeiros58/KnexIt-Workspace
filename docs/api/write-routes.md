@@ -19,10 +19,13 @@ As rotas de escrita ficam separadas do chat comum e formam um workspace orientad
 - PATCH `/write/chunks/{chunk_id}`
 - PATCH `/write/chunks/{chunk_id}/autosave`
 - POST `/write/chunks/{chunk_id}/reindex`
+- POST `/write/chunks/{chunk_id}/resummarize`
 - POST `/write/sections/{section_id}/reindex`
 - POST `/write/projects/{project_id}/reindex`
 - POST `/write/continue`
 - POST `/write/projects/{project_id}/memory`
+- PATCH `/write/memory/{memory_id}`
+- POST `/write/projects/{project_id}/memory/consolidate`
 - POST `/write/sections/{section_id}/summarize`
 - POST `/write/projects/{project_id}/summarize`
 
@@ -32,6 +35,7 @@ As rotas de escrita ficam separadas do chat comum e formam um workspace orientad
 - GET `/write/projects/{project_id}`
 - GET `/write/projects/{project_id}/sections`
 - GET `/write/projects/{project_id}/memory`
+- GET `/write/projects/{project_id}/memory/inactive`
 - GET `/write/chunks/{chunk_id}`
 - GET `/write/chunks/{chunk_id}/versions`
 - GET `/write/sections/{section_id}/summary`
@@ -47,8 +51,10 @@ As rotas de escrita ficam separadas do chat comum e formam um workspace orientad
 6. Editar chunk sem perder historico (`PATCH /write/chunks/{id}`).
 7. Autosave de chunk com controle de versao (`PATCH /write/chunks/{id}/autosave`).
 8. Reindexar embedding quando necessario (`POST /write/chunks/{id}/reindex`, secao/projeto opcionais).
-9. Recalcular resumo de secao e global (`POST /write/sections/{id}/summarize` e `POST /write/projects/{id}/summarize`).
-10. Ler resumos (`GET /write/sections/{id}/summary` e `GET /write/projects/{id}/summary`).
+9. Recalcular resumo por chunk editado ou por escopo (`POST /write/chunks/{id}/resummarize`, `POST /write/sections/{id}/summarize` e `POST /write/projects/{id}/summarize`).
+10. Gerenciar memoria de processo (`POST /write/projects/{id}/memory`, `PATCH /write/memory/{id}`, `POST /write/projects/{id}/memory/consolidate`).
+11. Ler memoria ativa/inativa (`GET /write/projects/{id}/memory` e `GET /write/projects/{id}/memory/inactive`).
+12. Ler resumos com indicador de defasagem (`GET /write/sections/{id}/summary` e `GET /write/projects/{id}/summary`).
 
 ## 4) Separacao de dominio
 

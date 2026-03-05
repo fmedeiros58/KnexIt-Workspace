@@ -1,0 +1,4 @@
+Manual de teste RAG
+
+Este documento existe para validar ingestao, chunking e tentativa de indexacao de embeddings.
+Linha adicional para aumentar o texto e gerar ao menos um chunk consistente.

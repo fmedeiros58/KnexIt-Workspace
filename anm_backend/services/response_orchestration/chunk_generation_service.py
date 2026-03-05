@@ -25,6 +25,7 @@ from anm_backend.services.response_orchestration.types import (
     OrchestrationRequest,
     SecondaryProcessMemoryState,
 )
+from anm_backend.utils import describe_language, detect_user_language
 
 
 def _normalize(value: str) -> str:
@@ -65,6 +66,7 @@ class ChunkGenerationService:
         plan: EmissionPlan,
         trace_id: str,
     ) -> EngineResponse:
+        response_language = detect_user_language(request.prompt_original)
         if request.single_pass_generator is not None:
             return request.single_pass_generator(
                 GenerationRequest(
@@ -83,6 +85,7 @@ class ChunkGenerationService:
             prompt=self._build_single_pass_prompt(request=request),
             mode=request.mode,
             trace_id=trace_id,
+            response_language=response_language,
             max_tokens=max(64, min(int(request.max_tokens), int(plan.max_total_response_tokens))),
             temperature=float(request.temperature),
             top_p=float(request.top_p),
@@ -107,6 +110,7 @@ class ChunkGenerationService:
             step_label=step_label,
             cycle_index=cycle_index,
         )
+        response_language = detect_user_language(request.prompt_original)
         if request.cycle_generator is not None:
             return request.cycle_generator(
                 GenerationRequest(
@@ -125,6 +129,7 @@ class ChunkGenerationService:
             prompt=cycle_prompt,
             mode=request.mode,
             trace_id=trace_id,
+            response_language=response_language,
             max_tokens=max_tokens,
             temperature=float(request.temperature),
             top_p=float(request.top_p),
@@ -140,8 +145,11 @@ class ChunkGenerationService:
 
     def _build_single_pass_prompt(self, *, request: OrchestrationRequest) -> str:
         context_payload = self._context_excerpt(request.context_payload, max_chars=3600)
+        language_tag = detect_user_language(request.prompt_original)
+        language_label = describe_language(language_tag)
         return (
             f"Modo ativo: {request.mode}\n"
+            f"Idioma obrigatorio da resposta: {language_label} ({language_tag})\n"
             f"Objetivo: {_truncate(request.objective_current, max_chars=500)}\n"
             f"Prompt original: {_truncate(request.prompt_original, max_chars=1800)}\n"
             f"Contexto principal filtrado:\n{context_payload}\n\n"
@@ -162,6 +170,8 @@ class ChunkGenerationService:
     ) -> str:
         continuity_max_tokens = resolve_continuity_summary_max_tokens()
         context_payload = self._context_excerpt(request.context_payload, max_chars=2600)
+        language_tag = detect_user_language(request.prompt_original)
+        language_label = describe_language(language_tag)
         recent_summaries = state.chunk_summaries[-3:]
         blocked_repetitions = [item for item in state.forbidden_repetitions[-5:] if item]
         pending_steps = state.pending_steps[:4]
@@ -170,6 +180,7 @@ class ChunkGenerationService:
 
         return (
             f"Modo: {request.mode}\n"
+            f"Idioma obrigatorio da resposta: {language_label} ({language_tag})\n"
             f"Ciclo: {cycle_index}/{plan.max_cycles}\n"
             f"Objetivo principal: {_truncate(request.objective_current, max_chars=450)}\n"
             f"Subobjetivo atual: {_truncate(step_label, max_chars=300)}\n"
@@ -203,19 +214,25 @@ class ChunkGenerationService:
         prompt: str,
         mode: str,
         trace_id: str,
+        response_language: str,
         max_tokens: int,
         temperature: float,
         top_p: float,
         metadata: Dict[str, Any],
     ) -> EngineResponse:
+        language_label = describe_language(response_language)
         system_prompt = (
             "Voce eh um gerador de resposta orquestrada em multiplos ciclos. "
-            "Sempre entregue apenas texto final do bloco solicitado."
+            "Sempre entregue apenas texto final do bloco solicitado. "
+            f"Idioma obrigatorio da resposta: {language_label} ({response_language}). "
+            "Nao troque de idioma sem pedido explicito."
         )
         if mode == "write":
             system_prompt = (
                 "Voce escreve em continuidade de manuscrito. "
-                "Entregue apenas o proximo bloco textual, sem reiniciar secoes ja cobertas."
+                "Entregue apenas o proximo bloco textual, sem reiniciar secoes ja cobertas. "
+                f"Idioma obrigatorio da resposta: {language_label} ({response_language}). "
+                "Nao troque de idioma sem pedido explicito."
             )
         if _should_use_system_role():
             messages = [
