@@ -1,0 +1,1 @@
+Teste de ingestao com embeddings em CPU para validar pipeline RAG.

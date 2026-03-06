@@ -29,6 +29,7 @@ from anm_backend.api.routes_admin import router as admin_router
 from anm_backend.api.routes_chat import router as chat_router
 from anm_backend.api.routes_debug import router as debug_router
 from anm_backend.api.routes_memory import router as memory_router
+from anm_backend.api.routes_write import router as write_router
 from anm_backend.memory.checkpoint_manager import CheckpointManager
 from anm_backend.memory.forgetting_engine import ForgettingEngine
 from anm_backend.memory.global_memory import GlobalMemory
@@ -50,6 +51,11 @@ from anm_backend.orchestrator.resonance_engine import ResonanceEngine
 from anm_backend.orchestrator.router import Router
 from anm_backend.orchestrator.scheduler import Scheduler
 from anm_backend.services.cognitive_service import CognitiveService
+from anm_backend.services.response_orchestration import ResponseOrchestrator
+from anm_backend.services.write_continue_service import WriteContinueService
+from anm_backend.services.write_service import WriteService
+from anm_backend.services.write_summary_service import WriteSummaryService
+from anm_backend.write.repository import InMemoryWriteWorkspaceRepository
 
 
 def _assert_optional_nvme_base_path() -> None:
@@ -174,6 +180,20 @@ def create_app() -> FastAPI:
 
     engine_client = EngineClient.from_env()
     llm_adapter = LLMAdapter(engine_client=engine_client, prompt_builder=PromptBuilder(), response_parser=ResponseParser())
+    response_orchestrator = ResponseOrchestrator(llm_adapter=llm_adapter)
+    write_repository = InMemoryWriteWorkspaceRepository()
+    write_summary_service = WriteSummaryService(repository=write_repository)
+    write_service = WriteService(
+        repository=write_repository,
+        llm_adapter=llm_adapter,
+        memory_manager=memory_manager,
+        summary_service=write_summary_service,
+    )
+    write_continue_service = WriteContinueService(
+        repository=write_repository,
+        llm_adapter=llm_adapter,
+        response_orchestrator=response_orchestrator,
+    )
     cognitive_service = CognitiveService(
         memory_manager=memory_manager,
         resonance_engine=resonance_engine,
@@ -185,10 +205,12 @@ def create_app() -> FastAPI:
         contextual_gate=contextual_gate,
         graph=graph,
         myelination_engine=myelination_engine,
+        response_orchestrator=response_orchestrator,
     )
 
     app = FastAPI(title="ANM Backend", version="0.2.0")
     app.include_router(chat_router)
+    app.include_router(write_router)
     app.include_router(memory_router)
     app.include_router(debug_router)
     app.include_router(admin_router)
@@ -209,9 +231,14 @@ def create_app() -> FastAPI:
     app.state.resonance_engine = resonance_engine
     app.state.engine_client = engine_client
     app.state.llm_adapter = llm_adapter
+    app.state.response_orchestrator = response_orchestrator
     app.state.plasticity_readiness = plasticity_readiness
     app.state.contextual_gate = contextual_gate
     app.state.cognitive_service = cognitive_service
+    app.state.write_repository = write_repository
+    app.state.write_service = write_service
+    app.state.write_continue_service = write_continue_service
+    app.state.write_summary_service = write_summary_service
 
     bootstrap_checkpoint = str(os.getenv("ANM_BOOTSTRAP_CHECKPOINT", "")).strip()
     if bootstrap_checkpoint:
@@ -220,9 +247,11 @@ def create_app() -> FastAPI:
     @app.get("/healthz")
     def healthz() -> Dict[str, object]:
         readiness = plasticity_readiness.latest()
+        engine_health = engine_client.health()
         return {
-            "ok": True,
+            "ok": bool(engine_health.get("ok", False)),
             "engine_model": engine_client.model_name,
+            "engine_health": engine_health,
             "readiness_state": readiness.readiness_state.value if readiness else "UNKNOWN",
         }
 

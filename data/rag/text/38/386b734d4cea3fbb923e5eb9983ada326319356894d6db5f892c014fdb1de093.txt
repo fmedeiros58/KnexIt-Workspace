@@ -1,0 +1,1 @@
+Teste de ingestao por filePath relativo a pasta bulk.

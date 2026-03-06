@@ -1,0 +1,273 @@
+{
+  "startedAt": "2026-03-05T22:41:42.538Z",
+  "finishedAt": "2026-03-05T22:48:06.745Z",
+  "target": {
+    "chatUrl": "http://127.0.0.1:3001/api/chat",
+    "metricsUrl": "http://127.0.0.1:3001/api/chat/router-metrics"
+  },
+  "iterations": 1,
+  "cases": [
+    {
+      "id": "micro_oi",
+      "message": "oi"
+    },
+    {
+      "id": "ack_ok",
+      "message": "ok"
+    },
+    {
+      "id": "short_question",
+      "message": "qual a capital do brasil?"
+    },
+    {
+      "id": "direct_request",
+      "message": "resuma em 1 paragrafo o conceito de cache"
+    },
+    {
+      "id": "complex_plan",
+      "message": "analise esse fluxo e crie um plano passo a passo com checklist"
+    },
+    {
+      "id": "code_patch",
+      "message": "implemente um patch no endpoint para tratar timeout e retries"
+    },
+    {
+      "id": "error_log",
+      "message": "analise este erro de timeout ECONNREFUSED e diga causa provavel"
+    }
+  ],
+  "phases": [
+    {
+      "id": "before_full",
+      "pipelineMode": "full"
+    },
+    {
+      "id": "after_auto",
+      "pipelineMode": "auto"
+    }
+  ],
+  "summary": [
+    {
+      "phase": "before_full",
+      "requests": 7,
+      "success": 1,
+      "errorRatePct": 85.71,
+      "latencyMs": {
+        "p50": 36386,
+        "p95": 36386,
+        "avg": 36386
+      },
+      "router": {
+        "total": 14,
+        "lite": 0,
+        "full": 14,
+        "fullNearLite": 0,
+        "fullPct": 100,
+        "litePct": 0,
+        "fullNearLitePct": 0
+      },
+      "errorHistogram": {
+        "TIMEOUT": 4,
+        "HTTP_4XX": 2
+      }
+    },
+    {
+      "phase": "after_auto",
+      "requests": 7,
+      "success": 3,
+      "errorRatePct": 57.14,
+      "latencyMs": {
+        "p50": 21379,
+        "p95": 26120,
+        "avg": 19152
+      },
+      "router": {
+        "total": 10,
+        "lite": 2,
+        "full": 8,
+        "fullNearLite": 0,
+        "fullPct": 80,
+        "litePct": 20,
+        "fullNearLitePct": 0
+      },
+      "errorHistogram": {
+        "TIMEOUT": 2,
+        "HTTP_4XX": 2
+      }
+    }
+  ],
+  "rows": [
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45003,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45002,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 36386,
+      "errorClass": null,
+      "error": null,
+      "chars": 1837,
+      "preview": "Concluido.\n\n## Tema e Problema\nCache é uma estrutura de dados essencial para melhorar a performance e a escalabilidade de sistemas e aplicações. [doc 13, p.1] O conceito de cache é"
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 1988,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45002,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 1877,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 9956,
+      "errorClass": null,
+      "error": null,
+      "chars": 1366,
+      "preview": "Pronto.\n\nA resposta foi alinhada ao escopo solicitado.\n\nOlá, este é o assistente RAG da plataforma KnexIT. Não há contexto relevante recuperado para responder a sua pergunta \"oi\". "
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 26120,
+      "errorClass": null,
+      "error": null,
+      "chars": 1392,
+      "preview": "Pronto.\n\nA resposta foi alinhada ao escopo solicitado.\n\nSem contexto recuperado para basear a resposta, será fornecido conhecimento geral confiável sobre a plataforma KnexIT. KnexI"
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 21379,
+      "errorClass": null,
+      "error": null,
+      "chars": 1787,
+      "preview": "Concluido.\n\n## Tema e Problema\nCache é uma estrutura de dados essencial para melhorar a performance e a escalabilidade de sistemas e aplicações. [doc 13, p.1] O conceito de cache é"
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 1958,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 45002,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 1934,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    }
+  ]
+}

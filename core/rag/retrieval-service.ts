@@ -12,6 +12,7 @@ export type RagRetrievalInput = {
   topK?: number;
   maxDistance?: number | null;
   documentId?: number;
+  documentIds?: number[];
   sourceType?: string;
   embeddingModel?: string;
 };
@@ -36,6 +37,7 @@ export class RagRetrievalService {
       topK: params.topK,
       maxDistance: params.maxDistance,
       documentId: input.documentId ?? null,
+      documentIds: Array.isArray(input.documentIds) ? input.documentIds : null,
       sourceType: input.sourceType || null,
       embeddingModel: input.embeddingModel || null,
     });
@@ -45,6 +47,7 @@ export class RagRetrievalService {
         topK: params.topK,
         maxDistance: params.maxDistance,
         documentId: input.documentId,
+        documentIds: input.documentIds,
         sourceType: input.sourceType,
         embeddingModel: input.embeddingModel,
       });
@@ -64,6 +67,7 @@ export class RagRetrievalService {
         topK: params.topK,
         maxDistance: params.maxDistance,
         documentId: input.documentId ?? null,
+        documentIds: Array.isArray(input.documentIds) ? input.documentIds : null,
         sourceType: input.sourceType || null,
         embeddingModel: input.embeddingModel || null,
       });

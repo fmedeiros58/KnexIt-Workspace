@@ -68,6 +68,23 @@ def _resolve_model_candidates(requested_model: str) -> list[str]:
     return ordered
 
 
+def _prioritize_with_available_models(candidates: list[str], available_models: list[str]) -> list[str]:
+    available = [str(item or "").strip() for item in available_models if str(item or "").strip()]
+    if not available:
+        return candidates
+    available_set = set(available)
+    prioritized = list(available)
+    tail = [candidate for candidate in candidates if candidate not in available_set]
+    ordered: list[str] = []
+    seen = set()
+    for candidate in prioritized + tail:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered.append(candidate)
+    return ordered
+
+
 def _is_model_not_found_error(status_code: int, body: str) -> bool:
     if status_code != 404:
         return False
@@ -251,6 +268,7 @@ class EngineClient:
                     continue
                 seen.add(normalized)
                 model_candidates.append(normalized)
+            model_candidates = _prioritize_with_available_models(model_candidates, available_models)
 
         for index, model_candidate in enumerate(model_candidates):
             payload_to_send = dict(payload)
@@ -279,6 +297,8 @@ class EngineClient:
                     },
                     trace_id=trace_id,
                 )
+                if model_candidate != self.model_name:
+                    self.model_name = model_candidate
                 return parsed
             except error.HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace")

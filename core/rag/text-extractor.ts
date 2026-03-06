@@ -1,4 +1,6 @@
 import mammoth from "mammoth";
+import path from "path";
+import { pathToFileURL } from "url";
 
 export class UnsupportedDocumentTypeError extends Error {
   readonly mimeType: string;
@@ -11,6 +13,19 @@ export class UnsupportedDocumentTypeError extends Error {
   }
 }
 
+export class DocumentTextExtractionError extends Error {
+  readonly mimeType: string;
+  readonly extension: string;
+  readonly causeMessage: string;
+
+  constructor(message: string, mimeType: string, extension: string, causeMessage: string) {
+    super(message);
+    this.mimeType = mimeType;
+    this.extension = extension;
+    this.causeMessage = causeMessage;
+  }
+}
+
 export type ExtractTextInput = {
   bytes: Buffer;
   fileName: string;
@@ -19,7 +34,7 @@ export type ExtractTextInput = {
 
 export type ExtractTextResult = {
   text: string;
-  parser: "utf8" | "docx";
+  parser: "utf8" | "docx" | "pdf";
   mimeType: string;
   extension: string;
 };
@@ -30,6 +45,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".markdown": "text/markdown",
   ".csv": "text/csv",
   ".json": "application/json",
+  ".pdf": "application/pdf",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
@@ -38,8 +54,11 @@ const SUPPORTED_MIME_TYPES = new Set<string>([
   "text/markdown",
   "text/csv",
   "application/json",
+  "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
+
+let cachedPdfJsModule: Awaited<ReturnType<typeof importPdfJsModule>> | null = null;
 
 function resolveExtension(fileName: string) {
   const dot = fileName.lastIndexOf(".");
@@ -59,6 +78,50 @@ function decodeUtf8(bytes: Buffer) {
 
 function normalizeExtractedText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\u0000/g, "").trim();
+}
+
+async function importPdfJsModule() {
+  const pdfModulePath = path.resolve(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfModuleUrl = pathToFileURL(pdfModulePath).toString();
+  return import(/* webpackIgnore: true */ pdfModuleUrl);
+}
+
+async function loadPdfJsModule() {
+  if (cachedPdfJsModule) return cachedPdfJsModule;
+  cachedPdfJsModule = await importPdfJsModule();
+  return cachedPdfJsModule;
+}
+
+async function extractPdfText(bytes: Buffer) {
+  const pdfjs = await loadPdfJsModule();
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(bytes),
+    disableWorker: true,
+    useSystemFonts: false,
+    verbosity: 0,
+  });
+
+  const document = await loadingTask.promise;
+  try {
+    const pages: string[] = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const lines = textContent.items
+        .map((item: unknown) => {
+          if (!item || typeof item !== "object") return "";
+          const candidate = item as { str?: unknown };
+          return typeof candidate.str === "string" ? candidate.str : "";
+        })
+        .filter(Boolean)
+        .join(" ");
+      pages.push(lines);
+      page.cleanup();
+    }
+    return normalizeExtractedText(pages.join("\n\n"));
+  } finally {
+    await document.destroy();
+  }
 }
 
 export function listSupportedDocumentTypes() {
@@ -87,6 +150,25 @@ export async function extractTextFromDocument(input: ExtractTextInput): Promise<
     };
   }
 
+  if (mimeType === "application/pdf") {
+    try {
+      return {
+        text: await extractPdfText(input.bytes),
+        parser: "pdf",
+        mimeType,
+        extension,
+      };
+    } catch (error) {
+      const causeMessage = error instanceof Error ? error.message : "erro desconhecido";
+      throw new DocumentTextExtractionError(
+        `Falha ao extrair texto do PDF (ext='${extension || "sem-ext"}').`,
+        mimeType,
+        extension,
+        causeMessage,
+      );
+    }
+  }
+
   return {
     text: normalizeExtractedText(decodeUtf8(input.bytes)),
     parser: "utf8",
@@ -94,4 +176,3 @@ export async function extractTextFromDocument(input: ExtractTextInput): Promise<
     extension,
   };
 }
-

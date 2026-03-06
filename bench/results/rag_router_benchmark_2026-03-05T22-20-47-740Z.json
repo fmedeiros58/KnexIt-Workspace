@@ -1,0 +1,254 @@
+{
+  "startedAt": "2026-03-06T00:03:52.895Z",
+  "finishedAt": "2026-03-05T22:20:47.738Z",
+  "target": {
+    "chatUrl": "http://127.0.0.1:3001/api/chat",
+    "metricsUrl": "http://127.0.0.1:3001/api/chat/router-metrics"
+  },
+  "iterations": 1,
+  "cases": [
+    {
+      "id": "micro_oi",
+      "message": "oi"
+    },
+    {
+      "id": "ack_ok",
+      "message": "ok"
+    },
+    {
+      "id": "short_question",
+      "message": "qual a capital do brasil?"
+    },
+    {
+      "id": "direct_request",
+      "message": "resuma em 1 paragrafo o conceito de cache"
+    },
+    {
+      "id": "complex_plan",
+      "message": "analise esse fluxo e crie um plano passo a passo com checklist"
+    },
+    {
+      "id": "code_patch",
+      "message": "implemente um patch no endpoint para tratar timeout e retries"
+    },
+    {
+      "id": "error_log",
+      "message": "analise este erro de timeout ECONNREFUSED e diga causa provavel"
+    }
+  ],
+  "phases": [
+    {
+      "id": "before_full",
+      "pipelineMode": "full"
+    },
+    {
+      "id": "after_auto",
+      "pipelineMode": "auto"
+    }
+  ],
+  "summary": [
+    {
+      "phase": "before_full",
+      "requests": 7,
+      "success": 1,
+      "errorRatePct": 85.71,
+      "latencyMs": {
+        "p50": 26737,
+        "p95": 26737,
+        "avg": 26737
+      },
+      "router": null,
+      "errorHistogram": {
+        "TIMEOUT": 4,
+        "HTTP_4XX": 2
+      }
+    },
+    {
+      "phase": "after_auto",
+      "requests": 7,
+      "success": 0,
+      "errorRatePct": 100,
+      "latencyMs": {
+        "p50": 0,
+        "p95": 0,
+        "avg": 0
+      },
+      "router": null,
+      "errorHistogram": {
+        "TIMEOUT": 5,
+        "HTTP_4XX": 2
+      }
+    }
+  ],
+  "rows": [
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30004,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30002,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 26737,
+      "errorClass": null,
+      "error": null,
+      "chars": 1566,
+      "preview": "Pronto.\n\n## Tema e Problema\n## Tema e Problema Cache é uma estrutura de dados temporária que armazena cópias de dados frequentemente acessados, com o objetivo de reduzir o tempo de"
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 2330,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 2683,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30001,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 2666,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 30000,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 422,
+      "totalMs": 2666,
+      "errorClass": "HTTP_4XX",
+      "error": "Contexto muito longo para o modelo atual. Reduza contexto/historico ou ajuste maxResponseTokens.",
+      "chars": 0
+    }
+  ]
+}

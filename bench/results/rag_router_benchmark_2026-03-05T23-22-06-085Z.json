@@ -1,0 +1,251 @@
+{
+  "startedAt": "2026-03-05T23:22:06.031Z",
+  "finishedAt": "2026-03-05T23:22:06.083Z",
+  "target": {
+    "chatUrl": "http://127.0.0.1:3001/api/chat",
+    "metricsUrl": "http://127.0.0.1:3001/api/chat/router-metrics"
+  },
+  "iterations": 1,
+  "cases": [
+    {
+      "id": "micro_oi",
+      "message": "oi"
+    },
+    {
+      "id": "ack_ok",
+      "message": "ok"
+    },
+    {
+      "id": "short_question",
+      "message": "qual a capital do brasil?"
+    },
+    {
+      "id": "direct_request",
+      "message": "resuma em 1 paragrafo o conceito de cache"
+    },
+    {
+      "id": "complex_plan",
+      "message": "analise esse fluxo e crie um plano passo a passo com checklist"
+    },
+    {
+      "id": "code_patch",
+      "message": "implemente um patch no endpoint para tratar timeout e retries"
+    },
+    {
+      "id": "error_log",
+      "message": "analise este erro de timeout ECONNREFUSED e diga causa provavel"
+    }
+  ],
+  "phases": [
+    {
+      "id": "before_full",
+      "pipelineMode": "full"
+    },
+    {
+      "id": "after_auto",
+      "pipelineMode": "auto"
+    }
+  ],
+  "summary": [
+    {
+      "phase": "before_full",
+      "requests": 7,
+      "success": 0,
+      "errorRatePct": 100,
+      "latencyMs": {
+        "p50": 0,
+        "p95": 0,
+        "avg": 0
+      },
+      "router": null,
+      "errorHistogram": {
+        "NETWORK": 7
+      }
+    },
+    {
+      "phase": "after_auto",
+      "requests": 7,
+      "success": 0,
+      "errorRatePct": 100,
+      "latencyMs": {
+        "p50": 0,
+        "p95": 0,
+        "avg": 0
+      },
+      "router": null,
+      "errorHistogram": {
+        "NETWORK": 7
+      }
+    }
+  ],
+  "rows": [
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 0,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 0,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 0,
+      "totalMs": 1,
+      "errorClass": "NETWORK",
+      "error": "TypeError: fetch failed",
+      "chars": 0
+    }
+  ]
+}

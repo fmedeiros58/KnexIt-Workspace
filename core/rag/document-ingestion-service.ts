@@ -9,7 +9,11 @@ import { createVectorDatabaseClient, type VectorDatabaseClient } from "../databa
 import { logger } from "../utils/logger";
 import { ChunkEmbeddingService } from "./chunk-embedding-service";
 import { chunkTextDeterministic, type TextChunk } from "./chunking";
-import { extractTextFromDocument, UnsupportedDocumentTypeError } from "./text-extractor";
+import {
+  DocumentTextExtractionError,
+  extractTextFromDocument,
+  UnsupportedDocumentTypeError,
+} from "./text-extractor";
 
 type JsonObject = Record<string, unknown>;
 
@@ -53,7 +57,7 @@ export type DocumentIngestionResult = {
   status: string;
   rawFilePath: string;
   extractedTextPath: string;
-  parser: "utf8" | "docx";
+  parser: "utf8" | "docx" | "pdf";
   embeddingStatus: "completed" | "failed" | "pending";
 };
 
@@ -81,9 +85,12 @@ export type DocumentDetailsResult = {
   title: string | null;
   status: string;
   metadata: JsonObject;
+  embeddingStatus: "completed" | "failed" | "pending";
   createdAt: string;
   updatedAt: string;
   totalChunks: number;
+  embeddedChunks: number;
+  ragReady: boolean;
   chunks: TextChunk[];
 };
 
@@ -113,6 +120,7 @@ type ExistingDocumentRow = {
   source_path: string;
   title: string | null;
   embedding_status: string | null;
+  parser: string | null;
 };
 
 type DocumentRow = {
@@ -221,6 +229,11 @@ function normalizeEmbeddingStatus(value: unknown): "completed" | "failed" | "pen
   return "pending";
 }
 
+function normalizeParser(value: unknown): "utf8" | "docx" | "pdf" {
+  if (value === "docx" || value === "pdf" || value === "utf8") return value;
+  return "utf8";
+}
+
 export type DocumentLookupOptions = {
   limit: number;
   offset: number;
@@ -287,7 +300,7 @@ export class DocumentIngestionService {
           status: existing.status,
           rawFilePath: existing.source_path,
           extractedTextPath: "",
-          parser: "utf8",
+          parser: normalizeParser(existing.parser),
           embeddingStatus: normalizeEmbeddingStatus(existing.embedding_status),
         };
       }
@@ -473,7 +486,7 @@ export class DocumentIngestionService {
           status: existing.status,
           rawFilePath: existing.source_path,
           extractedTextPath: "",
-          parser: "utf8",
+          parser: normalizeParser(existing.parser),
           embeddingStatus: normalizeEmbeddingStatus(existing.embedding_status),
         };
       }
@@ -494,7 +507,7 @@ export class DocumentIngestionService {
         const wrapped = new DocumentIngestionError(
           415,
           "INGEST_UNSUPPORTED_TYPE",
-          `${error.message} Tipos suportados: text/plain, text/markdown, text/csv, application/json, application/vnd.openxmlformats-officedocument.wordprocessingml.document.`,
+          `${error.message} Tipos suportados: text/plain, text/markdown, text/csv, application/json, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document.`,
         );
         logger.warn("RAG_INGEST_UNSUPPORTED_TYPE", {
           jobId: ingestionJobId,
@@ -502,6 +515,15 @@ export class DocumentIngestionService {
           extension: error.extension || "sem-ext",
         });
         throw wrapped;
+      }
+      if (error instanceof DocumentTextExtractionError) {
+        logger.warn("RAG_INGEST_TEXT_EXTRACT_FAILED", {
+          jobId: ingestionJobId,
+          mimeType: error.mimeType || "desconhecido",
+          extension: error.extension || "sem-ext",
+          causeMessage: error.causeMessage,
+        });
+        throw new DocumentIngestionError(422, "INGEST_TEXT_EXTRACT_FAILED", error.message);
       }
       logger.error("RAG_INGEST_INTERNAL_ERROR", {
         jobId: ingestionJobId,
@@ -657,6 +679,25 @@ export class DocumentIngestionService {
       "select count(*) as total from vector_store.document_chunks where document_id = $1",
       [documentId],
     );
+    const embeddedCountQuery = await this.vectorDb.query<{ total: string | number }>(
+      `
+      select count(*) as total
+      from vector_store.chunk_embeddings ce
+      inner join vector_store.document_chunks dc
+        on dc.id = ce.chunk_id
+      where dc.document_id = $1
+      `,
+      [documentId],
+    );
+
+    const metadata = normalizeMetadata(row.metadata);
+    const embeddingStatus = normalizeEmbeddingStatus(
+      (metadata as Record<string, unknown>).embedding_status ??
+        ((metadata as Record<string, unknown>).embeddingStatus as unknown),
+    );
+    const totalChunks = toInteger(countQuery.rows[0]?.total, 0);
+    const embeddedChunks = toInteger(embeddedCountQuery.rows[0]?.total, 0);
+    const ragReady = row.status === "processed" && embeddingStatus === "completed" && totalChunks > 0 && embeddedChunks >= totalChunks;
 
     return {
       id: toInteger(row.id),
@@ -667,10 +708,13 @@ export class DocumentIngestionService {
       contentHash: row.content_hash,
       title: row.title,
       status: row.status,
-      metadata: normalizeMetadata(row.metadata),
+      metadata,
+      embeddingStatus,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      totalChunks: toInteger(countQuery.rows[0]?.total, 0),
+      totalChunks,
+      embeddedChunks,
+      ragReady,
       chunks: chunksQuery.rows.map((chunk) => ({
         chunkIndex: toInteger(chunk.chunk_index),
         text: chunk.text,
@@ -827,7 +871,8 @@ export class DocumentIngestionService {
         source_type,
         source_path,
         title,
-        coalesce(metadata->>'embedding_status', 'pending') as embedding_status
+        coalesce(metadata->>'embedding_status', 'pending') as embedding_status,
+        coalesce(metadata#>>'{ingestion,parser}', 'utf8') as parser
       from vector_store.documents
       where content_hash = $1
       limit 1
