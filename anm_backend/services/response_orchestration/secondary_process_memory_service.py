@@ -183,6 +183,22 @@ class SecondaryProcessMemoryService:
                 max_cycles=max(1, int(plan.max_cycles)),
                 stop_reason="in_progress",
                 continued_from_session_id=seed_state.session_id if seed_state else None,
+                segment_goal=plan.phase0_segment_goal,
+                first_chunk="",
+                continuation_anchor=plan.phase0_open_connector,
+                join_rule=plan.phase0_join_rule,
+                target_style=plan.phase0_target_style,
+                phase0_call_count=max(1, int(plan.phase0_call_count)),
+                phase0_open_connector=plan.phase0_open_connector,
+                rolling_summary="",
+                compressed_state={},
+                semantic_state={},
+                next_intent="",
+                semantic_direction="",
+                continuity_rule=plan.phase0_join_rule,
+                reflective_report={},
+                inference_map={},
+                redundancy_flags=[],
                 created_at=now.isoformat(),
                 updated_at=now.isoformat(),
                 expires_at=(now + timedelta(seconds=self._ttl_seconds)).isoformat(),
@@ -198,6 +214,8 @@ class SecondaryProcessMemoryService:
                     "response_mode": state.response_mode,
                     "planned_sections": len(state.planned_sections),
                     "max_cycles": state.max_cycles,
+                    "phase0_call_count": state.phase0_call_count,
+                    "segment_goal": state.segment_goal,
                     "continued_from_session_id": state.continued_from_session_id,
                     "seed_claims": len(state.key_claims_established),
                     "seed_forbidden_repetitions": len(state.forbidden_repetitions),
@@ -238,6 +256,15 @@ class SecondaryProcessMemoryService:
         continuity_bridge: str,
         local_decision: str,
         redundancy_score: float,
+        rolling_summary: Optional[str] = None,
+        compressed_state: Optional[Dict[str, object]] = None,
+        semantic_state: Optional[Dict[str, object]] = None,
+        next_intent: Optional[str] = None,
+        semantic_direction: Optional[str] = None,
+        continuity_rule: Optional[str] = None,
+        reflective_report: Optional[Dict[str, object]] = None,
+        inference_map: Optional[Dict[str, object]] = None,
+        redundancy_flags: Optional[list[str]] = None,
     ) -> SecondaryProcessMemoryState:
         with self._lock:
             existing = self._sessions.get(session_id)
@@ -253,6 +280,28 @@ class SecondaryProcessMemoryService:
             state.local_decisions.append(local_decision.strip())
             state.redundancy_map[f"cycle_{state.cycle_count}"] = float(redundancy_score)
             state.forbidden_repetitions.append(chunk_summary.strip().lower()[:220])
+            if state.phase0_call_count > 1 and state.cycle_count == 1 and not state.first_chunk:
+                state.first_chunk = chunk_text.strip()
+            if state.phase0_call_count > 1 and state.cycle_count == 1 and continuity_bridge.strip():
+                state.continuation_anchor = continuity_bridge.strip()
+            if rolling_summary is not None:
+                state.rolling_summary = str(rolling_summary).strip()
+            if compressed_state is not None:
+                state.compressed_state = dict(compressed_state)
+            if semantic_state is not None:
+                state.semantic_state = dict(semantic_state)
+            if next_intent is not None:
+                state.next_intent = str(next_intent).strip()
+            if semantic_direction is not None:
+                state.semantic_direction = str(semantic_direction).strip()
+            if continuity_rule is not None:
+                state.continuity_rule = str(continuity_rule).strip()
+            if reflective_report is not None:
+                state.reflective_report = dict(reflective_report)
+            if inference_map is not None:
+                state.inference_map = dict(inference_map)
+            if redundancy_flags is not None:
+                state.redundancy_flags = [str(item).strip() for item in redundancy_flags if str(item).strip()]
 
             if completed_step:
                 completed = completed_step.strip()

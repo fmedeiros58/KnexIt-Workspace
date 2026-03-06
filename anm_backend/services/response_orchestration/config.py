@@ -95,3 +95,44 @@ def resolve_secondary_memory_ttl_seconds() -> int:
 
 def resolve_secondary_memory_max_sessions() -> int:
     return env_int("SECONDARY_PROCESS_MEMORY_MAX_SESSIONS", default=512, low=16, high=20_000)
+
+
+def is_phase0_segmented_emission_enabled(mode: EmissionMode) -> bool:
+    global_enabled = env_bool("PHASE0_SEGMENTED_EMISSION_ENABLED", default=True)
+    if not global_enabled:
+        return False
+    if mode == "chat":
+        return env_bool("PHASE0_CHAT_SEGMENTED_EMISSION_ENABLED", default=global_enabled)
+    return env_bool("PHASE0_WRITE_SEGMENTED_EMISSION_ENABLED", default=global_enabled)
+
+
+def phase0_auto_segmentation_enabled() -> bool:
+    return env_bool("PHASE0_SEGMENTED_EMISSION_AUTO_ENABLED", default=False)
+
+
+def resolve_phase0_density_short_threshold() -> float:
+    return env_float("PHASE0_DENSITY_SHORT_THRESHOLD", default=1.15, low=0.10, high=6.00)
+
+
+def resolve_phase0_density_medium_threshold() -> float:
+    return env_float("PHASE0_DENSITY_MEDIUM_THRESHOLD", default=2.60, low=0.20, high=12.00)
+
+
+def resolve_phase0_max_calls() -> int:
+    return env_int("PHASE0_MAX_CALLS", default=3, low=1, high=3)
+
+
+def resolve_phase0_first_chunk_min_tokens() -> int:
+    return env_int("PHASE0_FIRST_CHUNK_MIN_TOKENS", default=120, low=64, high=260)
+
+
+def resolve_phase0_first_chunk_target_tokens() -> int:
+    return env_int("PHASE0_FIRST_CHUNK_TARGET_TOKENS", default=150, low=80, high=260)
+
+
+def resolve_phase0_first_chunk_max_tokens() -> int:
+    return env_int("PHASE0_FIRST_CHUNK_MAX_TOKENS", default=180, low=96, high=320)
+
+
+def resolve_phase0_per_call_max_tokens() -> int:
+    return env_int("PHASE0_PER_CALL_MAX_TOKENS", default=180, low=96, high=320)

@@ -19,6 +19,7 @@ from typing import Any, Dict
 from anm_backend.adapters.llm_adapter import LLMAdapter
 from anm_backend.contracts import EngineResponse
 from anm_backend.services.response_orchestration.config import resolve_continuity_summary_max_tokens
+from anm_backend.services.response_orchestration.paragraph_segmenter_service import OPEN_SYNTAX_CONNECTORS
 from anm_backend.services.response_orchestration.types import (
     EmissionPlan,
     GenerationRequest,
@@ -168,6 +169,17 @@ class ChunkGenerationService:
         step_label: str,
         cycle_index: int,
     ) -> str:
+        if state.phase0_call_count > 1:
+            phase0_prompt = self._build_phase0_cycle_prompt(
+                request=request,
+                plan=plan,
+                state=state,
+                step_label=step_label,
+                cycle_index=cycle_index,
+            )
+            if phase0_prompt:
+                return phase0_prompt
+
         continuity_max_tokens = resolve_continuity_summary_max_tokens()
         context_payload = self._context_excerpt(request.context_payload, max_chars=2600)
         language_tag = detect_user_language(request.prompt_original)
@@ -199,6 +211,86 @@ class ChunkGenerationService:
             "- Mantenha terminologia e decisoes ja registradas.\n"
             "- Preserve tom consistente e transicao com o bloco anterior.\n"
             "- Nao devolva lista de passos internos.\n"
+        )
+
+    def _build_phase0_cycle_prompt(
+        self,
+        *,
+        request: OrchestrationRequest,
+        plan: EmissionPlan,
+        state: SecondaryProcessMemoryState,
+        step_label: str,
+        cycle_index: int,
+    ) -> str:
+        if cycle_index > max(1, int(state.phase0_call_count)):
+            return ""
+
+        language_tag = detect_user_language(request.prompt_original)
+        language_label = describe_language(language_tag)
+        context_payload = self._context_excerpt(request.context_payload, max_chars=1800)
+        connector_catalog = ", ".join(OPEN_SYNTAX_CONNECTORS)
+        segment_goal = _truncate(state.segment_goal or request.objective_current, max_chars=260)
+        target_style = _truncate(state.target_style or request.tone_hint or "analitico continuo", max_chars=200)
+        connector = state.phase0_open_connector or plan.phase0_open_connector or OPEN_SYNTAX_CONNECTORS[0]
+        per_call_budget = max(96, int(plan.target_chunk_tokens))
+        first_chunk_budget = max(96, min(int(plan.phase0_first_chunk_max_tokens or per_call_budget), per_call_budget))
+
+        if cycle_index == 1:
+            return (
+                f"Modo: {request.mode}\n"
+                f"Idioma obrigatorio da resposta: {language_label} ({language_tag})\n"
+                f"FASE 0 segmentacao controlada - chamada {cycle_index}/{state.phase0_call_count}\n"
+                f"Segment goal: {segment_goal}\n"
+                f"Target style: {target_style}\n"
+                f"Subobjetivo atual: {_truncate(step_label, max_chars=180)}\n"
+                f"Token budget aproximado desta chamada: 120-180 (max {first_chunk_budget})\n"
+                f"Contexto principal filtrado:\n{context_payload}\n\n"
+                "Instrucoes obrigatorias da chamada 1:\n"
+                "- Gere o nucleo do paragrafo com progressao analitica.\n"
+                "- Introduza o eixo argumentativo sem concluir totalmente a ideia.\n"
+                "- Nao use listas ou bullets.\n"
+                f"- Termine obrigatoriamente com abertura sintatica. Preferencia: \"{connector}\".\n"
+                f"- Expressoes validas de abertura: {connector_catalog}.\n"
+                "- Nunca termine com frase totalmente fechada.\n"
+            )
+
+        first_chunk_excerpt = _truncate(state.first_chunk or (state.partial_chunks[-1] if state.partial_chunks else ""), max_chars=700)
+        continuation_anchor = _truncate(state.continuation_anchor or connector, max_chars=220)
+        join_rule = _truncate(state.join_rule or "segunda chamada nao reinicia sujeito principal", max_chars=220)
+
+        if cycle_index == 2:
+            return (
+                f"Modo: {request.mode}\n"
+                f"Idioma obrigatorio da resposta: {language_label} ({language_tag})\n"
+                f"FASE 0 segmentacao controlada - chamada {cycle_index}/{state.phase0_call_count}\n"
+                f"Segment goal: {segment_goal}\n"
+                f"Target style: {target_style}\n"
+                f"Join rule: {join_rule}\n"
+                f"Ancora de continuidade: {continuation_anchor}\n"
+                f"Trecho final da chamada 1:\n{first_chunk_excerpt}\n"
+                f"Token budget aproximado desta chamada: 120-180 (max {per_call_budget})\n"
+                f"Contexto principal filtrado:\n{context_payload}\n\n"
+                "Instrucoes obrigatorias da chamada 2:\n"
+                "- Continue exatamente a estrutura aberta na chamada 1.\n"
+                "- Nao reinicie sujeito principal, nao abra um novo texto.\n"
+                "- Feche naturalmente a ideia como unidade unica.\n"
+                "- Nao use listas ou bullets.\n"
+            )
+
+        return (
+            f"Modo: {request.mode}\n"
+            f"Idioma obrigatorio da resposta: {language_label} ({language_tag})\n"
+            f"FASE 0 segmentacao controlada - chamada {cycle_index}/{state.phase0_call_count}\n"
+            f"Segment goal: {segment_goal}\n"
+            f"Target style: {target_style}\n"
+            f"Join rule: {_truncate(state.join_rule, max_chars=220)}\n"
+            f"Ancora de continuidade: {_truncate(state.continuation_anchor, max_chars=220)}\n"
+            f"Resumo dos blocos anteriores: {state.chunk_summaries[-2:]}\n"
+            f"Contexto principal filtrado:\n{context_payload}\n\n"
+            "Instrucoes obrigatorias da chamada 3:\n"
+            "- Continue sem reiniciar o sujeito principal.\n"
+            "- Consolidar e concluir com fechamento previsivel e coeso.\n"
+            "- Nao introduza novo eixo estrutural.\n"
         )
 
     def _context_excerpt(self, payload: Dict[str, Any], *, max_chars: int) -> str:

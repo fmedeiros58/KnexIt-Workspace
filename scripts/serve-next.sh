@@ -86,6 +86,11 @@ http_status() {
   echo "${status:-000}"
 }
 
+is_port_listening() {
+  local port="$1"
+  ss -ltn "sport = :${port}" 2>/dev/null | grep -qE "[:.]${port}[[:space:]]"
+}
+
 list_port_pids() {
   local port="$1"
   ss -ltnp "sport = :${port}" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u
@@ -106,6 +111,16 @@ kill_pids_gracefully() {
   done
 }
 
+kill_port_owner_fallback() {
+  local port="$1"
+  if command -v fuser >/dev/null 2>&1; then
+    log_warn "Tentando encerrar dono da porta $port via fuser."
+    fuser -k -n tcp "$port" >/dev/null 2>&1 || true
+    return 0
+  fi
+  return 1
+}
+
 if [[ -f "$ROOT_DIR/.env.local" ]]; then
   load_dotenv_file "$ROOT_DIR/.env.local"
 fi
@@ -124,25 +139,37 @@ while IFS= read -r pid; do
   [[ -n "$pid" ]] && pids+=("$pid")
 done < <(list_port_pids "$NEXT_PORT")
 
-if [[ "${#pids[@]}" -gt 0 ]]; then
-  status="$(http_status "$probe_url")"
-  if [[ "$status" == "200" || "$status" == "307" || "$status" == "308" ]]; then
-    if as_bool_true "$NEXT_FORCE_RESTART"; then
-      if as_bool_true "$NEXT_KILL_PORT_OWNER"; then
-        kill_pids_gracefully "${pids[@]}"
-      else
-        log_error "Porta $NEXT_PORT ocupada por Next saudavel e NEXT_FORCE_RESTART=1 sem kill."
-        exit 1
-      fi
-    elif as_bool_true "$NEXT_REUSE_EXISTING"; then
-      log_info "Next ja ativo em $probe_url (PID(s): ${pids[*]}). Reutilizando instancia."
-      exit 0
+status="$(http_status "$probe_url")"
+if [[ "$status" == "200" || "$status" == "307" || "$status" == "308" ]]; then
+  if as_bool_true "$NEXT_FORCE_RESTART"; then
+    if [[ "${#pids[@]}" -gt 0 ]] && as_bool_true "$NEXT_KILL_PORT_OWNER"; then
+      kill_pids_gracefully "${pids[@]}"
     else
-      log_error "Porta $NEXT_PORT ocupada por Next saudavel."
+      log_error "Next saudavel detectado em $probe_url, mas restart forçado nao e possivel sem PID visivel."
+      log_error "Use o mesmo usuario que iniciou o processo para restart, ou rode sem restart forcado."
       exit 1
     fi
-  elif as_bool_true "$NEXT_KILL_PORT_OWNER"; then
-    kill_pids_gracefully "${pids[@]}"
+  elif as_bool_true "$NEXT_REUSE_EXISTING"; then
+    if [[ "${#pids[@]}" -gt 0 ]]; then
+      log_info "Next ja ativo em $probe_url (PID(s): ${pids[*]}). Reutilizando instancia."
+    else
+      log_info "Next ja ativo em $probe_url (PID nao visivel para este usuario). Reutilizando instancia."
+    fi
+    exit 0
+  else
+    log_error "Porta $NEXT_PORT ocupada por Next saudavel."
+    exit 1
+  fi
+elif is_port_listening "$NEXT_PORT"; then
+  if as_bool_true "$NEXT_KILL_PORT_OWNER"; then
+    if [[ "${#pids[@]}" -gt 0 ]]; then
+      kill_pids_gracefully "${pids[@]}"
+    else
+      kill_port_owner_fallback "$NEXT_PORT" || {
+        log_error "Porta $NEXT_PORT ocupada sem PID visivel e sem fallback de kill."
+        exit 1
+      }
+    fi
   else
     log_error "Porta $NEXT_PORT ocupada e NEXT_KILL_PORT_OWNER=0."
     exit 1
@@ -150,4 +177,8 @@ if [[ "${#pids[@]}" -gt 0 ]]; then
 fi
 
 log_info "Subindo Next dev em http://${NEXT_HOST}:${NEXT_PORT} (WSL host-only stack)."
+NEXT_BIN="$ROOT_DIR/node_modules/.bin/next"
+if [[ -x "$NEXT_BIN" ]]; then
+  exec "$NEXT_BIN" dev -H "$NEXT_HOST" -p "$NEXT_PORT"
+fi
 exec npm run dev -- -H "$NEXT_HOST" -p "$NEXT_PORT"
