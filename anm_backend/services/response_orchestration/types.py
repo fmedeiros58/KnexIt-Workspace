@@ -46,6 +46,15 @@ class EmissionPlan:
     max_total_response_tokens: int
     min_cycles_required: int = 1
     rationale: List[str] = field(default_factory=list)
+    phase0_enabled: bool = False
+    phase0_call_count: int = 1
+    phase0_segment_goal: str = ""
+    phase0_target_style: str = ""
+    phase0_join_rule: str = ""
+    phase0_open_connector: str = ""
+    phase0_first_chunk_min_tokens: int = 0
+    phase0_first_chunk_max_tokens: int = 0
+    phase0_per_call_max_tokens: int = 0
 
 
 @dataclass
@@ -91,6 +100,22 @@ class SecondaryProcessMemoryState:
     max_cycles: int
     stop_reason: str
     continued_from_session_id: Optional[str] = None
+    segment_goal: str = ""
+    first_chunk: str = ""
+    continuation_anchor: str = ""
+    join_rule: str = ""
+    target_style: str = ""
+    phase0_call_count: int = 1
+    phase0_open_connector: str = ""
+    rolling_summary: str = ""
+    compressed_state: Dict[str, Any] = field(default_factory=dict)
+    semantic_state: Dict[str, Any] = field(default_factory=dict)
+    next_intent: str = ""
+    semantic_direction: str = ""
+    continuity_rule: str = ""
+    reflective_report: Dict[str, Any] = field(default_factory=dict)
+    inference_map: Dict[str, Any] = field(default_factory=dict)
+    redundancy_flags: List[str] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
     expires_at: str = field(default_factory=utc_now_iso)

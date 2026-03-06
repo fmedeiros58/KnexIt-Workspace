@@ -198,32 +198,37 @@ while IFS= read -r pid; do
   fi
 done < <(list_port_pids "$VLLM_PORT")
 
-if [[ "${#port_pids[@]}" -gt 0 ]]; then
-  current_status="$(http_status "$probe_url")"
-  if [[ "$current_status" == "200" ]]; then
-    if as_bool_true "$VLLM_FORCE_RESTART"; then
-      if as_bool_true "$VLLM_KILL_PORT_OWNER"; then
-        kill_pids_gracefully "${port_pids[@]}"
-      else
-        log_error "Porta $VLLM_PORT ocupada por vLLM saudavel, mas VLLM_FORCE_RESTART=1 sem permissao de kill."
-        exit 1
-      fi
-    elif as_bool_true "$VLLM_REUSE_EXISTING"; then
-      log_info "vLLM ja esta ativo em http://${probe_host}:${VLLM_PORT}/v1 (PID(s): ${port_pids[*]}). Reutilizando instancia."
-      exit 0
-    else
-      log_error "Porta $VLLM_PORT ja esta ocupada por vLLM saudavel. Defina VLLM_REUSE_EXISTING=1 ou VLLM_FORCE_RESTART=1."
-      exit 1
-    fi
-  else
-    if as_bool_true "$VLLM_KILL_PORT_OWNER"; then
-      log_warn "Porta $VLLM_PORT ocupada com endpoint nao saudavel (status=$current_status). Reiniciando dono(s) da porta."
+current_status="$(http_status "$probe_url")"
+if [[ "$current_status" == "200" ]]; then
+  if as_bool_true "$VLLM_FORCE_RESTART"; then
+    if [[ "${#port_pids[@]}" -gt 0 ]] && as_bool_true "$VLLM_KILL_PORT_OWNER"; then
       kill_pids_gracefully "${port_pids[@]}"
     else
-      log_error "Porta $VLLM_PORT ocupada e endpoint nao saudavel (status=$current_status)."
-      log_error "Defina VLLM_KILL_PORT_OWNER=1 para encerrar processo antigo automaticamente."
-      exit 1
+      log_warn "vLLM saudavel detectado em http://${probe_host}:${VLLM_PORT}/v1, mas restart forcado nao e possivel sem PID visivel."
+      log_warn "Reutilizando instancia existente para evitar indisponibilidade."
+      exit 0
     fi
+  elif as_bool_true "$VLLM_REUSE_EXISTING"; then
+    if [[ "${#port_pids[@]}" -gt 0 ]]; then
+      log_info "vLLM ja esta ativo em http://${probe_host}:${VLLM_PORT}/v1 (PID(s): ${port_pids[*]}). Reutilizando instancia."
+    else
+      log_info "vLLM ja esta ativo em http://${probe_host}:${VLLM_PORT}/v1 (PID nao visivel para este usuario). Reutilizando instancia."
+    fi
+    exit 0
+  else
+    log_error "Porta $VLLM_PORT ja esta ocupada por vLLM saudavel. Defina VLLM_REUSE_EXISTING=1 ou VLLM_FORCE_RESTART=1."
+    exit 1
+  fi
+fi
+
+if [[ "${#port_pids[@]}" -gt 0 ]]; then
+  if as_bool_true "$VLLM_KILL_PORT_OWNER"; then
+    log_warn "Porta $VLLM_PORT ocupada com endpoint nao saudavel (status=$current_status). Reiniciando dono(s) da porta."
+    kill_pids_gracefully "${port_pids[@]}"
+  else
+    log_error "Porta $VLLM_PORT ocupada e endpoint nao saudavel (status=$current_status)."
+    log_error "Defina VLLM_KILL_PORT_OWNER=1 para encerrar processo antigo automaticamente."
+    exit 1
   fi
 fi
 

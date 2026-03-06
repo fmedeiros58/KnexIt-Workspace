@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
-const distDir = process.env.NEXT_DIST_DIR?.trim();
+const explicitDistDir = process.env.NEXT_DIST_DIR?.trim();
+const distDir =
+  explicitDistDir || (process.env.NODE_ENV === "development" ? ".next-dev" : undefined);
 
 const nextConfig = {
   ...(distDir ? { distDir } : {}),

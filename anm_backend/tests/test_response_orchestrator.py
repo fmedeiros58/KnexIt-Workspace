@@ -45,6 +45,13 @@ class ResponseOrchestratorTests(unittest.TestCase):
         "MAX_TOTAL_RESPONSE_TOKENS",
         "FORCE_FINAL_SYNTHESIS",
         "REDUNDANCY_THRESHOLD",
+        "PHASE0_SEGMENTED_EMISSION_ENABLED",
+        "PHASE0_CHAT_SEGMENTED_EMISSION_ENABLED",
+        "PHASE0_SEGMENTED_EMISSION_AUTO_ENABLED",
+        "PHASE0_FIRST_CHUNK_MIN_TOKENS",
+        "PHASE0_FIRST_CHUNK_TARGET_TOKENS",
+        "PHASE0_FIRST_CHUNK_MAX_TOKENS",
+        "PHASE0_PER_CALL_MAX_TOKENS",
     ]
 
     def setUp(self) -> None:
@@ -225,6 +232,69 @@ class ResponseOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(result.cycle_count, 4)
         self.assertIn(result.stop_reason, {"coverage_reached", "max_cycles_reached", "semantic_stagnation"})
         self.assertFalse(result.fallback_used)
+
+    def test_phase0_segmented_two_call_paragraph(self) -> None:
+        os.environ["SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"
+        os.environ["CHAT_SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"
+        os.environ["PHASE0_SEGMENTED_EMISSION_ENABLED"] = "1"
+        os.environ["PHASE0_CHAT_SEGMENTED_EMISSION_ENABLED"] = "1"
+        os.environ["PHASE0_SEGMENTED_EMISSION_AUTO_ENABLED"] = "0"
+        os.environ["PHASE0_FIRST_CHUNK_MIN_TOKENS"] = "120"
+        os.environ["PHASE0_FIRST_CHUNK_TARGET_TOKENS"] = "150"
+        os.environ["PHASE0_FIRST_CHUNK_MAX_TOKENS"] = "180"
+        os.environ["PHASE0_PER_CALL_MAX_TOKENS"] = "180"
+        os.environ["FORCE_FINAL_SYNTHESIS"] = "0"
+
+        orchestrator = ResponseOrchestrator(llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+        def cycle_generator(gen_req):
+            if int(gen_req.cycle_index) == 1:
+                return self._engine_response(
+                    trace_id=gen_req.trace_id,
+                    text="A estabilidade de inferencia degrada com aumento de carga.",
+                )
+            return self._engine_response(
+                trace_id=gen_req.trace_id,
+                text=(
+                    "sobretudo quando a fila de requisicoes cresce de forma desigual, "
+                    "o throughput oscila e o timeout torna-se mais frequente."
+                ),
+            )
+
+        request = OrchestrationRequest(
+            request_id="trace-phase0-two-call",
+            mode="chat",
+            user_id="user-phase0",
+            prompt_original=(
+                "Explique a estabilidade do vLLM em um paragrafo tecnico medio, "
+                "com continuidade e fechamento natural."
+            ),
+            objective_current="Paragrafo tecnico unico sobre estabilidade do vLLM",
+            context_payload={"context": "fase0"},
+            max_tokens=768,
+            temperature=0.2,
+            top_p=0.9,
+            prefer_multi_pass=True,
+            max_cycles_override=6,
+            min_cycles_override=6,
+            single_pass_generator=lambda gen_req: self._engine_response(
+                trace_id=gen_req.trace_id,
+                text="Fallback single pass.",
+            ),
+            cycle_generator=cycle_generator,
+            metadata={
+                "phase0_segmented_emission": True,
+                "phase0_preferred_connector": "sobretudo quando",
+            },
+        )
+        result = orchestrator.orchestrate(request=request)
+
+        self.assertEqual(result.response_mode, "multi_pass")
+        self.assertEqual(result.cycle_count, 2)
+        self.assertNotIn("\n\n", result.response_text)
+        self.assertIn("sobretudo quando", result.response_text.lower())
+        self.assertTrue(bool(result.telemetry["plan"]["phase0"]["enabled"]))
+        self.assertEqual(int(result.telemetry["plan"]["phase0"]["call_count"]), 2)
 
     def test_partial_response_preserved_on_cycle_failure(self) -> None:
         os.environ["SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"

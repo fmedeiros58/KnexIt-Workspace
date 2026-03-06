@@ -71,6 +71,21 @@ if ([string]::IsNullOrWhiteSpace($entryScriptPath)) {
 
 $safeWorkspacePath = Escape-BashDoubleQuoted $WorkspacePath
 $safeEntryScriptPath = Escape-BashDoubleQuoted $entryScriptPath
+$effectiveNextHost = ""
+if (-not [string]::IsNullOrWhiteSpace($env:NEXT_WSL_HOST)) {
+  $effectiveNextHost = $env:NEXT_WSL_HOST.Trim()
+} elseif (-not [string]::IsNullOrWhiteSpace($env:NEXT_HOST)) {
+  $effectiveNextHost = $env:NEXT_HOST.Trim()
+}
+$effectiveNextPort = ""
+if (-not [string]::IsNullOrWhiteSpace($env:NEXT_WSL_PORT)) {
+  $effectiveNextPort = $env:NEXT_WSL_PORT.Trim()
+} elseif (-not [string]::IsNullOrWhiteSpace($env:NEXT_PORT)) {
+  $effectiveNextPort = $env:NEXT_PORT.Trim()
+}
+
+$safeNextHost = Escape-BashDoubleQuoted $effectiveNextHost
+$safeNextPort = Escape-BashDoubleQuoted $effectiveNextPort
 
 Invoke-WslBash "test -d `"$safeWorkspacePath`"" 1>$null 2>$null
 if ($LASTEXITCODE -ne 0) {
@@ -82,7 +97,15 @@ if ($LASTEXITCODE -ne 0) {
   throw "Entry script do Next nao encontrado no workspace WSL: $WorkspacePath/$entryScriptPath"
 }
 
-$command = "cd `"$safeWorkspacePath`" && bash `"$safeEntryScriptPath`""
+$envPrefix = ""
+if (-not [string]::IsNullOrWhiteSpace($effectiveNextHost)) {
+  $envPrefix += "NEXT_HOST=`"$safeNextHost`" "
+}
+if (-not [string]::IsNullOrWhiteSpace($effectiveNextPort)) {
+  $envPrefix += "NEXT_PORT=`"$safeNextPort`" "
+}
+
+$command = "cd `"$safeWorkspacePath`" && ${envPrefix}bash `"$safeEntryScriptPath`""
 Invoke-WslBash $command
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE

@@ -604,6 +604,8 @@ class CognitiveService:
                         "flow": "chat_turn",
                         "prompt_complexity": prompt_complexity,
                         "adaptive_multi_pass": bool(orchestration_directives["prefer_multi_pass"]),
+                        "phase0_segmented_emission": True,
+                        "phase0_target_style": "analitico continuo",
                         "response_language": response_language,
                     },
                 )

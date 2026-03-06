@@ -270,6 +270,8 @@ class WriteContinueService:
                         "flow": "write_continue",
                         "top_k_chunks": top_chunks,
                         "top_k_memories": top_memories,
+                        "phase0_segmented_emission": True,
+                        "phase0_target_style": "analitico continuo",
                     },
                 )
             )
