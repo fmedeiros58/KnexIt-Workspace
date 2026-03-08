@@ -119,6 +119,22 @@ class Phase0SegmentationTests(unittest.TestCase):
         self.assertEqual(merged.lower().count("sobretudo quando"), 1)
         self.assertIn("tempo de resposta aumenta", merged.lower())
 
+    def test_micro_assembler_sequence_merges_three_chunks(self) -> None:
+        assembler = MicroAssemblerService()
+        merged = assembler.assemble_sequence(
+            partial_chunks=[
+                "A estabilidade da inferencia piora sobretudo quando",
+                "Sobretudo quando a fila cresce e o throughput oscila, a latencia aumenta,",
+                "e a previsibilidade operacional cai com mais timeouts em cascata.",
+            ],
+            continuation_anchor="sobretudo quando",
+            join_rule="segunda chamada nao reinicia sujeito principal",
+        )
+
+        self.assertIn("latencia aumenta", merged.lower())
+        self.assertIn("timeouts em cascata", merged.lower())
+        self.assertEqual(merged.lower().count("sobretudo quando"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

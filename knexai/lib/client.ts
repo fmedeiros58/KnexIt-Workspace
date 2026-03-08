@@ -84,8 +84,9 @@ type RagChatResponse = {
 
 const DEFAULT_RAG_MAX_RESPONSE_TOKENS = Math.max(
   256,
-  Math.min(65_536, Number(process.env.NEXT_PUBLIC_RAG_MAX_RESPONSE_TOKENS || 32768) || 32768),
+  Math.min(65_536, Number(process.env.NEXT_PUBLIC_RAG_MAX_RESPONSE_TOKENS || 2048) || 2048),
 );
+const DEFAULT_STREAM_PIPELINE = `${process.env.NEXT_PUBLIC_CHAT_STREAM_PIPELINE || "v1"}`.trim().toLowerCase() === "v2" ? "v2" : "v1";
 const STREAM_DELAY_MS = Math.max(8, Number(process.env.NEXT_PUBLIC_CHAT_STREAM_DELAY_MS || 16) || 16);
 
 function resolvePublicApiKey() {
@@ -410,7 +411,7 @@ export async function streamLeticia(
     method: "POST",
     headers,
     body: JSON.stringify({
-      pipeline: "v2",
+      pipeline: DEFAULT_STREAM_PIPELINE,
       message: prompt,
       history,
       maxResponseTokens: requestMaxResponseTokens,

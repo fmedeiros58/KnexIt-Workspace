@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -33,6 +33,13 @@ from anm_backend.services.response_orchestration import (
     ResponseOrchestrator,
     is_secondary_process_memory_enabled,
 )
+from anm_backend.services.response_orchestration.final_response_policy_service import FinalResponsePolicyService
+from anm_backend.services.identity_runtime import (
+    ContinuousIdentityRuntime,
+    SelfModelEngine,
+    UserPatternRecognizer,
+)
+from anm_backend.services.internet_search_service import InternetSearchService
 from anm_backend.utils import detect_user_language
 
 
@@ -47,6 +54,11 @@ def _env_int(name: str, *, default: int, low: int, high: int) -> int:
     except ValueError:
         parsed = default
     return max(low, min(high, parsed))
+
+
+def _env_bool(name: str, *, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "1" if default else "0")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _normalize_prompt(prompt: str) -> str:
@@ -132,6 +144,22 @@ def _is_structured_short_request(prompt: str) -> bool:
     if canonical.startswith("passo a passo") and word_count <= 18:
         return True
     return False
+
+
+def _is_self_model_prompt(prompt: str) -> bool:
+    canonical = _normalize_prompt(prompt)
+    if not canonical:
+        return False
+    patterns = [
+        r"\bquem e voce\b",
+        r"\bo que voce e\b",
+        r"\bcomo voce funciona\b",
+        r"\bquais sao seus limites\b",
+        r"\bqual seu papel\b",
+        r"\bmodulos? ativos?\b",
+        r"\bcomo foi construida essa resposta\b",
+    ]
+    return any(re.search(pattern, canonical) for pattern in patterns)
 
 
 def _is_brief_depth_request(prompt: str) -> bool:
@@ -307,10 +335,8 @@ def _resolve_chat_multi_pass_directives(*, complexity: str, prompt: str = "") ->
             "max_cycles": 1,
             "target_chunk_tokens": None,
             "max_total_tokens": None,
+            "call_profile": "single_pass",
         }
-
-    base_cycles = _env_int("ANM_CHAT_SECONDARY_BASE_CYCLES", default=6, low=3, high=8)
-    base_adjust = base_cycles - 6
 
     normalized_prompt = re.sub(r"\s+", " ", str(prompt or "").strip())
     canonical_prompt = _normalize_prompt(normalized_prompt)
@@ -335,44 +361,47 @@ def _resolve_chat_multi_pass_directives(*, complexity: str, prompt: str = "") ->
     ):
         detail_score += 1
 
-    if complexity == "structured":
-        min_cycles = 2 + min(2, detail_score)
-        low, high = 2, 4
-    elif complexity == "short":
-        min_cycles = 3 + min(2, detail_score)
-        low, high = 3, 5
+    deep_mode_enabled = _env_bool("RESPONSE_ORCHESTRATION_DEEP_MODE_ENABLED", default=True)
+    if complexity in {"structured", "short"}:
+        call_profile = "default"
+        cycle_target = 4
     elif complexity == "medium":
-        min_cycles = 4 + min(3, detail_score)
-        low, high = 4, 7
+        if detail_score >= 4:
+            call_profile = "advanced"
+            cycle_target = 8
+        else:
+            call_profile = "robust"
+            cycle_target = 6
     else:
-        min_cycles = 5 + min(3, detail_score)
-        low, high = 5, 8
+        if detail_score >= 4 and deep_mode_enabled:
+            call_profile = "deep"
+            cycle_target = 10
+        else:
+            call_profile = "advanced"
+            cycle_target = 8
 
-    min_cycles = max(low, min(high, min_cycles + base_adjust))
-
-    if complexity in {"medium", "complex"}:
-        max_cycles = min(8, min_cycles + (1 if detail_score >= 2 else 0))
-    else:
-        max_cycles = min(8, min_cycles + (1 if detail_score >= 3 else 0))
-    max_cycles = max(min_cycles, max_cycles)
+    cycle_cap = _env_int("ANM_CHAT_SECONDARY_MAX_CYCLES_CAP", default=10, low=1, high=10)
+    cycle_target = max(4, min(cycle_cap, cycle_target))
 
     target_chunk_base = _env_int("ANM_CHAT_SECONDARY_TARGET_CHUNK_TOKENS", default=360, low=120, high=1200)
-    if complexity == "structured":
-        target_chunk_tokens = max(160, min(target_chunk_base, 320 + (detail_score * 20)))
-    elif complexity == "short":
-        target_chunk_tokens = max(220, min(target_chunk_base, 380 + (detail_score * 24)))
-    elif complexity == "medium":
-        target_chunk_tokens = max(300, min(target_chunk_base, 520 + (detail_score * 28)))
+    if call_profile == "deep":
+        target_chunk_tokens = max(140, min(target_chunk_base, 220))
+    elif call_profile == "advanced":
+        target_chunk_tokens = max(180, min(target_chunk_base, 260))
+    elif call_profile == "robust":
+        target_chunk_tokens = max(220, min(target_chunk_base, 320))
     else:
-        target_chunk_tokens = max(360, min(target_chunk_base, 720 + (detail_score * 32)))
+        target_chunk_tokens = max(240, min(target_chunk_base, 380))
 
     max_total_tokens = _env_int("ANM_CHAT_SECONDARY_MAX_TOTAL_TOKENS", default=8192, low=512, high=32768)
+    max_total_tokens = max(max_total_tokens, (cycle_target * target_chunk_tokens) + 256)
     return {
         "prefer_multi_pass": True,
-        "min_cycles": min_cycles,
-        "max_cycles": max_cycles,
+        "min_cycles": cycle_target,
+        "max_cycles": cycle_target,
         "target_chunk_tokens": target_chunk_tokens,
         "max_total_tokens": max_total_tokens,
+        "call_profile": call_profile,
     }
 
 
@@ -402,6 +431,22 @@ def _build_chat_planner_hints(*, prompt: str, collapsed_summary: str, cycles: in
     return selected
 
 
+def _resolve_phase0_chat_metadata(*, complexity: str) -> Dict[str, Any]:
+    enabled = _env_bool("ANM_CHAT_PHASE0_SEGMENTED_EMISSION", default=False)
+    if not enabled:
+        return {}
+
+    if complexity in {"medium", "complex"} and not _env_bool("ANM_CHAT_PHASE0_ALLOW_COMPLEX", default=False):
+        return {}
+
+    connector = str(os.getenv("ANM_CHAT_PHASE0_PREFERRED_CONNECTOR", "sobretudo quando")).strip().lower()
+    return {
+        "phase0_segmented_emission": True,
+        "phase0_target_style": "analitico continuo",
+        "phase0_preferred_connector": connector,
+    }
+
+
 @dataclass
 class CognitiveService:
     """
@@ -428,6 +473,11 @@ class CognitiveService:
     graph: PathwayGraph
     myelination_engine: MyelinationEngine
     response_orchestrator: ResponseOrchestrator | None = None
+    final_response_policy_service: FinalResponsePolicyService = field(default_factory=FinalResponsePolicyService)
+    internet_search_service: InternetSearchService = field(default_factory=InternetSearchService)
+    identity_runtime: ContinuousIdentityRuntime | None = None
+    self_model_engine: SelfModelEngine | None = None
+    user_pattern_recognizer: UserPatternRecognizer | None = None
 
     def run_chat_turn(self, message: str) -> Dict[str, Any]:
         """
@@ -451,6 +501,72 @@ class CognitiveService:
         msg = message.strip()
         if not msg:
             raise ValueError("message is required")
+        user_key = "chat-session"
+        if self.user_pattern_recognizer:
+            self.user_pattern_recognizer.observe_message(user_key=user_key, message=msg)
+            user_pattern_state = self.user_pattern_recognizer.snapshot(user_key=user_key)
+        else:
+            user_pattern_state = {}
+        identity_awareness_state = self.identity_runtime.awareness_state() if self.identity_runtime else {}
+        self_model_state = (
+            self.self_model_engine.build_state(contextual_role="assistente de projeto")
+            if self.self_model_engine
+            else {}
+        )
+        if self.self_model_engine and _is_self_model_prompt(msg):
+            answer = self.self_model_engine.answer_self_query(
+                question=msg,
+                contextual_role="assistente de projeto",
+            )
+            audit_log(
+                component="services.cognitive_service",
+                event="self_model_turn_completed",
+                payload={
+                    "trace_id": trace_id,
+                    "answer_length": len(answer),
+                    "identity_runtime_available": bool(self.identity_runtime),
+                },
+                trace_id=trace_id,
+            )
+            return {
+                "trace_id": trace_id,
+                "answer": answer,
+                "collapsed_hypothesis": {
+                    "id": "self_model_reflection",
+                    "score": 1.0,
+                    "origin_nodule": "critic_nodule",
+                    "stimulus_coherence": 0.95,
+                },
+                "readiness": {
+                    "score": 1.0,
+                    "state": "SELF_MODEL",
+                    "dominant_factors": ["self_model_reflection"],
+                },
+                "regulatory_state": {
+                    "stress_load": self.regulatory_state.stress_load,
+                    "context_stability": self.regulatory_state.context_stability,
+                },
+                "engine": {
+                    "model": "self_model_engine",
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    "response_language": detect_user_language(msg),
+                    "followup_prompt_included": False,
+                    "internet_search_used": False,
+                    "orchestration": {
+                        "enabled": False,
+                        "response_mode": "self_model_direct",
+                        "cycle_count": 1,
+                        "stop_reason": "self_model_prompt",
+                        "fallback_used": False,
+                        "session_id": None,
+                        "call_profile": "self_model",
+                        "min_cycles_required": 1,
+                    },
+                    "self_model_state": self_model_state,
+                    "user_pattern_state": user_pattern_state,
+                    "identity_awareness_state": identity_awareness_state,
+                },
+            }
         response_language = detect_user_language(msg)
         profile = _resolve_generation_profile(msg)
         prompt_complexity = str(profile.get("complexity", "medium"))
@@ -510,6 +626,17 @@ class CognitiveService:
         )
 
         context = self.memory_manager.assemble_prompt_context(limit=int(profile["context_limit"]))
+        context = dict(context)
+        if self_model_state:
+            context["self_model_state"] = self_model_state
+        if user_pattern_state:
+            context["user_pattern_state"] = user_pattern_state
+        if identity_awareness_state:
+            context["identity_awareness_state"] = identity_awareness_state
+        internet_search_payload = self.internet_search_service.search(query=msg)
+        if internet_search_payload:
+            context["internet_search"] = internet_search_payload
+
         cycle_metadata = dict(context.get("cycle_metadata", {}))
         include_followup_prompt = bool(cycle_metadata.get("followup_prompt_next", False))
         orchestration_enabled = bool(self.response_orchestrator) and is_secondary_process_memory_enabled("chat")
@@ -517,6 +644,7 @@ class CognitiveService:
             complexity=prompt_complexity,
             prompt=msg,
         )
+        phase0_metadata = _resolve_phase0_chat_metadata(complexity=prompt_complexity)
         planner_hints = (
             _build_chat_planner_hints(
                 prompt=msg,
@@ -604,9 +732,9 @@ class CognitiveService:
                         "flow": "chat_turn",
                         "prompt_complexity": prompt_complexity,
                         "adaptive_multi_pass": bool(orchestration_directives["prefer_multi_pass"]),
-                        "phase0_segmented_emission": True,
-                        "phase0_target_style": "analitico continuo",
+                        "call_profile": str(orchestration_directives.get("call_profile") or ""),
                         "response_language": response_language,
+                        **phase0_metadata,
                     },
                 )
             )
@@ -620,6 +748,7 @@ class CognitiveService:
                 "stop_reason": orchestration_result.stop_reason,
                 "fallback_used": orchestration_result.fallback_used,
                 "session_id": orchestration_result.session_id,
+                "call_profile": str(orchestration_directives.get("call_profile") or ""),
                 "min_cycles_required": int(
                     dict(orchestration_result.telemetry.get("plan", {})).get("min_cycles_required", 1)
                 ),
@@ -638,7 +767,11 @@ class CognitiveService:
                 include_followup_prompt=include_followup_prompt,
                 trace_id=trace_id,
             )
-            answer = response.text.strip()
+            direct_policy = self.final_response_policy_service.apply(
+                prompt_original=msg,
+                response_text=response.text.strip(),
+            )
+            answer = direct_policy.final_text.strip()
             response_model = response.model
             response_usage = response.usage
             orchestration_payload = {
@@ -648,6 +781,7 @@ class CognitiveService:
                 "stop_reason": "direct_infer",
                 "fallback_used": False,
                 "session_id": None,
+                "call_profile": "single_pass",
                 "min_cycles_required": 1,
             }
         self.memory_manager.cortex.set_cycle_metadata_value("followup_prompt_next", True)
@@ -689,6 +823,7 @@ class CognitiveService:
                 "top_p": float(profile["top_p"]),
                 "response_language": response_language,
                 "followup_prompt_included": include_followup_prompt,
+                "internet_search_used": bool(internet_search_payload),
                 "orchestration_enabled": orchestration_payload["enabled"],
                 "orchestration_response_mode": orchestration_payload["response_mode"],
                 "orchestration_cycle_count": orchestration_payload["cycle_count"],
@@ -721,6 +856,10 @@ class CognitiveService:
                 "usage": response_usage,
                 "response_language": response_language,
                 "followup_prompt_included": include_followup_prompt,
+                "internet_search_used": bool(internet_search_payload),
                 "orchestration": orchestration_payload,
+                "self_model_state": self_model_state,
+                "user_pattern_state": user_pattern_state,
+                "identity_awareness_state": identity_awareness_state,
             },
         }

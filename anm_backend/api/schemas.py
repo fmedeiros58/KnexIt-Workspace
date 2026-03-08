@@ -46,6 +46,106 @@ class ChatResponse(BaseModel):
     engine: Dict[str, Any]
 
 
+class IdentityRuntimeControlRequest(BaseModel):
+    reason: str = Field(default="manual_control", max_length=240)
+
+
+class IdentityRuntimeAutoStartRequest(BaseModel):
+    enabled: bool = True
+
+
+class IdentitySourceSelectRequest(BaseModel):
+    source_id: str = Field(min_length=1, max_length=120)
+
+
+class IdentitySourceActiveRequest(BaseModel):
+    active: bool = True
+
+
+class IdentitySourceUpsertRequest(BaseModel):
+    source_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=220)
+    source_type: str = Field(default="external", min_length=1, max_length=40)
+    device_ref: str = Field(default="", max_length=500)
+    resolution: str = Field(default="1280x720", max_length=80)
+    fps: int = Field(default=30, ge=1, le=120)
+    priority: int = Field(default=100, ge=1, le=1000)
+    active: bool = True
+    connected: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityObservationRequest(BaseModel):
+    source_id: str = Field(default="", max_length=120)
+    face_detected: bool = True
+    entity_id: str = Field(default="", max_length=120)
+    label: str = Field(default="", max_length=220)
+    confidence: float = Field(default=0.62, ge=0.0, le=1.0)
+    mode: str = Field(default="tracking", max_length=64)
+    validation_pending: bool = False
+    conflict: bool = False
+    nominal_name: str = Field(default="", max_length=220)
+    speaker_id: str = Field(default="", max_length=120)
+    self_user_present: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentitySourceView(BaseModel):
+    source_id: str
+    name: str
+    source_type: str
+    device_ref: str
+    resolution: str
+    fps: int
+    priority: int
+    active: bool
+    connected: bool
+    last_heartbeat_at: str
+    metadata: Dict[str, Any]
+
+
+class IdentityStreamView(BaseModel):
+    stream_id: str
+    source_id: str
+    status: str
+    started_at: str
+    ended_at: Optional[str] = None
+    fps_observed: float
+    latency_ms: int
+    dropped_frames: int
+    metadata: Dict[str, Any]
+
+
+class IdentityEntityView(BaseModel):
+    entity_id: str
+    label: str
+    mode: str
+    confidence: float
+    source_id: Optional[str] = None
+    voice_profile_id: Optional[str] = None
+    nominal_name: Optional[str] = None
+    first_seen_at: str
+    last_seen_at: str
+    metadata: Dict[str, Any]
+
+
+class IdentityRuntimeStatusResponse(BaseModel):
+    status: str
+    runtime_enabled: bool
+    runtime_paused: bool
+    auto_start_enabled: bool
+    selected_source_id: Optional[str] = None
+    last_error: str = ""
+    awareness_state: Dict[str, Any]
+    camera_sources: List[IdentitySourceView]
+    active_streams: List[IdentityStreamView]
+    tracked_entities: List[IdentityEntityView]
+    current_identity: Optional[IdentityEntityView] = None
+    self_model_state: Dict[str, Any]
+    user_pattern_state: Dict[str, Any]
+    updated_at: str
+
+
 class CheckpointRequest(BaseModel):
     checkpoint_id: str = Field(min_length=1, max_length=128)
 

@@ -4,7 +4,7 @@ RESPONSIBILITY: Execute multi-step response orchestration with secondary process
 FLOW ROLE: Shared emission pipeline for chat and write modes.
 READS: Main-mode context, orchestration config and generation policies.
 RAM WRITES: Short-lived secondary process memory state only.
-PERSISTS: No durable persistence; temporary in-memory TTL sessions.
+PERSISTS: Optional runtime SQL mirrors when enabled; otherwise in-memory TTL sessions.
 PRIMARY RISK: Poor stop criteria may increase cost or reduce response quality.
 """
 
@@ -27,6 +27,7 @@ from anm_backend.services.response_orchestration.config import (
     contradiction_check_enabled,
     force_final_synthesis,
     is_secondary_process_memory_enabled,
+    phase0_pre_expansion_strict_enabled,
     resolve_redundancy_threshold,
 )
 from anm_backend.services.response_orchestration.document_assembler_service import DocumentAssemblerService
@@ -35,6 +36,7 @@ from anm_backend.services.response_orchestration.continuity_bridge_service impor
 from anm_backend.services.response_orchestration.continuity_guard_service import ContinuityGuardService
 from anm_backend.services.response_orchestration.contradiction_guard_service import ContradictionGuardService
 from anm_backend.services.response_orchestration.emission_planner_service import EmissionPlannerService
+from anm_backend.services.response_orchestration.final_response_policy_service import FinalResponsePolicyService
 from anm_backend.services.response_orchestration.inference_engine_service import InferenceEngineService
 from anm_backend.services.response_orchestration.micro_assembler_service import MicroAssemblerService
 from anm_backend.services.response_orchestration.paragraph_segmenter_service import ParagraphSegmenterService
@@ -43,6 +45,7 @@ from anm_backend.services.response_orchestration.reflective_analyzer_service imp
 from anm_backend.services.response_orchestration.redundancy_guard_service import RedundancyGuardService
 from anm_backend.services.response_orchestration.response_critic_service import ResponseCriticService
 from anm_backend.services.response_orchestration.response_assembly_service import ResponseAssemblyService
+from anm_backend.services.response_orchestration.runtime_sql_persistence_service import RuntimeSqlPersistenceService
 from anm_backend.services.response_orchestration.secondary_process_memory_service import SecondaryProcessMemoryService
 from anm_backend.services.response_orchestration.semantic_controller_service import SemanticControllerService
 from anm_backend.services.response_orchestration.turn_planner_service import TurnPlannerService
@@ -74,6 +77,7 @@ def _merge_unique(base: List[str], incoming: List[str], *, limit: int) -> List[s
 class ResponseOrchestrator:
     llm_adapter: LLMAdapter
     secondary_memory_service: SecondaryProcessMemoryService = field(default_factory=SecondaryProcessMemoryService)
+    runtime_sql_persistence_service: RuntimeSqlPersistenceService = field(default_factory=RuntimeSqlPersistenceService)
     planner_service: EmissionPlannerService = field(default_factory=EmissionPlannerService)
     chunk_orchestrator_service: ChunkOrchestratorService = field(default_factory=ChunkOrchestratorService)
     paragraph_segmenter_service: ParagraphSegmenterService = field(default_factory=ParagraphSegmenterService)
@@ -85,6 +89,7 @@ class ResponseOrchestrator:
     inference_engine_service: InferenceEngineService = field(default_factory=InferenceEngineService)
     process_memory_manager_service: ProcessMemoryManagerService = field(default_factory=ProcessMemoryManagerService)
     response_critic_service: ResponseCriticService = field(default_factory=ResponseCriticService)
+    final_response_policy_service: FinalResponsePolicyService = field(default_factory=FinalResponsePolicyService)
     clarification_repair_manager_service: ClarificationRepairManagerService = field(
         default_factory=ClarificationRepairManagerService
     )
@@ -120,6 +125,17 @@ class ResponseOrchestrator:
             prompt_original=request.prompt_original,
         )
         session = self.secondary_memory_service.start_session(request=request, plan=plan, trace_id=trace_id)
+        self.runtime_sql_persistence_service.register_session(
+            request=request,
+            plan=plan,
+            state=session,
+            call_plan=dict(call_plan),
+            repair_strategy={
+                "mode": repair_strategy.mode,
+                "reason": repair_strategy.reason,
+                "should_ask_clarification": repair_strategy.should_ask_clarification,
+            },
+        )
 
         audit_log(
             component="response_orchestrator",
@@ -154,6 +170,9 @@ class ResponseOrchestrator:
         redundancy_events = 0
         contradiction_events = 0
         stop_reason = "completed"
+        phase0_pre_expansion_mode = bool(
+            plan.phase0_enabled and int(plan.phase0_call_count) > 1 and phase0_pre_expansion_strict_enabled()
+        )
 
         if not plan.should_use_multi_pass:
             response = self.chunk_generation_service.generate_single_pass(
@@ -234,6 +253,20 @@ class ResponseOrchestrator:
             stop_reason = "single_pass"
             session.stop_reason = stop_reason
             session = self.secondary_memory_service.save_session(state=session)
+            self.runtime_sql_persistence_service.record_cycle(
+                request_id=request.request_id,
+                state=session,
+                cycle_index=max(1, int(session.cycle_count)),
+                chunk_text=response_text,
+                chunk_summary=compression.summary,
+                completion_tokens=completion_tokens,
+                model_name=model_name,
+                redundancy_score=0.0,
+                redundancy_reason="single_pass",
+                reflective_report=process_update.reflective_report,
+                inference_map=process_update.inference_map,
+                local_decisions=list(session.local_decisions),
+            )
         else:
             response_text = ""
             for cycle_index in range(1, plan.max_cycles + 1):
@@ -294,6 +327,20 @@ class ResponseOrchestrator:
                             local_decision="single_pass_fallback_after_cycle_error",
                             redundancy_score=0.0,
                         )
+                        self.runtime_sql_persistence_service.record_cycle(
+                            request_id=request.request_id,
+                            state=session,
+                            cycle_index=max(1, int(session.cycle_count)),
+                            chunk_text=response_text,
+                            chunk_summary=compression.summary,
+                            completion_tokens=completion_tokens,
+                            model_name=_normalize(fallback_response.model),
+                            redundancy_score=0.0,
+                            redundancy_reason="single_pass_fallback_after_cycle_error",
+                            reflective_report=dict(session.reflective_report),
+                            inference_map=dict(session.inference_map),
+                            local_decisions=list(session.local_decisions),
+                        )
                         fallback_used = True
                         stop_reason = "single_pass_fallback_after_cycle_error"
                         break
@@ -325,6 +372,59 @@ class ResponseOrchestrator:
                 model_name = _normalize(generated.model)
                 if model_name:
                     models_used.append(model_name)
+
+                if phase0_pre_expansion_mode:
+                    compression = self.chunk_compression_service.compress(chunk_text=chunk_text)
+                    completed_step = step_label if step_label in session.pending_steps else None
+                    continuity_bridge_value = compression.continuity_bridge
+                    if phase0_bridge_state is not None:
+                        continuity_bridge_value = phase0_bridge_state.continuation_anchor
+                    session = self.secondary_memory_service.append_cycle_chunk(
+                        session_id=session.session_id,
+                        chunk_text=chunk_text,
+                        chunk_summary=compression.summary,
+                        tokens_consumed=completion_tokens,
+                        completed_step=completed_step,
+                        continuity_bridge=continuity_bridge_value,
+                        local_decision=f"phase0_cycle_{cycle_index}_accepted",
+                        redundancy_score=0.0,
+                    )
+                    if phase0_bridge_state is not None:
+                        session.first_chunk = phase0_bridge_state.first_chunk
+                        session.continuation_anchor = phase0_bridge_state.continuation_anchor
+                        session.join_rule = phase0_bridge_state.join_rule
+                        session.phase0_open_connector = phase0_bridge_state.connector_used
+                        if phase0_bridge_state.injected_connector:
+                            session.local_decisions.append("phase0_open_connector_injected")
+                    session.local_decisions.append("phase0_pre_expansion_lightweight_path")
+                    if phase0_restart_detected:
+                        session.local_decisions.append("phase0_restart_prefix_detected")
+                    session = self.secondary_memory_service.save_session(state=session)
+                    self.runtime_sql_persistence_service.record_cycle(
+                        request_id=request.request_id,
+                        state=session,
+                        cycle_index=max(1, int(session.cycle_count)),
+                        chunk_text=chunk_text,
+                        chunk_summary=compression.summary,
+                        completion_tokens=completion_tokens,
+                        model_name=model_name,
+                        redundancy_score=0.0,
+                        redundancy_reason="phase0_lightweight",
+                        reflective_report={},
+                        inference_map={},
+                        local_decisions=list(session.local_decisions),
+                    )
+
+                    if session.cycle_count >= plan.max_cycles:
+                        stop_reason = "max_cycles_reached"
+                        break
+                    if session.token_budget_consumed >= plan.max_total_response_tokens:
+                        stop_reason = "token_budget_exhausted"
+                        break
+                    if not session.pending_steps and session.cycle_count >= max(1, int(plan.min_cycles_required)):
+                        stop_reason = "coverage_reached"
+                        break
+                    continue
 
                 redundancy = self.redundancy_guard_service.evaluate(
                     candidate_chunk=chunk_text,
@@ -441,6 +541,20 @@ class ResponseOrchestrator:
                 if phase0_restart_detected:
                     session.local_decisions.append("phase0_restart_prefix_detected")
                 session = self.secondary_memory_service.save_session(state=session)
+                self.runtime_sql_persistence_service.record_cycle(
+                    request_id=request.request_id,
+                    state=session,
+                    cycle_index=max(1, int(session.cycle_count)),
+                    chunk_text=chunk_text,
+                    chunk_summary=compression.summary,
+                    completion_tokens=completion_tokens,
+                    model_name=model_name,
+                    redundancy_score=redundancy.score,
+                    redundancy_reason=redundancy.reason,
+                    reflective_report=process_update.reflective_report,
+                    inference_map=process_update.inference_map,
+                    local_decisions=list(session.local_decisions),
+                )
 
                 if session.cycle_count >= plan.max_cycles:
                     stop_reason = "max_cycles_reached"
@@ -458,11 +572,10 @@ class ResponseOrchestrator:
 
             session = self.secondary_memory_service.get_session(session_id=session.session_id) or session
             if not response_text:
-                if plan.phase0_enabled and int(plan.phase0_call_count) == 2 and len(session.partial_chunks) >= 2:
+                if plan.phase0_enabled and int(plan.phase0_call_count) >= 2 and len(session.partial_chunks) >= 2:
                     response_text = _normalize(
-                        self.micro_assembler_service.assemble_paragraph(
-                            first_chunk=session.first_chunk or session.partial_chunks[0],
-                            continuation_chunk=session.partial_chunks[1],
+                        self.micro_assembler_service.assemble_sequence(
+                            partial_chunks=list(session.partial_chunks),
                             continuation_anchor=session.continuation_anchor,
                             join_rule=session.join_rule or plan.phase0_join_rule,
                         )
@@ -502,9 +615,15 @@ class ResponseOrchestrator:
         if not response_text:
             raise RuntimeError("response_orchestration_empty_result")
 
-        response_check = self.response_critic_service.evaluate(
+        policy_result = self.final_response_policy_service.apply(
             prompt_original=request.prompt_original,
             response_text=response_text,
+        )
+        response_text = str(policy_result.final_text or "").strip()
+
+        response_check = self.response_critic_service.evaluate(
+            prompt_original=request.prompt_original,
+            response_text=policy_result.main_text,
         )
         if not response_check.passed:
             session.local_decisions.append("response_critic_not_passed")
@@ -568,6 +687,7 @@ class ResponseOrchestrator:
                         "per_call_max_tokens": int(plan.phase0_per_call_max_tokens),
                         "decision_density_score": float(phase0_decision.density_score),
                         "decision_rationale": list(phase0_decision.rationale),
+                        "pre_expansion_lightweight_mode": bool(phase0_pre_expansion_mode),
                     },
                     "call_plan": call_plan,
                 },
@@ -602,8 +722,32 @@ class ResponseOrchestrator:
                     "name": turn_function.function_name,
                     "rationale": turn_function.rationale,
                 },
+                "final_response_policy": {
+                    "merged_into_single_paragraph": bool(policy_result.merged_into_single_paragraph),
+                    "added_improvement_note": bool(policy_result.added_improvement_note),
+                    "added_followup_question": bool(policy_result.added_followup_question),
+                },
                 "fallback_used": bool(fallback_used),
             },
+        )
+        self.runtime_sql_persistence_service.finalize_session(
+            request_id=request.request_id,
+            state=session,
+            response_text=response_text,
+            response_mode=effective_response_mode,
+            stop_reason=stop_reason,
+            dialogue_state={
+                "active_theme": dialogue_state.active_theme,
+                "open_subtopics": list(dialogue_state.open_subtopics),
+                "discourse_tone": dialogue_state.discourse_tone,
+                "metadata": dict(dialogue_state.metadata),
+            },
+            turn_function={
+                "name": turn_function.function_name,
+                "rationale": turn_function.rationale,
+            },
+            total_duration_ms=duration_ms,
+            token_budget_consumed=result.token_budget_consumed,
         )
 
         audit_log(

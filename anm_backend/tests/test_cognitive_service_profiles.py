@@ -18,13 +18,13 @@ class CognitiveServiceProfileTests(unittest.TestCase):
         self.assertGreaterEqual(int(profile["max_tokens"]), 1024)
         self.assertNotIn("2 frases", str(profile["style_hint"]).lower())
 
-    def test_very_short_prompt_still_uses_direct_mode(self) -> None:
+    def test_very_short_prompt_uses_short_mode(self) -> None:
         prompt = "Python?"
         complexity = _classify_prompt_complexity(prompt)
         profile = _resolve_generation_profile(prompt)
 
-        self.assertEqual(complexity, "direct")
-        self.assertLessEqual(int(profile["max_tokens"]), 320)
+        self.assertEqual(complexity, "short")
+        self.assertLessEqual(int(profile["max_tokens"]), 1024)
 
     def test_strict_directive_is_preserved(self) -> None:
         prompt = "traduza casa para ingles"

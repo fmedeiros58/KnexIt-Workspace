@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import List
 
 
 def _normalize(value: str) -> str:
@@ -90,3 +91,23 @@ class MicroAssemblerService:
         merged = re.sub(r"([,.;:!?]){2,}", r"\1", merged)
         merged = re.sub(r"\s{2,}", " ", merged).strip()
         return merged
+
+    def assemble_sequence(
+        self,
+        *,
+        partial_chunks: List[str],
+        continuation_anchor: str,
+        join_rule: str,
+    ) -> str:
+        normalized_chunks = [_normalize(chunk) for chunk in list(partial_chunks or []) if _normalize(chunk)]
+        if not normalized_chunks:
+            return ""
+        merged = normalized_chunks[0]
+        for idx, chunk in enumerate(normalized_chunks[1:], start=2):
+            merged = self.assemble_paragraph(
+                first_chunk=merged,
+                continuation_chunk=chunk,
+                continuation_anchor=continuation_anchor if idx == 2 else "",
+                join_rule=join_rule,
+            )
+        return _normalize(merged)
