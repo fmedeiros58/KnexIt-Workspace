@@ -35,10 +35,11 @@ function resolveEmbeddingTargets() {
   return unique;
 }
 
-function resolveAuthHeaders() {
+function resolveAuthHeaders(): Record<string, string> {
   const apiKey = `${process.env.EMBEDDING_API_KEY || process.env.EMBEDDING_CPU_API_KEY || ""}`.trim();
-  if (!apiKey) return {};
-  return { Authorization: `Bearer ${apiKey}` };
+  const headers: Record<string, string> = {};
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+  return headers;
 }
 
 function parseTimeoutMs() {
@@ -116,3 +117,4 @@ export async function POST(req: NextRequest) {
     return Response.json({ ok: false, message }, { status: 500 });
   }
 }
+

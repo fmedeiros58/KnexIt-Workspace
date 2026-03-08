@@ -53,13 +53,26 @@ from anm_backend.orchestrator.router import Router
 from anm_backend.orchestrator.scheduler import Scheduler
 from anm_backend.services.cognitive_service import CognitiveService
 from anm_backend.services.identity_runtime import (
+    ActiveLivenessChecker,
     ContinuousIdentityRuntime,
+    FaceAligner,
+    FaceConsensusEngine,
+    FaceDetector,
+    FaceNormalizer,
+    FrameQualityGate,
+    IdentityFrameAnalyzer,
     IdentityRuntimeBootstrap,
     IdentitySqlRuntimeService,
+    MultiViewEnrollment,
     MultiCameraStreamManager,
+    PassiveLivenessChecker,
+    PoseEstimator,
     SelfModelEngine,
     SourceDiscoveryManager,
+    TargetSearchEngine,
+    TemporalTracker,
     UserPatternRecognizer,
+    VectorMatcher,
 )
 from anm_backend.services.response_orchestration import ResponseOrchestrator
 from anm_backend.services.write_continue_service import WriteContinueService
@@ -202,6 +215,28 @@ def create_app() -> FastAPI:
     identity_runtime_bootstrap = IdentityRuntimeBootstrap(runtime=identity_runtime)
     self_model_engine = SelfModelEngine(runtime=identity_runtime)
     user_pattern_recognizer = UserPatternRecognizer()
+    face_detector = FaceDetector()
+    pose_estimator = PoseEstimator()
+    frame_quality_gate = FrameQualityGate()
+    temporal_tracker = TemporalTracker()
+    face_aligner = FaceAligner()
+    face_normalizer = FaceNormalizer()
+    passive_liveness_checker = PassiveLivenessChecker()
+    active_liveness_checker = ActiveLivenessChecker()
+    face_consensus_engine = FaceConsensusEngine()
+    vector_matcher = VectorMatcher()
+    multi_view_enrollment = MultiViewEnrollment()
+    target_search_engine = TargetSearchEngine(matcher=vector_matcher)
+    identity_frame_analyzer = IdentityFrameAnalyzer(
+        face_detector=face_detector,
+        pose_estimator=pose_estimator,
+        quality_gate=frame_quality_gate,
+        temporal_tracker=temporal_tracker,
+        face_aligner=face_aligner,
+        face_normalizer=face_normalizer,
+        passive_liveness_checker=passive_liveness_checker,
+        face_consensus_engine=face_consensus_engine,
+    )
     identity_runtime_bootstrap.bootstrap(reason="application_boot")
     write_repository = InMemoryWriteWorkspaceRepository()
     write_summary_service = WriteSummaryService(repository=write_repository)
@@ -265,6 +300,19 @@ def create_app() -> FastAPI:
     app.state.identity_runtime_bootstrap = identity_runtime_bootstrap
     app.state.self_model_engine = self_model_engine
     app.state.user_pattern_recognizer = user_pattern_recognizer
+    app.state.face_detector = face_detector
+    app.state.pose_estimator = pose_estimator
+    app.state.frame_quality_gate = frame_quality_gate
+    app.state.temporal_tracker = temporal_tracker
+    app.state.face_aligner = face_aligner
+    app.state.face_normalizer = face_normalizer
+    app.state.passive_liveness_checker = passive_liveness_checker
+    app.state.active_liveness_checker = active_liveness_checker
+    app.state.face_consensus_engine = face_consensus_engine
+    app.state.vector_matcher = vector_matcher
+    app.state.multi_view_enrollment = multi_view_enrollment
+    app.state.target_search_engine = target_search_engine
+    app.state.identity_frame_analyzer = identity_frame_analyzer
     app.state.plasticity_readiness = plasticity_readiness
     app.state.contextual_gate = contextual_gate
     app.state.cognitive_service = cognitive_service

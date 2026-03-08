@@ -19,6 +19,16 @@ type FallbackIdentityEntity = {
   last_seen_at: string;
 };
 
+type FallbackSearchSession = {
+  session_id: string;
+  target_person_id: string;
+  status: "active" | "stopped";
+  threshold: number;
+  started_at: string;
+  ended_at: string | null;
+  metadata: Record<string, unknown>;
+};
+
 const FALLBACK_CAMERA_SOURCES = [
   {
     source_id: "channel-1",
@@ -76,6 +86,7 @@ const fallbackRuntimeState: {
   auto_start_enabled: boolean;
   selected_source_id: string | null;
   tracked_entities: FallbackIdentityEntity[];
+  search_sessions: Record<string, FallbackSearchSession>;
   updated_at: string;
 } = {
   runtime_enabled: false,
@@ -83,6 +94,7 @@ const fallbackRuntimeState: {
   auto_start_enabled: false,
   selected_source_id: "channel-1",
   tracked_entities: [],
+  search_sessions: {},
   updated_at: new Date().toISOString(),
 };
 
@@ -227,10 +239,139 @@ function fallbackIdentityResponse(method: string, segments: string[], body?: Arr
         { status: 200, headers: fallbackHeaders },
       );
     }
+    if (path.startsWith("recognition/status/")) {
+      const sessionId = path.slice("recognition/status/".length).trim();
+      const session = fallbackRuntimeState.search_sessions[sessionId];
+      if (!session) {
+        return Response.json(
+          {
+            ok: false,
+            fallback: true,
+            message: "session_not_found",
+          },
+          { status: 404, headers: fallbackHeaders },
+        );
+      }
+      return Response.json(
+        {
+          ok: true,
+          fallback: true,
+          session_id: session.session_id,
+          status: session.status,
+          payload: session,
+        },
+        { status: 200, headers: fallbackHeaders },
+      );
+    }
     return null;
   }
 
   if (normalizedMethod === "POST") {
+    if (path === "frame/analyze") {
+      const sourceIdRaw = typeof bodyJson?.source_id === "string" ? bodyJson.source_id.trim() : "";
+      const expectedViewRaw = typeof bodyJson?.expected_view === "string" ? bodyJson.expected_view.trim() : "";
+      touchFallbackRuntime();
+      return Response.json(
+        {
+          ok: true,
+          fallback: true,
+          source_id: sourceIdRaw || fallbackRuntimeState.selected_source_id || "channel-1",
+          face_detected: false,
+          expected_view: expectedViewRaw || null,
+          confidence: 0,
+          suggested_mode: "tracking",
+          validation_pending: true,
+          runtime_observation_emitted: false,
+          face_box: null,
+          pose: null,
+          quality: null,
+          faces: [],
+          metadata: {
+            fallback_reason: "anm_backend_unreachable",
+            should_capture: false,
+            faces_count: 0,
+          },
+        },
+        { status: 200, headers: fallbackHeaders },
+      );
+    }
+    if (path === "recognition/search/start") {
+      const targetPersonIdRaw = typeof bodyJson?.target_person_id === "string" ? bodyJson.target_person_id.trim() : "";
+      if (!targetPersonIdRaw) {
+        return Response.json(
+          {
+            ok: false,
+            fallback: true,
+            message: "target_person_id_required",
+          },
+          { status: 400, headers: fallbackHeaders },
+        );
+      }
+      const thresholdNum = Number(bodyJson?.threshold);
+      const threshold = Number.isFinite(thresholdNum) ? Math.max(0, Math.min(1, thresholdNum)) : 0.72;
+      const session: FallbackSearchSession = {
+        session_id: `srch-fallback-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        target_person_id: targetPersonIdRaw,
+        status: "active",
+        threshold,
+        started_at: nowIso(),
+        ended_at: null,
+        metadata:
+          bodyJson && typeof bodyJson.metadata === "object" && !Array.isArray(bodyJson.metadata)
+            ? (bodyJson.metadata as Record<string, unknown>)
+            : {},
+      };
+      fallbackRuntimeState.search_sessions[session.session_id] = session;
+      touchFallbackRuntime();
+      return Response.json(
+        {
+          ok: true,
+          fallback: true,
+          session_id: session.session_id,
+          status: session.status,
+          payload: session,
+        },
+        { status: 200, headers: fallbackHeaders },
+      );
+    }
+    if (path === "recognition/search/stop") {
+      const sessionId = typeof bodyJson?.session_id === "string" ? bodyJson.session_id.trim() : "";
+      if (!sessionId) {
+        return Response.json(
+          {
+            ok: false,
+            fallback: true,
+            message: "session_id_required",
+          },
+          { status: 400, headers: fallbackHeaders },
+        );
+      }
+      const session = fallbackRuntimeState.search_sessions[sessionId];
+      if (!session) {
+        return Response.json(
+          {
+            ok: false,
+            fallback: true,
+            message: "search_session_not_found",
+          },
+          { status: 404, headers: fallbackHeaders },
+        );
+      }
+      session.status = "stopped";
+      session.ended_at = nowIso();
+      touchFallbackRuntime();
+      return Response.json(
+        {
+          ok: true,
+          fallback: true,
+          session_id: session.session_id,
+          status: session.status,
+          payload: session,
+        },
+        { status: 200, headers: fallbackHeaders },
+      );
+    }
+
     if (path === "runtime/enable") {
       fallbackRuntimeState.runtime_enabled = true;
       fallbackRuntimeState.runtime_paused = false;
