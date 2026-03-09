@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import List
 
 from anm_backend.services.response_orchestration.config import (
+    deep_mode_enabled,
     resolve_max_total_response_tokens,
     resolve_mode_max_cycles,
     resolve_target_chunk_tokens,
@@ -52,26 +53,44 @@ def _split_prompt_sections(prompt: str, *, limit: int) -> List[str]:
     return sections
 
 
-def _resolve_adaptive_min_cycles(*, mode: str, complexity_score: float, max_cycles: int, prefer_multi_pass: bool) -> int:
-    if mode != "chat":
-        return 1
-    if max_cycles <= 1:
-        return 1
+def _resolve_call_profile(*, complexity_score: float, deep_mode_allowed: bool) -> tuple[str, int]:
+    if complexity_score >= 2.20 and deep_mode_allowed:
+        return ("deep", 10)
+    if complexity_score >= 1.75:
+        return ("advanced", 8)
+    if complexity_score >= 1.35:
+        return ("robust", 6)
+    return ("default", 4)
 
-    if not prefer_multi_pass and complexity_score < 1.2:
-        return 1
 
-    if complexity_score >= 2.10:
-        desired = 8
-    elif complexity_score >= 1.75:
-        desired = 7
-    elif complexity_score >= 1.35:
-        desired = 6
-    elif complexity_score >= 1.00:
-        desired = 5
+def _profile_target_chunk_tokens(*, profile: str, base_target: int) -> int:
+    if profile == "deep":
+        return max(120, min(base_target, 220))
+    if profile == "advanced":
+        return max(140, min(base_target, 260))
+    if profile == "robust":
+        return max(180, min(base_target, 320))
+    return max(220, min(base_target, 380))
+
+
+def _resolve_multi_pass_cycle_targets(
+    *,
+    max_cycles_cfg: int,
+    min_cycles_override: int | None,
+    max_cycles_override: int | None,
+    profile_calls: int,
+) -> tuple[int, int]:
+    if max_cycles_override is not None:
+        max_cycles = max(1, min(int(max_cycles_override), 10))
     else:
-        desired = 4
-    return max(1, min(max_cycles, desired))
+        # Sem override, o perfil define o numero de chamadas visiveis no front (4/6/8/10).
+        max_cycles = max(1, min(max_cycles_cfg, profile_calls))
+
+    if min_cycles_override is not None:
+        min_cycles = max(1, min(int(min_cycles_override), max_cycles))
+    else:
+        min_cycles = max(1, min(max_cycles, profile_calls))
+    return (min_cycles, max_cycles)
 
 
 def _expand_sections_to_cycles(sections: List[str], *, max_cycles: int, min_cycles_required: int) -> List[str]:
@@ -131,15 +150,7 @@ class EmissionPlannerService:
 
         max_cycles_cfg = resolve_mode_max_cycles(request.mode)
         if request.max_cycles_override is not None:
-            max_cycles_cfg = max(1, min(int(request.max_cycles_override), 8))
-        min_cycles_required = _resolve_adaptive_min_cycles(
-            mode=request.mode,
-            complexity_score=complexity_score,
-            max_cycles=max_cycles_cfg,
-            prefer_multi_pass=bool(request.prefer_multi_pass),
-        )
-        if request.min_cycles_override is not None:
-            min_cycles_required = max(1, min(int(request.min_cycles_override), max_cycles_cfg))
+            max_cycles_cfg = max(1, min(int(request.max_cycles_override), 10))
 
         target_chunk_tokens = resolve_target_chunk_tokens()
         if request.target_chunk_tokens_override is not None:
@@ -160,10 +171,40 @@ class EmissionPlannerService:
             and (complexity_score >= 1.20 or request.prefer_multi_pass)
         )
         if should_use_multi:
-            sections = request.planner_hints or _split_prompt_sections(request.prompt_original, limit=max_cycles_cfg)
+            deep_mode_allowed = bool(orchestration_enabled and deep_mode_enabled())
+            profile_name, profile_calls = _resolve_call_profile(
+                complexity_score=complexity_score,
+                deep_mode_allowed=deep_mode_allowed,
+            )
+            if profile_name == "deep" and not deep_mode_allowed:
+                rationale.append("deep_profile_blocked_missing_guards")
+            rationale.append(f"call_profile:{profile_name}")
+            rationale.append(f"call_profile_target:{profile_calls}")
+            rationale.append("high_cycle_guards:rolling_summary+semantic_state+redundancy_guard")
+
+            min_cycles_required, effective_max_cycles = _resolve_multi_pass_cycle_targets(
+                max_cycles_cfg=max_cycles_cfg,
+                min_cycles_override=request.min_cycles_override,
+                max_cycles_override=request.max_cycles_override,
+                profile_calls=profile_calls,
+            )
+
+            target_chunk_tokens = _profile_target_chunk_tokens(
+                profile=profile_name,
+                base_target=target_chunk_tokens,
+            )
+            token_budget_floor = int(min_cycles_required) * int(target_chunk_tokens)
+            max_total_response_tokens = max(
+                max_total_response_tokens,
+                max(512, token_budget_floor + 256),
+            )
+            sections = request.planner_hints or _split_prompt_sections(
+                request.prompt_original,
+                limit=effective_max_cycles,
+            )
             planned_sections = _expand_sections_to_cycles(
                 sections,
-                max_cycles=max_cycles_cfg,
+                max_cycles=effective_max_cycles,
                 min_cycles_required=min_cycles_required,
             )
             if request.prefer_multi_pass:
@@ -175,7 +216,7 @@ class EmissionPlannerService:
                 should_use_multi_pass=True,
                 complexity_score=complexity_score,
                 planned_sections=planned_sections,
-                max_cycles=max_cycles_cfg,
+                max_cycles=effective_max_cycles,
                 target_chunk_tokens=target_chunk_tokens,
                 max_total_response_tokens=max_total_response_tokens,
                 min_cycles_required=min_cycles_required,

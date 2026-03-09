@@ -21,12 +21,18 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 def health(request: Request) -> dict:
     engine_client = request.app.state.engine_client
     probe = engine_client.health()
+    identity_runtime = getattr(request.app.state, "identity_runtime", None)
+    identity_snapshot = identity_runtime.snapshot().to_dict() if identity_runtime else {}
     return {
         "api_ok": True,
         "engine_ok": bool(probe.get("ok", False)),
         "engine_latency_ms": int(probe.get("latency_ms", -1)),
         "engine_model": str(probe.get("model", engine_client.model_name)),
         "erro": probe.get("error"),
+        "identity_runtime_status": identity_snapshot.get("status"),
+        "identity_runtime_enabled": identity_snapshot.get("runtime_enabled"),
+        "identity_sources": len(identity_snapshot.get("camera_sources") or []),
+        "identity_active_streams": len(identity_snapshot.get("active_streams") or []),
     }
 
 
