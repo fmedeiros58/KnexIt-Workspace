@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass
+from ipaddress import ip_address
 from time import perf_counter
 from typing import Any, Dict, Tuple
 from urllib import error, request
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 from anm_backend.audit import audit_log
@@ -28,6 +31,92 @@ def _pick_first_non_empty(*values: str | None) -> str:
         if candidate:
             return candidate
     return ""
+
+
+def _is_truthy(value: str | None) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def _wsl_discovery_enabled() -> bool:
+    return _is_truthy(
+        _pick_first_non_empty(
+            os.getenv("ANM_ENGINE_WSL_DISCOVERY_ENABLED"),
+            os.getenv("KNEXAI_LLM_WSL_DISCOVERY_ENABLED"),
+            os.getenv("RAG_LLM_WSL_DISCOVERY_ENABLED"),
+            "1" if os.name == "nt" else "0",
+        )
+    )
+
+
+def _first_ipv4(value: str) -> str:
+    for token in str(value or "").replace("\n", " ").split():
+        try:
+            parsed = ip_address(token.strip())
+        except ValueError:
+            continue
+        if parsed.version == 4:
+            return token.strip()
+    return ""
+
+
+def _discover_wsl_ipv4() -> str:
+    if os.name != "nt":
+        return ""
+    try:
+        result = subprocess.run(
+            ["wsl", "-e", "bash", "-lc", "hostname -I"],
+            capture_output=True,
+            text=True,
+            timeout=3.0,
+            check=False,
+        )
+    except Exception:
+        return ""
+    if int(result.returncode) != 0:
+        return ""
+    return _first_ipv4(result.stdout)
+
+
+def _derive_wsl_base_url(base_url: str) -> str:
+    parsed = urlparse(str(base_url or "").strip())
+    host = str(parsed.hostname or "").strip().lower()
+    if not parsed.scheme or host not in {"127.0.0.1", "localhost"}:
+        return ""
+    wsl_ip = _discover_wsl_ipv4()
+    if not wsl_ip:
+        return ""
+    netloc = wsl_ip if not parsed.port else f"{wsl_ip}:{parsed.port}"
+    candidate = urlunparse((parsed.scheme, netloc, parsed.path or "", "", "", ""))
+    return candidate.rstrip("/")
+
+
+def _probe_models(base_url: str, api_key: str, *, timeout_seconds: float) -> bool:
+    url = f"{base_url.rstrip('/')}/models"
+    try:
+        req = request.Request(url=url, method="GET", headers=_json_headers(api_key))
+        with request.urlopen(req, timeout=max(1.0, min(timeout_seconds, 4.0))) as response:
+            code = int(getattr(response, "status", 200))
+        return code == 200
+    except Exception:
+        return False
+
+
+def _resolve_best_base_url(*, base_url: str, api_key: str, timeout_seconds: float) -> str:
+    normalized = str(base_url or "").strip().rstrip("/")
+    if not normalized:
+        return base_url
+
+    candidates: list[str] = [normalized]
+    if _wsl_discovery_enabled():
+        wsl_candidate = _derive_wsl_base_url(normalized)
+        if wsl_candidate and wsl_candidate not in candidates:
+            candidates.append(wsl_candidate)
+
+    for candidate in candidates:
+        if _probe_models(candidate, api_key, timeout_seconds=timeout_seconds):
+            return candidate
+    return normalized
 
 
 def _resolve_logical_model_name() -> str:
@@ -161,6 +250,7 @@ class EngineClient:
             timeout_seconds = max(1.0, float(timeout_ms_raw) / 1000.0)
         else:
             timeout_seconds = 45.0
+        base_url = _resolve_best_base_url(base_url=base_url, api_key=api_key, timeout_seconds=timeout_seconds)
         return cls(base_url=base_url, model_name=model_name, api_key=api_key, timeout_seconds=timeout_seconds)
 
     def build_request(

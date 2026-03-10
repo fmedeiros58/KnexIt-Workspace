@@ -124,6 +124,11 @@ function isSchemaProfileError(message: unknown) {
   return /schema must be one of/i.test(text);
 }
 
+function isMissingRelationError(message: unknown) {
+  const text = typeof message === "string" ? message : "";
+  return /relation .* does not exist|could not find table|not found in schema cache|does not exist/i.test(text);
+}
+
 function tableRef(admin: ReturnType<typeof identitySupabaseAdmin>, table: string, useScopedSchema: boolean) {
   return useScopedSchema ? admin.schema(IDENTITY_SCHEMA).from(table) : admin.from(table);
 }
@@ -272,6 +277,9 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
     personsResult = await loadPersons(false);
   }
   if (personsResult.error) {
+    if (isMissingRelationError(personsResult.error.message)) {
+      return [];
+    }
     throw new Error(personsResult.error.message);
   }
 
@@ -290,8 +298,15 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
   if (profilesResult.error && isSchemaProfileError(profilesResult.error.message)) {
     profilesResult = await loadProfiles(false);
   }
+  let profilesRows: ProfileRow[] = [];
   if (profilesResult.error) {
-    throw new Error(profilesResult.error.message);
+    if (isMissingRelationError(profilesResult.error.message)) {
+      profilesRows = [];
+    } else {
+      throw new Error(profilesResult.error.message);
+    }
+  } else {
+    profilesRows = (profilesResult.data || []) as ProfileRow[];
   }
 
   const loadRefs = async (useScopedSchema: boolean) =>
@@ -305,10 +320,16 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
   if (refsResult.error && isSchemaProfileError(refsResult.error.message)) {
     refsResult = await loadRefs(false);
   }
+  let refs: ReferenceRow[] = [];
   if (refsResult.error) {
-    throw new Error(refsResult.error.message);
+    if (isMissingRelationError(refsResult.error.message)) {
+      refs = [];
+    } else {
+      throw new Error(refsResult.error.message);
+    }
+  } else {
+    refs = (refsResult.data || []) as ReferenceRow[];
   }
-  const refs = (refsResult.data || []) as ReferenceRow[];
   const imageKeys = Array.from(new Set(refs.map((row) => sanitizeText(row.image_key, 120)).filter(Boolean)));
 
   let assets: ImageAssetRow[] = [];
@@ -323,13 +344,18 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
       assetsResult = await loadAssets(false);
     }
     if (assetsResult.error) {
-      throw new Error(assetsResult.error.message);
+      if (isMissingRelationError(assetsResult.error.message)) {
+        assets = [];
+      } else {
+        throw new Error(assetsResult.error.message);
+      }
+    } else {
+      assets = (assetsResult.data || []) as ImageAssetRow[];
     }
-    assets = (assetsResult.data || []) as ImageAssetRow[];
   }
 
   const profileByPerson = new Map<string, ProfileRow>();
-  for (const row of (profilesResult.data || []) as ProfileRow[]) {
+  for (const row of profilesRows) {
     profileByPerson.set(row.person_id, row);
   }
   const refsByPerson = new Map<string, ReferenceRow[]>();
@@ -406,16 +432,25 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
 }
 
 export async function GET(req: NextRequest) {
+  const profileKind = asProfileKind(req.nextUrl.searchParams.get("profile_kind"));
+  const limitRaw = Number(req.nextUrl.searchParams.get("limit") || 50);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.round(limitRaw))) : 50;
   try {
     const admin = identitySupabaseAdmin();
-    const profileKind = asProfileKind(req.nextUrl.searchParams.get("profile_kind"));
-    const limitRaw = Number(req.nextUrl.searchParams.get("limit") || 50);
-    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.round(limitRaw))) : 50;
     const people = await loadPeople(admin, profileKind, limit);
     return Response.json({ ok: true, profile_kind: profileKind, people }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "wanted_people_query_failed";
-    return Response.json({ ok: false, message }, { status: 500 });
+    return Response.json(
+      {
+        ok: true,
+        profile_kind: profileKind,
+        people: [],
+        degraded: true,
+        message,
+      },
+      { status: 200 },
+    );
   }
 }
 

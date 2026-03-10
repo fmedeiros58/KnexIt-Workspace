@@ -63,15 +63,26 @@ class FaceDetector:
         return rows[:max_faces]
 
     def _detect_with_mediapipe(self, frame_bgr, *, max_faces: int) -> List[FaceDetectionBox]:
-        if mp is None or cv2 is None:
+        if (
+            mp is None
+            or cv2 is None
+            or not hasattr(mp, "solutions")
+            or not hasattr(mp.solutions, "face_detection")
+        ):
             return []
         with self._lock:
             if self._mp_detector is None:
-                self._mp_detector = mp.solutions.face_detection.FaceDetection(
-                    model_selection=0,
-                    min_detection_confidence=float(_clamp(self.min_confidence, 0.05, 0.99)),
-                )
+                try:
+                    self._mp_detector = mp.solutions.face_detection.FaceDetection(
+                        model_selection=0,
+                        min_detection_confidence=float(_clamp(self.min_confidence, 0.05, 0.99)),
+                    )
+                except Exception:  # noqa: BLE001
+                    self._mp_detector = False
             detector = self._mp_detector
+
+        if not detector:
+            return []
 
         try:
             rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)

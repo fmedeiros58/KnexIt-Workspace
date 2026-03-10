@@ -447,6 +447,66 @@ def _resolve_phase0_chat_metadata(*, complexity: str) -> Dict[str, Any]:
     }
 
 
+def _safe_int(value: Any, *, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, parsed)
+
+
+def _safe_list_len(value: Any) -> int:
+    if isinstance(value, list):
+        return len(value)
+    return 0
+
+
+def _summarize_shared_identity_runtime(payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not isinstance(payload, dict) or not payload:
+        return {}
+
+    snapshot = payload.get("server_snapshot")
+    if not isinstance(snapshot, dict):
+        snapshot = payload.get("snapshot")
+    snapshot_dict = snapshot if isinstance(snapshot, dict) else {}
+    runtime = snapshot_dict.get("runtime")
+    runtime_dict = runtime if isinstance(runtime, dict) else {}
+    counts = snapshot_dict.get("counts")
+    counts_dict = counts if isinstance(counts, dict) else {}
+
+    tracked_entities = snapshot_dict.get("trackedEntities")
+    if not isinstance(tracked_entities, list):
+        tracked_entities = snapshot_dict.get("tracked_entities")
+    active_targets = snapshot_dict.get("activeTargets")
+    if not isinstance(active_targets, list):
+        active_targets = snapshot_dict.get("active_targets")
+    recent_matches = snapshot_dict.get("recentMatches")
+    if not isinstance(recent_matches, list):
+        recent_matches = snapshot_dict.get("recent_matches")
+
+    return {
+        "source": str(payload.get("source") or "").strip() or "unknown",
+        "status": str(payload.get("status") or "").strip() or "unknown",
+        "loaded_at": str(payload.get("loaded_at") or "").strip() or None,
+        "runtime_state": str(runtime_dict.get("state") or "").strip() or None,
+        "runtime_enabled": bool(runtime_dict.get("enabled", False)),
+        "runtime_paused": bool(runtime_dict.get("paused", False)),
+        "tracked_entities_total": _safe_int(
+            counts_dict.get("trackedEntities"),
+            default=_safe_list_len(tracked_entities),
+        ),
+        "active_targets_total": _safe_int(
+            counts_dict.get("activeTargets"),
+            default=_safe_list_len(active_targets),
+        ),
+        "recent_matches_total": _safe_int(
+            counts_dict.get("recentMatches"),
+            default=_safe_list_len(recent_matches),
+        ),
+        "has_client_snapshot": isinstance(payload.get("client_snapshot"), dict),
+    }
+
+
 @dataclass
 class CognitiveService:
     """
@@ -479,7 +539,12 @@ class CognitiveService:
     self_model_engine: SelfModelEngine | None = None
     user_pattern_recognizer: UserPatternRecognizer | None = None
 
-    def run_chat_turn(self, message: str) -> Dict[str, Any]:
+    def run_chat_turn(
+        self,
+        message: str,
+        *,
+        shared_identity_runtime: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         """
         Purpose:
             Execute one complete chat-driven cognitive cycle.
@@ -501,6 +566,12 @@ class CognitiveService:
         msg = message.strip()
         if not msg:
             raise ValueError("message is required")
+        shared_identity_runtime_payload = (
+            dict(shared_identity_runtime)
+            if isinstance(shared_identity_runtime, dict)
+            else {}
+        )
+        shared_identity_runtime_summary = _summarize_shared_identity_runtime(shared_identity_runtime_payload)
         user_key = "chat-session"
         if self.user_pattern_recognizer:
             self.user_pattern_recognizer.observe_message(user_key=user_key, message=msg)
@@ -565,6 +636,7 @@ class CognitiveService:
                     "self_model_state": self_model_state,
                     "user_pattern_state": user_pattern_state,
                     "identity_awareness_state": identity_awareness_state,
+                    "shared_identity_runtime": shared_identity_runtime_summary,
                 },
             }
         response_language = detect_user_language(msg)
@@ -633,6 +705,8 @@ class CognitiveService:
             context["user_pattern_state"] = user_pattern_state
         if identity_awareness_state:
             context["identity_awareness_state"] = identity_awareness_state
+        if shared_identity_runtime_payload:
+            context["shared_identity_runtime"] = shared_identity_runtime_payload
         internet_search_payload = self.internet_search_service.search(query=msg)
         if internet_search_payload:
             context["internet_search"] = internet_search_payload
@@ -824,6 +898,7 @@ class CognitiveService:
                 "response_language": response_language,
                 "followup_prompt_included": include_followup_prompt,
                 "internet_search_used": bool(internet_search_payload),
+                "shared_identity_runtime_injected": bool(shared_identity_runtime_payload),
                 "orchestration_enabled": orchestration_payload["enabled"],
                 "orchestration_response_mode": orchestration_payload["response_mode"],
                 "orchestration_cycle_count": orchestration_payload["cycle_count"],
@@ -861,5 +936,6 @@ class CognitiveService:
                 "self_model_state": self_model_state,
                 "user_pattern_state": user_pattern_state,
                 "identity_awareness_state": identity_awareness_state,
+                "shared_identity_runtime": shared_identity_runtime_summary,
             },
         }

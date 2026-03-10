@@ -85,7 +85,13 @@ class PoseEstimator:
 
     def estimate_pose(self, frame_bgr, *, expected_view: Optional[str] = None) -> PoseEstimate:
         normalized_expected = _normalize_view(expected_view or "")
-        if mp is None or cv2 is None or np is None:
+        if (
+            mp is None
+            or cv2 is None
+            or np is None
+            or not hasattr(mp, "solutions")
+            or not hasattr(mp.solutions, "face_mesh")
+        ):
             return PoseEstimate(
                 pose_label="unknown",
                 yaw=0.0,
@@ -99,14 +105,29 @@ class PoseEstimator:
 
         with self._lock:
             if self._face_mesh is None:
-                self._face_mesh = mp.solutions.face_mesh.FaceMesh(
-                    static_image_mode=True,
-                    max_num_faces=1,
-                    refine_landmarks=False,
-                    min_detection_confidence=0.5,
-                    min_tracking_confidence=0.5,
-                )
+                try:
+                    self._face_mesh = mp.solutions.face_mesh.FaceMesh(
+                        static_image_mode=True,
+                        max_num_faces=1,
+                        refine_landmarks=False,
+                        min_detection_confidence=0.5,
+                        min_tracking_confidence=0.5,
+                    )
+                except Exception:  # noqa: BLE001
+                    self._face_mesh = False
             mesh = self._face_mesh
+
+        if not mesh:
+            return PoseEstimate(
+                pose_label="unknown",
+                yaw=0.0,
+                pitch=0.0,
+                roll=0.0,
+                confidence=0.0,
+                pose_match=False if normalized_expected else True,
+                expected_view=normalized_expected,
+                landmarks_detected=False,
+            )
 
         try:
             rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)

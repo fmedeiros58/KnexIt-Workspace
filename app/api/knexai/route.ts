@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { execFileSync } from "node:child_process";
 import { LETICIA_SYSTEM_PROMPT } from "@/lib/knexai/spec";
 import { loadPathConfig } from "@/core/config/paths";
+import { injectIdentityRuntimePrompt, resolveIdentityRuntimeSharedContext } from "@/core/identity/shared-memory-context";
 
 export const runtime = "nodejs";
 
@@ -574,6 +575,11 @@ function normalizeHistory(value: unknown): ChatHistoryItem[] {
   return items.slice(-8);
 }
 
+function normalizeRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
 function sanitizeHistoryForModel(history: ChatHistoryItem[]): ChatHistoryItem[] {
   const sanitized: ChatHistoryItem[] = [];
   for (const item of history) {
@@ -1074,7 +1080,11 @@ function resolveAnmAnswer(payload: unknown): AnmChatResult {
   return { answer, traceId: traceCandidate || null };
 }
 
-async function requestAnmChat(config: EngineModeConfig, prompt: string): Promise<AnmChatResult> {
+async function requestAnmChat(
+  config: EngineModeConfig,
+  prompt: string,
+  sharedIdentityRuntime?: Record<string, unknown> | null,
+): Promise<AnmChatResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), config.anmTimeoutMs);
   try {
@@ -1083,7 +1093,10 @@ async function requestAnmChat(config: EngineModeConfig, prompt: string): Promise
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ message: prompt }),
+      body: JSON.stringify({
+        message: prompt,
+        shared_identity_runtime: sharedIdentityRuntime || undefined,
+      }),
       signal: controller.signal,
       cache: "no-store",
     });
@@ -1409,7 +1422,9 @@ export async function POST(req: NextRequest) {
   const engineMode = readEngineModeConfig();
 
   try {
-    const { prompt = "", history = [] } = await req.json().catch(() => ({ prompt: "", history: [] }));
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const prompt = body?.prompt;
+    const history = body?.history;
     const safePrompt = typeof prompt === "string" ? prompt.trim() : "";
     if (!safePrompt) {
       return safeBackendError(400, "EMPTY_PROMPT", "Informe a mensagem atual em 'prompt' para enviar ao modelo.");
@@ -1420,8 +1435,25 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
-    const safeHistory = sanitizeHistoryForModel(ensurePrompt(normalizeHistory(history), safePrompt));
-    const effectiveHistory = optimizeHistoryForLatency(resolveEffectiveHistory(safeHistory, safePrompt), safePrompt);
+    const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
+    const promptForInference = injectIdentityRuntimePrompt(safePrompt, identitySharedMemory.promptBlock);
+    const clientSharedIdentityRuntime =
+      normalizeRecord(body?.sharedIdentityRuntime) || normalizeRecord(body?.shared_identity_runtime);
+    const sharedIdentityRuntimePayload =
+      identitySharedMemory.snapshot || clientSharedIdentityRuntime
+        ? {
+            source: identitySharedMemory.snapshot ? "server_identity_shared_memory" : "client_identity_snapshot",
+            status: identitySharedMemory.status,
+            loaded_at: identitySharedMemory.loadedAt,
+            server_snapshot: identitySharedMemory.snapshot || undefined,
+            client_snapshot: clientSharedIdentityRuntime || undefined,
+          }
+        : null;
+    const safeHistory = sanitizeHistoryForModel(ensurePrompt(normalizeHistory(history), promptForInference));
+    const effectiveHistory = optimizeHistoryForLatency(
+      resolveEffectiveHistory(safeHistory, promptForInference),
+      promptForInference,
+    );
 
     if (engineMode.mode === "anm") {
       if (engineMode.fallbackToDirect) {
@@ -1438,10 +1470,12 @@ export async function POST(req: NextRequest) {
           directConfiguredBaseUrl: config.baseUrl,
           directSelectedBaseUrl: directConfig.baseUrl,
           directAttemptedBaseUrls: directHealth.attemptedBaseUrls || [],
+          identitySharedMemoryStatus: identitySharedMemory.status,
+          identitySharedMemoryChars: identitySharedMemory.promptBlock.length,
         });
 
         if (anmHealth.ok && !directHealth.ok) {
-          const anmAttempt = await requestAnmChat(engineMode, safePrompt)
+          const anmAttempt = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (anmAttempt.ok && anmAttempt.source === "anm") {
@@ -1453,7 +1487,7 @@ export async function POST(req: NextRequest) {
             });
             return toAnmTextResponse(anmAttempt.value);
           }
-          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, safePrompt)
+          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForInference)
             .then((upstream) => toAttemptOk("direct", upstream))
             .catch((error: unknown) => toAttemptError("direct", error));
           if (directAttempt.ok && directAttempt.source === "direct") {
@@ -1463,13 +1497,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (!anmHealth.ok && directHealth.ok) {
-          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, safePrompt)
+          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForInference)
             .then((upstream) => toAttemptOk("direct", upstream))
             .catch((error: unknown) => toAttemptError("direct", error));
           if (directAttempt.ok && directAttempt.source === "direct") {
             return toClientTextStreamResponse(directAttempt.value);
           }
-          const anmAttempt = await requestAnmChat(engineMode, safePrompt)
+          const anmAttempt = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (anmAttempt.ok && anmAttempt.source === "anm") {
@@ -1493,10 +1527,14 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        const anmSoftPromise = requestAnmChat({ ...engineMode, anmTimeoutMs: engineMode.anmSoftTimeoutMs }, safePrompt)
+        const anmSoftPromise = requestAnmChat(
+          { ...engineMode, anmTimeoutMs: engineMode.anmSoftTimeoutMs },
+          promptForInference,
+          sharedIdentityRuntimePayload,
+        )
           .then((anm) => toAttemptOk("anm", anm))
           .catch((error: unknown) => toAttemptError("anm", error));
-        const directPromise = requestLlmStreaming(directConfig, effectiveHistory, safePrompt)
+        const directPromise = requestLlmStreaming(directConfig, effectiveHistory, promptForInference)
           .then((upstream) => toAttemptOk("direct", upstream))
           .catch((error: unknown) => toAttemptError("direct", error));
 
@@ -1521,7 +1559,7 @@ export async function POST(req: NextRequest) {
           if (second.ok && second.source === "direct") {
             return toClientTextStreamResponse(second.value);
           }
-          const hardAnm = await requestAnmChat(engineMode, safePrompt)
+          const hardAnm = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (hardAnm.ok && hardAnm.source === "anm") {
@@ -1537,7 +1575,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (!first.ok && first.source === "direct") {
-          const hardAnm = await requestAnmChat(engineMode, safePrompt)
+          const hardAnm = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (hardAnm.ok && hardAnm.source === "anm") {
@@ -1552,7 +1590,7 @@ export async function POST(req: NextRequest) {
           throw buildEngineCompositeError([first, hardAnm]);
         }
       } else {
-        const anm = await requestAnmChat(engineMode, safePrompt);
+        const anm = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload);
         console.info("KNEXAI_ANM_CHAT_OK", {
           traceId: anm.traceId,
           anmBaseUrl: engineMode.anmBaseUrl,
@@ -1571,7 +1609,7 @@ export async function POST(req: NextRequest) {
       );
     }
     const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
-    const upstream = await requestLlmStreaming(directConfig, effectiveHistory, safePrompt);
+    const upstream = await requestLlmStreaming(directConfig, effectiveHistory, promptForInference);
     return toClientTextStreamResponse(upstream);
   } catch (error) {
     if (error instanceof LlmRouteError) {
