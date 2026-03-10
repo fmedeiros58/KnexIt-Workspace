@@ -28,6 +28,7 @@ from anm_backend.anm.synapse import Synapse
 from anm_backend.api.routes_admin import router as admin_router
 from anm_backend.api.routes_chat import router as chat_router
 from anm_backend.api.routes_debug import router as debug_router
+from anm_backend.api.routes_identity import router as identity_router
 from anm_backend.api.routes_memory import router as memory_router
 from anm_backend.api.routes_write import router as write_router
 from anm_backend.memory.checkpoint_manager import CheckpointManager
@@ -51,6 +52,28 @@ from anm_backend.orchestrator.resonance_engine import ResonanceEngine
 from anm_backend.orchestrator.router import Router
 from anm_backend.orchestrator.scheduler import Scheduler
 from anm_backend.services.cognitive_service import CognitiveService
+from anm_backend.services.identity_runtime import (
+    ActiveLivenessChecker,
+    ContinuousIdentityRuntime,
+    FaceAligner,
+    FaceConsensusEngine,
+    FaceDetector,
+    FaceNormalizer,
+    FrameQualityGate,
+    IdentityFrameAnalyzer,
+    IdentityRuntimeBootstrap,
+    IdentitySqlRuntimeService,
+    MultiViewEnrollment,
+    MultiCameraStreamManager,
+    PassiveLivenessChecker,
+    PoseEstimator,
+    SelfModelEngine,
+    SourceDiscoveryManager,
+    TargetSearchEngine,
+    TemporalTracker,
+    UserPatternRecognizer,
+    VectorMatcher,
+)
 from anm_backend.services.response_orchestration import ResponseOrchestrator
 from anm_backend.services.write_continue_service import WriteContinueService
 from anm_backend.services.write_service import WriteService
@@ -181,6 +204,40 @@ def create_app() -> FastAPI:
     engine_client = EngineClient.from_env()
     llm_adapter = LLMAdapter(engine_client=engine_client, prompt_builder=PromptBuilder(), response_parser=ResponseParser())
     response_orchestrator = ResponseOrchestrator(llm_adapter=llm_adapter)
+    source_discovery_manager = SourceDiscoveryManager()
+    multi_camera_stream_manager = MultiCameraStreamManager(source_manager=source_discovery_manager)
+    identity_sql_runtime_service = IdentitySqlRuntimeService()
+    identity_runtime = ContinuousIdentityRuntime(
+        source_manager=source_discovery_manager,
+        stream_manager=multi_camera_stream_manager,
+        sql_runtime_service=identity_sql_runtime_service,
+    )
+    identity_runtime_bootstrap = IdentityRuntimeBootstrap(runtime=identity_runtime)
+    self_model_engine = SelfModelEngine(runtime=identity_runtime)
+    user_pattern_recognizer = UserPatternRecognizer()
+    face_detector = FaceDetector()
+    pose_estimator = PoseEstimator()
+    frame_quality_gate = FrameQualityGate()
+    temporal_tracker = TemporalTracker()
+    face_aligner = FaceAligner()
+    face_normalizer = FaceNormalizer()
+    passive_liveness_checker = PassiveLivenessChecker()
+    active_liveness_checker = ActiveLivenessChecker()
+    face_consensus_engine = FaceConsensusEngine()
+    vector_matcher = VectorMatcher()
+    multi_view_enrollment = MultiViewEnrollment()
+    target_search_engine = TargetSearchEngine(matcher=vector_matcher)
+    identity_frame_analyzer = IdentityFrameAnalyzer(
+        face_detector=face_detector,
+        pose_estimator=pose_estimator,
+        quality_gate=frame_quality_gate,
+        temporal_tracker=temporal_tracker,
+        face_aligner=face_aligner,
+        face_normalizer=face_normalizer,
+        passive_liveness_checker=passive_liveness_checker,
+        face_consensus_engine=face_consensus_engine,
+    )
+    identity_runtime_bootstrap.bootstrap(reason="application_boot")
     write_repository = InMemoryWriteWorkspaceRepository()
     write_summary_service = WriteSummaryService(repository=write_repository)
     write_service = WriteService(
@@ -206,12 +263,16 @@ def create_app() -> FastAPI:
         graph=graph,
         myelination_engine=myelination_engine,
         response_orchestrator=response_orchestrator,
+        identity_runtime=identity_runtime,
+        self_model_engine=self_model_engine,
+        user_pattern_recognizer=user_pattern_recognizer,
     )
 
     app = FastAPI(title="ANM Backend", version="0.2.0")
     app.include_router(chat_router)
     app.include_router(write_router)
     app.include_router(memory_router)
+    app.include_router(identity_router)
     app.include_router(debug_router)
     app.include_router(admin_router)
 
@@ -232,6 +293,26 @@ def create_app() -> FastAPI:
     app.state.engine_client = engine_client
     app.state.llm_adapter = llm_adapter
     app.state.response_orchestrator = response_orchestrator
+    app.state.source_discovery_manager = source_discovery_manager
+    app.state.multi_camera_stream_manager = multi_camera_stream_manager
+    app.state.identity_sql_runtime_service = identity_sql_runtime_service
+    app.state.identity_runtime = identity_runtime
+    app.state.identity_runtime_bootstrap = identity_runtime_bootstrap
+    app.state.self_model_engine = self_model_engine
+    app.state.user_pattern_recognizer = user_pattern_recognizer
+    app.state.face_detector = face_detector
+    app.state.pose_estimator = pose_estimator
+    app.state.frame_quality_gate = frame_quality_gate
+    app.state.temporal_tracker = temporal_tracker
+    app.state.face_aligner = face_aligner
+    app.state.face_normalizer = face_normalizer
+    app.state.passive_liveness_checker = passive_liveness_checker
+    app.state.active_liveness_checker = active_liveness_checker
+    app.state.face_consensus_engine = face_consensus_engine
+    app.state.vector_matcher = vector_matcher
+    app.state.multi_view_enrollment = multi_view_enrollment
+    app.state.target_search_engine = target_search_engine
+    app.state.identity_frame_analyzer = identity_frame_analyzer
     app.state.plasticity_readiness = plasticity_readiness
     app.state.contextual_gate = contextual_gate
     app.state.cognitive_service = cognitive_service
@@ -244,15 +325,24 @@ def create_app() -> FastAPI:
     if bootstrap_checkpoint:
         persistence_bridge.bootstrap_from_checkpoint(checkpoint_id=bootstrap_checkpoint)
 
+    @app.on_event("shutdown")
+    def _shutdown_identity_runtime() -> None:
+        identity_runtime.shutdown()
+
     @app.get("/healthz")
     def healthz() -> Dict[str, object]:
         readiness = plasticity_readiness.latest()
         engine_health = engine_client.health()
+        identity_snapshot = identity_runtime.snapshot()
         return {
             "ok": bool(engine_health.get("ok", False)),
             "engine_model": engine_client.model_name,
             "engine_health": engine_health,
             "readiness_state": readiness.readiness_state.value if readiness else "UNKNOWN",
+            "identity_runtime_status": identity_snapshot.status.value,
+            "identity_runtime_enabled": identity_snapshot.runtime_enabled,
+            "identity_sources": len(identity_snapshot.camera_sources),
+            "identity_active_streams": len(identity_snapshot.active_streams),
         }
 
     return app

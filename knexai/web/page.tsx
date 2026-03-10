@@ -17,6 +17,7 @@ import {
   Code2,
   Compass,
   Copy,
+  ExternalLink,
   FileArchive,
   FileAudio,
   FileCode,
@@ -34,15 +35,20 @@ import {
   List,
   ListOrdered,
   MessageSquarePlus,
+  Maximize2,
   Mic,
+  Minimize2,
   Minus,
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
   RotateCw,
   Save,
+  ScanFace,
   ScanSearch,
   Search,
+  Volume2,
+  VolumeX,
   Underline,
   Upload,
   X,
@@ -175,6 +181,10 @@ type ComposerAttachmentView = {
   totalChunks: number | null;
   embeddedChunks: number | null;
 };
+type IdentityRuntimeQuickStatus = {
+  status: string;
+  runtime_enabled: boolean;
+};
 type DocumentLookupResponse = {
   ok: boolean;
   message?: string;
@@ -219,6 +229,29 @@ type WriteEditorSessionState = {
   lastSyncedAt: string | null;
   saveError: string | null;
 };
+
+type SpeechRecognitionEventLike = Event & {
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript?: string }>>;
+};
+
+type SpeechRecognitionErrorEventLike = Event & {
+  error?: string;
+};
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognition;
 
 const SESSION_STORAGE_KEY = "knexai_session_id";
 const THREAD_CACHE_PREFIX = "knexai_threads_cache_v1";
@@ -613,6 +646,15 @@ function resolveComposerAttachmentStatusMeta(status: PendingComposerFileStatus) 
   return { label: "Na fila", className: "border-zinc-300 bg-zinc-100 text-zinc-700", tone: "queued" as const };
 }
 
+function resolveIdentityStatusDotClass(status: string) {
+  const key = `${status || ""}`.trim().toLowerCase();
+  if (key === "identified") return "bg-emerald-500";
+  if (key === "tracking" || key === "monitoring" || key === "validating") return "bg-sky-500";
+  if (key === "conflict" || key === "degraded") return "bg-rose-500";
+  if (key === "paused") return "bg-amber-500";
+  return "bg-zinc-400";
+}
+
 const initialMessages: LeticiaMessage[] = [
   {
     role: "assistant",
@@ -713,6 +755,15 @@ async function parseJsonResponse<T>(response: Response): Promise<T | null> {
   }
 }
 
+function resolveSpeechRecognitionCtor() {
+  if (typeof window === "undefined") return null;
+  const fromWindow = window as unknown as {
+    SpeechRecognition?: BrowserSpeechRecognitionCtor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionCtor;
+  };
+  return fromWindow.SpeechRecognition || fromWindow.webkitSpeechRecognition || null;
+}
+
 function toLocalThread(thread: PersistedThread): ChatThread {
   const messages =
     thread.messages.length > 0
@@ -776,12 +827,15 @@ type ComposerProps = {
   docked: boolean;
   input: string;
   status: "idle" | "thinking" | "error";
+  speechSupported: boolean;
+  isListening: boolean;
   isUploadingFiles: boolean;
   uploadNotice: string | null;
   uploadError: string | null;
   pendingAttachments: ComposerAttachmentView[];
   onInputChange: (value: string) => void;
   onSend: () => void;
+  onToggleListening: () => void;
   onPickFiles: () => void;
   onFilesSelected: (files: File[]) => void;
   onRemoveAttachment: (attachmentId: string) => void;
@@ -791,12 +845,15 @@ function Composer({
   docked,
   input,
   status,
+  speechSupported,
+  isListening,
   isUploadingFiles,
   uploadNotice,
   uploadError,
   pendingAttachments,
   onInputChange,
   onSend,
+  onToggleListening,
   onPickFiles,
   onFilesSelected,
   onRemoveAttachment,
@@ -996,7 +1053,22 @@ function Composer({
         </div>
 
         <div className="flex items-center gap-2">
-          <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100">
+          <button
+            type="button"
+            onClick={onToggleListening}
+            disabled={!speechSupported || status === "thinking"}
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
+              isListening ? "bg-emerald-100 text-emerald-700" : "text-zinc-700 hover:bg-zinc-100"
+            } disabled:cursor-not-allowed disabled:opacity-45`}
+            title={
+              speechSupported
+                ? isListening
+                  ? "Parar escuta de voz"
+                  : "Ativar escuta por voz"
+                : "Escuta de voz indisponivel neste navegador"
+            }
+            aria-label={isListening ? "Parar escuta de voz" : "Ativar escuta por voz"}
+          >
             <Mic size={17} />
           </button>
           <button
@@ -1089,7 +1161,19 @@ export default function KnexAiPage() {
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speakingMessageKey, setSpeakingMessageKey] = useState<string | null>(null);
   const [chatPassIndicator, setChatPassIndicator] = useState<ChatResponsePassIndicator | null>(null);
+  const [identityQuickStatus, setIdentityQuickStatus] = useState<IdentityRuntimeQuickStatus>({
+    status: "disabled",
+    runtime_enabled: false,
+  });
+  const [isIdentityPanelOpen, setIsIdentityPanelOpen] = useState(false);
+  const [isIdentityPanelMinimized, setIsIdentityPanelMinimized] = useState(false);
+  const [isIdentityPanelMaximized, setIsIdentityPanelMaximized] = useState(false);
+  const [identityPanelPosition, setIdentityPanelPosition] = useState<{ x: number; y: number } | null>(null);
   const writingPageFormat = WRITING_DEFAULT_PAGE_FORMAT;
   const writingPagePreset = WRITING_PAGE_FORMAT_PRESETS[writingPageFormat];
   const writingPageWidthPx = writingPagePreset.widthPx;
@@ -1113,6 +1197,10 @@ export default function KnexAiPage() {
   const writingNavResizeRef = useRef<{ startX: number; startWidthPercent: number } | null>(null);
   const writingWorksResizeRef = useRef<{ startX: number; startWidthPercent: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechSeedInputRef = useRef<string>("");
+  const identityPanelRootRef = useRef<HTMLDivElement | null>(null);
+  const identityPanelDragRef = useRef<{ offsetX: number; offsetY: number; width: number; height: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const streamIdRef = useRef(0);
   const threadStoreLocksRef = useRef<Record<string, Promise<string | null>>>({});
@@ -1174,6 +1262,246 @@ export default function KnexAiPage() {
   }, [writingWorks, writingWorksQuery]);
 
   useEffect(() => {
+    let active = true;
+    const fetchIdentityQuickStatus = async () => {
+      try {
+        const response = await fetch("/api/identity/runtime/status", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as IdentityRuntimeQuickStatus;
+        if (!active) return;
+        setIdentityQuickStatus({
+          status: `${payload.status || "disabled"}`.trim().toLowerCase() || "disabled",
+          runtime_enabled: Boolean(payload.runtime_enabled),
+        });
+      } catch {
+        // noop
+      }
+    };
+
+    void fetchIdentityQuickStatus();
+    const intervalId = window.setInterval(() => {
+      void fetchIdentityQuickStatus();
+    }, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const openIdentityPanel = () => {
+    setIsIdentityPanelOpen(true);
+    setIsIdentityPanelMinimized(false);
+    setIdentityPanelPosition(null);
+  };
+
+  const minimizeIdentityPanel = () => {
+    setIsIdentityPanelMinimized(true);
+    setIsIdentityPanelMaximized(false);
+  };
+
+  const toggleIdentityPanelMaximized = () => {
+    setIsIdentityPanelMinimized(false);
+    setIsIdentityPanelMaximized((current) => !current);
+  };
+
+  const popoutIdentityPanel = () => {
+    if (typeof window === "undefined") return;
+    const width = 1280;
+    const height = 820;
+    const left = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
+    const top = Math.max(0, window.screenY + Math.round((window.outerHeight - height) / 2));
+    const features = [
+      "popup=yes",
+      "resizable=yes",
+      "scrollbars=yes",
+      `width=${width}`,
+      `height=${height}`,
+      `left=${left}`,
+      `top=${top}`,
+    ].join(",");
+    const popup = window.open("/knexai/identity-runtime", "knexai-identity-panel-window", features);
+    if (popup) {
+      popup.focus();
+      closeIdentityPanel();
+    } else {
+      setError("Nao foi possivel abrir janela separada. Verifique bloqueio de pop-up no navegador.");
+    }
+  };
+
+  const clampIdentityPanelPosition = (x: number, y: number, width: number, height: number) => {
+    if (typeof window === "undefined") return { x, y };
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(margin, window.innerHeight - height - margin);
+    return {
+      x: Math.min(Math.max(margin, x), maxX),
+      y: Math.min(Math.max(margin, y), maxY),
+    };
+  };
+
+  const startIdentityPanelDrag = (event: ReactMouseEvent<HTMLElement>) => {
+    if (isIdentityPanelMaximized) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button")) return;
+    const panelEl = identityPanelRootRef.current;
+    if (!panelEl) return;
+
+    const rect = panelEl.getBoundingClientRect();
+    const baseX = identityPanelPosition?.x ?? rect.left;
+    const baseY = identityPanelPosition?.y ?? rect.top;
+    const offsetX = event.clientX - baseX;
+    const offsetY = event.clientY - baseY;
+    identityPanelDragRef.current = {
+      offsetX,
+      offsetY,
+      width: rect.width,
+      height: rect.height,
+    };
+    setIdentityPanelPosition(clampIdentityPanelPosition(baseX, baseY, rect.width, rect.height));
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const drag = identityPanelDragRef.current;
+      if (!drag) return;
+      const nextX = moveEvent.clientX - drag.offsetX;
+      const nextY = moveEvent.clientY - drag.offsetY;
+      const clamped = clampIdentityPanelPosition(nextX, nextY, drag.width, drag.height);
+      setIdentityPanelPosition(clamped);
+    };
+
+    const onMouseUp = () => {
+      identityPanelDragRef.current = null;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    event.preventDefault();
+  };
+
+  const closeIdentityPanel = () => {
+    setIsIdentityPanelOpen(false);
+    setIsIdentityPanelMinimized(false);
+    setIsIdentityPanelMaximized(false);
+    setIdentityPanelPosition(null);
+  };
+
+  const stopListening = () => {
+    const recognition = speechRecognitionRef.current;
+    if (!recognition) return;
+    try {
+      recognition.stop();
+    } catch {
+      // noop
+    }
+    setIsListening(false);
+  };
+
+  const toggleListening = () => {
+    const SpeechRecognitionCtor = resolveSpeechRecognitionCtor();
+    if (!SpeechRecognitionCtor) {
+      setError("Escuta por voz nao suportada neste navegador.");
+      return;
+    }
+
+    if (isListening) {
+      stopListening();
+      return;
+    }
+
+    const recognition = speechRecognitionRef.current || new SpeechRecognitionCtor();
+    speechRecognitionRef.current = recognition;
+    speechSeedInputRef.current = input.trim();
+    recognition.lang = "pt-BR";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let index = 0; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        if (!result || result.length <= 0) continue;
+        const candidate = `${result[0]?.transcript || ""}`.trim();
+        if (!candidate) continue;
+        transcript = transcript ? `${transcript} ${candidate}` : candidate;
+      }
+      const nextInput = speechSeedInputRef.current
+        ? `${speechSeedInputRef.current} ${transcript}`.trim()
+        : transcript.trim();
+      if (!nextInput) return;
+      setInput(nextInput);
+    };
+    recognition.onerror = (event) => {
+      setIsListening(false);
+      const reason = `${event.error || ""}`.trim();
+      setError(reason ? `Falha na escuta por voz (${reason}).` : "Falha na escuta por voz.");
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    try {
+      recognition.start();
+      setError(null);
+      setIsListening(true);
+    } catch {
+      setIsListening(false);
+      setError("Nao foi possivel iniciar a escuta por voz neste navegador.");
+    }
+  };
+
+  const speakAssistantMessage = (text: string, messageKey: string) => {
+    const safeText = `${text || ""}`.trim();
+    if (!safeText) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setError("Leitura em voz nao suportada neste navegador.");
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+    if (isSpeaking && speakingMessageKey === messageKey) {
+      synth.cancel();
+      setIsSpeaking(false);
+      setSpeakingMessageKey(null);
+      return;
+    }
+
+    synth.cancel();
+    const utterance = new SpeechSynthesisUtterance(safeText);
+    utterance.lang = "pt-BR";
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setSpeakingMessageKey((current) => (current === messageKey ? null : current));
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setSpeakingMessageKey(null);
+      setError("Falha na leitura em voz da resposta.");
+    };
+    setIsSpeaking(true);
+    setSpeakingMessageKey(messageKey);
+    synth.speak(utterance);
+  };
+
+  useEffect(() => {
+    setIsSpeechSupported(Boolean(resolveSpeechRecognitionCtor()));
+    return () => {
+      try {
+        speechRecognitionRef.current?.abort();
+      } catch {
+        // noop
+      }
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      document.body.style.userSelect = "";
+    };
+  }, []);
+
+  useEffect(() => {
     setWriteSession((current) => (current.activeMode === activeMode ? current : { ...current, activeMode }));
   }, [activeMode]);
 
@@ -1215,6 +1543,15 @@ export default function KnexAiPage() {
       inline: "nearest",
     });
   }, [activeMessages, showChat, status, composerReservePx]);
+
+  useEffect(() => {
+    if (status !== "thinking") return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    if (!isSpeaking) return;
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    setSpeakingMessageKey(null);
+  }, [status, isSpeaking]);
 
   useEffect(() => {
     const bubble = lastAssistantBubbleRef.current;
@@ -2463,6 +2800,9 @@ export default function KnexAiPage() {
   const send = async (prompt: string) => {
     const trimmed = prompt.trim();
     if (status === "thinking" || !activeThread || isUploadingFiles) return;
+    if (isListening) {
+      stopListening();
+    }
 
     const formatAttachmentNames = (items: PendingComposerFile[]) => {
       const names = items
@@ -2782,7 +3122,7 @@ export default function KnexAiPage() {
         ref={fileInputRef}
         type="file"
         multiple
-        accept=".pdf,.docx,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept="*/*"
         className="hidden"
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
@@ -2878,6 +3218,20 @@ export default function KnexAiPage() {
               <Upload size={16} />
               <span className="hidden sm:inline">Ingerir arquivo</span>
             </Link>
+            <button
+              type="button"
+              onClick={openIdentityPanel}
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+              title="Abrir painel de identificacao"
+            >
+              <span className="relative inline-flex items-center justify-center">
+                <ScanFace size={16} />
+                <span
+                  className={`absolute -right-1.5 -top-1.5 h-2.5 w-2.5 rounded-full border border-white ${resolveIdentityStatusDotClass(identityQuickStatus.status)}`}
+                />
+              </span>
+              <span className="hidden sm:inline">Identificacao</span>
+            </button>
             <button type="button" className="rounded-lg p-2 hover:bg-zinc-200">
               <MoreHorizontal size={18} />
             </button>
@@ -2892,12 +3246,15 @@ export default function KnexAiPage() {
                 docked={false}
                 input={input}
                 status={status}
+                speechSupported={isSpeechSupported}
+                isListening={isListening}
                 isUploadingFiles={isUploadingFiles}
                 uploadNotice={uploadNotice}
                 uploadError={uploadError}
                 pendingAttachments={composerPendingAttachmentViews}
                 onInputChange={setInput}
                 onSend={() => void send(input)}
+                onToggleListening={toggleListening}
                 onPickFiles={handlePickFiles}
                 onFilesSelected={(files) => {
                   queueComposerFiles(files);
@@ -2940,6 +3297,11 @@ export default function KnexAiPage() {
                         const hideMessageTextForAttachmentNotice =
                           message.role === "user" && messageMetadata?.rag_attachment_notice === true && attachmentItems.length > 0;
                         const shouldRenderContent = Boolean(contentToRender) && !hideMessageTextForAttachmentNotice;
+                        const bubbleKey = `${activeThread?.id ?? "thread"}-${index}`;
+                        const canSpeakAssistantMessage =
+                          message.role === "assistant" && shouldRenderContent && Boolean(contentToRender.trim());
+                        const isSpeakingThisMessage =
+                          canSpeakAssistantMessage && isSpeaking && speakingMessageKey === bubbleKey;
                         const whitespaceClass = message.role === "assistant" && assistantMode === "plain" ? "whitespace-pre" : "whitespace-pre-wrap";
                         const showTypingPlaceholder =
                           !shouldRenderContent && !(message.role === "assistant" && hasPassIndicator) && !attachmentItems.length;
@@ -2952,8 +3314,21 @@ export default function KnexAiPage() {
                                 : assistantMode === "plain"
                                   ? "w-full max-w-none overflow-x-auto rounded-2xl bg-zinc-100 px-4 py-3 font-mono text-zinc-900"
                                   : "w-full max-w-none text-zinc-900"
-                            }`}
+                            } ${canSpeakAssistantMessage ? "pr-10" : ""}`}
                           >
+                            {canSpeakAssistantMessage ? (
+                              <button
+                                type="button"
+                                onClick={() => speakAssistantMessage(contentToRender, bubbleKey)}
+                                className={`absolute right-0 top-0 inline-flex h-8 w-8 items-center justify-center rounded-full ${
+                                  isSpeakingThisMessage ? "bg-emerald-100 text-emerald-700" : "text-zinc-500 hover:bg-zinc-100"
+                                }`}
+                                title={isSpeakingThisMessage ? "Parar leitura em voz" : "Ler resposta em voz"}
+                                aria-label={isSpeakingThisMessage ? "Parar leitura em voz" : "Ler resposta em voz"}
+                              >
+                                {isSpeakingThisMessage ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                              </button>
+                            ) : null}
                             {passLineText ? <div className="mb-2 text-sm text-zinc-500">{passLineText}</div> : null}
                             {shouldRenderContent ? <span>{contentToRender}</span> : null}
                             {showTypingPlaceholder ? (
@@ -3007,12 +3382,15 @@ export default function KnexAiPage() {
                     docked
                     input={input}
                     status={status}
+                    speechSupported={isSpeechSupported}
+                    isListening={isListening}
                     isUploadingFiles={isUploadingFiles}
                     uploadNotice={uploadNotice}
                     uploadError={uploadError}
                     pendingAttachments={composerPendingAttachmentViews}
                     onInputChange={setInput}
                     onSend={() => void send(input)}
+                    onToggleListening={toggleListening}
                     onPickFiles={handlePickFiles}
                     onFilesSelected={(files) => {
                       queueComposerFiles(files);
@@ -3565,12 +3943,15 @@ export default function KnexAiPage() {
                     docked
                     input={writingPrompt}
                     status={writingStatus}
+                    speechSupported={isSpeechSupported}
+                    isListening={isListening}
                     isUploadingFiles={isUploadingFiles}
                     uploadNotice={uploadNotice}
                     uploadError={uploadError}
                     pendingAttachments={[]}
                     onInputChange={setWritingPrompt}
                     onSend={() => void sendWritingAssist(writingPrompt)}
+                    onToggleListening={toggleListening}
                     onPickFiles={handlePickFiles}
                     onFilesSelected={(files) => {
                       void handleComposerFiles(files);
@@ -3653,6 +4034,98 @@ export default function KnexAiPage() {
           </div>
         </section>
       </div>
+      ) : null}
+      {isIdentityPanelOpen ? (
+        <div
+          ref={identityPanelRootRef}
+          data-identity-panel-root
+          className={`fixed z-[140] ${
+            isIdentityPanelMinimized
+              ? "bottom-4 right-4 h-14 w-[320px] max-w-[calc(100vw-2rem)]"
+              : isIdentityPanelMaximized
+                ? "inset-0 p-2 sm:p-3"
+                : "bottom-4 right-4 h-[82vh] min-h-[520px] w-[min(1220px,calc(100vw-2rem))]"
+          }`}
+          style={
+            !isIdentityPanelMaximized && identityPanelPosition
+              ? {
+                  left: `${identityPanelPosition.x}px`,
+                  top: `${identityPanelPosition.y}px`,
+                  right: "auto",
+                  bottom: "auto",
+                }
+              : undefined
+          }
+        >
+          <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-[#25314a] bg-[#05070d] shadow-[0_28px_96px_rgba(0,0,0,0.65)]">
+            <header
+              onMouseDown={startIdentityPanelDrag}
+              className={`flex h-12 shrink-0 items-center justify-between border-b border-[#1c2a42] bg-[#0b1322] px-3 ${
+                isIdentityPanelMaximized ? "" : "cursor-move select-none"
+              }`}
+            >
+              <div className="flex items-center gap-2 text-slate-100">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#2f4363] bg-[#111d31]">
+                  <ScanFace size={15} />
+                </span>
+                <div>
+                  <p className="text-sm font-medium leading-none">Painel de Identificacao</p>
+                  <p className="mt-1 text-[11px] leading-none text-slate-400">Conexao de camera e runtime</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={popoutIdentityPanel}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white"
+                  title="Abrir em janela separada"
+                  aria-label="Abrir em janela separada"
+                >
+                  <ExternalLink size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={isIdentityPanelMinimized ? () => setIsIdentityPanelMinimized(false) : minimizeIdentityPanel}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white"
+                  title={isIdentityPanelMinimized ? "Restaurar painel" : "Minimizar painel"}
+                  aria-label={isIdentityPanelMinimized ? "Restaurar painel" : "Minimizar painel"}
+                >
+                  <Minimize2 size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleIdentityPanelMaximized}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white"
+                  title={isIdentityPanelMaximized ? "Restaurar tamanho" : "Maximizar painel"}
+                  aria-label={isIdentityPanelMaximized ? "Restaurar tamanho" : "Maximizar painel"}
+                >
+                  {isIdentityPanelMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeIdentityPanel}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-100"
+                  title="Fechar painel"
+                  aria-label="Fechar painel"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </header>
+            {isIdentityPanelMinimized ? (
+              <div className="flex flex-1 items-center justify-between bg-[#0a101d] px-3 text-xs text-slate-300">
+                <span>Painel minimizado. Clique em restaurar para abrir o palco.</span>
+              </div>
+            ) : (
+              <iframe
+                title="Painel de identificacao"
+                src="/knexai/identity-runtime?embedded=1"
+                className="h-full w-full flex-1 border-0 bg-[#05070d]"
+                allow="camera; microphone"
+              />
+            )}
+          </div>
+        </div>
       ) : null}
     </main>
   );

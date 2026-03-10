@@ -1,4 +1,6 @@
+import path from "node:path";
 import { resolveVectorSearchParams, type VectorSearchParams } from "../database/vector-search-params";
+import { createVectorDatabaseClient, type VectorDatabaseClient } from "../database/vector-client";
 import { logger } from "../utils/logger";
 import { assembleContextPack, type ContextPackChunk } from "./context-pack";
 import { routeComplexity, type ComplexityDecision, type ComplexityMode } from "./complexity-router";
@@ -16,6 +18,11 @@ import {
 } from "./rag-config";
 import { RagPipelineError } from "./rag-errors";
 import { createRagRetrievalService, type RagRetrievalResult, type RagRetrievalService } from "./retrieval-service";
+import {
+  createRagInternetSearchService,
+  type InternetSearchResponse,
+  type RagInternetSearchService,
+} from "./internet-search-service";
 import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "./vllm-client";
 import { RagOrchestratorV2 } from "./v2/orchestrator_v2";
 
@@ -32,6 +39,7 @@ type StreamRuntimeProfile = {
 
 const KNX_STREAM_EVENT_START = "[[KNX_EVT]]";
 const KNX_STREAM_EVENT_END = "[[/KNX_EVT]]";
+const DEFAULT_LLM_CONTEXT_WINDOW_TOKENS = 8192;
 
 type ChunkAuditRecord = {
   chunkId: number;
@@ -193,6 +201,8 @@ type RagQueryServiceOptions = {
   retrievalService?: RagRetrievalService;
   llmClient?: VllmInternalClient;
   fullDocumentService?: DocumentFullTextService;
+  vectorDb?: VectorDatabaseClient;
+  internetSearchService?: RagInternetSearchService;
   generationConfig?: RagGenerationConfig;
   resilienceConfig?: RagResilienceConfig;
   contextConfig?: {
@@ -273,6 +283,19 @@ function parseOptionalBoolean(value: string | undefined) {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return undefined;
+}
+
+function resolveLlmContextWindowTokens() {
+  const raw = process.env.RAG_LLM_CONTEXT_WINDOW || process.env.LLM_CONTEXT_WINDOW || process.env.VLLM_CONTEXT_WINDOW;
+  return parsePositiveInt(raw, DEFAULT_LLM_CONTEXT_WINDOW_TOKENS, 512, 262_144);
+}
+
+function resolveSafeOutputTokenCap(contextWindowTokens: number) {
+  const ratioPercent = parsePositiveInt(process.env.RAG_SAFE_OUTPUT_RATIO_PERCENT, 40, 10, 90);
+  const reserveInputTokens = parsePositiveInt(process.env.RAG_SAFE_INPUT_RESERVE_TOKENS, 1536, 128, 131_072);
+  const ratioCap = Math.max(64, Math.trunc((contextWindowTokens * ratioPercent) / 100));
+  const reserveCap = Math.max(64, contextWindowTokens - reserveInputTokens);
+  return Math.max(64, Math.min(ratioCap, reserveCap));
 }
 
 function parseLatencyPreset(value: string | undefined): RagLatencyPreset {
@@ -479,13 +502,311 @@ function buildEmptyRetrievalResult(input: Pick<RagQueryInput, "topK" | "maxDista
   };
 }
 
+type LocalIntentReply = {
+  answer: string;
+  reason:
+    | "GREETING_FAST_PATH"
+    | "DOCUMENT_REFERENCE_CANCELLED"
+    | "WEB_SEARCH_NO_QUERY"
+    | "WEB_SEARCH_RESULT"
+    | "WEB_SEARCH_UNAVAILABLE"
+    | "DOCUMENT_REFERENCE_AMBIGUOUS"
+    | "DOCUMENT_REFERENCE_MISSING"
+    | "DOCUMENT_GROUNDING_REQUIRED";
+};
+
+const GREETING_FAST_REPLY =
+  "Oi! Estou aqui e pronto para ajudar. Se quiser, posso responder direto, revisar texto, analisar erro ou buscar links na internet para voce.";
+
+function normalizeIntentText(value: string) {
+  return `${value || ""}`
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[!?.,;:"]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function isGreetingPrompt(value: string) {
+  const normalized = normalizeIntentText(value);
+  if (!normalized) return false;
+  const greetingSet = new Set([
+    "oi",
+    "ola",
+    "opa",
+    "e ai",
+    "eae",
+    "hey",
+    "hello",
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+  ]);
+  return normalized.length <= 48 && greetingSet.has(normalized);
+}
+
+function containsGreetingToken(value: string) {
+  const normalized = normalizeIntentText(value);
+  if (!normalized) return false;
+  return /\b(oi|ola|opa|e ai|eae|hey|hello|bom dia|boa tarde|boa noite)\b/.test(normalized);
+}
+
+function resolveGreetingLead(value: string) {
+  const normalized = normalizeIntentText(value);
+  if (!normalized) return "Oi!";
+  if (/\bbom dia\b/.test(normalized)) return "Bom dia!";
+  if (/\bboa tarde\b/.test(normalized)) return "Boa tarde!";
+  if (/\bboa noite\b/.test(normalized)) return "Boa noite!";
+  return "Oi!";
+}
+
+function isClarificationCancelPrompt(value: string) {
+  const normalized = normalizeIntentText(value);
+  if (!normalized) return false;
+  const hasCancelVerb =
+    /\b(esqueca|ignora|ignore|desconsidere|cancele|cancelar|deixa pra la|nao use)\b/.test(normalized) ||
+    /\b(esquecer|ignorar|desconsiderar)\b/.test(normalized);
+  if (!hasCancelVerb) return false;
+  return /\b(arquivo|documento|anexo|obra|pdf|isso|disso)\b/.test(normalized);
+}
+
+function parseWebSearchDirective(value: string): { query: string; preferPdf: boolean } | null {
+  const raw = `${value || ""}`.trim();
+  if (!raw) return null;
+  const normalized = normalizeIntentText(raw);
+  const hasSearchVerb = /\b(busque|buscar|pesquise|pesquisar|procure|procurar|encontre|encontrar|search)\b/.test(normalized);
+  if (!hasSearchVerb) return null;
+  const hasExplicitWebHint =
+    /\b(na internet|na web|online|google)\b/.test(normalized) ||
+    /^(pode|consegue|poderia)\s+(buscar|pesquisar|procurar|encontrar)\b/.test(normalized) ||
+    /^(busque|buscar|pesquise|pesquisar|procure|procurar|encontre|encontrar|search)\b/.test(normalized);
+  if (!hasExplicitWebHint) return null;
+
+  const query = raw
+    .replace(
+      /^(?:por favor\s*)?(?:voce\s*)?(?:pode\s+|consegue\s+|poderia\s+)?(?:buscar|busque|pesquisar|pesquise|procurar|procure|encontrar|encontre|search)\b/i,
+      "",
+    )
+    .replace(/^(?:\s+na\s+(?:internet|web)|\s+online|\s+no\s+google)\b/i, "")
+    .replace(/^[\s:,-]+/, "")
+    .trim();
+
+  const preferPdf = /\bpdf\b/i.test(normalized);
+  return {
+    query: query.slice(0, 280),
+    preferPdf,
+  };
+}
+
+function formatWebSearchReply(payload: InternetSearchResponse, preferPdf: boolean) {
+  const lines: string[] = [];
+  lines.push(`Encontrei ${payload.results.length} resultado(s) na internet para: "${payload.query}".`);
+
+  const pdfCount = payload.results.filter((item) => item.isPdf).length;
+  if (preferPdf && pdfCount === 0) {
+    lines.push("Nao apareceu PDF direto nos primeiros resultados, mas estes links sao os mais relevantes agora:");
+  }
+
+  payload.results.forEach((item, index) => {
+    const title = item.title || `Resultado ${index + 1}`;
+    const snippet = item.snippet ? ` - ${item.snippet}` : "";
+    const pdfTag = item.isPdf ? " [PDF]" : "";
+    lines.push(`${index + 1}. ${title}${pdfTag}`);
+    lines.push(`${item.url}${snippet}`);
+  });
+
+  lines.push("Se quiser, eu refino a busca por idioma, periodo ou apenas fontes academicas.");
+  return lines.join("\n");
+}
+
+function hasDocumentReferenceHint(value: string) {
+  const normalized = normalizeIntentText(value);
+  if (!normalized) return false;
+  if (/\b(arquivo|documento|anexo|anexado|pdf|obra|texto|material)\b/.test(normalized)) return true;
+  return /\b(essa|esse|esta|este|dessa|desse|desta|deste)\s+(obra|arquivo|documento|pdf|texto|material)\b/.test(
+    normalized,
+  );
+}
+
+function hasSingularDocumentReferenceHint(value: string) {
+  const normalized = normalizeIntentText(value);
+  if (!normalized) return false;
+  return /\b(essa obra|esse arquivo|esse documento|este arquivo|este documento|dessa obra|desse arquivo|deste documento)\b/.test(
+    normalized,
+  );
+}
+
+function resolveScopedDocumentIdsForClarification(input: Pick<RagQueryInput, "documentId" | "documentIds">) {
+  const scoped = normalizeDocumentIds(input.documentIds);
+  const primary = normalizeDocumentId(input.documentId);
+  if (primary && !scoped.includes(primary)) scoped.unshift(primary);
+  return scoped.slice(0, 64);
+}
+
+function resolveDocumentClarificationReply(
+  questionLike: string,
+  input: Pick<RagQueryInput, "composerBound" | "documentId" | "documentIds">,
+): LocalIntentReply | null {
+  if (!hasDocumentReferenceHint(questionLike)) return null;
+  const scopedIds = resolveScopedDocumentIdsForClarification(input);
+  if (scopedIds.length === 0 && input.composerBound) {
+    return {
+      reason: "DOCUMENT_REFERENCE_MISSING",
+      answer:
+        "Voce mencionou um arquivo/anexo, mas nao encontrei documento em escopo nesta conversa. Pode reenviar o arquivo ou informar qual documento devo usar?",
+    };
+  }
+  if (scopedIds.length > 1 && hasSingularDocumentReferenceHint(questionLike)) {
+    return {
+      reason: "DOCUMENT_REFERENCE_AMBIGUOUS",
+      answer: `Voce pediu sobre um unico arquivo, mas ha ${scopedIds.length} documentos no contexto. Qual deles devo usar?`,
+    };
+  }
+  return null;
+}
+
+function resolveGroundingFallbackReply(
+  error: unknown,
+  input: Pick<RagQueryInput, "documentId" | "documentIds">,
+): LocalIntentReply | null {
+  if (!(error instanceof RagPipelineError)) return null;
+  const scopedIds = resolveScopedDocumentIdsForClarification(input);
+  if (!scopedIds.length) return null;
+  const groundingCodes = new Set([
+    "RAG_DOCUMENT_SCOPE_NO_HITS",
+    "RAG_DOCUMENT_SCOPE_NOT_GROUNDED",
+    "RAG_DOCUMENT_SCOPE_EMPTY_CONTEXT",
+  ]);
+  if (!groundingCodes.has(error.code)) return null;
+  return {
+    reason: "DOCUMENT_GROUNDING_REQUIRED",
+    answer:
+      "Nao encontrei trechos suficientes do documento em escopo para responder com seguranca. Voce quer que eu resuma o arquivo inteiro agora?",
+  };
+}
+
+type ScopedDocumentLabel = {
+  id: number;
+  title: string;
+  sourcePath: string;
+  fileName: string;
+  labelNormalized: string;
+};
+
+function normalizeDocHint(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeDocHint(value: string) {
+  return normalizeDocHint(value)
+    .split(/\s+/g)
+    .filter((token) => token.length >= 2);
+}
+
+function isAssistantDocumentClarificationPrompt(value: string) {
+  const normalized = normalizeIntentText(value);
+  if (!normalized) return false;
+  return (
+    /\bqual deles devo usar\b/.test(normalized) ||
+    /\bqual documento devo usar\b/.test(normalized) ||
+    /\bqual arquivo devo usar\b/.test(normalized)
+  );
+}
+
+function extractClarificationParentQuestion(history: RagChatHistoryItem[] | undefined, currentMessage: string) {
+  if (!Array.isArray(history) || !history.length) return "";
+  const normalizedCurrent = normalizeIntentText(currentMessage);
+  const rows = [...history];
+  while (rows.length > 0) {
+    const tail = rows[rows.length - 1];
+    if (tail.role !== "user") break;
+    if (normalizeIntentText(tail.content) !== normalizedCurrent) break;
+    rows.pop();
+  }
+  let clarifierIndex = -1;
+  for (let idx = rows.length - 1; idx >= 0; idx -= 1) {
+    const row = rows[idx];
+    if (row.role !== "assistant") continue;
+    if (!isAssistantDocumentClarificationPrompt(row.content)) continue;
+    clarifierIndex = idx;
+    break;
+  }
+  if (clarifierIndex < 0) return "";
+  for (let idx = clarifierIndex - 1; idx >= 0; idx -= 1) {
+    const row = rows[idx];
+    if (row.role !== "user") continue;
+    const content = normalizeString(row.content);
+    if (content) return content;
+  }
+  return "";
+}
+
+function resolveOrdinalDocumentHint(hint: string, scopedIds: number[]) {
+  if (!scopedIds.length) return null;
+  const normalized = normalizeDocHint(hint);
+  if (!normalized) return null;
+  const ordinalMap: Array<{ pattern: RegExp; index: number }> = [
+    { pattern: /\b(1|primeiro|primeira)\b/, index: 0 },
+    { pattern: /\b(2|segundo|segunda)\b/, index: 1 },
+    { pattern: /\b(3|terceiro|terceira)\b/, index: 2 },
+    { pattern: /\b(4|quarto|quarta)\b/, index: 3 },
+    { pattern: /\b(5|quinto|quinta)\b/, index: 4 },
+  ];
+  for (const item of ordinalMap) {
+    if (!item.pattern.test(normalized)) continue;
+    if (item.index < scopedIds.length) return scopedIds[item.index];
+    return null;
+  }
+  return null;
+}
+
+function scoreDocumentLabelMatch(hint: string, doc: ScopedDocumentLabel) {
+  const normalizedHint = normalizeDocHint(hint);
+  if (!normalizedHint) return 0;
+  let score = 0;
+  if (doc.labelNormalized.includes(normalizedHint)) score += 5;
+  const hintTokens = tokenizeDocHint(normalizedHint).filter((token) => token.length >= 3);
+  for (const token of hintTokens) {
+    if (doc.labelNormalized.includes(token)) score += 1;
+  }
+  return score;
+}
+
+function buildDocumentSelectionPrompt(docs: ScopedDocumentLabel[]) {
+  const options = docs
+    .slice(0, 5)
+    .map((doc, index) => `${index + 1}. ${doc.title || doc.fileName || `doc:${doc.id}`}`)
+    .join("; ");
+  return `Nao consegui identificar qual documento voce quis dizer. Escolha pelo numero ou nome: ${options}`;
+}
+
+function buildClarificationGreetingReply(parentQuestion: string, currentQuestion: string) {
+  const salutation = resolveGreetingLead(currentQuestion);
+  const prompt = normalizeString(parentQuestion);
+  if (!prompt) {
+    return `${salutation} Se quiser, continuo a solicitacao anterior. Voce quer que eu retome ou prefere um novo assunto?`;
+  }
+  return `${salutation} Posso retomar seu pedido anterior ("${prompt}"). Voce quer que eu continue ou prefere um novo assunto?`;
+}
+
 export class RagQueryService {
   private readonly generationConfig: RagGenerationConfig;
   private readonly contextConfig: { maxChars: number; maxChunks: number };
   private readonly resilienceConfig: RagResilienceConfig;
   private readonly pipelineFlags: RagPipelineFlags;
   private readonly latencyPreset: RagLatencyPreset;
+  private readonly llmContextWindowTokens: number;
+  private readonly safeOutputTokenCap: number;
   private readonly orchestratorV2: RagOrchestratorV2;
+  private readonly vectorDb: VectorDatabaseClient;
+  private readonly internetSearchService: RagInternetSearchService;
   private readonly routerStats: RouterStats = {
     total: 0,
     lite: 0,
@@ -498,13 +819,19 @@ export class RagQueryService {
     private readonly retrievalService: RagRetrievalService = createRagRetrievalService(),
     private readonly llmClient: VllmInternalClient = createVllmInternalClient(),
     private readonly fullDocumentService: DocumentFullTextService = createDocumentFullTextService(),
+    vectorDb: VectorDatabaseClient = createVectorDatabaseClient(),
+    internetSearchService: RagInternetSearchService = createRagInternetSearchService(),
     options?: RagQueryServiceOptions,
   ) {
+    this.vectorDb = options?.vectorDb ?? vectorDb;
+    this.internetSearchService = options?.internetSearchService ?? internetSearchService;
     this.generationConfig = options?.generationConfig ?? loadRagGenerationConfig();
     this.contextConfig = options?.contextConfig ?? loadRagContextConfig();
     this.resilienceConfig = options?.resilienceConfig ?? loadRagResilienceConfig();
     this.pipelineFlags = options?.pipelineFlags ?? loadRagPipelineFlags();
     this.latencyPreset = options?.latencyPreset ?? parseLatencyPreset(process.env.RAG_LATENCY_PRESET);
+    this.llmContextWindowTokens = resolveLlmContextWindowTokens();
+    this.safeOutputTokenCap = resolveSafeOutputTokenCap(this.llmContextWindowTokens);
     this.orchestratorV2 = new RagOrchestratorV2(
       this.embeddingClient,
       undefined,
@@ -605,6 +932,26 @@ export class RagQueryService {
   private resolveLiteTokens(requestedMaxTokens: number) {
     const liteCap = parsePositiveInt(process.env.RAG_LITE_MAX_TOKENS, 192, 64, 2048);
     return Math.max(64, Math.min(requestedMaxTokens, liteCap));
+  }
+
+  private resolveMaxResponseTokens(input: RagQueryInput, mode: "lite" | "full", requestId: string | null) {
+    const requested = clampMaxTokens(input.maxResponseTokens, this.generationConfig.maxTokens);
+    if (mode === "lite") return this.resolveLiteTokens(requested);
+
+    const clampEnabled = parseOptionalBoolean(process.env.RAG_SAFE_OUTPUT_CLAMP_ENABLED) !== false;
+    if (!clampEnabled) return requested;
+
+    const normalized = Math.max(64, Math.min(requested, this.safeOutputTokenCap));
+    if (normalized < requested) {
+      logger.warn("RAG_SAFE_OUTPUT_TOKEN_CLAMP", {
+        requestId,
+        requestedMaxTokens: requested,
+        clampedMaxTokens: normalized,
+        safeOutputTokenCap: this.safeOutputTokenCap,
+        llmContextWindowTokens: this.llmContextWindowTokens,
+      });
+    }
+    return normalized;
   }
 
   private resolveLiteTemperature(fallback: number) {
@@ -794,7 +1141,7 @@ export class RagQueryService {
     const startedAt = Date.now();
     const liteQuestion = normalizeString(input.routingHint) || question;
     const history = this.resolveLiteHistory(input.history);
-    const maxTokens = this.resolveLiteTokens(clampMaxTokens(input.maxResponseTokens, this.generationConfig.maxTokens));
+    const maxTokens = this.resolveMaxResponseTokens(input, "lite", requestId);
     const temperature = this.resolveLiteTemperature(clampTemperature(input.temperature, this.generationConfig.temperature));
     const llmResult = await this.llmClient.completeWithContext({
       question: liteQuestion,
@@ -886,7 +1233,7 @@ export class RagQueryService {
   private async runLiteStream(input: RagQueryInput, question: string, requestId: string | null) {
     const liteQuestion = normalizeString(input.routingHint) || question;
     const history = this.resolveLiteHistory(input.history);
-    const maxTokens = this.resolveLiteTokens(clampMaxTokens(input.maxResponseTokens, this.generationConfig.maxTokens));
+    const maxTokens = this.resolveMaxResponseTokens(input, "lite", requestId);
     const temperature = this.resolveLiteTemperature(clampTemperature(input.temperature, this.generationConfig.temperature));
     logger.info("RAG_LITE_STREAM_READY", {
       requestId,
@@ -904,6 +1251,273 @@ export class RagQueryService {
       runtimeMode: "lite",
       responseLanguageId: input.preferredResponseLanguageId,
     });
+  }
+
+  private async loadScopedDocumentLabels(scopedIds: number[]): Promise<ScopedDocumentLabel[]> {
+    const safeIds = Array.from(new Set(scopedIds.map((row) => Math.trunc(Number(row))).filter((row) => row > 0))).slice(0, 64);
+    if (!safeIds.length) return [];
+    try {
+      const { rows } = await this.vectorDb.query<{
+        id: string | number;
+        title: string | null;
+        source_path: string | null;
+        original_filename: string | null;
+      }>(
+        `
+        select d.id, d.title, d.source_path, d.original_filename
+        from vector_store.documents d
+        where d.id = any($1::int[])
+        `,
+        [safeIds],
+      );
+      const byId = new Map<number, ScopedDocumentLabel>();
+      for (const row of rows) {
+        const id = Number(row.id);
+        if (!Number.isFinite(id) || id <= 0) continue;
+        const sourcePath = normalizeString(row.source_path || "");
+        const fileName = normalizeString(row.original_filename || path.basename(sourcePath || ""));
+        const title = normalizeString(row.title || fileName || `documento-${id}`);
+        const labelNormalized = normalizeDocHint([title, fileName, sourcePath].filter(Boolean).join(" "));
+        byId.set(Math.trunc(id), {
+          id: Math.trunc(id),
+          title,
+          sourcePath,
+          fileName,
+          labelNormalized,
+        });
+      }
+      return safeIds
+        .map((id) => byId.get(id))
+        .filter((row): row is ScopedDocumentLabel => Boolean(row));
+    } catch {
+      return safeIds.map((id) => ({
+        id,
+        title: `documento-${id}`,
+        sourcePath: `documento-${id}`,
+        fileName: `documento-${id}`,
+        labelNormalized: normalizeDocHint(`documento-${id}`),
+      }));
+    }
+  }
+
+  private async resolveClarificationContinuation(input: {
+    question: string;
+    effectiveInput: RagQueryInput;
+  }): Promise<
+    | {
+        semanticQuestion: string;
+        effectiveInput: RagQueryInput;
+      }
+    | {
+        localReply: LocalIntentReply;
+      }
+    | null
+  > {
+    const question = normalizeString(input.question);
+    const effectiveInput = input.effectiveInput;
+    if (!question) return null;
+    const scopedIds = resolveScopedDocumentIdsForClarification({
+      documentId: effectiveInput.documentId,
+      documentIds: effectiveInput.documentIds,
+    });
+    if (scopedIds.length <= 1) return null;
+    if (question.length > 160) return null;
+
+    const parentQuestion = extractClarificationParentQuestion(effectiveInput.history, question);
+    if (!parentQuestion) return null;
+    if (isGreetingPrompt(question)) {
+      return {
+        localReply: {
+          reason: "GREETING_FAST_PATH",
+          answer: buildClarificationGreetingReply(parentQuestion, question),
+        },
+      };
+    }
+    if (isClarificationCancelPrompt(question)) {
+      const answer = containsGreetingToken(question)
+        ? `${resolveGreetingLead(question)} Perfeito, vou ignorar esse documento. Como posso ajudar agora?`
+        : "Perfeito, vou ignorar esse documento. Como posso ajudar agora?";
+      return {
+        localReply: {
+          reason: "DOCUMENT_REFERENCE_CANCELLED",
+          answer,
+        },
+      };
+    }
+
+    const ordinalChoice = resolveOrdinalDocumentHint(question, scopedIds);
+    let selectedDocId: number | null = ordinalChoice;
+    let bestScore = 0;
+    let secondBestScore = 0;
+    const docs = await this.loadScopedDocumentLabels(scopedIds);
+    if (!selectedDocId) {
+      let bestId: number | null = null;
+      for (const doc of docs) {
+        const score = scoreDocumentLabelMatch(question, doc);
+        if (score > bestScore) {
+          secondBestScore = bestScore;
+          bestScore = score;
+          bestId = doc.id;
+        } else if (score > secondBestScore) {
+          secondBestScore = score;
+        }
+      }
+      if (bestId && bestScore > 0 && bestScore > secondBestScore) {
+        selectedDocId = bestId;
+      }
+    }
+
+    if (!selectedDocId) {
+      // Regra de dominancia do texto atual:
+      // se a nova mensagem nao se vincula diretamente a selecao de documento,
+      // nao insistir na pendencia anterior.
+      if (!hasDocumentReferenceHint(question) && bestScore <= 0) {
+        return null;
+      }
+      return {
+        localReply: {
+          reason: "DOCUMENT_REFERENCE_AMBIGUOUS",
+          answer: buildDocumentSelectionPrompt(docs),
+        },
+      };
+    }
+
+    const selectedDoc = docs.find((row) => row.id === selectedDocId) || null;
+    const semanticQuestion = parentQuestion;
+    const adjustedInput: RagQueryInput = {
+      ...effectiveInput,
+      routingHint: semanticQuestion,
+      documentId: selectedDocId,
+      documentIds: [selectedDocId],
+      priorityDocumentIds: [selectedDocId],
+      strictDocumentGrounding: true,
+    };
+    logger.info("RAG_DOCUMENT_CLARIFICATION_RESOLVED", {
+      requestId: effectiveInput.requestId || null,
+      selectedDocId,
+      selectedDocTitle: selectedDoc?.title || null,
+      parentQuestionChars: semanticQuestion.length,
+    });
+    return {
+      semanticQuestion,
+      effectiveInput: adjustedInput,
+    };
+  }
+
+  private buildLocalResult(input: RagQueryInput, answer: string, reason: LocalIntentReply["reason"]): RagQueryResult {
+    const totalMs = 1;
+    return {
+      answer,
+      metadata: {
+        resilience: {
+          embeddingFailureMode: this.resilienceConfig.embeddingFailureMode,
+          degraded: false,
+          degradedCode: null,
+          degradedMessage: null,
+          usedDocumentScopeFallback: false,
+        },
+        retrieval: {
+          topK: 0,
+          maxDistance: null,
+          strategy: "cosine",
+          filters: {
+            documentId: null,
+            documentIds: [],
+            sourceType: null,
+            embeddingModel: null,
+          },
+          returnedChunks: 0,
+        },
+        contextPack: {
+          selectedChunks: 0,
+          omittedChunks: 0,
+          totalCandidateChunks: 0,
+          maxChars: 0,
+          usedChars: 0,
+          truncated: false,
+        },
+        fullDocumentRead: {
+          enabled: false,
+          attemptedDocs: 0,
+          loadedDocs: 0,
+          contextDocs: 0,
+          failedDocs: 0,
+          fullReadChars: 0,
+          includedChars: 0,
+          truncatedDocs: 0,
+          sources: [],
+        },
+        chunks: [],
+        queryEmbedding: {
+          model: "skipped_local_intent",
+          dimension: 0,
+        },
+        llm: {
+          provider: "vllm_internal",
+          baseUrl: this.llmClient.getConfig().baseUrl,
+          model: `local_intent:${reason.toLowerCase()}`,
+          runtimeMode: "lite",
+          maxTokens: this.resolveMaxResponseTokens(input, "lite", null),
+          temperature: this.resolveLiteTemperature(clampTemperature(input.temperature, this.generationConfig.temperature)),
+          seed: normalizeSeed(input.seed, this.generationConfig.seed),
+          finishReason: "stop",
+          usage: {
+            promptTokens: 0,
+            completionTokens: Math.max(1, Math.ceil(answer.length / 4)),
+            totalTokens: Math.max(1, Math.ceil(answer.length / 4)),
+          },
+        },
+        timingsMs: {
+          embedding: 0,
+          retrieval: 0,
+          contextAssembly: 0,
+          llm: totalMs,
+          total: totalMs,
+        },
+      },
+    };
+  }
+
+  private async resolveLocalIntentReply(questionLike: string): Promise<LocalIntentReply | null> {
+    if (isGreetingPrompt(questionLike)) {
+      return {
+        reason: "GREETING_FAST_PATH",
+        answer: GREETING_FAST_REPLY,
+      };
+    }
+
+    const searchDirective = parseWebSearchDirective(questionLike);
+    if (!searchDirective) return null;
+    if (!this.internetSearchService.isEnabled()) {
+      return {
+        reason: "WEB_SEARCH_UNAVAILABLE",
+        answer:
+          "Consigo buscar na internet, mas essa funcao esta desativada no servidor agora. Peça ao administrador para habilitar a busca externa.",
+      };
+    }
+    if (!searchDirective.query) {
+      return {
+        reason: "WEB_SEARCH_NO_QUERY",
+        answer: "Posso buscar, sim. Me diga o tema ou termo exato, por exemplo: \"busque PDF sobre perspectiva heliocentrica\".",
+      };
+    }
+
+    const payload = await this.internetSearchService.search({
+      query: searchDirective.query,
+      preferPdf: searchDirective.preferPdf,
+    });
+    if (!payload || !payload.results.length) {
+      return {
+        reason: "WEB_SEARCH_UNAVAILABLE",
+        answer:
+          "Nao encontrei resultados agora para essa busca. Tente termos mais especificos (autor, ano, tema) ou peca para eu focar em PDF academico.",
+      };
+    }
+
+    return {
+      reason: "WEB_SEARCH_RESULT",
+      answer: formatWebSearchReply(payload, searchDirective.preferPdf),
+    };
   }
 
   async query(input: RagQueryInput): Promise<RagQueryResult> {
@@ -944,9 +1558,44 @@ export class RagQueryService {
 
     const requestId = effectiveInput.requestId || null;
     const routingText = normalizeString(effectiveInput.routingHint) || question;
-    const routed = this.resolveProcessingMode(effectiveInput, routingText);
+    let semanticQuestion = routingText;
+    let runtimeInput = effectiveInput;
+    const continuation = await this.resolveClarificationContinuation({
+      question: routingText,
+      effectiveInput: runtimeInput,
+    });
+    if (continuation) {
+      if ("localReply" in continuation) {
+        return this.buildLocalResult(runtimeInput, continuation.localReply.answer, continuation.localReply.reason);
+      }
+      runtimeInput = continuation.effectiveInput;
+      semanticQuestion = continuation.semanticQuestion;
+    }
+    const clarification = resolveDocumentClarificationReply(semanticQuestion, {
+      composerBound: runtimeInput.composerBound,
+      documentId: runtimeInput.documentId,
+      documentIds: runtimeInput.documentIds,
+    });
+    if (clarification) {
+      logger.info("RAG_DOCUMENT_REFERENCE_CLARIFICATION", {
+        requestId,
+        reason: clarification.reason,
+        textChars: semanticQuestion.length,
+      });
+      return this.buildLocalResult(runtimeInput, clarification.answer, clarification.reason);
+    }
+    const localIntent = await this.resolveLocalIntentReply(semanticQuestion);
+    if (localIntent) {
+      logger.info("RAG_LOCAL_INTENT_REPLY", {
+        requestId,
+        reason: localIntent.reason,
+        textChars: semanticQuestion.length,
+      });
+      return this.buildLocalResult(runtimeInput, localIntent.answer, localIntent.reason);
+    }
+    const routed = this.resolveProcessingMode(runtimeInput, semanticQuestion);
     this.trackRouterStats(routed.mode, routed.decision, requestId);
-    const promptTokensEst = Math.max(1, Math.ceil(routingText.length / 4));
+    const promptTokensEst = Math.max(1, Math.ceil(semanticQuestion.length / 4));
     logger.info("RAG_COMPLEXITY_ROUTER_DECISION", {
       requestId,
       mode: routed.mode,
@@ -960,29 +1609,47 @@ export class RagQueryService {
     });
 
     if (routed.mode === "lite") {
-      return this.runLiteQuery(effectiveInput, question, requestId);
+      return this.runLiteQuery(runtimeInput, semanticQuestion, requestId);
     }
 
-    const pipelineVersion = this.resolvePipelineVersion(effectiveInput);
+    const effectiveMaxResponseTokens = this.resolveMaxResponseTokens(runtimeInput, "full", requestId);
+    const pipelineVersion = this.resolvePipelineVersion(runtimeInput);
     if (pipelineVersion === "v2") {
-      const history = normalizeHistory(effectiveInput.history, this.generationConfig);
-      const v2Result = await this.orchestratorV2.query({
-        requestId: effectiveInput.requestId || `ragv2-${Date.now()}`,
-        question,
-        history,
-        topK: effectiveInput.topK,
-        maxDistance: effectiveInput.maxDistance,
-        documentId: effectiveInput.documentId,
-        documentIds: effectiveInput.documentIds,
-        priorityDocumentIds: effectiveInput.priorityDocumentIds,
-        sourceType: effectiveInput.sourceType,
-        retrievalEmbeddingModel: effectiveInput.retrievalEmbeddingModel,
-        preferredResponseLanguageId: effectiveInput.preferredResponseLanguageId,
-        strictDocumentGrounding: effectiveInput.strictDocumentGrounding,
-        maxResponseTokens: effectiveInput.maxResponseTokens,
-        temperature: effectiveInput.temperature,
-        seed: effectiveInput.seed,
-      });
+      const history = normalizeHistory(runtimeInput.history, this.generationConfig);
+      let v2Result;
+      try {
+        v2Result = await this.orchestratorV2.query({
+          requestId: runtimeInput.requestId || `ragv2-${Date.now()}`,
+          question: semanticQuestion,
+          history,
+          topK: runtimeInput.topK,
+          maxDistance: runtimeInput.maxDistance,
+          documentId: runtimeInput.documentId,
+          documentIds: runtimeInput.documentIds,
+          priorityDocumentIds: runtimeInput.priorityDocumentIds,
+          sourceType: runtimeInput.sourceType,
+          retrievalEmbeddingModel: runtimeInput.retrievalEmbeddingModel,
+          preferredResponseLanguageId: runtimeInput.preferredResponseLanguageId,
+          strictDocumentGrounding: runtimeInput.strictDocumentGrounding,
+          maxResponseTokens: effectiveMaxResponseTokens,
+          temperature: runtimeInput.temperature,
+          seed: runtimeInput.seed,
+        });
+      } catch (error) {
+        const groundingFallback = resolveGroundingFallbackReply(error, {
+          documentId: runtimeInput.documentId,
+          documentIds: runtimeInput.documentIds,
+        });
+        if (groundingFallback) {
+          logger.warn("RAG_DOCUMENT_GROUNDING_FALLBACK", {
+            requestId,
+            reason: groundingFallback.reason,
+            errorCode: error instanceof RagPipelineError ? error.code : null,
+          });
+          return this.buildLocalResult(runtimeInput, groundingFallback.answer, groundingFallback.reason);
+        }
+        throw error;
+      }
       return {
         answer: v2Result.answer,
         metadata: {
@@ -1003,15 +1670,15 @@ export class RagQueryService {
 
     const startedAt = Date.now();
     logger.info("RAG_QUERY_START", {
-      requestId: effectiveInput.requestId || null,
-      questionChars: question.length,
-      topK: effectiveInput.topK,
-      sourceType: effectiveInput.sourceType || null,
-      documentId: effectiveInput.documentId ?? null,
-      documentIds: normalizeDocumentIds(effectiveInput.documentIds),
+      requestId: runtimeInput.requestId || null,
+      questionChars: semanticQuestion.length,
+      topK: runtimeInput.topK,
+      sourceType: runtimeInput.sourceType || null,
+      documentId: runtimeInput.documentId ?? null,
+      documentIds: normalizeDocumentIds(runtimeInput.documentIds),
     });
 
-    const prepared = await this.prepareQuery(effectiveInput, question);
+    const prepared = await this.prepareQuery(runtimeInput, semanticQuestion);
     const retrieval = prepared.retrieval;
     const appliedRetrievalModelFilter = prepared.appliedRetrievalModelFilter;
 
@@ -1036,14 +1703,14 @@ export class RagQueryService {
       combinedContextRaw.length > fullContextCap ? combinedContextRaw.slice(0, fullContextCap) : combinedContextRaw;
     const contextAssemblyMs = Date.now() - contextAssemblyStartedAt;
 
-    const history = normalizeHistory(effectiveInput.history, this.generationConfig);
+    const history = normalizeHistory(runtimeInput.history, this.generationConfig);
     const llmResult = await this.llmClient.completeWithContext({
-      question,
+      question: semanticQuestion,
       contextPack: combinedContext,
       history,
-      maxTokens: clampMaxTokens(effectiveInput.maxResponseTokens, this.generationConfig.maxTokens),
-      temperature: clampTemperature(effectiveInput.temperature, this.generationConfig.temperature),
-      seed: normalizeSeed(effectiveInput.seed, this.generationConfig.seed),
+      maxTokens: effectiveMaxResponseTokens,
+      temperature: clampTemperature(runtimeInput.temperature, this.generationConfig.temperature),
+      seed: normalizeSeed(runtimeInput.seed, this.generationConfig.seed),
     });
 
     const metadata: RagQueryResult["metadata"] = {
@@ -1059,9 +1726,9 @@ export class RagQueryService {
         maxDistance: retrieval.params.maxDistance,
         strategy: retrieval.params.strategy,
         filters: {
-          documentId: effectiveInput.documentId ?? null,
-          documentIds: normalizeDocumentIds(effectiveInput.documentIds),
-          sourceType: normalizeString(effectiveInput.sourceType) || null,
+          documentId: runtimeInput.documentId ?? null,
+          documentIds: normalizeDocumentIds(runtimeInput.documentIds),
+          sourceType: normalizeString(runtimeInput.sourceType) || null,
           embeddingModel: appliedRetrievalModelFilter || null,
         },
         returnedChunks: retrieval.hits.length,
@@ -1085,9 +1752,9 @@ export class RagQueryService {
         baseUrl: this.llmClient.getConfig().baseUrl,
         model: llmResult.model,
         runtimeMode: "full",
-        maxTokens: clampMaxTokens(effectiveInput.maxResponseTokens, this.generationConfig.maxTokens),
-        temperature: clampTemperature(effectiveInput.temperature, this.generationConfig.temperature),
-        seed: normalizeSeed(effectiveInput.seed, this.generationConfig.seed),
+        maxTokens: effectiveMaxResponseTokens,
+        temperature: clampTemperature(runtimeInput.temperature, this.generationConfig.temperature),
+        seed: normalizeSeed(runtimeInput.seed, this.generationConfig.seed),
         finishReason: llmResult.finishReason,
         usage: llmResult.usage,
       },
@@ -1101,7 +1768,7 @@ export class RagQueryService {
     };
 
     logger.info("RAG_QUERY_DONE", {
-      requestId: effectiveInput.requestId || null,
+      requestId: runtimeInput.requestId || null,
       answerChars: llmResult.answer.length,
       retrievedChunks: retrieval.hits.length,
       selectedChunks: contextPack.chunks.length,
@@ -1145,9 +1812,44 @@ export class RagQueryService {
     const question = contract.question;
     const requestId = effectiveInput.requestId || null;
     const routingText = normalizeString(effectiveInput.routingHint) || question;
-    const routed = this.resolveProcessingMode(effectiveInput, routingText);
+    let semanticQuestion = routingText;
+    let runtimeInput = effectiveInput;
+    const continuation = await this.resolveClarificationContinuation({
+      question: routingText,
+      effectiveInput: runtimeInput,
+    });
+    if (continuation) {
+      if ("localReply" in continuation) {
+        return this.toPlainTextStream(continuation.localReply.answer);
+      }
+      runtimeInput = continuation.effectiveInput;
+      semanticQuestion = continuation.semanticQuestion;
+    }
+    const clarification = resolveDocumentClarificationReply(semanticQuestion, {
+      composerBound: runtimeInput.composerBound,
+      documentId: runtimeInput.documentId,
+      documentIds: runtimeInput.documentIds,
+    });
+    if (clarification) {
+      logger.info("RAG_DOCUMENT_REFERENCE_STREAM_CLARIFICATION", {
+        requestId,
+        reason: clarification.reason,
+        textChars: semanticQuestion.length,
+      });
+      return this.toPlainTextStream(clarification.answer);
+    }
+    const localIntent = await this.resolveLocalIntentReply(semanticQuestion);
+    if (localIntent) {
+      logger.info("RAG_LOCAL_INTENT_STREAM_REPLY", {
+        requestId,
+        reason: localIntent.reason,
+        textChars: semanticQuestion.length,
+      });
+      return this.toPlainTextStream(localIntent.answer);
+    }
+    const routed = this.resolveProcessingMode(runtimeInput, semanticQuestion);
     this.trackRouterStats(routed.mode, routed.decision, requestId);
-    const promptTokensEst = Math.max(1, Math.ceil(routingText.length / 4));
+    const promptTokensEst = Math.max(1, Math.ceil(semanticQuestion.length / 4));
 
     logger.info("RAG_COMPLEXITY_ROUTER_DECISION_STREAM", {
       requestId,
@@ -1162,13 +1864,14 @@ export class RagQueryService {
     });
 
     if (routed.mode === "lite") {
-      return this.runLiteStream(effectiveInput, question, requestId);
+      return this.runLiteStream(runtimeInput, semanticQuestion, requestId);
     }
 
-    const pipelineVersion = this.resolvePipelineVersion(effectiveInput);
+    const effectiveMaxResponseTokens = this.resolveMaxResponseTokens(runtimeInput, "full", requestId);
+    const pipelineVersion = this.resolvePipelineVersion(runtimeInput);
 
     logger.info("RAG_COMPOSER_CONTRACT_APPLIED", {
-      requestId: effectiveInput.requestId || null,
+      requestId: runtimeInput.requestId || null,
       composerBound: contract.composerBound,
       strictDocumentGrounding: contract.strictDocumentGrounding,
       hasDocumentScope: contract.hasDocumentScope,
@@ -1183,18 +1886,18 @@ export class RagQueryService {
     logger.info("RAG_QUERY_STREAM_START", {
       requestId,
       pipelineVersion,
-      questionChars: question.length,
-      topK: effectiveInput.topK,
-      sourceType: effectiveInput.sourceType || null,
-      documentId: effectiveInput.documentId ?? null,
-      documentIds: normalizeDocumentIds(effectiveInput.documentIds),
+      questionChars: semanticQuestion.length,
+      topK: runtimeInput.topK,
+      sourceType: runtimeInput.sourceType || null,
+      documentId: runtimeInput.documentId ?? null,
+      documentIds: normalizeDocumentIds(runtimeInput.documentIds),
     });
 
     if (pipelineVersion === "v2") {
       const streamChunkSize = parsePositiveInt(process.env.RAG_STREAM_V2_CHUNK_SIZE, 240, 48, 2048);
       const showPasses = parseOptionalBoolean(process.env.RAG_STREAM_SHOW_PASSES) ?? true;
       logger.info("RAG_QUERY_STREAM_V2_MODE", {
-        requestId: effectiveInput.requestId || null,
+        requestId: runtimeInput.requestId || null,
         mode: "precision_multicall_internal",
         streamChunkSize,
         showPasses,
@@ -1220,78 +1923,97 @@ export class RagQueryService {
                 event: "progress",
                 stage: "INGEST",
                 text: "Recebendo sua solicitacao.",
-                requestId: effectiveInput.requestId || null,
+                requestId: runtimeInput.requestId || null,
                 runId: null,
                 elapsedMs: 0,
               });
             }
 
-            const history = normalizeHistory(effectiveInput.history, this.generationConfig);
-            const v2Result = await this.orchestratorV2.query({
-              requestId: effectiveInput.requestId || `ragv2s-${Date.now()}`,
-              question,
-              history,
-              topK: effectiveInput.topK,
-              maxDistance: effectiveInput.maxDistance,
-              documentId: effectiveInput.documentId,
-              documentIds: effectiveInput.documentIds,
-              priorityDocumentIds: effectiveInput.priorityDocumentIds,
-              sourceType: effectiveInput.sourceType,
-              retrievalEmbeddingModel: effectiveInput.retrievalEmbeddingModel,
-              preferredResponseLanguageId: effectiveInput.preferredResponseLanguageId,
-              strictDocumentGrounding: effectiveInput.strictDocumentGrounding,
-              maxResponseTokens: effectiveInput.maxResponseTokens,
-              temperature: effectiveInput.temperature,
-              seed: effectiveInput.seed,
-              onProgress: async (event) => {
-                if (!showPasses) return;
-                if (event.progress) {
-                  const row = event.progress;
+            const history = normalizeHistory(runtimeInput.history, this.generationConfig);
+            let v2Result;
+            try {
+              v2Result = await this.orchestratorV2.query({
+                requestId: runtimeInput.requestId || `ragv2s-${Date.now()}`,
+                question: semanticQuestion,
+                history,
+                topK: runtimeInput.topK,
+                maxDistance: runtimeInput.maxDistance,
+                documentId: runtimeInput.documentId,
+                documentIds: runtimeInput.documentIds,
+                priorityDocumentIds: runtimeInput.priorityDocumentIds,
+                sourceType: runtimeInput.sourceType,
+                retrievalEmbeddingModel: runtimeInput.retrievalEmbeddingModel,
+                preferredResponseLanguageId: runtimeInput.preferredResponseLanguageId,
+                strictDocumentGrounding: runtimeInput.strictDocumentGrounding,
+                maxResponseTokens: effectiveMaxResponseTokens,
+                temperature: runtimeInput.temperature,
+                seed: runtimeInput.seed,
+                onProgress: async (event) => {
+                  if (!showPasses) return;
+                  if (event.progress) {
+                    const row = event.progress;
+                    enqueueEvent({
+                      event: "progress",
+                      type: row.type,
+                      stage: row.stage,
+                      substage: row.substage,
+                      text: row.message,
+                      requestId: row.request_id,
+                      runId: row.run_id,
+                      ts: row.ts,
+                      elapsedMs: row.elapsed_ms,
+                      target: row.target,
+                      progressPct: row.progress_pct ?? null,
+                      counters: row.counters ?? null,
+                      detail: row.detail ?? null,
+                      phase: event.phase,
+                      sectionIndex: event.sectionIndex ?? null,
+                      sectionTotal: event.sectionTotal ?? null,
+                      sectionTitle: event.sectionTitle ?? null,
+                    });
+                    return;
+                  }
                   enqueueEvent({
                     event: "progress",
-                    type: row.type,
-                    stage: row.stage,
-                    substage: row.substage,
-                    text: row.message,
-                    requestId: row.request_id,
-                    runId: row.run_id,
-                    ts: row.ts,
-                    elapsedMs: row.elapsed_ms,
-                    target: row.target,
-                    progressPct: row.progress_pct ?? null,
-                    counters: row.counters ?? null,
-                    detail: row.detail ?? null,
+                    stage: event.stage,
+                    text: event.message,
                     phase: event.phase,
+                    requestId: event.requestId,
+                    runId: event.runId,
+                    elapsedMs: event.elapsedMs,
                     sectionIndex: event.sectionIndex ?? null,
                     sectionTotal: event.sectionTotal ?? null,
                     sectionTitle: event.sectionTitle ?? null,
                   });
-                  return;
-                }
-                enqueueEvent({
-                  event: "progress",
-                  stage: event.stage,
-                  text: event.message,
-                  phase: event.phase,
-                  requestId: event.requestId,
-                  runId: event.runId,
-                  elapsedMs: event.elapsedMs,
-                  sectionIndex: event.sectionIndex ?? null,
-                  sectionTotal: event.sectionTotal ?? null,
-                  sectionTitle: event.sectionTitle ?? null,
+                },
+                onFinalDelta: async (delta) => {
+                  const text = `${delta || ""}`;
+                  if (!text) return;
+                  for (let cursor = 0; cursor < text.length; cursor += streamChunkSize) {
+                    enqueueText(text.slice(cursor, Math.min(text.length, cursor + streamChunkSize)));
+                    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                  }
+                },
+              });
+            } catch (error) {
+              const groundingFallback = resolveGroundingFallbackReply(error, {
+                documentId: runtimeInput.documentId,
+                documentIds: runtimeInput.documentIds,
+              });
+              if (groundingFallback) {
+                logger.warn("RAG_DOCUMENT_GROUNDING_STREAM_FALLBACK", {
+                  requestId: runtimeInput.requestId || null,
+                  reason: groundingFallback.reason,
+                  errorCode: error instanceof RagPipelineError ? error.code : null,
                 });
-              },
-              onFinalDelta: async (delta) => {
-                const text = `${delta || ""}`;
-                if (!text) return;
-                for (let cursor = 0; cursor < text.length; cursor += streamChunkSize) {
-                  enqueueText(text.slice(cursor, Math.min(text.length, cursor + streamChunkSize)));
-                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                }
-              },
-            });
+                enqueueText(groundingFallback.answer);
+                controller.close();
+                return;
+              }
+              throw error;
+            }
             logger.info("RAG_QUERY_STREAM_V2_READY", {
-              requestId: effectiveInput.requestId || null,
+              requestId: runtimeInput.requestId || null,
               answerChars: v2Result.answer.length,
               retrievedChunks: v2Result.metadata.retrieval.returnedChunks,
               selectedChunks: v2Result.metadata.contextPack.selectedChunks,
@@ -1313,7 +2035,7 @@ export class RagQueryService {
                 substage: "stream_done",
                 text: `Concluido em ${elapsedMs} ms.`,
                 elapsedMs,
-                requestId: effectiveInput.requestId || null,
+                requestId: runtimeInput.requestId || null,
                 runId: v2Result.metadata.v2.runId,
               });
             }
@@ -1332,15 +2054,15 @@ export class RagQueryService {
       });
     }
 
-    const prepared = await this.prepareQuery(effectiveInput, question);
+    const prepared = await this.prepareQuery(runtimeInput, semanticQuestion);
     const retrieval = prepared.retrieval;
     const appliedRetrievalModelFilter = prepared.appliedRetrievalModelFilter;
     const latencyGuardMinChunks = parsePositiveInt(process.env.RAG_LATENCY_GUARD_MIN_CHUNKS, 3, 0, 50);
     const aggressiveRequested = this.latencyPreset === "aggressive";
     const weakEvidence = prepared.degradation.degraded || retrieval.hits.length < latencyGuardMinChunks;
     const effectiveAggressive = aggressiveRequested && !weakEvidence;
-    const queryComplexity = inferQueryComplexity(question);
-    const requestedMaxTokens = clampMaxTokens(effectiveInput.maxResponseTokens, this.generationConfig.maxTokens);
+    const queryComplexity = inferQueryComplexity(semanticQuestion);
+    const requestedMaxTokens = effectiveMaxResponseTokens;
     const runtimeProfile = buildStreamRuntimeProfile({
       complexity: queryComplexity,
       requestedMaxTokens,
@@ -1387,7 +2109,7 @@ export class RagQueryService {
       combinedContextRaw.length > streamContextCap
         ? combinedContextRaw.slice(0, streamContextCap)
         : combinedContextRaw;
-    const baseHistory = normalizeHistory(effectiveInput.history, this.generationConfig);
+    const baseHistory = normalizeHistory(runtimeInput.history, this.generationConfig);
     const streamHistoryMaxMessages = parsePositiveInt(
       process.env.RAG_STREAM_HISTORY_MAX_MESSAGES,
       runtimeProfile.historyMaxMessages,
@@ -1407,7 +2129,7 @@ export class RagQueryService {
     });
 
     logger.info("RAG_QUERY_STREAM_READY", {
-      requestId: effectiveInput.requestId || null,
+      requestId: runtimeInput.requestId || null,
       retrievedChunks: retrieval.hits.length,
       selectedChunks: contextPack.chunks.length,
       contextChars: contextPack.usedChars,
@@ -1441,7 +2163,7 @@ export class RagQueryService {
       weakEvidence,
     });
     logger.info("RAG_QUERY_STREAM_MULTICALL_PLAN", {
-      requestId: effectiveInput.requestId || null,
+      requestId: runtimeInput.requestId || null,
       pipelineVersion,
       passCount: streamPassCount,
       complexity: queryComplexity,
@@ -1451,12 +2173,12 @@ export class RagQueryService {
 
     if (streamPassCount <= 1) {
       return this.llmClient.streamWithContext({
-        question,
+        question: semanticQuestion,
         contextPack: combinedContext,
         history,
         maxTokens: effectiveMaxTokens,
-        temperature: clampTemperature(effectiveInput.temperature, this.generationConfig.temperature),
-        seed: normalizeSeed(effectiveInput.seed, this.generationConfig.seed),
+        temperature: clampTemperature(runtimeInput.temperature, this.generationConfig.temperature),
+        seed: normalizeSeed(runtimeInput.seed, this.generationConfig.seed),
       });
     }
 
@@ -1466,9 +2188,9 @@ export class RagQueryService {
         const encoder = new TextEncoder();
         try {
           for (let passIndex = 1; passIndex <= streamPassCount; passIndex += 1) {
-            const passQuestion = buildStreamMulticallQuestion(question, passIndex, streamPassCount);
+            const passQuestion = buildStreamMulticallQuestion(semanticQuestion, passIndex, streamPassCount);
             logger.info("RAG_QUERY_STREAM_MULTICALL_PASS_START", {
-              requestId: effectiveInput.requestId || null,
+              requestId: runtimeInput.requestId || null,
               passIndex,
               streamPassCount,
             });
@@ -1478,8 +2200,8 @@ export class RagQueryService {
               contextPack: combinedContext,
               history: rollingHistory,
               maxTokens: effectiveMaxTokens,
-              temperature: clampTemperature(effectiveInput.temperature, this.generationConfig.temperature),
-              seed: normalizeSeed(effectiveInput.seed, this.generationConfig.seed),
+              temperature: clampTemperature(runtimeInput.temperature, this.generationConfig.temperature),
+              seed: normalizeSeed(runtimeInput.seed, this.generationConfig.seed),
               followupMode: passIndex < streamPassCount ? "omit" : "required",
             });
 
@@ -1502,7 +2224,7 @@ export class RagQueryService {
 
             const normalizedPassText = `${passText || ""}`.trim();
             logger.info("RAG_QUERY_STREAM_MULTICALL_PASS_DONE", {
-              requestId: effectiveInput.requestId || null,
+              requestId: runtimeInput.requestId || null,
               passIndex,
               streamPassCount,
               passChars: normalizedPassText.length,
@@ -1542,6 +2264,8 @@ export function createRagQueryService(rawEnv = process.env) {
     createRagRetrievalService(),
     createVllmInternalClient(rawEnv),
     createDocumentFullTextService(rawEnv),
+    createVectorDatabaseClient(rawEnv),
+    createRagInternetSearchService(rawEnv),
     {
       generationConfig: loadRagGenerationConfig(rawEnv),
       resilienceConfig: loadRagResilienceConfig(rawEnv),

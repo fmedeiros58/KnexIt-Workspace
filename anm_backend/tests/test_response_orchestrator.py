@@ -31,6 +31,22 @@ class _DummyLLMAdapter:
         self.response_parser = _DummyResponseParser()
 
 
+class _SpyRuntimeSqlPersistenceService:
+    def __init__(self) -> None:
+        self.register_calls = []
+        self.record_calls = []
+        self.finalize_calls = []
+
+    def register_session(self, **kwargs):  # noqa: ANN003, ANN201
+        self.register_calls.append(kwargs)
+
+    def record_cycle(self, **kwargs):  # noqa: ANN003, ANN201
+        self.record_calls.append(kwargs)
+
+    def finalize_session(self, **kwargs):  # noqa: ANN003, ANN201
+        self.finalize_calls.append(kwargs)
+
+
 class ResponseOrchestratorTests(unittest.TestCase):
     _ENV_KEYS = [
         "SECONDARY_PROCESS_MEMORY_ENABLED",
@@ -52,10 +68,18 @@ class ResponseOrchestratorTests(unittest.TestCase):
         "PHASE0_FIRST_CHUNK_TARGET_TOKENS",
         "PHASE0_FIRST_CHUNK_MAX_TOKENS",
         "PHASE0_PER_CALL_MAX_TOKENS",
+        "PHASE0_PRE_EXPANSION_STRICT_ENABLED",
+        "ANM_RUNTIME_SQL_PERSIST_ENABLED",
+        "ANM_RUNTIME_SQL_URL",
+        "ANM_RUNTIME_SQL_SERVICE_KEY",
+        "ANM_RUNTIME_SQL_SCHEMA",
+        "ANM_RUNTIME_SQL_TIMEOUT_S",
+        "ANM_RUNTIME_SQL_FAILURE_THRESHOLD",
     ]
 
     def setUp(self) -> None:
         self._env_snapshot = {key: os.environ.get(key) for key in self._ENV_KEYS}
+        os.environ["ANM_RUNTIME_SQL_PERSIST_ENABLED"] = "0"
 
     def tearDown(self) -> None:
         for key, value in self._env_snapshot.items():
@@ -100,6 +124,167 @@ class ResponseOrchestratorTests(unittest.TestCase):
         self.assertEqual(result.stop_reason, "single_pass")
         self.assertIn("resposta curta", result.response_text.lower())
         self.assertFalse(result.fallback_used)
+
+    def test_single_pass_persists_reflective_and_inference_artifacts(self) -> None:
+        os.environ["SECONDARY_PROCESS_MEMORY_ENABLED"] = "0"
+        os.environ["CHAT_SECONDARY_PROCESS_MEMORY_ENABLED"] = "0"
+
+        orchestrator = ResponseOrchestrator(llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+        request = OrchestrationRequest(
+            request_id="trace-reflective-inference",
+            mode="chat",
+            user_id="user-ri",
+            prompt_original="Explique estabilidade e risco operacional com foco tecnico.",
+            objective_current="Explicar estabilidade operacional",
+            context_payload={"context": "minimo"},
+            max_tokens=256,
+            temperature=0.2,
+            top_p=0.9,
+            single_pass_generator=lambda gen_req: self._engine_response(
+                trace_id=gen_req.trace_id,
+                text="A estabilidade operacional exige monitoramento continuo de latencia e de filas para reduzir risco.",
+            ),
+        )
+
+        result = orchestrator.orchestrate(request=request)
+        state = orchestrator.secondary_memory_service.get_session(session_id=result.session_id)
+
+        self.assertIsNotNone(state)
+        assert state is not None
+        self.assertIn("precision_alerts", state.reflective_report)
+        self.assertIn("coherence_alerts", state.reflective_report)
+        self.assertIn("suggestions", state.inference_map)
+        self.assertIn("gaps", state.inference_map)
+        self.assertGreaterEqual(len(state.local_decisions), 1)
+
+    def test_runtime_sql_hooks_single_pass_are_called(self) -> None:
+        os.environ["SECONDARY_PROCESS_MEMORY_ENABLED"] = "0"
+        os.environ["CHAT_SECONDARY_PROCESS_MEMORY_ENABLED"] = "0"
+
+        orchestrator = ResponseOrchestrator(llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+        spy = _SpyRuntimeSqlPersistenceService()
+        orchestrator.runtime_sql_persistence_service = spy  # type: ignore[assignment]
+
+        request = OrchestrationRequest(
+            request_id="trace-runtime-sql-single-pass",
+            mode="chat",
+            user_id="user-runtime-sql",
+            prompt_original="Explique risco operacional de forma objetiva.",
+            objective_current="Explicar risco operacional",
+            context_payload={"context": "minimo"},
+            max_tokens=256,
+            temperature=0.2,
+            top_p=0.9,
+            single_pass_generator=lambda gen_req: self._engine_response(
+                trace_id=gen_req.trace_id,
+                text="Risco operacional aumenta quando a fila cresce sem controle de latencia.",
+            ),
+        )
+        result = orchestrator.orchestrate(request=request)
+
+        self.assertEqual(result.response_mode, "single_pass")
+        self.assertEqual(len(spy.register_calls), 1)
+        self.assertEqual(len(spy.record_calls), 1)
+        self.assertEqual(len(spy.finalize_calls), 1)
+        self.assertEqual(int(spy.record_calls[0]["cycle_index"]), 1)
+        self.assertEqual(spy.finalize_calls[0]["request_id"], result.request_id)
+
+    def test_runtime_sql_hooks_record_multi_pass_cycles(self) -> None:
+        os.environ["SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"
+        os.environ["CHAT_SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"
+        os.environ["RESPONSE_ORCHESTRATION_MAX_CYCLES"] = "3"
+        os.environ["CHAT_MAX_RESPONSE_CYCLES"] = "3"
+        os.environ["FORCE_FINAL_SYNTHESIS"] = "0"
+        os.environ["REDUNDANCY_THRESHOLD"] = "0.98"
+
+        orchestrator = ResponseOrchestrator(llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+        spy = _SpyRuntimeSqlPersistenceService()
+        orchestrator.runtime_sql_persistence_service = spy  # type: ignore[assignment]
+
+        request = OrchestrationRequest(
+            request_id="trace-runtime-sql-multi-pass",
+            mode="chat",
+            user_id="user-runtime-sql-multi",
+            prompt_original="Compare alternativas tecnicas em dois blocos e conclua.",
+            objective_current="Comparar alternativas",
+            context_payload={"context": "amplo"},
+            max_tokens=512,
+            temperature=0.2,
+            top_p=0.9,
+            prefer_multi_pass=True,
+            max_cycles_override=2,
+            min_cycles_override=2,
+            planner_hints=["bloco 1", "bloco 2"],
+            cycle_generator=lambda gen_req: self._engine_response(
+                trace_id=gen_req.trace_id,
+                text=(
+                    "Bloco 1: compara custo e throughput." if int(gen_req.cycle_index) == 1
+                    else "Bloco 2: conclui com trade-off e recomendacao final."
+                ),
+            ),
+        )
+        result = orchestrator.orchestrate(request=request)
+
+        self.assertEqual(result.response_mode, "multi_pass")
+        self.assertGreaterEqual(result.cycle_count, 2)
+        self.assertEqual(len(spy.register_calls), 1)
+        self.assertEqual(len(spy.finalize_calls), 1)
+        self.assertGreaterEqual(len(spy.record_calls), 2)
+        self.assertEqual(len(spy.record_calls), result.cycle_count)
+
+    def test_phase0_pre_expansion_lightweight_skips_advanced_modules(self) -> None:
+        os.environ["SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"
+        os.environ["CHAT_SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"
+        os.environ["PHASE0_SEGMENTED_EMISSION_ENABLED"] = "1"
+        os.environ["PHASE0_CHAT_SEGMENTED_EMISSION_ENABLED"] = "1"
+        os.environ["PHASE0_SEGMENTED_EMISSION_AUTO_ENABLED"] = "0"
+        os.environ["PHASE0_PRE_EXPANSION_STRICT_ENABLED"] = "1"
+        os.environ["FORCE_FINAL_SYNTHESIS"] = "0"
+
+        orchestrator = ResponseOrchestrator(llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+        def _unexpected(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            raise RuntimeError("unexpected_advanced_module_call_in_phase0_lightweight")
+
+        orchestrator.compression_engine_service.compress = _unexpected  # type: ignore[method-assign]
+        orchestrator.semantic_controller_service.decide = _unexpected  # type: ignore[method-assign]
+        orchestrator.reflective_analyzer_service.analyze = _unexpected  # type: ignore[method-assign]
+        orchestrator.inference_engine_service.infer = _unexpected  # type: ignore[method-assign]
+        orchestrator.process_memory_manager_service.build_update = _unexpected  # type: ignore[method-assign]
+
+        request = OrchestrationRequest(
+            request_id="trace-phase0-lightweight",
+            mode="chat",
+            user_id="user-phase0-lightweight",
+            prompt_original=(
+                "Explique em um paragrafo tecnico medio como a estabilidade degrada com carga, "
+                "sem reiniciar o raciocinio."
+            ),
+            objective_current="Paragrafo tecnico unico",
+            context_payload={"context": "fase0"},
+            max_tokens=768,
+            temperature=0.2,
+            top_p=0.9,
+            prefer_multi_pass=True,
+            metadata={
+                "phase0_segmented_emission": True,
+                "phase0_preferred_connector": "sobretudo quando",
+            },
+            cycle_generator=lambda gen_req: self._engine_response(
+                trace_id=gen_req.trace_id,
+                text=(
+                    "A estabilidade degrada com saturacao de fila."
+                    if int(gen_req.cycle_index) == 1
+                    else "sobretudo quando o throughput oscila e o timeout aumenta no fechamento do ciclo."
+                ),
+            ),
+        )
+
+        result = orchestrator.orchestrate(request=request)
+        self.assertEqual(result.response_mode, "multi_pass")
+        self.assertEqual(result.cycle_count, 2)
+        self.assertIn("throughput oscila", result.response_text.lower())
+        self.assertTrue(bool(result.telemetry["plan"]["phase0"]["pre_expansion_lightweight_mode"]))
 
     def test_multi_pass_when_enabled_and_complex(self) -> None:
         os.environ["SECONDARY_PROCESS_MEMORY_ENABLED"] = "1"
@@ -291,7 +476,8 @@ class ResponseOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(result.response_mode, "multi_pass")
         self.assertEqual(result.cycle_count, 2)
-        self.assertNotIn("\n\n", result.response_text)
+        self.assertIn("sugestao de melhoria", result.response_text.lower())
+        self.assertIn("voce quer que eu aplique essas melhorias agora?", result.response_text.lower())
         self.assertIn("sobretudo quando", result.response_text.lower())
         self.assertTrue(bool(result.telemetry["plan"]["phase0"]["enabled"]))
         self.assertEqual(int(result.telemetry["plan"]["phase0"]["call_count"]), 2)

@@ -46,6 +46,246 @@ class ChatResponse(BaseModel):
     engine: Dict[str, Any]
 
 
+class IdentityRuntimeControlRequest(BaseModel):
+    reason: str = Field(default="manual_control", max_length=240)
+
+
+class IdentityRuntimeAutoStartRequest(BaseModel):
+    enabled: bool = True
+
+
+class IdentitySourceSelectRequest(BaseModel):
+    source_id: str = Field(min_length=1, max_length=120)
+
+
+class IdentitySourceActiveRequest(BaseModel):
+    active: bool = True
+
+
+class IdentitySourceUpsertRequest(BaseModel):
+    source_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=220)
+    source_type: str = Field(default="external", min_length=1, max_length=40)
+    device_ref: str = Field(default="", max_length=500)
+    resolution: str = Field(default="1280x720", max_length=80)
+    fps: int = Field(default=30, ge=1, le=120)
+    priority: int = Field(default=100, ge=1, le=1000)
+    active: bool = True
+    connected: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityObservationRequest(BaseModel):
+    source_id: str = Field(default="", max_length=120)
+    face_detected: bool = True
+    entity_id: str = Field(default="", max_length=120)
+    label: str = Field(default="", max_length=220)
+    confidence: float = Field(default=0.62, ge=0.0, le=1.0)
+    mode: str = Field(default="tracking", max_length=64)
+    validation_pending: bool = False
+    conflict: bool = False
+    nominal_name: str = Field(default="", max_length=220)
+    speaker_id: str = Field(default="", max_length=120)
+    self_user_present: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityFrameAnalyzeRequest(BaseModel):
+    source_id: str = Field(default="", max_length=120)
+    frame_data_url: str = Field(min_length=12, max_length=20_000_000)
+    expected_view: Optional[str] = Field(default=None, max_length=40)
+    min_quality_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    require_pose_match: bool = True
+    emit_observation: bool = True
+    entity_id: str = Field(default="", max_length=120)
+    label: str = Field(default="", max_length=220)
+    nominal_name: str = Field(default="", max_length=220)
+    speaker_id: str = Field(default="", max_length=120)
+    self_user_present: bool = False
+    stability_track_key: str = Field(default="", max_length=180)
+    max_faces: int = Field(default=4, ge=1, le=12)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityFaceBoxView(BaseModel):
+    x: int
+    y: int
+    w: int
+    h: int
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class IdentityPoseEstimateView(BaseModel):
+    pose_label: str
+    yaw: float
+    pitch: float
+    roll: float
+    confidence: float = Field(ge=0.0, le=1.0)
+    pose_match: bool
+    expected_view: Optional[str] = None
+    landmarks_detected: bool = False
+
+
+class IdentityFrameQualityView(BaseModel):
+    blur_score: float = Field(ge=0.0, le=1.0)
+    lighting_score: float = Field(ge=0.0, le=1.0)
+    framing_score: float = Field(ge=0.0, le=1.0)
+    stability_score: float = Field(ge=0.0, le=1.0)
+    overall_score: float = Field(ge=0.0, le=1.0)
+    approved: bool
+    reasons: List[str] = Field(default_factory=list)
+
+
+class IdentityPassiveLivenessView(BaseModel):
+    status: str = Field(default="pending", max_length=64)
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityConsensusView(BaseModel):
+    status: str = Field(default="suspect", max_length=64)
+    confidence: float = Field(ge=0.0, le=1.0)
+    score: float = Field(ge=0.0, le=1.0)
+    signals: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityFaceAlignmentView(BaseModel):
+    applied: bool = False
+    shape: List[int] = Field(default_factory=list)
+
+
+class IdentityFaceNormalizationView(BaseModel):
+    applied: bool = False
+    shape: List[int] = Field(default_factory=list)
+    mean_luma: Optional[float] = None
+
+
+class IdentityAnalyzedFaceView(BaseModel):
+    track_id: str = Field(default="", max_length=160)
+    track_hits: int = Field(default=1, ge=0, le=1_000_000)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    suggested_mode: str = Field(default="tracking", max_length=64)
+    validation_pending: bool = False
+    should_capture: bool = False
+    face_box: IdentityFaceBoxView
+    pose: IdentityPoseEstimateView
+    quality: IdentityFrameQualityView
+    passive_liveness: IdentityPassiveLivenessView
+    consensus: IdentityConsensusView
+    alignment: IdentityFaceAlignmentView = Field(default_factory=IdentityFaceAlignmentView)
+    normalization: IdentityFaceNormalizationView = Field(default_factory=IdentityFaceNormalizationView)
+
+
+class IdentityFrameAnalyzeResponse(BaseModel):
+    ok: bool = True
+    source_id: str
+    face_detected: bool
+    expected_view: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    suggested_mode: str = Field(default="tracking", max_length=64)
+    validation_pending: bool = False
+    runtime_observation_emitted: bool = False
+    face_box: Optional[IdentityFaceBoxView] = None
+    pose: Optional[IdentityPoseEstimateView] = None
+    quality: Optional[IdentityFrameQualityView] = None
+    faces: List[IdentityAnalyzedFaceView] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentitySourceView(BaseModel):
+    source_id: str
+    name: str
+    source_type: str
+    device_ref: str
+    resolution: str
+    fps: int
+    priority: int
+    active: bool
+    connected: bool
+    last_heartbeat_at: str
+    metadata: Dict[str, Any]
+
+
+class IdentityStreamView(BaseModel):
+    stream_id: str
+    source_id: str
+    status: str
+    started_at: str
+    ended_at: Optional[str] = None
+    fps_observed: float
+    latency_ms: int
+    dropped_frames: int
+    metadata: Dict[str, Any]
+
+
+class IdentityEntityView(BaseModel):
+    entity_id: str
+    label: str
+    mode: str
+    confidence: float
+    source_id: Optional[str] = None
+    voice_profile_id: Optional[str] = None
+    nominal_name: Optional[str] = None
+    first_seen_at: str
+    last_seen_at: str
+    metadata: Dict[str, Any]
+
+
+class IdentityRuntimeStatusResponse(BaseModel):
+    status: str
+    runtime_enabled: bool
+    runtime_paused: bool
+    auto_start_enabled: bool
+    selected_source_id: Optional[str] = None
+    last_error: str = ""
+    awareness_state: Dict[str, Any]
+    camera_sources: List[IdentitySourceView]
+    active_streams: List[IdentityStreamView]
+    tracked_entities: List[IdentityEntityView]
+    current_identity: Optional[IdentityEntityView] = None
+    self_model_state: Dict[str, Any]
+    user_pattern_state: Dict[str, Any]
+    updated_at: str
+
+
+class IdentityEnrollmentStartRequest(BaseModel):
+    person_id: str = Field(min_length=1, max_length=120)
+    required_views: List[str] = Field(default_factory=lambda: ["left", "front", "right"])
+    min_samples_per_view: int = Field(default=3, ge=1, le=12)
+
+
+class IdentityEnrollmentSubmitRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    view: str = Field(min_length=1, max_length=40)
+    embedding: Optional[List[float]] = None
+    quality_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    close_session: bool = False
+
+
+class IdentityTargetSearchStartRequest(BaseModel):
+    target_person_id: str = Field(min_length=1, max_length=120)
+    threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    vectors_by_view: Dict[str, List[List[float]]] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityTargetSearchStopRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+
+
+class IdentityActiveLivenessStartRequest(BaseModel):
+    track_id: str = Field(default="", max_length=160)
+    actions: List[str] = Field(default_factory=list)
+
+
+class IdentitySessionStateResponse(BaseModel):
+    ok: bool = True
+    session_id: str = Field(default="", max_length=160)
+    status: str = Field(default="unknown", max_length=80)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
 class CheckpointRequest(BaseModel):
     checkpoint_id: str = Field(min_length=1, max_length=128)
 

@@ -59,10 +59,14 @@ def is_cross_call_secondary_memory_enabled(mode: EmissionMode) -> bool:
 
 
 def resolve_mode_max_cycles(mode: EmissionMode) -> int:
-    global_default = env_int("RESPONSE_ORCHESTRATION_MAX_CYCLES", default=3, low=1, high=8)
+    global_default = env_int("RESPONSE_ORCHESTRATION_MAX_CYCLES", default=10, low=1, high=10)
     if mode == "chat":
-        return env_int("CHAT_MAX_RESPONSE_CYCLES", default=global_default, low=1, high=8)
-    return env_int("WRITE_MAX_RESPONSE_CYCLES", default=global_default, low=1, high=8)
+        return env_int("CHAT_MAX_RESPONSE_CYCLES", default=global_default, low=1, high=10)
+    return env_int("WRITE_MAX_RESPONSE_CYCLES", default=global_default, low=1, high=10)
+
+
+def deep_mode_enabled() -> bool:
+    return env_bool("RESPONSE_ORCHESTRATION_DEEP_MODE_ENABLED", default=True)
 
 
 def resolve_target_chunk_tokens() -> int:
@@ -110,6 +114,10 @@ def phase0_auto_segmentation_enabled() -> bool:
     return env_bool("PHASE0_SEGMENTED_EMISSION_AUTO_ENABLED", default=False)
 
 
+def phase0_pre_expansion_strict_enabled() -> bool:
+    return env_bool("PHASE0_PRE_EXPANSION_STRICT_ENABLED", default=True)
+
+
 def resolve_phase0_density_short_threshold() -> float:
     return env_float("PHASE0_DENSITY_SHORT_THRESHOLD", default=1.15, low=0.10, high=6.00)
 
@@ -131,8 +139,8 @@ def resolve_phase0_first_chunk_target_tokens() -> int:
 
 
 def resolve_phase0_first_chunk_max_tokens() -> int:
-    return env_int("PHASE0_FIRST_CHUNK_MAX_TOKENS", default=180, low=96, high=320)
+    return env_int("PHASE0_FIRST_CHUNK_MAX_TOKENS", default=180, low=96, high=250)
 
 
 def resolve_phase0_per_call_max_tokens() -> int:
-    return env_int("PHASE0_PER_CALL_MAX_TOKENS", default=180, low=96, high=320)
+    return env_int("PHASE0_PER_CALL_MAX_TOKENS", default=180, low=96, high=250)

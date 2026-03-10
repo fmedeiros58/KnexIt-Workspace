@@ -58,6 +58,41 @@ const SUPPORTED_MIME_TYPES = new Set<string>([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
+const UTF8_FALLBACK_EXTENSIONS = new Set<string>([
+  ".txt",
+  ".md",
+  ".markdown",
+  ".csv",
+  ".tsv",
+  ".json",
+  ".xml",
+  ".yml",
+  ".yaml",
+  ".ini",
+  ".cfg",
+  ".log",
+  ".html",
+  ".htm",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".py",
+  ".java",
+  ".go",
+  ".rs",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".rb",
+  ".php",
+  ".sql",
+  ".sh",
+  ".bat",
+  ".ps1",
+]);
+
 let cachedPdfJsModule: Awaited<ReturnType<typeof importPdfJsModule>> | null = null;
 
 function resolveExtension(fileName: string) {
@@ -78,6 +113,35 @@ function decodeUtf8(bytes: Buffer) {
 
 function normalizeExtractedText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\u0000/g, "").trim();
+}
+
+function shouldFallbackToUtf8Decode(mimeType: string, extension: string) {
+  const normalizedMime = (mimeType || "").toLowerCase();
+  if (normalizedMime.startsWith("text/")) return true;
+  if (
+    normalizedMime.includes("json") ||
+    normalizedMime.includes("xml") ||
+    normalizedMime.includes("yaml") ||
+    normalizedMime.includes("javascript") ||
+    normalizedMime.includes("typescript") ||
+    normalizedMime.includes("sql")
+  ) {
+    return true;
+  }
+  return UTF8_FALLBACK_EXTENSIONS.has(extension);
+}
+
+function buildOpaqueFilePlaceholder(fileName: string, mimeType: string, extension: string) {
+  const safeName = fileName.trim() || "arquivo";
+  const safeMime = mimeType || "desconhecido";
+  const safeExtension = extension || "sem-extensao";
+  return [
+    `Arquivo anexado: ${safeName}.`,
+    `Tipo MIME: ${safeMime}.`,
+    `Extensao: ${safeExtension}.`,
+    "Formato sem extracao textual nativa nesta etapa.",
+    "Use o anexo como referencia e, se necessario, converta para PDF, DOCX, TXT ou MD para analise completa.",
+  ].join("\n");
 }
 
 async function importPdfJsModule() {
@@ -133,11 +197,20 @@ export async function extractTextFromDocument(input: ExtractTextInput): Promise<
   const mimeType = normalizeMimeType(input.mimeType, extension);
 
   if (!mimeType || !SUPPORTED_MIME_TYPES.has(mimeType)) {
-    throw new UnsupportedDocumentTypeError(
-      `Formato nao suportado nesta versao (mime='${mimeType || "desconhecido"}', ext='${extension || "sem-ext"}').`,
-      mimeType,
+    if (shouldFallbackToUtf8Decode(mimeType, extension)) {
+      return {
+        text: normalizeExtractedText(decodeUtf8(input.bytes)),
+        parser: "utf8",
+        mimeType: mimeType || "text/plain",
+        extension,
+      };
+    }
+    return {
+      text: buildOpaqueFilePlaceholder(input.fileName, mimeType, extension),
+      parser: "utf8",
+      mimeType: mimeType || "application/octet-stream",
       extension,
-    );
+    };
   }
 
   if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
