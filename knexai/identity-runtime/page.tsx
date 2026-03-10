@@ -514,6 +514,19 @@ async function fetchImageUrlAsDataUrl(url: string) {
   }
 }
 
+async function loadMediaPipeVisionModule(): Promise<MediaPipeVisionModule | null> {
+  const moduleName = "@mediapipe/tasks-vision";
+  try {
+    // Avoid compile-time module resolution for optional client runtime dependency.
+    // eslint-disable-next-line no-new-func
+    const importer = new Function("specifier", "return import(specifier);") as (specifier: string) => Promise<unknown>;
+    const loaded = await importer(moduleName);
+    return loaded as MediaPipeVisionModule;
+  } catch {
+    return null;
+  }
+}
+
 async function fileToDataUrl(file: File) {
   return new Promise<string | null>((resolve) => {
     const reader = new FileReader();
@@ -630,7 +643,10 @@ export default function IdentityRuntimePage() {
     if (!mediaPipeFaceDetectorInitRef.current) {
       mediaPipeFaceDetectorInitRef.current = (async () => {
         try {
-          const vision = (await import("@mediapipe/tasks-vision")) as unknown as MediaPipeVisionModule;
+          const vision = await loadMediaPipeVisionModule();
+          if (!vision) {
+            throw new Error("mediapipe_module_unavailable");
+          }
           let filesetResolver: unknown;
           try {
             filesetResolver = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_LOCAL_PATH);
