@@ -314,6 +314,80 @@ function createFallbackAnalysisDescriptor(question: string, languageTag: string)
   };
 }
 
+function normalizeParagraphKey(value: string) {
+  return normalizeText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitizeFinalAnswer(answer: string, question: string) {
+  const raw = normalizeText(answer);
+  if (!raw) return "";
+  const questionKey = normalizeParagraphKey(question);
+  const directiveMarkers = [
+    "pergunta original",
+    "responda de forma objetiva",
+    "coerente com as evidencias",
+    "mantenha o idioma da pergunta",
+    "evite repetir argumentos",
+  ];
+  const paragraphs = raw
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/g)
+    .map((row) => row.trim())
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const filtered: string[] = [];
+  for (const paragraph of paragraphs) {
+    const key = normalizeParagraphKey(paragraph);
+    if (!key) continue;
+    if (questionKey && key === questionKey) continue;
+    if (key.startsWith("pergunta original")) continue;
+    if (questionKey && key.includes(`pergunta original ${questionKey.slice(0, 140)}`)) continue;
+    const markerHits = directiveMarkers.reduce((acc, marker) => (key.includes(marker) ? acc + 1 : acc), 0);
+    if (markerHits >= 2 && key.length < 680) continue;
+    const dedupeKey = key.slice(0, 260);
+    if (dedupeKey.length > 48 && seen.has(dedupeKey)) continue;
+    if (dedupeKey.length > 48) seen.add(dedupeKey);
+    filtered.push(paragraph);
+  }
+  const rebuilt = filtered.join("\n\n").trim();
+  return rebuilt || raw;
+}
+
+async function streamCompletionToText(
+  stream: ReadableStream<Uint8Array>,
+  onDelta?: (delta: string) => void | Promise<void>,
+) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let merged = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || !value.length) continue;
+      const delta = decoder.decode(value, { stream: true });
+      if (!delta) continue;
+      merged += delta;
+      if (onDelta) await onDelta(delta);
+    }
+    const tail = decoder.decode();
+    if (tail) {
+      merged += tail;
+      if (onDelta) await onDelta(tail);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return normalizeText(merged);
+}
+
 export class RagOrchestratorV2 {
   private readonly retriever: HybridRetrieverV2;
   private readonly reranker = new RerankerV2();
@@ -674,6 +748,13 @@ export class RagOrchestratorV2 {
         omitted_chunks: contextPack.omitted,
       },
     });
+    if (hasDocumentScope && contextPack.selected.length === 0) {
+      throw new RagPipelineError(
+        422,
+        "RAG_DOCUMENT_SCOPE_EMPTY_CONTEXT",
+        "Nao encontrei trechos suficientes do documento em escopo para gerar resposta confiavel.",
+      );
+    }
 
     let finalAnswer = "";
     let llmModel = this.llmClient.getConfig().model;
@@ -803,16 +884,12 @@ export class RagOrchestratorV2 {
           strategy: pipelineStrategy,
         },
       });
-      const singlePass = await timedStage(
-        trace,
-        "writer_merge",
-        async () =>
-          this.llmClient.completeWithContext({
-            question: [
-              `Pergunta original: ${question}`,
-              "Responda de forma objetiva e coerente com as evidencias fornecidas.",
-              "Mantenha o idioma da pergunta e evite repetir argumentos.",
-            ].join(" "),
+      const singlePassQuestion = question;
+      if (input.onFinalDelta) {
+        const singlePassStartedAt = Date.now();
+        const streamed = await timedStage(trace, "writer_merge", async () => {
+          const stream = await this.llmClient.streamWithContext({
+            question: singlePassQuestion,
             contextPack: contextPack.packedText,
             history: Array.isArray(input.history) ? input.history : [],
             maxTokens,
@@ -820,18 +897,44 @@ export class RagOrchestratorV2 {
             seed: normalizeSeed(input.seed, this.generationConfig.seed),
             followupMode: "omit",
             responseLanguageId: input.preferredResponseLanguageId,
-          }),
-      );
-      finalAnswer = `${singlePass.answer || ""}`.trim();
-      llmModel = singlePass.model || llmModel;
-      llmFinishReason = singlePass.finishReason || "single_pass";
-      llmUsage = singlePass.usage;
-      llmElapsedMs = singlePass.elapsedMs;
+          });
+          const mergedText = await streamCompletionToText(stream, async (delta) => {
+            await input.onFinalDelta?.(delta);
+          });
+          return { mergedText };
+        });
+        finalAnswer = streamed.mergedText;
+        llmFinishReason = "single_pass_stream";
+        llmUsage = {
+          promptTokens: null,
+          completionTokens: null,
+          totalTokens: null,
+        };
+        llmElapsedMs = Date.now() - singlePassStartedAt;
+      } else {
+        const singlePass = await timedStage(
+          trace,
+          "writer_merge",
+          async () =>
+            this.llmClient.completeWithContext({
+              question: singlePassQuestion,
+              contextPack: contextPack.packedText,
+              history: Array.isArray(input.history) ? input.history : [],
+              maxTokens,
+              temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
+              seed: normalizeSeed(input.seed, this.generationConfig.seed),
+              followupMode: "omit",
+              responseLanguageId: input.preferredResponseLanguageId,
+            }),
+        );
+        finalAnswer = `${singlePass.answer || ""}`.trim();
+        llmModel = singlePass.model || llmModel;
+        llmFinishReason = singlePass.finishReason || "single_pass";
+        llmUsage = singlePass.usage;
+        llmElapsedMs = singlePass.elapsedMs;
+      }
       writerSections = 1;
       writerLlmCalls = 1;
-      if (input.onFinalDelta && finalAnswer) {
-        await input.onFinalDelta(finalAnswer);
-      }
       await emitPipelineProgress({
         stage: "DRAFT",
         substage: "single_pass_done",
@@ -970,6 +1073,7 @@ export class RagOrchestratorV2 {
         },
       });
     }
+    finalAnswer = sanitizeFinalAnswer(finalAnswer, question);
 
     if (this.flags.retrievalRunAuditEnabled) {
       await this.runAudit.writeRetrievalRun({

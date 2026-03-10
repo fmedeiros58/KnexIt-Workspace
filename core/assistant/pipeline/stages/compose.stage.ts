@@ -2,6 +2,81 @@ import type { PipelineContext } from "@/core/assistant/pipeline/pipeline-context
 import { toRagHistory } from "@/core/assistant/pipeline/pipeline-context";
 import type { Stage } from "@/core/assistant/pipeline/stages/stage.interface";
 import type { RagQueryService } from "@/core/rag/rag-query-service";
+import { logger } from "@/core/utils/logger";
+
+const DEFAULT_LLM_CONTEXT_WINDOW_TOKENS = 8192;
+
+type ComposePromptCaps = {
+  totalMaxChars: number;
+  templateMaxChars: number;
+  conversationMaxChars: number;
+  processStateMaxChars: number;
+  prefsMaxChars: number;
+  evidenceMaxChars: number;
+  planMaxChars: number;
+  userMessageMaxChars: number;
+};
+
+type PromptSectionSnapshot = {
+  name: string;
+  originalChars: number;
+  finalChars: number;
+  truncated: boolean;
+};
+
+type PromptBuildAudit = {
+  caps: ComposePromptCaps;
+  totalCharsBefore: number;
+  totalCharsAfter: number;
+  hardTruncated: boolean;
+  sections: PromptSectionSnapshot[];
+};
+
+type PromptBuildResult = {
+  prompt: string;
+  audit: PromptBuildAudit;
+};
+
+function parseBoundedInt(value: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+function resolveLlmContextWindowTokens() {
+  const raw = process.env.RAG_LLM_CONTEXT_WINDOW || process.env.LLM_CONTEXT_WINDOW || process.env.VLLM_CONTEXT_WINDOW;
+  return parseBoundedInt(raw, DEFAULT_LLM_CONTEXT_WINDOW_TOKENS, 512, 262_144);
+}
+
+function resolveComposePromptCaps(): ComposePromptCaps {
+  const contextWindowTokens = resolveLlmContextWindowTokens();
+  const defaultTotalCap = Math.max(3_000, Math.min(30_000, Math.trunc(contextWindowTokens * 1.6)));
+  return {
+    totalMaxChars: parseBoundedInt(process.env.COMPOSE_PROMPT_MAX_CHARS, defaultTotalCap, 1_500, 120_000),
+    templateMaxChars: parseBoundedInt(process.env.COMPOSE_TEMPLATE_MAX_CHARS, 1_800, 300, 30_000),
+    conversationMaxChars: parseBoundedInt(process.env.COMPOSE_CONVERSATION_MAX_CHARS, 2_400, 300, 60_000),
+    processStateMaxChars: parseBoundedInt(process.env.COMPOSE_PROCESS_STATE_MAX_CHARS, 1_400, 200, 40_000),
+    prefsMaxChars: parseBoundedInt(process.env.COMPOSE_PREFS_MAX_CHARS, 1_000, 120, 20_000),
+    evidenceMaxChars: parseBoundedInt(process.env.COMPOSE_EVIDENCE_MAX_CHARS, 3_600, 400, 60_000),
+    planMaxChars: parseBoundedInt(process.env.COMPOSE_PLAN_MAX_CHARS, 1_200, 200, 20_000),
+    userMessageMaxChars: parseBoundedInt(process.env.COMPOSE_USER_MESSAGE_MAX_CHARS, 3_200, 200, 40_000),
+  };
+}
+
+function clipToLimit(text: string, maxChars: number, label: string): { value: string; truncated: boolean } {
+  const normalized = `${text || ""}`.trim();
+  if (!normalized) return { value: "", truncated: false };
+  const safeMax = Math.max(48, Math.trunc(maxChars));
+  if (normalized.length <= safeMax) {
+    return { value: normalized, truncated: false };
+  }
+  const suffix = `\n...[${label} truncado para caber no limite de contexto]`;
+  const bodyCap = Math.max(24, safeMax - suffix.length);
+  return {
+    value: `${normalized.slice(0, bodyCap).trimEnd()}${suffix}`,
+    truncated: true,
+  };
+}
 
 function renderConversation(conversation: PipelineContext["conversation"]) {
   return (conversation || [])
@@ -85,30 +160,34 @@ export class ComposeStage implements Stage {
     return process.env.ACADEMIC_DEFAULT_LANG || "pt-BR";
   }
 
-  private buildPromptFromContext(ctx: PipelineContext) {
-    const targetLanguage = this.resolveTargetLanguage(ctx);
-    const conversation = renderConversation(ctx.conversation);
-    const evidence = renderEvidence(ctx);
-    const constraints = renderConstraints(ctx);
-    const plan = renderPlan(ctx);
-    const processState = serializeProcessState(ctx);
-    const prefs = serializePrefs(ctx);
-    const genre = `${ctx.genre || "GENERIC_ACADEMIC"}`;
-    const templateTitle = `${ctx.templateSpec?.title || "Template academico generico"}`;
-    const templateSections = renderTemplate(ctx);
-    const noInfoToken = placeholderForMissingInfo(targetLanguage);
-
+  private assemblePrompt(params: {
+    targetLanguage: string;
+    genre: string;
+    templateTitle: string;
+    noInfoToken: string;
+    constraints: string;
+    templateSections: string;
+    conversation: string;
+    processState: string;
+    prefs: string;
+    evidence: string;
+    plan: string;
+    userMessage: string;
+    mode: PipelineContext["mode"];
+    intentType: string;
+    intentConfidence: number;
+  }) {
     return [
       "CONTRATO DE IDIOMA:",
-      `- Responda SOMENTE em: ${targetLanguage}.`,
+      `- Responda SOMENTE em: ${params.targetLanguage}.`,
       "- Nao mude para outro idioma sem pedido explicito do usuario.",
       "- Se houver mistura de idiomas, use o idioma dominante da mensagem atual.",
       "",
       "CONTRATO DE GENERO ACADEMICO:",
-      `- Gere no genero: ${genre}.`,
-      `- Template selecionado: ${templateTitle}.`,
+      `- Gere no genero: ${params.genre}.`,
+      `- Template selecionado: ${params.templateTitle}.`,
       "- Use os titulos de secao do template como estrutura principal da resposta.",
-      `- Se faltar informacao em secao obrigatoria, escreva exatamente: "${noInfoToken}".`,
+      `- Se faltar informacao em secao obrigatoria, escreva exatamente: "${params.noInfoToken}".`,
       "- Nao invente dados, referencias ou resultados nao sustentados por evidencia.",
       "",
       "CONTRATO DE ESPECIFICIDADE:",
@@ -117,39 +196,255 @@ export class ComposeStage implements Stage {
       "- Evite respostas genericas e evite repetir paragrafos entre secoes.",
       "- Respeite todas as restricoes explicitas.",
       "",
-      `MODO: ${ctx.mode}`,
-      `INTENCAO: ${ctx.intent?.type || "geral"} (confianca=${Number(ctx.intent?.confidence || 0).toFixed(2)})`,
-      `RESTRICOES: ${constraints}`,
+      `MODO: ${params.mode}`,
+      `INTENCAO: ${params.intentType} (confianca=${Number(params.intentConfidence).toFixed(2)})`,
+      `RESTRICOES: ${params.constraints}`,
       "",
       "TEMPLATE (SECOES E REGRAS):",
-      templateSections,
+      params.templateSections || "(template nao definido)",
       "",
       "CONVERSA RELEVANTE:",
-      conversation || "(nenhuma)",
+      params.conversation || "(nenhuma)",
       "",
       "ESTADO DO PROCESSO:",
-      processState,
+      params.processState || "{}",
       "",
       "PREFERENCIAS PERSISTENTES:",
-      prefs,
+      params.prefs || "{}",
       "",
       "EVIDENCIAS:",
-      evidence || "(nenhuma)",
+      params.evidence || "(nenhuma)",
       "",
       "PLANO DE RESPOSTA:",
-      plan,
+      params.plan || "- Resposta direta",
       "",
       "MENSAGEM DO USUARIO:",
-      ctx.userMessage,
+      params.userMessage || "(vazia)",
       "",
-      `Escreva agora a resposta final no idioma ${targetLanguage}, com foco direto no pedido e no template academico selecionado.`,
+      `Escreva agora a resposta final no idioma ${params.targetLanguage}, com foco direto no pedido e no template academico selecionado.`,
     ].join("\n");
+  }
+
+  private buildPromptFromContext(ctx: PipelineContext): PromptBuildResult {
+    const targetLanguage = this.resolveTargetLanguage(ctx);
+    const constraints = renderConstraints(ctx);
+    const genre = `${ctx.genre || "GENERIC_ACADEMIC"}`;
+    const templateTitle = `${ctx.templateSpec?.title || "Template academico generico"}`;
+    const noInfoToken = placeholderForMissingInfo(targetLanguage);
+    const caps = resolveComposePromptCaps();
+
+    const rawSections = {
+      templateSections: renderTemplate(ctx),
+      conversation: renderConversation(ctx.conversation),
+      processState: serializeProcessState(ctx),
+      prefs: serializePrefs(ctx),
+      evidence: renderEvidence(ctx),
+      plan: renderPlan(ctx),
+      userMessage: `${ctx.userMessage || ""}`.trim(),
+    };
+
+    const originalPrompt = this.assemblePrompt({
+      targetLanguage,
+      genre,
+      templateTitle,
+      noInfoToken,
+      constraints,
+      templateSections: rawSections.templateSections,
+      conversation: rawSections.conversation,
+      processState: rawSections.processState,
+      prefs: rawSections.prefs,
+      evidence: rawSections.evidence,
+      plan: rawSections.plan,
+      userMessage: rawSections.userMessage,
+      mode: ctx.mode,
+      intentType: ctx.intent?.type || "geral",
+      intentConfidence: Number(ctx.intent?.confidence || 0),
+    });
+
+    const sections = {
+      templateSections: clipToLimit(rawSections.templateSections, caps.templateMaxChars, "template"),
+      conversation: clipToLimit(rawSections.conversation, caps.conversationMaxChars, "conversa"),
+      processState: clipToLimit(rawSections.processState, caps.processStateMaxChars, "estado do processo"),
+      prefs: clipToLimit(rawSections.prefs, caps.prefsMaxChars, "preferencias"),
+      evidence: clipToLimit(rawSections.evidence, caps.evidenceMaxChars, "evidencias"),
+      plan: clipToLimit(rawSections.plan, caps.planMaxChars, "plano"),
+      userMessage: clipToLimit(rawSections.userMessage, caps.userMessageMaxChars, "mensagem do usuario"),
+    };
+
+    let prompt = this.assemblePrompt({
+      targetLanguage,
+      genre,
+      templateTitle,
+      noInfoToken,
+      constraints,
+      templateSections: sections.templateSections.value,
+      conversation: sections.conversation.value,
+      processState: sections.processState.value,
+      prefs: sections.prefs.value,
+      evidence: sections.evidence.value,
+      plan: sections.plan.value,
+      userMessage: sections.userMessage.value,
+      mode: ctx.mode,
+      intentType: ctx.intent?.type || "geral",
+      intentConfidence: Number(ctx.intent?.confidence || 0),
+    });
+
+    if (prompt.length > caps.totalMaxChars) {
+      const shrinkPlan: Array<{ key: keyof typeof sections; min: number; ratio: number; label: string }> = [
+        { key: "evidence", min: 500, ratio: 0.55, label: "evidencias" },
+        { key: "conversation", min: 400, ratio: 0.55, label: "conversa" },
+        { key: "processState", min: 320, ratio: 0.6, label: "estado do processo" },
+        { key: "plan", min: 280, ratio: 0.6, label: "plano" },
+        { key: "templateSections", min: 420, ratio: 0.65, label: "template" },
+        { key: "prefs", min: 220, ratio: 0.65, label: "preferencias" },
+        { key: "userMessage", min: 320, ratio: 0.7, label: "mensagem do usuario" },
+      ];
+      for (const step of shrinkPlan) {
+        if (prompt.length <= caps.totalMaxChars) break;
+        const current = sections[step.key].value;
+        if (!current) continue;
+        const nextLimit = Math.max(step.min, Math.trunc(current.length * step.ratio));
+        sections[step.key] = clipToLimit(current, nextLimit, step.label);
+        prompt = this.assemblePrompt({
+          targetLanguage,
+          genre,
+          templateTitle,
+          noInfoToken,
+          constraints,
+          templateSections: sections.templateSections.value,
+          conversation: sections.conversation.value,
+          processState: sections.processState.value,
+          prefs: sections.prefs.value,
+          evidence: sections.evidence.value,
+          plan: sections.plan.value,
+          userMessage: sections.userMessage.value,
+          mode: ctx.mode,
+          intentType: ctx.intent?.type || "geral",
+          intentConfidence: Number(ctx.intent?.confidence || 0),
+        });
+      }
+    }
+
+    if (prompt.length > caps.totalMaxChars) {
+      sections.templateSections = {
+        value: "(template resumido por limite de contexto)",
+        truncated: true,
+      };
+      sections.conversation = {
+        value: "(conversa omitida por limite de contexto)",
+        truncated: true,
+      };
+      sections.processState = {
+        value: "{}",
+        truncated: true,
+      };
+      sections.prefs = {
+        value: "{}",
+        truncated: true,
+      };
+      sections.evidence = {
+        value: "(evidencias resumidas por limite de contexto)",
+        truncated: true,
+      };
+      sections.plan = {
+        value: "- Resposta direta",
+        truncated: true,
+      };
+      prompt = this.assemblePrompt({
+        targetLanguage,
+        genre,
+        templateTitle,
+        noInfoToken,
+        constraints,
+        templateSections: sections.templateSections.value,
+        conversation: sections.conversation.value,
+        processState: sections.processState.value,
+        prefs: sections.prefs.value,
+        evidence: sections.evidence.value,
+        plan: sections.plan.value,
+        userMessage: sections.userMessage.value,
+        mode: ctx.mode,
+        intentType: ctx.intent?.type || "geral",
+        intentConfidence: Number(ctx.intent?.confidence || 0),
+      });
+    }
+
+    let hardTruncated = false;
+    if (prompt.length > caps.totalMaxChars) {
+      prompt = clipToLimit(prompt, caps.totalMaxChars, "prompt consolidado").value;
+      hardTruncated = true;
+    }
+
+    const audit: PromptBuildAudit = {
+      caps,
+      totalCharsBefore: originalPrompt.length,
+      totalCharsAfter: prompt.length,
+      hardTruncated,
+      sections: [
+        {
+          name: "templateSections",
+          originalChars: rawSections.templateSections.length,
+          finalChars: sections.templateSections.value.length,
+          truncated: sections.templateSections.truncated || sections.templateSections.value.length < rawSections.templateSections.length,
+        },
+        {
+          name: "conversation",
+          originalChars: rawSections.conversation.length,
+          finalChars: sections.conversation.value.length,
+          truncated: sections.conversation.truncated || sections.conversation.value.length < rawSections.conversation.length,
+        },
+        {
+          name: "processState",
+          originalChars: rawSections.processState.length,
+          finalChars: sections.processState.value.length,
+          truncated: sections.processState.truncated || sections.processState.value.length < rawSections.processState.length,
+        },
+        {
+          name: "prefs",
+          originalChars: rawSections.prefs.length,
+          finalChars: sections.prefs.value.length,
+          truncated: sections.prefs.truncated || sections.prefs.value.length < rawSections.prefs.length,
+        },
+        {
+          name: "evidence",
+          originalChars: rawSections.evidence.length,
+          finalChars: sections.evidence.value.length,
+          truncated: sections.evidence.truncated || sections.evidence.value.length < rawSections.evidence.length,
+        },
+        {
+          name: "plan",
+          originalChars: rawSections.plan.length,
+          finalChars: sections.plan.value.length,
+          truncated: sections.plan.truncated || sections.plan.value.length < rawSections.plan.length,
+        },
+        {
+          name: "userMessage",
+          originalChars: rawSections.userMessage.length,
+          finalChars: sections.userMessage.value.length,
+          truncated: sections.userMessage.truncated || sections.userMessage.value.length < rawSections.userMessage.length,
+        },
+      ],
+    };
+
+    return { prompt, audit };
   }
 
   async run(ctx: PipelineContext) {
     ctx.progress.stage = "compose";
     const targetLanguage = this.resolveTargetLanguage(ctx);
-    const consolidatedPrompt = this.buildPromptFromContext(ctx);
+    const promptBuild = this.buildPromptFromContext(ctx);
+    const consolidatedPrompt = promptBuild.prompt;
+    const compactedSections = promptBuild.audit.sections.filter((item) => item.truncated).map((item) => item.name);
+    if (compactedSections.length || promptBuild.audit.hardTruncated) {
+      logger.warn("ASSISTANT_COMPOSE_PROMPT_COMPACTED", {
+        requestId: ctx.requestId,
+        totalCharsBefore: promptBuild.audit.totalCharsBefore,
+        totalCharsAfter: promptBuild.audit.totalCharsAfter,
+        capChars: promptBuild.audit.caps.totalMaxChars,
+        compactedSections,
+        hardTruncated: promptBuild.audit.hardTruncated,
+      });
+    }
     const queryInput = {
       ...ctx.ragInput,
       question: consolidatedPrompt,

@@ -80,6 +80,17 @@ function hasBlendScopeIntent(question: string) {
   );
 }
 
+function hasDeicticDocumentReference(question: string) {
+  const normalized = normalizeText(question)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  if (!normalized) return false;
+  const hasDocumentNoun = /\b(arquivo|documento|anexo|anexado|pdf|obra|texto|material)\b/.test(normalized);
+  if (!hasDocumentNoun) return false;
+  return /\b(esse|essa|este|esta|deste|desta|desse|dessa|anexo|anexado)\b/.test(normalized);
+}
+
 export function buildComposerRagContract(input: ComposerRagContractInput): ComposerRagContract {
   const question = normalizeText(input.question);
   if (!question) {
@@ -100,15 +111,16 @@ export function buildComposerRagContract(input: ComposerRagContractInput): Compo
   if (composerAttachmentIds.length > 0) {
     const strictFromInput = typeof input.strictDocumentGrounding === "boolean" ? input.strictDocumentGrounding : undefined;
     const strictByIntent = explicitStrictIntent && !explicitBlendIntent;
-    const useStrictComposerScope = strictFromInput === true || (strictFromInput === undefined && strictByIntent);
+    const strictByReference = hasDeicticDocumentReference(question) && !explicitBlendIntent;
+    const useStrictComposerScope =
+      strictFromInput === true || (strictFromInput === undefined && (strictByIntent || strictByReference));
     priorityDocumentIds = [...composerAttachmentIds];
+    documentIds = [...composerAttachmentIds];
     if (useStrictComposerScope) {
       scopeMode = "composer_strict";
-      documentIds = [...composerAttachmentIds];
       scopeSource = "composer_attachments";
     } else {
       scopeMode = "composer_plus_rag";
-      documentIds = [];
       scopeSource = "composer_attachments";
     }
   } else {
