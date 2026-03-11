@@ -2313,72 +2313,74 @@ export default function IdentityRuntimePage() {
     >
       {isStageMaximized ? <div className="fixed inset-0 z-[140] bg-black/70" onClick={() => setIsStageMaximized(false)} /> : null}
       <div className="w-full">
-        <header
-          className={`m-0 rounded-none border-0 bg-[#05070d] px-3 py-2 shadow-none ${
-            isEmbedded ? "-mx-2 -mt-2 sm:-mx-3 sm:-mt-3" : "-mx-4 -mt-4 md:-mx-6"
-          }`}
-        >
-          <div className="relative flex min-h-8 items-center justify-between gap-2">
-            <div className="z-[1] flex min-w-0 items-center">
-              {!isEmbedded ? (
-                <Link
-                  href="/knexai/web"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                >
-                  <ArrowLeft size={14} />
-                  <span className="hidden sm:inline">Voltar ao chat</span>
-                </Link>
-              ) : (
-                <span aria-hidden="true" className="inline-block h-7 w-7" />
-              )}
-            </div>
-            <p className="pointer-events-none absolute inset-x-0 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Identity Runtime Layer
-            </p>
-            <div className="z-[1] ml-auto flex items-center gap-2">
-              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusInfo.className}`}>
-                {statusInfo.label}
-              </span>
-              {!isEmbedded ? (
-                <Link
-                  href="/knexai/web"
+        {!isStreamOnly ? (
+          <header
+            className={`m-0 rounded-none border-0 bg-[#05070d] px-3 py-2 shadow-none ${
+              isEmbedded ? "-mx-2 -mt-2 sm:-mx-3 sm:-mt-3" : "-mx-4 -mt-4 md:-mx-6"
+            }`}
+          >
+            <div className="relative flex min-h-8 items-center justify-between gap-2">
+              <div className="z-[1] flex min-w-0 items-center">
+                {!isEmbedded ? (
+                  <Link
+                    href="/knexai/web"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    <ArrowLeft size={14} />
+                    <span className="hidden sm:inline">Voltar ao chat</span>
+                  </Link>
+                ) : (
+                  <span aria-hidden="true" className="inline-block h-7 w-7" />
+                )}
+              </div>
+              <p className="pointer-events-none absolute inset-x-0 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Identity Runtime Layer
+              </p>
+              <div className="z-[1] ml-auto flex items-center gap-2">
+                <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusInfo.className}`}>
+                  {statusInfo.label}
+                </span>
+                {!isEmbedded ? (
+                  <Link
+                    href="/knexai/web"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Configuracoes no chat
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void loadPanel()}
                   className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  disabled={loading}
                 >
-                  Configuracoes no chat
-                </Link>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => void loadPanel()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                disabled={loading}
-              >
-                <RefreshCcw size={13} />
-                <span className="hidden sm:inline">Atualizar</span>
-              </button>
+                  <RefreshCcw size={13} />
+                  <span className="hidden sm:inline">Atualizar</span>
+                </button>
+              </div>
             </div>
-          </div>
-          {error ? (
-            <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700">{error}</div>
-          ) : null}
-          {runtimeNotice ? (
-            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{runtimeNotice}</div>
-          ) : null}
-        </header>
+            {error ? (
+              <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700">{error}</div>
+            ) : null}
+            {runtimeNotice ? (
+              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{runtimeNotice}</div>
+            ) : null}
+          </header>
+        ) : null}
 
         <section className={isStreamOnly ? "grid gap-4" : "grid gap-4 xl:grid-cols-3 xl:items-stretch"}>
           <article
-            className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${isStreamOnly ? "" : "xl:col-span-2"} ${
+            className={`${isStreamOnly ? "relative bg-transparent p-0 shadow-none" : "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2"} ${
               isStageMaximized ? "fixed inset-2 z-[150] flex flex-col" : ""
             }`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                <Camera size={18} className="text-sky-500" />
-                {isStreamOnly ? "Ambiente de Streaming" : "Palco de Camera e Analise"}
-              </h2>
-              <div className="flex flex-wrap items-center gap-2">
-                {!isStreamOnly ? (
+            {!isStreamOnly ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                  <Camera size={18} className="text-sky-500" />
+                  Palco de Camera e Analise
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setStageLayoutMode((current) => (current === "multi" ? "single" : "multi"))}
@@ -2386,8 +2388,6 @@ export default function IdentityRuntimePage() {
                   >
                     {stageLayoutMode === "multi" ? "Somente principal" : "Principal + miniaturas"}
                   </button>
-                ) : null}
-                {!isStreamOnly ? (
                   <button
                     type="button"
                     onClick={() => setIsStageMaximized((current) => !current)}
@@ -2395,8 +2395,6 @@ export default function IdentityRuntimePage() {
                   >
                     {isStageMaximized ? "Restaurar palco" : "Maximizar palco"}
                   </button>
-                ) : null}
-                {!isStreamOnly ? (
                   <>
                     <button
                       type="button"
@@ -2425,42 +2423,34 @@ export default function IdentityRuntimePage() {
                       Reconectar
                     </button>
                   </>
-                ) : null}
+                </div>
               </div>
-            </div>
-            <div className={`mt-3 grid gap-3 ${!isStreamOnly && stageLayoutMode === "multi" ? "lg:grid-cols-[minmax(0,1fr)_230px]" : "grid-cols-1"}`}>
-              <div className={isStreamOnly ? "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" : ""}>
-                {isStreamOnly ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (cameraState === "streaming") {
-                        stopCameraPreview();
-                        return;
-                      }
-                      void startCameraPreview();
-                    }}
-                    title={cameraState === "streaming" ? "Parar camera" : "Iniciar camera"}
-                    className={`inline-flex h-20 w-10 items-center justify-center border ${
-                      cameraState === "streaming"
-                        ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                        : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                    }`}
-                  >
-                    {cameraState === "streaming" ? <CirclePause size={16} /> : <CirclePlay size={16} />}
-                  </button>
-                ) : null}
-                <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black">
-                  <div className="absolute left-3 top-3 z-[3] rounded-md bg-black/50 px-2 py-1 text-xs text-slate-200">
-                    Principal: {primaryTile?.name || "Camera"}
-                  </div>
+            ) : null}
+            <div className={`${isStreamOnly ? "mt-0" : "mt-3"} grid gap-3 ${!isStreamOnly && stageLayoutMode === "multi" ? "lg:grid-cols-[minmax(0,1fr)_230px]" : "grid-cols-1"}`}>
+              <div>
+                <div
+                  className={`relative overflow-hidden border-0 bg-black outline-none ring-0 shadow-none ${isStreamOnly ? "" : "rounded-xl border border-slate-200"}`}
+                >
+                  {!isStreamOnly ? (
+                    <div className="absolute left-3 top-3 z-[3] rounded-md bg-black/50 px-2 py-1 text-xs text-slate-200">
+                      Principal: {primaryTile?.name || "Camera"}
+                    </div>
+                  ) : null}
                   <div className="relative aspect-video w-full bg-black">
                     <video
                       ref={localVideoRef}
                       autoPlay
                       playsInline
                       muted
-                      className={`h-full w-full ${isStreamOnly ? "object-contain" : "object-cover"}`}
+                      className={`block h-full w-full border-0 outline-none ring-0 shadow-none ${isStreamOnly ? "object-contain" : "object-cover"}`}
+                      style={
+                        isStreamOnly
+                          ? {
+                              width: "calc(100% + 2px)",
+                              marginLeft: "-1px",
+                            }
+                          : undefined
+                      }
                     />
                     {cameraState === "streaming" && streamFaceBoxes.length > 0 ? (
                       <div className="pointer-events-none absolute inset-0 z-[2]">
@@ -2513,16 +2503,6 @@ export default function IdentityRuntimePage() {
                     </button>
                   ) : null}
                 </div>
-                {isStreamOnly ? (
-                  <button
-                    type="button"
-                    onClick={() => void startCameraPreview()}
-                    title="Reconectar camera"
-                    className="inline-flex h-20 w-10 items-center justify-center border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                  >
-                    <RefreshCcw size={16} />
-                  </button>
-                ) : null}
               </div>
               {!isStreamOnly && stageLayoutMode === "multi" ? (
                 <div className="grid gap-3">
