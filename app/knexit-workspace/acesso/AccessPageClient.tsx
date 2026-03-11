@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Session, User } from "@supabase/supabase-js";
 import { identitySupabase } from "@/lib/identitySupabaseClient";
 import { writeKnexchatProfileSeed } from "@/lib/knexchat/profileSeed";
+import SettingsFloatingModal, { type SettingsSectionKey } from "./_components/SettingsFloatingModal";
 
 const supabase = identitySupabase();
 
@@ -200,6 +201,8 @@ export default function KnexitWorkspaceAccessPage({
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionKey>("geral");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaError, setCaptchaError] = useState<string | null>(null);
@@ -595,19 +598,9 @@ export default function KnexitWorkspaceAccessPage({
     router.push("/knexit-workspace/acesso?stay=1");
   };
 
-  const clearStoredAccounts = () => {
-    if (typeof window === "undefined") return;
-    localStorage.removeItem(ACCOUNT_SESSIONS_KEY);
-    localStorage.removeItem(RECENT_ACCOUNTS_KEY);
-    localStorage.removeItem(TRUSTED_ACCOUNTS_KEY);
-    setRecentAccounts([]);
-    setStoredAccounts({});
-  };
-
-  async function handleSignOutAll() {
+  async function handleSignOut() {
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
-    clearStoredAccounts();
     if (typeof window !== "undefined") {
       localStorage.removeItem("loginEmailHint");
     }
@@ -621,6 +614,23 @@ export default function KnexitWorkspaceAccessPage({
       }
     }
   }
+
+  const navigateFromMenu = (href: string) => {
+    setMenuOpen(false);
+    setAccountSwitcherOpen(false);
+    if (typeof window !== "undefined") {
+      window.location.assign(href);
+    } else {
+      router.push(href);
+    }
+  };
+
+  const openSettingsModal = (section: SettingsSectionKey = "geral") => {
+    setMenuOpen(false);
+    setAccountSwitcherOpen(false);
+    setSettingsInitialSection(section);
+    setSettingsModalOpen(true);
+  };
 
   const handleAvatarSelect = () => {
     avatarInputRef.current?.click();
@@ -1382,6 +1392,20 @@ export default function KnexitWorkspaceAccessPage({
     const cleaned = localPart.replace(/[._-]+/g, " ").trim();
     return toTitleCase(cleaned) || email;
   }, []);
+  const profileDisplayName = useMemo(() => {
+    if (profile.name && profile.name !== FALLBACK_PROFILE.name) return profile.name;
+    if (EMAIL_REGEX.test(profile.email)) return formatAccountName(profile.email);
+    return "Conta Knex";
+  }, [formatAccountName, profile.email, profile.name]);
+  const profileHandle = useMemo(() => {
+    const fallback = profileDisplayName || "knexit";
+    const source = EMAIL_REGEX.test(profile.email) ? profile.email.split("@")[0] : fallback;
+    const normalized = String(source || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "");
+    return `@${normalized || "knexit"}`;
+  }, [profile.email, profileDisplayName]);
 
   const handlePasswordToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -1531,17 +1555,9 @@ export default function KnexitWorkspaceAccessPage({
                 {menuOpen && (
                   <div
                     role="menu"
-                    className="absolute right-0 z-50 mt-3 w-[min(92vw,320px)] rounded-3xl border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.6)]"
+                    className="absolute right-0 bottom-full z-50 mb-3 w-[min(92vw,320px)] rounded-3xl border border-slate-200 bg-[#eef3f8] p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.6)]"
                   >
                     <div className="relative flex items-center justify-end">
-                      <div className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center">
-                        <p className="text-xs font-semibold text-blue-600">{profile.email}</p>
-                        {profile.email.includes("@") ? (
-                          <p className="text-[11px] text-blue-500">
-                            Gerenciado por {profile.email.split("@")[1]}
-                          </p>
-                        ) : null}
-                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -1555,22 +1571,22 @@ export default function KnexitWorkspaceAccessPage({
                       </button>
                     </div>
 
-                    <div className="mt-4 flex flex-col items-center text-center">
-                      <div className="relative">
+                    <div className="mt-1 rounded-3xl border border-slate-200 bg-slate-50/70 p-3">
+                      <div className="flex items-center gap-3 px-1">
                         <div
-                          className="relative h-20 w-20 rounded-full p-[3px]"
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-[2px]"
                           style={{
                             backgroundImage:
                               "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
                           }}
                         >
-                          <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-semibold text-slate-700">
+                          <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white text-xs font-semibold text-slate-700">
                             {profile.imageUrl ? (
                               <Image
                                 src={profile.imageUrl}
                                 alt={profile.name}
-                                width={80}
-                                height={80}
+                                width={40}
+                                height={40}
                                 className="h-full w-full rounded-full object-cover"
                                 unoptimized
                               />
@@ -1579,32 +1595,71 @@ export default function KnexitWorkspaceAccessPage({
                             )}
                           </div>
                         </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[27px] leading-7 font-semibold text-slate-900">{profileDisplayName}</p>
+                          <p className="truncate text-sm text-slate-500">{profileHandle}</p>
+                        </div>
                         <button
                           type="button"
                           onClick={handleAvatarSelect}
                           disabled={avatarUploading}
-                          className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="flex h-7 w-7 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
                           aria-label="Atualizar foto"
                         >
                           <CameraIcon />
                         </button>
                       </div>
-                      <p className="mt-3 text-lg font-semibold text-slate-900">Olá, {profile.name}!</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        if (typeof window !== "undefined") {
-                          window.location.assign("/knexit-workspace/conta");
-                        } else {
-                          router.push("/knexit-workspace/conta");
-                        }
-                      }}
-                      className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Gerenciar sua conta Knex
-                    </button>
-                  </div>
+                      <div className="mt-3 h-px bg-slate-200" />
+                      <div className="mt-2 space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => navigateFromMenu("/knexit-workspace/precos")}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+                        >
+                          <MenuUpgradeIcon />
+                          <span>Fazer upgrade do plano</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openSettingsModal("personalizacao")}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+                        >
+                          <MenuTuneIcon />
+                          <span>Personalizacao</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openSettingsModal("geral")}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+                        >
+                          <MenuSettingsIcon />
+                          <span>Configuracoes</span>
+                        </button>
+                        <div className="my-1 h-px bg-slate-200" />
+                        <button
+                          type="button"
+                          onClick={() => navigateFromMenu("/lobby/recursos/faq")}
+                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+                        >
+                          <span className="flex items-center gap-3">
+                            <MenuHelpIcon />
+                            <span>Ajuda</span>
+                          </span>
+                          <MenuChevronRightIcon />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSignOut}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+                        >
+                          <ExitIcon />
+                          <span>Sair</span>
+                        </button>
+                      </div>
+                      {profile.email.includes("@") ? (
+                        <p className="mt-2 px-3 text-[11px] text-slate-500">Gerenciado por {profile.email.split("@")[1]}</p>
+                      ) : null}
+                    </div>
 
                   <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
                     <button
@@ -1679,14 +1734,6 @@ export default function KnexitWorkspaceAccessPage({
                           </span>
                           <span className="text-sm font-semibold text-slate-700">Adicionar outra conta</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={handleSignOutAll}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left text-rose-600 hover:bg-rose-50/40"
-                        >
-                          <ExitIcon />
-                          <span className="text-sm font-semibold">Sair de todas as contas</span>
-                        </button>
                       </div>
                     )}
                   </div>
@@ -1703,6 +1750,11 @@ export default function KnexitWorkspaceAccessPage({
                     </div>
                   </div>
                 )}
+                <SettingsFloatingModal
+                  open={settingsModalOpen}
+                  onClose={() => setSettingsModalOpen(false)}
+                  initialSection={settingsInitialSection}
+                />
               </div>
             </div>
           </div>
@@ -2131,6 +2183,69 @@ function PlusIcon() {
         strokeWidth="1.8"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+function MenuUpgradeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <path
+        d="m12 4 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7L12 4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MenuTuneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9M4 12h4M12 12h8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="14" cy="7" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="8" cy="12" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="8" cy="17" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function MenuSettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <path
+        d="M12 8.2a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path
+        d="m19.4 13.2.1-2.4-2.1-.7a5.9 5.9 0 0 0-.6-1.4l1.1-1.9-1.7-1.7-1.9 1.1c-.5-.2-1-.4-1.5-.5l-.7-2.2h-2.4l-.7 2.2c-.5.1-1 .3-1.5.5L6 5.1 4.3 6.8l1.1 1.9c-.3.4-.5.9-.6 1.4l-2.1.7.1 2.4 2.1.7c.1.5.3 1 .6 1.4l-1.1 1.9L6 18.9l1.9-1.1c.5.2 1 .4 1.5.5l.7 2.2h2.4l.7-2.2c.5-.1 1-.3 1.5-.5l1.9 1.1 1.7-1.7-1.1-1.9c.3-.4.5-.9.6-1.4l2.1-.7Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MenuHelpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9.4 9.7a2.6 2.6 0 1 1 4.5 1.8c-.8.8-1.4 1.2-1.4 2.2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="12" cy="16.8" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function MenuChevronRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-500" aria-hidden="true">
+      <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

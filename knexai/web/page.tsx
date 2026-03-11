@@ -1,22 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import {
   AlertTriangle,
   ArrowUp,
+  Baby,
+  Bell,
   Bold,
   Bot,
+  Blocks,
   Bookmark,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   CircleEllipsis,
-  Code2,
+  Clock3,
   Compass,
   Copy,
+  Database,
   ExternalLink,
   FileArchive,
   FileAudio,
@@ -32,13 +45,17 @@ import {
   Image as ImageIcon,
   Italic,
   LayoutGrid,
+  Lock,
+  KeyRound,
   List,
   ListOrdered,
   MessageSquarePlus,
+  MessageCircle,
   Maximize2,
   Mic,
   Minimize2,
   Minus,
+  LogOut,
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
@@ -47,6 +64,10 @@ import {
   ScanFace,
   ScanSearch,
   Search,
+  Settings,
+  Shield,
+  User,
+  Palette,
   Volume2,
   VolumeX,
   Underline,
@@ -198,6 +219,41 @@ type DocumentLookupResponse = {
     metadata?: Record<string, unknown> | null;
   };
 };
+type RestrictionsPayload = {
+  allow_shared_identity_memory: boolean;
+  max_prompt_chars: number;
+  note: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+};
+type RestrictionsApiResponse = {
+  ok: boolean;
+  message?: string;
+  auth_required?: boolean;
+  restrictions?: RestrictionsPayload;
+  row?: {
+    runtime_enabled: boolean;
+    runtime_paused: boolean;
+    runtime_state: string;
+    selected_source_id: string | null;
+    updated_at: string | null;
+  } | null;
+};
+type SuperadminSettingsSectionKey =
+  | "geral"
+  | "notificacoes"
+  | "personalizacao"
+  | "aplicativos"
+  | "agendamentos"
+  | "controlar-dados"
+  | "seguranca"
+  | "controles-parentais"
+  | "conta";
+type SuperadminSettingsSection = {
+  key: SuperadminSettingsSectionKey;
+  label: string;
+  icon: LucideIcon;
+};
 type ComposerDocumentReadiness = {
   embeddingStatus: EmbeddingStatus;
   ragReady: boolean;
@@ -255,12 +311,27 @@ type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognition;
 
 const SESSION_STORAGE_KEY = "knexai_session_id";
 const THREAD_CACHE_PREFIX = "knexai_threads_cache_v1";
+const SUPERADMIN_KEY_STORAGE = "knexai_superadmin_key";
+const SUPERADMIN_SETTINGS_SECTIONS: SuperadminSettingsSection[] = [
+  { key: "geral", label: "Geral", icon: Settings },
+  { key: "notificacoes", label: "Notificacoes", icon: Bell },
+  { key: "personalizacao", label: "Personalizacao", icon: Palette },
+  { key: "aplicativos", label: "Aplicativos", icon: Blocks },
+  { key: "agendamentos", label: "Agendamentos", icon: Clock3 },
+  { key: "controlar-dados", label: "Controlar dados", icon: Database },
+  { key: "seguranca", label: "Seguranca", icon: Shield },
+  { key: "controles-parentais", label: "Controles parentais", icon: Baby },
+  { key: "conta", label: "Conta", icon: User },
+];
 const WRITING_NAV_MIN_WIDTH_PERCENT = 16;
 const WRITING_NAV_MAX_WIDTH_PERCENT = 44;
 const WRITING_NAV_DEFAULT_WIDTH_PERCENT = 24;
 const WRITING_WORKS_MIN_WIDTH_PERCENT = 16;
 const WRITING_WORKS_MAX_WIDTH_PERCENT = 42;
 const WRITING_WORKS_DEFAULT_WIDTH_PERCENT = 22;
+const CHAT_SIDEBAR_MIN_WIDTH_PX = 248;
+const CHAT_SIDEBAR_MAX_WIDTH_PX = 420;
+const CHAT_SIDEBAR_DEFAULT_WIDTH_PX = 300;
 const WRITING_PAGE_FORMAT_PRESETS: Record<
   WritingPageFormat,
   {
@@ -287,6 +358,16 @@ const WRITING_DEFAULT_PAGE_FORMAT: WritingPageFormat = "a4";
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function sanitizeText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
 }
 
 function normalizeWorkTitle(sourcePath: string, fallbackId: number) {
@@ -676,7 +757,6 @@ const SIDEBAR_ACTIONS = [
   { id: "images", label: "Imagens", icon: ImageIcon },
   { id: "apps", label: "Aplicativos", icon: LayoutGrid },
   { id: "research", label: "Investigacao", icon: Compass },
-  { id: "code", label: "Codex", icon: Code2 },
 ];
 
 function makeThreadId() {
@@ -688,6 +768,11 @@ function makeThreadTitle(prompt: string) {
   if (!base) return "Novo chat";
   if (base.length <= 42) return base;
   return `${base.slice(0, 42)}...`;
+}
+
+function resolveDayStart(timestamp: number) {
+  const date = new Date(timestamp);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
 function formatElapsedLabel(elapsedMs: number | null) {
@@ -1044,6 +1129,14 @@ function Composer({
           >
             <span className="text-2xl leading-none">+</span>
           </button>
+          <Link
+            href="/knexai/proactive-assistant"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
+            title="Abrir assistente proativo"
+            aria-label="Abrir assistente proativo"
+          >
+            <Bot size={17} />
+          </Link>
           <button
             type="button"
             className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 hover:bg-blue-100"
@@ -1117,6 +1210,9 @@ export default function KnexAiPage() {
   const [error, setError] = useState<string | null>(null);
   const [isChatMode, setIsChatMode] = useState(false);
   const [activeMode, setActiveMode] = useState<WorkspaceMode>("chat");
+  const [chatSidebarWidthPx, setChatSidebarWidthPx] = useState(CHAT_SIDEBAR_DEFAULT_WIDTH_PX);
+  const [isChatSearchModalOpen, setIsChatSearchModalOpen] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
   const [isWritePanelMounted, setIsWritePanelMounted] = useState(false);
   const [isWritePanelVisible, setIsWritePanelVisible] = useState(false);
   const [sessionId, setSessionId] = useState("");
@@ -1174,6 +1270,22 @@ export default function KnexAiPage() {
   const [isIdentityPanelMinimized, setIsIdentityPanelMinimized] = useState(false);
   const [isIdentityPanelMaximized, setIsIdentityPanelMaximized] = useState(false);
   const [identityPanelPosition, setIdentityPanelPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isUserSidebarMenuOpen, setIsUserSidebarMenuOpen] = useState(false);
+  const [isSuperadminModalOpen, setIsSuperadminModalOpen] = useState(false);
+  const [superadminActiveSection, setSuperadminActiveSection] = useState<SuperadminSettingsSectionKey>("geral");
+  const [superadminKey, setSuperadminKey] = useState("");
+  const [allowSharedIdentityMemory, setAllowSharedIdentityMemory] = useState(true);
+  const [maxPromptChars, setMaxPromptChars] = useState(4800);
+  const [superadminNote, setSuperadminNote] = useState("");
+  const [superadminUpdatedBy, setSuperadminUpdatedBy] = useState("");
+  const [superadminRuntimeState, setSuperadminRuntimeState] = useState("-");
+  const [superadminUpdatedAt, setSuperadminUpdatedAt] = useState<string | null>(null);
+  const [superadminAuthRequired, setSuperadminAuthRequired] = useState(false);
+  const [isSuperadminLoading, setIsSuperadminLoading] = useState(false);
+  const [isSuperadminSaving, setIsSuperadminSaving] = useState(false);
+  const [superadminError, setSuperadminError] = useState<string | null>(null);
+  const [superadminFeedback, setSuperadminFeedback] = useState<string | null>(null);
+  const [isGeneralSecurityBannerVisible, setIsGeneralSecurityBannerVisible] = useState(true);
   const writingPageFormat = WRITING_DEFAULT_PAGE_FORMAT;
   const writingPagePreset = WRITING_PAGE_FORMAT_PRESETS[writingPageFormat];
   const writingPageWidthPx = writingPagePreset.widthPx;
@@ -1196,11 +1308,14 @@ export default function KnexAiPage() {
   const writingWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const writingNavResizeRef = useRef<{ startX: number; startWidthPercent: number } | null>(null);
   const writingWorksResizeRef = useRef<{ startX: number; startWidthPercent: number } | null>(null);
+  const chatSidebarResizeRef = useRef<{ startX: number; startWidthPx: number } | null>(null);
+  const chatSearchInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const speechSeedInputRef = useRef<string>("");
   const identityPanelRootRef = useRef<HTMLDivElement | null>(null);
   const identityPanelDragRef = useRef<{ offsetX: number; offsetY: number; width: number; height: number } | null>(null);
+  const userSidebarMenuRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const streamIdRef = useRef(0);
   const threadStoreLocksRef = useRef<Record<string, Promise<string | null>>>({});
@@ -1208,6 +1323,7 @@ export default function KnexAiPage() {
   const flushFrameRef = useRef<number | null>(null);
   const writePanelUnmountTimerRef = useRef<number | null>(null);
   const composerIngestionTasksRef = useRef(new Map<string, { cancelled: boolean }>());
+  const superadminAutoLoadRef = useRef(false);
 
   const activeThread = useMemo(() => threads.find((item) => item.id === activeThreadId) ?? threads[0], [activeThreadId, threads]);
   const activeMessages = activeThread?.messages ?? initialMessages;
@@ -1260,6 +1376,130 @@ export default function KnexAiPage() {
       return title.includes(query) || path.includes(query) || status.includes(query);
     });
   }, [writingWorks, writingWorksQuery]);
+  const sortedThreads = useMemo(() => [...threads].sort((a, b) => b.updatedAt - a.updatedAt), [threads]);
+  const filteredChatThreads = useMemo(() => {
+    const query = chatSearchQuery.trim().toLowerCase();
+    if (!query) return sortedThreads;
+    return sortedThreads.filter((thread) => thread.title.toLowerCase().includes(query));
+  }, [chatSearchQuery, sortedThreads]);
+  const chatSearchThreadGroups = useMemo(() => {
+    const nowStart = resolveDayStart(Date.now());
+    const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const groups = new Map<string, ChatThread[]>();
+    for (const thread of filteredChatThreads) {
+      const safeUpdatedAt = Number.isFinite(thread.updatedAt) ? thread.updatedAt : Date.now();
+      const threadStart = resolveDayStart(safeUpdatedAt);
+      const diffDays = Math.floor((nowStart - threadStart) / 86_400_000);
+      const label =
+        diffDays <= 0 ? "Hoje" : diffDays === 1 ? "Ontem" : dateFormatter.format(new Date(safeUpdatedAt));
+      const existing = groups.get(label);
+      if (existing) {
+        existing.push(thread);
+      } else {
+        groups.set(label, [thread]);
+      }
+    }
+    return Array.from(groups.entries()).map(([label, groupedThreads]) => ({ label, threads: groupedThreads }));
+  }, [filteredChatThreads]);
+  const superadminRequestHeaders = useMemo<Record<string, string>>(() => {
+    const headers: Record<string, string> = {};
+    const key = sanitizeText(superadminKey);
+    if (key) {
+      headers["x-superadmin-key"] = key;
+    }
+    return headers;
+  }, [superadminKey]);
+  const superadminActiveSectionMeta = useMemo(
+    () => SUPERADMIN_SETTINGS_SECTIONS.find((item) => item.key === superadminActiveSection) ?? SUPERADMIN_SETTINGS_SECTIONS[0],
+    [superadminActiveSection],
+  );
+
+  const loadSuperadminRestrictions = useCallback(async () => {
+    setIsSuperadminLoading(true);
+    setSuperadminError(null);
+    setSuperadminFeedback(null);
+    try {
+      const response = await fetch("/api/identity/superadmin/restrictions", {
+        method: "GET",
+        headers: superadminRequestHeaders,
+        cache: "no-store",
+      });
+      const payload = await parseJsonResponse<RestrictionsApiResponse>(response);
+      if (!response.ok || !payload?.ok || !payload.restrictions) {
+        setSuperadminAuthRequired(Boolean(payload?.auth_required));
+        setSuperadminError(payload?.message || `Falha ao carregar restricoes (HTTP ${response.status}).`);
+        return;
+      }
+      setSuperadminAuthRequired(Boolean(payload.auth_required));
+      setAllowSharedIdentityMemory(Boolean(payload.restrictions.allow_shared_identity_memory));
+      setMaxPromptChars(parseBoundedInt(payload.restrictions.max_prompt_chars, 4800, 600, 24000));
+      setSuperadminNote(payload.restrictions.note || "");
+      setSuperadminUpdatedBy(payload.restrictions.updated_by || "");
+      setSuperadminRuntimeState(payload.row?.runtime_state || "-");
+      setSuperadminUpdatedAt(payload.restrictions.updated_at || payload.row?.updated_at || null);
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : "superadmin_restrictions_load_failed";
+      setSuperadminError(message);
+    } finally {
+      setIsSuperadminLoading(false);
+    }
+  }, [superadminRequestHeaders]);
+
+  const saveSuperadminRestrictions = useCallback(async () => {
+    setIsSuperadminSaving(true);
+    setSuperadminError(null);
+    setSuperadminFeedback(null);
+    try {
+      const response = await fetch("/api/identity/superadmin/restrictions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...superadminRequestHeaders,
+        },
+        body: JSON.stringify({
+          allow_shared_identity_memory: allowSharedIdentityMemory,
+          max_prompt_chars: parseBoundedInt(maxPromptChars, 4800, 600, 24000),
+          note: sanitizeText(superadminNote) || null,
+          updated_by: sanitizeText(superadminUpdatedBy) || null,
+        }),
+      });
+      const payload = await parseJsonResponse<RestrictionsApiResponse>(response);
+      if (!response.ok || !payload?.ok || !payload.restrictions) {
+        setSuperadminAuthRequired(Boolean(payload?.auth_required));
+        setSuperadminError(payload?.message || `Falha ao salvar restricoes (HTTP ${response.status}).`);
+        return;
+      }
+      setSuperadminAuthRequired(Boolean(payload.auth_required));
+      setAllowSharedIdentityMemory(Boolean(payload.restrictions.allow_shared_identity_memory));
+      setMaxPromptChars(parseBoundedInt(payload.restrictions.max_prompt_chars, 4800, 600, 24000));
+      setSuperadminNote(payload.restrictions.note || "");
+      setSuperadminUpdatedBy(payload.restrictions.updated_by || "");
+      setSuperadminRuntimeState(payload.row?.runtime_state || "-");
+      setSuperadminUpdatedAt(payload.restrictions.updated_at || payload.row?.updated_at || null);
+      setSuperadminFeedback("Restricoes superadmin atualizadas com sucesso.");
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : "superadmin_restrictions_save_failed";
+      setSuperadminError(message);
+    } finally {
+      setIsSuperadminSaving(false);
+    }
+  }, [allowSharedIdentityMemory, maxPromptChars, superadminNote, superadminRequestHeaders, superadminUpdatedBy]);
+
+  const openSuperadminModal = useCallback((section: SuperadminSettingsSectionKey = "geral") => {
+    setSuperadminActiveSection(section);
+    setSuperadminError(null);
+    setSuperadminFeedback(null);
+    setIsGeneralSecurityBannerVisible(true);
+    setIsSuperadminModalOpen(true);
+  }, []);
+
+  const closeSuperadminModal = useCallback(() => {
+    setIsSuperadminModalOpen(false);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1287,6 +1527,118 @@ export default function KnexAiPage() {
       window.clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(SUPERADMIN_KEY_STORAGE) || "";
+    if (saved.trim()) {
+      setSuperadminKey(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const trimmed = sanitizeText(superadminKey);
+    if (!trimmed) {
+      window.localStorage.removeItem(SUPERADMIN_KEY_STORAGE);
+      return;
+    }
+    window.localStorage.setItem(SUPERADMIN_KEY_STORAGE, trimmed);
+  }, [superadminKey]);
+
+  useEffect(() => {
+    if (!isSuperadminModalOpen) return;
+    if (superadminActiveSection !== "controlar-dados") return;
+    if (superadminAutoLoadRef.current) return;
+    superadminAutoLoadRef.current = true;
+    void loadSuperadminRestrictions();
+  }, [isSuperadminModalOpen, loadSuperadminRestrictions, superadminActiveSection]);
+
+  useEffect(() => {
+    if (isSuperadminModalOpen) return;
+    superadminAutoLoadRef.current = false;
+  }, [isSuperadminModalOpen]);
+
+  useEffect(() => {
+    if (isSuperadminModalOpen) {
+      setIsUserSidebarMenuOpen(false);
+    }
+  }, [isSuperadminModalOpen]);
+
+  useEffect(() => {
+    if (!isUserSidebarMenuOpen) return;
+    const onMouseDown = (event: MouseEvent) => {
+      if (!userSidebarMenuRef.current) return;
+      if (userSidebarMenuRef.current.contains(event.target as Node)) return;
+      setIsUserSidebarMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsUserSidebarMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isUserSidebarMenuOpen]);
+
+  const navigateFromUserSidebarMenu = useCallback((href: string) => {
+    setIsUserSidebarMenuOpen(false);
+    if (typeof window !== "undefined") {
+      window.location.assign(href);
+    }
+  }, []);
+
+  const openSuperadminFromUserSidebarMenu = useCallback(
+    (section: SuperadminSettingsSectionKey = "geral") => {
+      setIsUserSidebarMenuOpen(false);
+      openSuperadminModal(section);
+    },
+    [openSuperadminModal],
+  );
+
+  const openChatSearchModal = useCallback(() => {
+    setChatSearchQuery("");
+    setIsChatSearchModalOpen(true);
+  }, []);
+
+  const closeChatSearchModal = useCallback(() => {
+    setIsChatSearchModalOpen(false);
+    setChatSearchQuery("");
+  }, []);
+
+  useEffect(() => {
+    if (!isChatSearchModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeChatSearchModal();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.requestAnimationFrame(() => {
+      chatSearchInputRef.current?.focus();
+    });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [closeChatSearchModal, isChatSearchModalOpen]);
+
+  useEffect(() => {
+    if (!isSuperadminModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeSuperadminModal();
+      }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [closeSuperadminModal, isSuperadminModalOpen]);
 
   const openIdentityPanel = () => {
     setIsIdentityPanelOpen(true);
@@ -1661,6 +2013,17 @@ export default function KnexAiPage() {
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
+      const sidebarState = chatSidebarResizeRef.current;
+      if (sidebarState) {
+        const deltaX = event.clientX - sidebarState.startX;
+        const nextWidth = clampNumber(
+          sidebarState.startWidthPx + deltaX,
+          CHAT_SIDEBAR_MIN_WIDTH_PX,
+          CHAT_SIDEBAR_MAX_WIDTH_PX,
+        );
+        setChatSidebarWidthPx(nextWidth);
+      }
+
       const workspace = writingWorkspaceRef.current;
       if (!workspace) return;
       const workspaceWidth = workspace.getBoundingClientRect().width;
@@ -1692,6 +2055,7 @@ export default function KnexAiPage() {
     };
 
     const handleMouseUp = () => {
+      chatSidebarResizeRef.current = null;
       writingNavResizeRef.current = null;
       writingWorksResizeRef.current = null;
     };
@@ -2514,6 +2878,13 @@ export default function KnexAiPage() {
     };
   };
 
+  const startChatSidebarResize = (event: ReactMouseEvent<HTMLDivElement>) => {
+    chatSidebarResizeRef.current = {
+      startX: event.clientX,
+      startWidthPx: chatSidebarWidthPx,
+    };
+  };
+
   const resolveSafeSectionSummary = async (sectionId: string | null) => {
     if (!sectionId) return null;
     try {
@@ -2795,6 +3166,27 @@ export default function KnexAiPage() {
       setChatPassIndicator(null);
     }
     setIsChatMode(target.messages.some((msg) => msg.role === "user"));
+  };
+
+  const openThreadFromSearchModal = (threadId: string) => {
+    openThread(threadId);
+    closeChatSearchModal();
+  };
+
+  const createNewChatFromSearchModal = () => {
+    createNewChat();
+    closeChatSearchModal();
+  };
+
+  const handleSidebarAction = (actionId: string) => {
+    if (actionId === "new") {
+      createNewChat();
+      return;
+    }
+    if (actionId === "search") {
+      openChatSearchModal();
+      return;
+    }
   };
 
   const send = async (prompt: string) => {
@@ -3131,7 +3523,10 @@ export default function KnexAiPage() {
           handleComposerFilesForCurrentMode(files);
         }}
       />
-      <aside className="hidden h-full w-[300px] flex-col border-r border-zinc-200 bg-[#f0f0f1] lg:flex">
+      <aside
+        className="relative hidden h-full shrink-0 flex-col border-r border-zinc-200 bg-[#f0f0f1] lg:flex"
+        style={{ width: chatSidebarWidthPx }}
+      >
         <div className="flex items-center justify-between px-4 py-4">
           <div className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-300 bg-white">
             <Bot size={17} />
@@ -3149,7 +3544,7 @@ export default function KnexAiPage() {
                 <button
                   key={action.id}
                   type="button"
-                  onClick={action.id === "new" ? createNewChat : undefined}
+                  onClick={() => handleSidebarAction(action.id)}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[22px] text-zinc-800 hover:bg-zinc-200"
                 >
                   <Icon size={20} />
@@ -3167,29 +3562,104 @@ export default function KnexAiPage() {
                   key={thread.id}
                   type="button"
                   onClick={() => openThread(thread.id)}
-                  className={`flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left text-[21px] ${
+                  className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[21px] ${
                     activeThread?.id === thread.id ? "bg-zinc-200 text-zinc-900" : "text-zinc-700 hover:bg-zinc-200"
                   }`}
+                  title={thread.title}
                 >
-                  <span className="mt-0.5 text-zinc-500">-</span>
-                  <span className="line-clamp-2">{thread.title}</span>
+                  <span className="block min-w-0 truncate">{thread.title}</span>
                 </button>
               ))}
             </div>
           </div>
         </div>
 
-        <div className="mt-auto border-t border-zinc-200 px-4 py-4">
-          <div className="flex items-center gap-3">
+        <div className="relative mt-auto border-t border-zinc-200 px-4 py-4" ref={userSidebarMenuRef}>
+          {isUserSidebarMenuOpen ? (
+            <div className="absolute bottom-full left-4 mb-3 w-[292px] rounded-[20px] border border-zinc-300 bg-[#f2f2f3] p-3 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.55)]">
+              <div className="rounded-2xl bg-zinc-200/75 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-[11px] font-semibold text-white">
+                    EU
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[18px] leading-6 font-semibold text-zinc-900">Usuario KnexIT</p>
+                    <p className="truncate text-sm text-zinc-500">@knexit</p>
+                  </div>
+                </div>
+              </div>
+              <div className="my-2 h-px bg-zinc-300" />
+              <div className="space-y-0.5">
+                <button
+                  type="button"
+                  onClick={() => navigateFromUserSidebarMenu("/knexit-workspace/precos")}
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[16px] text-zinc-800 transition hover:bg-white"
+                >
+                  <Compass size={18} />
+                  <span>Fazer upgrade do plano</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openSuperadminFromUserSidebarMenu("personalizacao")}
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[16px] text-zinc-800 transition hover:bg-white"
+                >
+                  <Palette size={18} />
+                  <span>Personalização</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openSuperadminFromUserSidebarMenu("geral")}
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[16px] text-zinc-800 transition hover:bg-white"
+                >
+                  <Settings size={18} />
+                  <span>Configurações</span>
+                </button>
+              </div>
+              <div className="my-2 h-px bg-zinc-300" />
+              <button
+                type="button"
+                onClick={() => navigateFromUserSidebarMenu("/lobby/recursos/faq")}
+                className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-[16px] text-zinc-800 transition hover:bg-white"
+              >
+                <span className="flex items-center gap-3">
+                  <CircleEllipsis size={18} />
+                  <span>Ajuda</span>
+                </span>
+                <ChevronRight size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateFromUserSidebarMenu("/knexit-workspace/acesso?stay=1")}
+                className="mt-0.5 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[16px] text-zinc-800 transition hover:bg-white"
+              >
+                <LogOut size={18} />
+                <span>Sair</span>
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setIsUserSidebarMenuOpen((current) => !current)}
+            className="flex w-full items-center gap-3 rounded-xl px-2 py-1 text-left transition hover:bg-zinc-200"
+            aria-expanded={isUserSidebarMenuOpen}
+            title="Abrir menu do usuario"
+          >
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">
               EU
             </span>
             <div>
               <p className="text-sm font-medium text-zinc-900">Usuario KnexIT</p>
-              <p className="text-xs text-zinc-500">Plano Plus</p>
+              <p className="text-xs text-zinc-500">Plano Plus · Configuracoes</p>
             </div>
-          </div>
+          </button>
         </div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Redimensionar painel de chats"
+          onMouseDown={startChatSidebarResize}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-zinc-400"
+        />
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col bg-white">
@@ -4034,6 +4504,356 @@ export default function KnexAiPage() {
           </div>
         </section>
       </div>
+      ) : null}
+      {isChatSearchModalOpen ? (
+        <div
+          className="fixed inset-0 z-[144] flex items-start justify-center bg-black/30 p-2 sm:p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeChatSearchModal();
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Buscar em chats"
+            className="mt-1 flex h-[min(88vh,700px)] w-[min(920px,100%)] flex-col overflow-hidden rounded-[24px] border border-zinc-300 bg-[#f5f5f6] shadow-[0_24px_72px_rgba(15,23,42,0.4)]"
+          >
+            <div className="flex items-center gap-3 border-b border-zinc-300 px-4 py-3 sm:px-6">
+              <input
+                ref={chatSearchInputRef}
+                value={chatSearchQuery}
+                onChange={(event) => setChatSearchQuery(event.target.value)}
+                placeholder="Buscar em chats..."
+                className="w-full border-0 bg-transparent text-[19px] text-zinc-900 outline-none placeholder:text-zinc-500"
+              />
+              <button
+                type="button"
+                onClick={closeChatSearchModal}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-800"
+                aria-label="Fechar busca"
+                title="Fechar busca"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5">
+              <button
+                type="button"
+                onClick={createNewChatFromSearchModal}
+                className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[17px] text-zinc-900 transition hover:bg-zinc-200"
+              >
+                <MessageSquarePlus size={20} />
+                <span>Novo chat</span>
+              </button>
+
+              {chatSearchThreadGroups.length ? (
+                <div className="mt-3 space-y-4 pb-2">
+                  {chatSearchThreadGroups.map((group) => (
+                    <section key={group.label}>
+                      <p className="px-2 text-xs font-medium tracking-[0.02em] text-zinc-500">{group.label}</p>
+                      <div className="mt-1 space-y-1">
+                        {group.threads.map((thread) => (
+                          <button
+                            key={thread.id}
+                            type="button"
+                            onClick={() => openThreadFromSearchModal(thread.id)}
+                            title={thread.title}
+                            className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[17px] transition ${
+                              activeThread?.id === thread.id
+                                ? "bg-zinc-200 text-zinc-900"
+                                : "text-zinc-800 hover:bg-zinc-200"
+                            }`}
+                          >
+                            <MessageCircle size={19} className="shrink-0" />
+                            <span className="min-w-0 truncate">{thread.title}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-2 py-6 text-sm text-zinc-500">Nenhum chat encontrado.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isSuperadminModalOpen ? (
+        <div
+          className="fixed inset-0 z-[145] flex items-center justify-center bg-black/45 p-3 sm:p-5"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeSuperadminModal();
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Configuracoes do ambiente"
+            className="flex h-[min(88vh,760px)] w-[min(980px,100%)] overflow-hidden rounded-[28px] border border-zinc-300 bg-[#f8f8f9] shadow-[0_24px_96px_rgba(0,0,0,0.4)]"
+          >
+            <aside className="flex h-full w-[250px] shrink-0 flex-col border-r border-zinc-200 bg-[#efeff0] p-3">
+              <div className="mb-2 flex items-center justify-between px-1">
+                <button
+                  type="button"
+                  onClick={closeSuperadminModal}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-700 hover:bg-zinc-200"
+                  title="Fechar configuracoes"
+                  aria-label="Fechar configuracoes"
+                >
+                  <X size={18} />
+                </button>
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Ajustes</span>
+              </div>
+              <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+                {SUPERADMIN_SETTINGS_SECTIONS.map((section) => {
+                  const Icon = section.icon;
+                  const isActive = superadminActiveSection === section.key;
+                  return (
+                    <button
+                      key={section.key}
+                      type="button"
+                      onClick={() => {
+                        setSuperadminActiveSection(section.key);
+                        setSuperadminError(null);
+                        setSuperadminFeedback(null);
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] transition ${
+                        isActive ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-700 hover:bg-zinc-200"
+                      }`}
+                    >
+                      <Icon size={17} />
+                      <span>{section.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </aside>
+
+            <section className="flex min-h-0 flex-1 flex-col">
+              <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+                <h2 className="text-2xl font-medium text-zinc-900">{superadminActiveSectionMeta.label}</h2>
+                {superadminActiveSection === "controlar-dados" ? (
+                  <button
+                    type="button"
+                    onClick={() => void loadSuperadminRestrictions()}
+                    disabled={isSuperadminLoading}
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw size={14} className={isSuperadminLoading ? "animate-spin" : ""} />
+                    Atualizar
+                  </button>
+                ) : null}
+              </header>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                {superadminActiveSection === "geral" ? (
+                  <div className="space-y-4">
+                    {isGeneralSecurityBannerVisible ? (
+                      <div className="rounded-2xl border border-zinc-200 bg-[#ececee] p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-300 bg-white text-zinc-700">
+                              <Lock size={18} />
+                            </span>
+                            <div>
+                              <p className="text-lg font-semibold text-zinc-900">Proteja sua conta</p>
+                              <p className="mt-1 text-sm leading-relaxed text-zinc-700">
+                                Adicione uma autenticacao multifatorial (MFA) para reforcar o acesso ao ambiente.
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsGeneralSecurityBannerVisible(false)}
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-200"
+                            title="Ocultar bloco"
+                            aria-label="Ocultar bloco"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSuperadminActiveSection("seguranca")}
+                          className="mt-4 rounded-full border border-zinc-300 bg-white px-5 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100"
+                        >
+                          Configurar MFA
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div className="rounded-2xl border border-zinc-200 bg-white">
+                      <button type="button" className="flex w-full items-center justify-between px-5 py-4 text-left text-base text-zinc-800">
+                        <span>Aparencia</span>
+                        <span className="inline-flex items-center gap-2 text-zinc-600">
+                          Sistema <ChevronDown size={16} />
+                        </span>
+                      </button>
+                      <div className="mx-5 h-px bg-zinc-200" />
+                      <button type="button" className="flex w-full items-center justify-between px-5 py-4 text-left text-base text-zinc-800">
+                        <span>Cor de enfase</span>
+                        <span className="inline-flex items-center gap-2 text-zinc-600">
+                          Padrao <ChevronDown size={16} />
+                        </span>
+                      </button>
+                      <div className="mx-5 h-px bg-zinc-200" />
+                      <button type="button" className="flex w-full items-center justify-between px-5 py-4 text-left text-base text-zinc-800">
+                        <span>Idioma</span>
+                        <span className="inline-flex items-center gap-2 text-zinc-600">
+                          Autodetectar <ChevronDown size={16} />
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+                      <p className="text-lg font-medium text-zinc-900">Restricoes Superadmin</p>
+                      <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                        O controle de memoria compartilhada foi movido para este modal dentro do chat.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSuperadminActiveSection("controlar-dados")}
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:bg-zinc-200"
+                      >
+                        <Database size={16} />
+                        Abrir controlar dados
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {superadminActiveSection === "controlar-dados" ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-800">
+                        <KeyRound className="h-4 w-4 text-zinc-600" />
+                        Chave de superadmin
+                      </div>
+                      <p className="mb-3 text-xs text-zinc-500">
+                        Se `IDENTITY_SUPERADMIN_KEY` estiver configurada no servidor, informe a chave para leitura e gravacao.
+                      </p>
+                      <input
+                        type="password"
+                        value={superadminKey}
+                        onChange={(event) => setSuperadminKey(event.target.value)}
+                        placeholder="x-superadmin-key"
+                        className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none ring-sky-500 transition focus:border-sky-500 focus:ring-1"
+                      />
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <p className="text-base font-semibold text-zinc-900">Memoria compartilhada de identificacao</p>
+                      <p className="mt-1 text-sm text-zinc-600">Controla o bloco de memoria de reconhecimento facial no runtime.</p>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <label className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                          <span className="text-zinc-800">Permitir memoria compartilhada</span>
+                          <button
+                            type="button"
+                            onClick={() => setAllowSharedIdentityMemory((current) => !current)}
+                            className={`inline-flex min-w-[98px] justify-center rounded-md px-3 py-1.5 text-xs font-semibold ${
+                              allowSharedIdentityMemory ? "bg-emerald-600 text-white" : "bg-rose-700 text-rose-100"
+                            }`}
+                          >
+                            {allowSharedIdentityMemory ? "Permitido" : "Bloqueado"}
+                          </button>
+                        </label>
+
+                        <label className="flex flex-col gap-2 text-sm text-zinc-700">
+                          <span>Limite de caracteres do prompt</span>
+                          <input
+                            type="number"
+                            min={600}
+                            max={24000}
+                            step={100}
+                            value={maxPromptChars}
+                            onChange={(event) => setMaxPromptChars(parseBoundedInt(event.target.value, 4800, 600, 24000))}
+                            className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 outline-none ring-sky-500 transition focus:border-sky-500 focus:ring-1"
+                          />
+                        </label>
+
+                        <label className="flex flex-col gap-2 text-sm text-zinc-700">
+                          <span>Atualizado por</span>
+                          <input
+                            type="text"
+                            value={superadminUpdatedBy}
+                            onChange={(event) => setSuperadminUpdatedBy(event.target.value)}
+                            placeholder="nome do operador"
+                            className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 outline-none ring-sky-500 transition focus:border-sky-500 focus:ring-1"
+                          />
+                        </label>
+
+                        <label className="flex flex-col gap-2 text-sm text-zinc-700">
+                          <span>Observacao</span>
+                          <input
+                            type="text"
+                            value={superadminNote}
+                            onChange={(event) => setSuperadminNote(event.target.value)}
+                            placeholder="motivo da alteracao"
+                            className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-zinc-900 outline-none ring-sky-500 transition focus:border-sky-500 focus:ring-1"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void saveSuperadminRestrictions()}
+                        disabled={isSuperadminSaving}
+                        className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Save className="h-4 w-4" />
+                        {isSuperadminSaving ? "Salvando..." : "Salvar restricoes"}
+                      </button>
+                      <span className="text-xs text-zinc-600">Runtime: {superadminRuntimeState}</span>
+                      <span className="text-xs text-zinc-500">
+                        Ultima atualizacao: {superadminUpdatedAt ? new Date(superadminUpdatedAt).toLocaleString("pt-BR") : "-"}
+                      </span>
+                    </div>
+
+                    {superadminAuthRequired && !sanitizeText(superadminKey) ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        Esta rota exige chave superadmin. Informe a chave e clique em Atualizar.
+                      </div>
+                    ) : null}
+                    {superadminError ? (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{superadminError}</div>
+                    ) : null}
+                    {superadminFeedback ? (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                        {superadminFeedback}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {superadminActiveSection !== "geral" && superadminActiveSection !== "controlar-dados" ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-6">
+                    <p className="text-lg font-semibold text-zinc-900">{superadminActiveSectionMeta.label}</p>
+                    <p className="mt-2 text-sm text-zinc-600">
+                      Este painel ainda nao possui configuracoes dedicadas. Use <strong>Controlar dados</strong> para ajustar restricoes
+                      de superadmin.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setSuperadminActiveSection("controlar-dados")}
+                      className="mt-4 rounded-lg border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:bg-zinc-200"
+                    >
+                      Ir para controlar dados
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
+        </div>
       ) : null}
       {isIdentityPanelOpen ? (
         <div

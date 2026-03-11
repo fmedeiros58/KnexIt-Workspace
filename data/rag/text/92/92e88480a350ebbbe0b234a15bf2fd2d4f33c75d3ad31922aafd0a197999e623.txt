@@ -1,0 +1,1 @@
+Documento de diagnostico KnexAI. Chave de validacao: BOUNDING-ANM-TESTE-20260310. Este arquivo confirma se o chat le anexos no escopo.

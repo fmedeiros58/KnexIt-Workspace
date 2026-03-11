@@ -202,7 +202,9 @@ class IdentityFrameAnalyzer:
             track_id = _normalize(row.get("track_id")) or f"{source_key}:det-{index+1}"
             track_hits = max(1, int(row.get("track_hits", 1)))
 
-            face_roi = _crop_face(frame, face_box) or frame
+            face_roi = _crop_face(frame, face_box)
+            if face_roi is None:
+                face_roi = frame
             pose = self.pose_estimator.estimate_pose(face_roi, expected_view=resolved_view)
             pose_dict = pose.to_dict()
 

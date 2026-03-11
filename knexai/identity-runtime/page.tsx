@@ -514,6 +514,19 @@ async function fetchImageUrlAsDataUrl(url: string) {
   }
 }
 
+async function loadMediaPipeVisionModule(): Promise<MediaPipeVisionModule | null> {
+  const moduleName = "@mediapipe/tasks-vision";
+  try {
+    // Avoid compile-time module resolution for optional client runtime dependency.
+    // eslint-disable-next-line no-new-func
+    const importer = new Function("specifier", "return import(specifier);") as (specifier: string) => Promise<unknown>;
+    const loaded = await importer(moduleName);
+    return loaded as MediaPipeVisionModule;
+  } catch {
+    return null;
+  }
+}
+
 async function fileToDataUrl(file: File) {
   return new Promise<string | null>((resolve) => {
     const reader = new FileReader();
@@ -526,6 +539,7 @@ async function fileToDataUrl(file: File) {
 export default function IdentityRuntimePage() {
   const searchParams = useSearchParams();
   const isEmbedded = searchParams.get("embedded") === "1";
+  const isStreamOnly = isEmbedded && searchParams.get("view") === "stream";
   const [payload, setPayload] = useState<IdentityPanelPayload>(INITIAL_PAYLOAD);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
@@ -630,7 +644,10 @@ export default function IdentityRuntimePage() {
     if (!mediaPipeFaceDetectorInitRef.current) {
       mediaPipeFaceDetectorInitRef.current = (async () => {
         try {
-          const vision = (await import("@mediapipe/tasks-vision")) as unknown as MediaPipeVisionModule;
+          const vision = await loadMediaPipeVisionModule();
+          if (!vision) {
+            throw new Error("mediapipe_module_unavailable");
+          }
           let filesetResolver: unknown;
           try {
             filesetResolver = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_LOCAL_PATH);
@@ -2322,6 +2339,14 @@ export default function IdentityRuntimePage() {
               <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusInfo.className}`}>
                 {statusInfo.label}
               </span>
+              {!isEmbedded ? (
+                <Link
+                  href="/knexai/web"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Configuracoes no chat
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void loadPanel()}
@@ -2341,117 +2366,165 @@ export default function IdentityRuntimePage() {
           ) : null}
         </header>
 
-        <section className="grid gap-4 xl:grid-cols-3 xl:items-stretch">
+        <section className={isStreamOnly ? "grid gap-4" : "grid gap-4 xl:grid-cols-3 xl:items-stretch"}>
           <article
-            className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2 ${
+            className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${isStreamOnly ? "" : "xl:col-span-2"} ${
               isStageMaximized ? "fixed inset-2 z-[150] flex flex-col" : ""
             }`}
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
                 <Camera size={18} className="text-sky-500" />
-                Palco de Camera e Analise
+                {isStreamOnly ? "Ambiente de Streaming" : "Palco de Camera e Analise"}
               </h2>
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setStageLayoutMode((current) => (current === "multi" ? "single" : "multi"))}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  {stageLayoutMode === "multi" ? "Somente principal" : "Principal + miniaturas"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsStageMaximized((current) => !current)}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  {isStageMaximized ? "Restaurar palco" : "Maximizar palco"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (cameraState === "streaming") {
-                      stopCameraPreview();
-                      return;
-                    }
-                    void startCameraPreview();
-                  }}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                    cameraState === "streaming"
-                      ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                      : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                  }`}
-                >
-                  {cameraState === "streaming" ? <CirclePause size={14} /> : <CirclePlay size={14} />}
-                  {cameraState === "streaming" ? "Parar camera" : "Iniciar camera"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void startCameraPreview()}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <RefreshCcw size={14} />
-                  Reconectar
-                </button>
+                {!isStreamOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => setStageLayoutMode((current) => (current === "multi" ? "single" : "multi"))}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    {stageLayoutMode === "multi" ? "Somente principal" : "Principal + miniaturas"}
+                  </button>
+                ) : null}
+                {!isStreamOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsStageMaximized((current) => !current)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    {isStageMaximized ? "Restaurar palco" : "Maximizar palco"}
+                  </button>
+                ) : null}
+                {!isStreamOnly ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (cameraState === "streaming") {
+                          stopCameraPreview();
+                          return;
+                        }
+                        void startCameraPreview();
+                      }}
+                      className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                        cameraState === "streaming"
+                          ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                          : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                      }`}
+                    >
+                      {cameraState === "streaming" ? <CirclePause size={14} /> : <CirclePlay size={14} />}
+                      {cameraState === "streaming" ? "Parar camera" : "Iniciar camera"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void startCameraPreview()}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <RefreshCcw size={14} />
+                      Reconectar
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
-            <div className={`mt-3 grid gap-3 ${stageLayoutMode === "multi" ? "lg:grid-cols-[minmax(0,1fr)_230px]" : "grid-cols-1"}`}>
-              <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black">
-                <div className="absolute left-3 top-3 z-[3] rounded-md bg-black/50 px-2 py-1 text-xs text-slate-200">
-                  Principal: {primaryTile?.name || "Camera"}
-                </div>
-                <div className="relative aspect-video w-full bg-black">
-                  <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-                  {cameraState === "streaming" && streamFaceBoxes.length > 0 ? (
-                    <div className="pointer-events-none absolute inset-0 z-[2]">
-                      {streamFaceBoxes.map((faceBox, index) => {
-                        const stroke = index === 0 ? "#34d399" : index === 1 ? "#38bdf8" : index === 2 ? "#f59e0b" : "#a78bfa";
-                        const label = asNonEmptyString(faceBox.trackId) || `face-${index + 1}`;
-                        return (
-                          <div key={`${label}-${index}`}>
-                            <div
-                              className="absolute rounded-md border-2 shadow-[0_0_0_1px_rgba(5,7,13,0.65)]"
-                              style={{
-                                left: `${faceBox.left}px`,
-                                top: `${faceBox.top}px`,
-                                width: `${faceBox.width}px`,
-                                height: `${faceBox.height}px`,
-                                borderColor: stroke,
-                              }}
-                            />
-                            <div
-                              className="absolute rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                              style={{
-                                left: `${faceBox.left}px`,
-                                top: `${Math.max(0, faceBox.top - 20)}px`,
-                                backgroundColor: stroke,
-                              }}
-                            >
-                              {label} {Math.round(faceBox.confidence * 100)}%
+            <div className={`mt-3 grid gap-3 ${!isStreamOnly && stageLayoutMode === "multi" ? "lg:grid-cols-[minmax(0,1fr)_230px]" : "grid-cols-1"}`}>
+              <div className={isStreamOnly ? "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" : ""}>
+                {isStreamOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (cameraState === "streaming") {
+                        stopCameraPreview();
+                        return;
+                      }
+                      void startCameraPreview();
+                    }}
+                    title={cameraState === "streaming" ? "Parar camera" : "Iniciar camera"}
+                    className={`inline-flex h-20 w-10 items-center justify-center border ${
+                      cameraState === "streaming"
+                        ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                        : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    }`}
+                  >
+                    {cameraState === "streaming" ? <CirclePause size={16} /> : <CirclePlay size={16} />}
+                  </button>
+                ) : null}
+                <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black">
+                  <div className="absolute left-3 top-3 z-[3] rounded-md bg-black/50 px-2 py-1 text-xs text-slate-200">
+                    Principal: {primaryTile?.name || "Camera"}
+                  </div>
+                  <div className="relative aspect-video w-full bg-black">
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={`h-full w-full ${isStreamOnly ? "object-contain" : "object-cover"}`}
+                    />
+                    {cameraState === "streaming" && streamFaceBoxes.length > 0 ? (
+                      <div className="pointer-events-none absolute inset-0 z-[2]">
+                        {streamFaceBoxes.map((faceBox, index) => {
+                          const stroke = index === 0 ? "#34d399" : index === 1 ? "#38bdf8" : index === 2 ? "#f59e0b" : "#a78bfa";
+                          const label = asNonEmptyString(faceBox.trackId) || `face-${index + 1}`;
+                          return (
+                            <div key={`${label}-${index}`}>
+                              <div
+                                className="absolute rounded-md border-2 shadow-[0_0_0_1px_rgba(5,7,13,0.65)]"
+                                style={{
+                                  left: `${faceBox.left}px`,
+                                  top: `${faceBox.top}px`,
+                                  width: `${faceBox.width}px`,
+                                  height: `${faceBox.height}px`,
+                                  borderColor: stroke,
+                                }}
+                              />
+                              <div
+                                className="absolute rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                                style={{
+                                  left: `${faceBox.left}px`,
+                                  top: `${Math.max(0, faceBox.top - 20)}px`,
+                                  backgroundColor: stroke,
+                                }}
+                              >
+                                {label} {Math.round(faceBox.confidence * 100)}%
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                  {cameraState !== "streaming" ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 text-center text-sm text-slate-200">
+                      <p>{cameraState === "starting" ? "Conectando camera local..." : "Sem sinal no palco principal."}</p>
+                      <p className="max-w-md text-xs text-slate-400">
+                        Permita acesso a camera no navegador para exibir o palco principal e os ambientes de validacao.
+                      </p>
                     </div>
                   ) : null}
+                  {!isStreamOnly ? (
+                    <button
+                      type="button"
+                      onClick={capturePrimaryProfile}
+                      className="absolute bottom-3 left-3 z-[3] rounded-md border border-slate-200/40 bg-black/50 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-black/65"
+                    >
+                      Capturar perfil (Ambiente 1)
+                    </button>
+                  ) : null}
                 </div>
-                {cameraState !== "streaming" ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 text-center text-sm text-slate-200">
-                    <p>{cameraState === "starting" ? "Conectando camera local..." : "Sem sinal no palco principal."}</p>
-                    <p className="max-w-md text-xs text-slate-400">
-                      Permita acesso a camera no navegador para exibir o palco principal e os ambientes de validacao.
-                    </p>
-                  </div>
+                {isStreamOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => void startCameraPreview()}
+                    title="Reconectar camera"
+                    className="inline-flex h-20 w-10 items-center justify-center border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  >
+                    <RefreshCcw size={16} />
+                  </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={capturePrimaryProfile}
-                  className="absolute bottom-3 left-3 z-[3] rounded-md border border-slate-200/40 bg-black/50 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-black/65"
-                >
-                  Capturar perfil (Ambiente 1)
-                </button>
               </div>
-              {stageLayoutMode === "multi" ? (
+              {!isStreamOnly && stageLayoutMode === "multi" ? (
                 <div className="grid gap-3">
                   {([
                     { tile: thumbnailTiles[0], slot: "left" as EmbeddingCaptureSlot },
@@ -2505,7 +2578,8 @@ export default function IdentityRuntimePage() {
                 </div>
               ) : null}
             </div>
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+            {!isStreamOnly ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Rastreamento induzido</p>
@@ -2740,13 +2814,15 @@ export default function IdentityRuntimePage() {
               {autoCaptureNotice ? <p className="mt-1 text-xs text-emerald-600">{autoCaptureNotice}</p> : null}
               {autoCaptureError ? <p className="mt-1 text-xs text-rose-600">{autoCaptureError}</p> : null}
               {streamAnalyzeError ? <p className="mt-1 text-xs text-amber-600">{streamAnalyzeError}</p> : null}
-            </div>
+              </div>
+            ) : null}
             {cameraError ? (
               <div className="mt-3 rounded-lg border border-rose-300 bg-rose-100/80 px-3 py-2 text-sm text-rose-800">{cameraError}</div>
             ) : null}
           </article>
 
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:flex xl:h-full xl:min-h-[560px] xl:flex-col xl:overflow-hidden">
+          {!isStreamOnly ? (
+            <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:flex xl:h-full xl:min-h-[560px] xl:flex-col xl:overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
                 <UserRoundSearch size={18} className="text-fuchsia-600" />
@@ -2929,10 +3005,12 @@ export default function IdentityRuntimePage() {
                 {ingestError ? <p className="mt-1 text-xs text-rose-600">{ingestError}</p> : null}
               </div>
             </div>
-          </article>
+            </article>
+          ) : null}
         </section>
 
-        <section className="mt-4 grid gap-4 xl:grid-cols-2">
+        {!isStreamOnly ? (
+          <section className="mt-4 grid gap-4 xl:grid-cols-2">
           <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
@@ -3066,9 +3144,10 @@ export default function IdentityRuntimePage() {
               </table>
             </div>
           </article>
-        </section>
+          </section>
+        ) : null}
 
-        {loading ? (
+        {!isStreamOnly && loading ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">Carregando runtime...</div>
         ) : null}
       </div>

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { resolveVectorSearchParams, type VectorSearchParams } from "../database/vector-search-params";
 import { createVectorDatabaseClient, type VectorDatabaseClient } from "../database/vector-client";
+import { resolveIdentityRuntimeSharedContext } from "../identity/shared-memory-context";
 import { logger } from "../utils/logger";
 import { assembleContextPack, type ContextPackChunk } from "./context-pack";
 import { routeComplexity, type ComplexityDecision, type ComplexityMode } from "./complexity-router";
@@ -1140,12 +1141,14 @@ export class RagQueryService {
   private async runLiteQuery(input: RagQueryInput, question: string, requestId: string | null): Promise<RagQueryResult> {
     const startedAt = Date.now();
     const liteQuestion = normalizeString(input.routingHint) || question;
+    const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
+    const identityContextPack = identitySharedMemory.promptBlock || "";
     const history = this.resolveLiteHistory(input.history);
     const maxTokens = this.resolveMaxResponseTokens(input, "lite", requestId);
     const temperature = this.resolveLiteTemperature(clampTemperature(input.temperature, this.generationConfig.temperature));
     const llmResult = await this.llmClient.completeWithContext({
       question: liteQuestion,
-      contextPack: "",
+      contextPack: identityContextPack,
       history,
       maxTokens,
       temperature,
@@ -1159,6 +1162,8 @@ export class RagQueryService {
       answerChars: llmResult.answer.length,
       maxTokens,
       historyItems: history.length,
+      identitySharedMemoryStatus: identitySharedMemory.status,
+      identitySharedMemoryChars: identityContextPack.length,
       llmElapsedMs: llmResult.elapsedMs,
       totalMs,
     });
@@ -1185,11 +1190,11 @@ export class RagQueryService {
           returnedChunks: 0,
         },
         contextPack: {
-          selectedChunks: 0,
+          selectedChunks: identityContextPack ? 1 : 0,
           omittedChunks: 0,
-          totalCandidateChunks: 0,
-          maxChars: 0,
-          usedChars: 0,
+          totalCandidateChunks: identityContextPack ? 1 : 0,
+          maxChars: identityContextPack.length,
+          usedChars: identityContextPack.length,
           truncated: false,
         },
         fullDocumentRead: {
@@ -1232,6 +1237,8 @@ export class RagQueryService {
 
   private async runLiteStream(input: RagQueryInput, question: string, requestId: string | null) {
     const liteQuestion = normalizeString(input.routingHint) || question;
+    const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
+    const identityContextPack = identitySharedMemory.promptBlock || "";
     const history = this.resolveLiteHistory(input.history);
     const maxTokens = this.resolveMaxResponseTokens(input, "lite", requestId);
     const temperature = this.resolveLiteTemperature(clampTemperature(input.temperature, this.generationConfig.temperature));
@@ -1240,10 +1247,12 @@ export class RagQueryService {
       questionChars: liteQuestion.length,
       maxTokens,
       historyItems: history.length,
+      identitySharedMemoryStatus: identitySharedMemory.status,
+      identitySharedMemoryChars: identityContextPack.length,
     });
     return this.llmClient.streamWithContext({
       question: liteQuestion,
-      contextPack: "",
+      contextPack: identityContextPack,
       history,
       maxTokens,
       temperature,
@@ -1692,7 +1701,9 @@ export class RagQueryService {
       prepared.fullDocumentSeedIds.length > 0
         ? await this.fullDocumentService.buildContextFromDocumentIds(prepared.fullDocumentSeedIds)
         : await this.fullDocumentService.buildContextFromHits(retrieval.hits);
-    const combinedContextRaw = [contextPack.text, fullDocContext.text].filter(Boolean).join("\n\n");
+    const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
+    const identityContextPack = identitySharedMemory.promptBlock || "";
+    const combinedContextRaw = [identityContextPack, contextPack.text, fullDocContext.text].filter(Boolean).join("\n\n");
     const fullContextCap = parsePositiveInt(
       process.env.RAG_FULL_CONTEXT_MAX_CHARS,
       Math.max(this.contextConfig.maxChars, 15_000),
@@ -1772,6 +1783,8 @@ export class RagQueryService {
       answerChars: llmResult.answer.length,
       retrievedChunks: retrieval.hits.length,
       selectedChunks: contextPack.chunks.length,
+      identitySharedMemoryStatus: identitySharedMemory.status,
+      identitySharedMemoryChars: identityContextPack.length,
       fullDocLoaded: fullDocContext.audit.loadedDocs,
       fullDocIncludedChars: fullDocContext.audit.includedChars,
       combinedContextChars: combinedContext.length,
@@ -2096,7 +2109,9 @@ export class RagQueryService {
       : prepared.fullDocumentSeedIds.length > 0
         ? await this.fullDocumentService.buildContextFromDocumentIds(prepared.fullDocumentSeedIds)
         : await this.fullDocumentService.buildContextFromHits(retrieval.hits);
-    const combinedContextRaw = [contextPack.text, fullDocContext.text].filter(Boolean).join("\n\n");
+    const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
+    const identityContextPack = identitySharedMemory.promptBlock || "";
+    const combinedContextRaw = [identityContextPack, contextPack.text, fullDocContext.text].filter(Boolean).join("\n\n");
     const defaultStreamContextCap =
       fullDocContext.audit.loadedDocs > 0 ? Math.max(15_000, runtimeProfile.contextCap) : runtimeProfile.contextCap;
     const streamContextCap = parsePositiveInt(
@@ -2133,6 +2148,8 @@ export class RagQueryService {
       retrievedChunks: retrieval.hits.length,
       selectedChunks: contextPack.chunks.length,
       contextChars: contextPack.usedChars,
+      identitySharedMemoryStatus: identitySharedMemory.status,
+      identitySharedMemoryChars: identityContextPack.length,
       fullDocLoaded: fullDocContext.audit.loadedDocs,
       fullDocIncludedChars: fullDocContext.audit.includedChars,
       latencyPreset: this.latencyPreset,
