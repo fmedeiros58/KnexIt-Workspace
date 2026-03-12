@@ -156,6 +156,91 @@ function trimOuterParentheses(text: string) {
   if (!inner || /[()]/.test(inner)) return trimmed;
   return inner;
 }
+
+function stripPersonaLabelPrefix(text: string) {
+  let output = `${text || ""}`.trimStart();
+  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant)\s*[:\-]\s*/i, "");
+  output = output.replace(/^\s*["']?(?:leticia|l\.e\.t\.i\.c\.i\.a)["']?\s*[:\-]\s*/i, "");
+  return output;
+}
+
+function isVerifiableCurrentQuestion(value: string) {
+  const normalized = normalizeFold(value);
+  if (!normalized) return false;
+  const asksCurrentOffice =
+    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+      normalized,
+    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksVerifiableData =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksVerifiableData;
+}
+
+function hasScopedDocumentInput(ctx: PipelineContext) {
+  if (ctx.ragInput.composerBound === true) return true;
+  if (Number.isFinite(Number(ctx.ragInput.documentId)) && Number(ctx.ragInput.documentId) > 0) return true;
+  if (Array.isArray(ctx.ragInput.documentIds) && ctx.ragInput.documentIds.some((row) => Number(row) > 0)) return true;
+  if (Array.isArray(ctx.attachments) && ctx.attachments.length > 0) return true;
+  return false;
+}
+
+function hasPositiveWebEvidence(ctx: PipelineContext) {
+  return (ctx.evidence || []).some((row) => {
+    const ref = `${row.ref || ""}`.trim().toLowerCase();
+    const text = `${row.text || ""}`.trim();
+    if (ref === "web:missing") return false;
+    if (ref.startsWith("web:")) return true;
+    return /\[web\]/i.test(text) && !/\[web_required\]/i.test(text);
+  });
+}
+
+function hasWebVerificationFailureSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(nao consegui validar|verificacao web falhou|preciso verificar|sem base verificavel)\b/.test(normalized) ||
+    /\b(cannot verify|web verification failed|insufficient evidence|need to verify)\b/.test(normalized)
+  );
+}
+
+function hasPersonaPolicyLeak(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(i won t reveal internal processes|responding professionally and objectively|inside knexit)\b/.test(normalized) ||
+    /\b(nao vou revelar processos internos|ia nativa do ecossistema|respondo com naturalidade objetividade)\b/.test(normalized)
+  );
+}
+
+function buildMissingWebVerificationReply(ctx: PipelineContext) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    return "I could not validate this fact with web sources in this turn. To avoid outdated information, I need to rerun multi-source verification before confirming it.";
+  }
+  return "Nao consegui validar esse fato em fontes web neste turno. Para evitar informacao desatualizada, preciso repetir a verificacao multifonte antes de confirmar.";
+}
+
+function enforceVerifiableWebGuard(ctx: PipelineContext, text: string) {
+  const forceMultiSource = parseBooleanEnv(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH, true);
+  if (!forceMultiSource) return text;
+  if (!isVerifiableCurrentQuestion(ctx.userMessage)) return text;
+  if (hasScopedDocumentInput(ctx)) return text;
+  if (hasPersonaPolicyLeak(text)) return buildMissingWebVerificationReply(ctx);
+  if (hasPositiveWebEvidence(ctx)) return text;
+  if (hasWebVerificationFailureSignal(text)) return text;
+  return buildMissingWebVerificationReply(ctx);
+}
+
+function stripLeadingGreetingForVerifiableQuestion(text: string, userMessage: string) {
+  if (!isVerifiableCurrentQuestion(userMessage)) return text;
+  let output = `${text || ""}`.trimStart();
+  output = output.replace(/^\s*(?:oi|ola|olá|bom dia|boa tarde|boa noite)[^.!?]*[.!?]\s*/i, "");
+  output = output.replace(/^\s*(?:usuario|usuário|user)\s*[,:\-]\s*/i, "");
+  return output;
+}
+
 function foldLoose(value: string) {
   return `${value || ""}`
     .normalize("NFD")
@@ -201,10 +286,12 @@ function stripTrailingAnswerWrapper(text: string) {
 function sanitizeChatArtifacts(text: string, userMessage: string) {
   let output = `${text || ""}`;
   if (!output.trim()) return "";
+  output = stripPersonaLabelPrefix(output);
   output = stripEchoedUserMessage(output, userMessage);
   output = stripQuestionAnswerEnvelope(output);
   output = stripAnswerLabelPrefix(output);
   output = stripTrailingAnswerWrapper(output);
+  output = stripLeadingGreetingForVerifiableQuestion(output, userMessage);
   output = trimOuterParentheses(output);
   output = output.replace(/^\s*[-–—:：]\s*/, "");
   output = output.replace(/\n{3,}/g, "\n\n").trim();
@@ -248,6 +335,34 @@ function createChatStreamSanitizerStream(stream: ReadableStream<Uint8Array>, use
         } else if (tail) {
           controller.enqueue(encoder.encode(tail));
         }
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      } finally {
+        reader.releaseLock();
+      }
+    },
+  });
+}
+
+function createVerifiableGuardedChatStream(stream: ReadableStream<Uint8Array>, ctx: PipelineContext) {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = stream.getReader();
+      let text = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value || !value.length) continue;
+          text += decoder.decode(value, { stream: true });
+        }
+        text += decoder.decode();
+        let finalText = enforceChatResponseStructure(ctx, text);
+        finalText = enforceVerifiableWebGuard(ctx, finalText);
+        if (finalText) controller.enqueue(encoder.encode(finalText));
         controller.close();
       } catch (error) {
         controller.error(error);
@@ -347,7 +462,12 @@ export class PostprocessStage implements Stage {
     ctx.progress.stage = "postprocess";
     if (ctx.stream) {
       if (ctx.mode === "chat" && ctx.finalStream) {
-        ctx.finalStream = createChatStreamSanitizerStream(ctx.finalStream, ctx.userMessage);
+        const sanitizedStream = createChatStreamSanitizerStream(ctx.finalStream, ctx.userMessage);
+        if (isVerifiableCurrentQuestion(ctx.userMessage) && !hasScopedDocumentInput(ctx)) {
+          ctx.finalStream = createVerifiableGuardedChatStream(sanitizedStream, ctx);
+        } else {
+          ctx.finalStream = sanitizedStream;
+        }
       }
       ctx.progress.filteredRedundancy = true;
       return;
@@ -400,6 +520,7 @@ export class PostprocessStage implements Stage {
 
     if (ctx.mode === "chat") {
       finalText = enforceChatResponseStructure(ctx, finalText);
+      finalText = enforceVerifiableWebGuard(ctx, finalText);
     }
 
     const nextStepCta = buildNextStepCta(ctx, finalText);

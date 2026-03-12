@@ -182,4 +182,79 @@ describe("PostprocessStage", () => {
     expect(rendered).toMatch(/^Sim, tudo bem\.?$/i);
     expect(rendered).not.toMatch(/\(\s*resposta[^)]*\)/i);
   });
+
+  it("remove prefixo de persona e saudacao excessiva em pergunta factual verificavel", async () => {
+    const ctx = makeContext("Leticia: Ola, usuario. Atualmente, o presidente dos Estados Unidos e Joe Biden.");
+    ctx.userMessage = "me diga quem e o presidente atual dos estados unidos";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").not.toMatch(/^leticia\s*:/i);
+    expect(ctx.finalAnswer || "").not.toMatch(/^ol[aá],?\s*usuario/i);
+  });
+
+  it("bloqueia resposta factual sem evidencia web em pergunta verificavel", async () => {
+    const ctx = makeContext("Atualmente, o presidente do Brasil e Jair Bolsonaro.");
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").not.toContain("Jair Bolsonaro");
+  });
+
+  it("mantem resposta verificavel quando ha evidencia web positiva", async () => {
+    const ctx = makeContext("Atualmente, o presidente do Brasil e Luiz Inacio Lula da Silva.");
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.81,
+        text: "[WEB] Governo Federal | URL: https://www.gov.br",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Luiz Inacio Lula da Silva");
+  });
+
+  it("bloqueia vazamento de diretiva/persona em pergunta verificavel", async () => {
+    const ctx = makeContext(
+      "I'm an assistant inside KnexIT, responding professionally and objectively. I won't reveal internal processes.",
+    );
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.72,
+        text: "[WEB] Fonte valida | URL: https://exemplo.org",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").not.toContain("inside KnexIT");
+  });
+
+  it("bloqueia vazamento de diretiva/persona no stream para pergunta verificavel", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.72,
+        text: "[WEB] Fonte valida | URL: https://exemplo.org",
+      },
+    ];
+    ctx.finalStream = streamFromText(
+      "I'm an assistant inside KnexIT, responding professionally and objectively. I won't reveal internal processes.",
+    );
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(rendered).not.toContain("inside KnexIT");
+  });
 });

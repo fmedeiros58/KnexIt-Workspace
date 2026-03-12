@@ -23,6 +23,11 @@ export type RagLlmRequest = {
   responseLanguageSource?: "question" | "explicit_override" | "default";
   responseLanguageExplicitOverride?: boolean;
   responseLanguageIsTranslationIntent?: boolean;
+  anmEngineMode?: "direct" | "anm";
+  anmBaseUrl?: string;
+  anmTimeoutMs?: number;
+  anmSoftTimeoutMs?: number;
+  anmFallbackToDirect?: boolean;
 };
 
 export type RagLlmResult = {
@@ -60,6 +65,8 @@ const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 524]
 const DEFAULT_MIN_BUDGET_PER_CALL = 384;
 const DEFAULT_LLM_CONTEXT_WINDOW_TOKENS = 8192;
 const DEFAULT_LOCKED_MAX_TOKENS_PER_CALL = 16384;
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 type LlmEndpointAttempt = {
   baseUrl: string;
@@ -73,6 +80,22 @@ type LlmEndpointAttempt = {
     | "empty_answer";
   detail?: string;
   status?: number;
+};
+
+type AnmRuntimeConfig = {
+  enabled: boolean;
+  baseUrl: string;
+  timeoutMs: number;
+  softTimeoutMs: number;
+  fallbackToDirect: boolean;
+};
+
+type AnmCompletionResult = {
+  answer: string;
+  traceId: string | null;
+  elapsedMs: number;
+  endpoint: string;
+  baseUrl: string;
 };
 
 function isInternalBaseUrl(baseUrl: string) {
@@ -130,7 +153,25 @@ function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   return fallback;
 }
 
+function parseBaseUrlList(value: string) {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const token of value.split(/[,\n;]+/g)) {
+    const normalized = normalizeUrl(`${token || ""}`.trim());
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
 function parsePositiveInt(value: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function clampPositiveInt(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
@@ -428,6 +469,75 @@ function buildPromptInstructionProfile(
   };
 }
 
+function hasUncertaintySignal(answer: string) {
+  const normalized = `${answer || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  return (
+    /\b(nao tenho base|nao posso confirmar|nao consigo confirmar|preciso verificar|sem base verificavel|nao encontrei base)\b/.test(
+      normalized,
+    ) ||
+    /\b(i cannot confirm|i need to verify|insufficient evidence|not enough evidence)\b/.test(normalized)
+  );
+}
+
+function seemsDefinitiveCurrentRoleClaim(answer: string) {
+  const normalized = `${answer || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  const rolePattern =
+    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/;
+  const assertivePattern = /\b(e|eh|is|atual)\b/;
+  if (!rolePattern.test(normalized)) return false;
+  return assertivePattern.test(normalized);
+}
+
+function applyVerifiableContextGuard(answer: string, profile: PromptInstructionProfile) {
+  if (!profile.requiresVerifiableContext || profile.hasRetrievedContext) return `${answer || ""}`.trim();
+  const trimmed = `${answer || ""}`.trim();
+  if (!trimmed) return trimmed;
+  if (hasUncertaintySignal(trimmed)) return trimmed;
+  if (!seemsDefinitiveCurrentRoleClaim(trimmed)) return trimmed;
+  return "Nao tenho base verificavel suficiente no contexto atual para afirmar esse dado com seguranca. Se quiser, eu verifico em fontes externas e te retorno com confirmacao.";
+}
+
+function extractAnmAnswer(payload: unknown) {
+  if (!payload || typeof payload !== "object") return { answer: "", traceId: null as string | null };
+  const row = payload as { answer?: unknown; text?: unknown; output?: unknown; trace_id?: unknown; traceId?: unknown };
+  const answerRaw =
+    typeof row.answer === "string"
+      ? row.answer
+      : typeof row.text === "string"
+        ? row.text
+        : typeof row.output === "string"
+          ? row.output
+          : "";
+  const traceIdRaw = typeof row.trace_id === "string" ? row.trace_id : typeof row.traceId === "string" ? row.traceId : "";
+  return {
+    answer: `${answerRaw || ""}`.trim(),
+    traceId: traceIdRaw ? `${traceIdRaw}` : null,
+  };
+}
+
+function createChunkedTextStream(text: string, chunkSize = 320) {
+  const encoder = new TextEncoder();
+  const normalized = `${text || ""}`;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (!normalized) {
+        controller.close();
+        return;
+      }
+      for (let cursor = 0; cursor < normalized.length; cursor += chunkSize) {
+        controller.enqueue(encoder.encode(normalized.slice(cursor, Math.min(normalized.length, cursor + chunkSize))));
+      }
+      controller.close();
+    },
+  });
+}
+
 type ResponseLanguageEnv = {
   id: string;
   name: string;
@@ -477,6 +587,9 @@ function buildSystemPrompt(
         "Quando houver pedido de dado verificavel (numero, data, lei, dosagem, fonte), sinalize brevemente a limitacao se o contexto nao trouxer base.",
       );
       lines.push("Para pergunta de cargo/pessoa atual (ex.: reitor(a), presidente, prefeito), nao invente nome sem base no contexto.");
+      lines.push(
+        "Sem base verificavel no contexto, nao afirme nomes/cargos/datas como fato; diga que precisa verificar em fontes externas.",
+      );
     } else {
       lines.push("Evite responder apenas com 'sem base suficiente' em perguntas genericas.");
     }
@@ -674,6 +787,7 @@ export class VllmInternalClient {
   private circuitBreakerFailures = 0;
   private circuitBreakerOpenUntil = 0;
   private wslDiscoveryCache: { checkedAt: number; urls: string[] } | null = null;
+  private anmWslDiscoveryCache: { key: string; checkedAt: number; urls: string[] } | null = null;
   private preferredBaseUrl: string;
 
   constructor(private readonly config: RagLlmConfig = loadRagLlmConfig()) {
@@ -780,6 +894,273 @@ export class VllmInternalClient {
           timeoutMs: fullTimeoutMs,
           retryAttempts: fullRetries,
         };
+  }
+
+  private resolveAnmRuntimeConfig(input: RagLlmRequest): AnmRuntimeConfig {
+    const requestedMode = input.anmEngineMode === "anm" ? "anm" : "direct";
+    if (requestedMode !== "anm") {
+      return {
+        enabled: false,
+        baseUrl: "",
+        timeoutMs: 0,
+        softTimeoutMs: 0,
+        fallbackToDirect: true,
+      };
+    }
+
+    const baseUrl = normalizeUrl(`${input.anmBaseUrl || process.env.ANM_BACKEND_BASE_URL || DEFAULT_ANM_BASE_URL}`.trim());
+    const timeoutMs = clampPositiveInt(
+      input.anmTimeoutMs,
+      clampPositiveInt(process.env.ANM_BACKEND_TIMEOUT_MS, DEFAULT_ANM_TIMEOUT_MS, 3_000, 300_000),
+      2_000,
+      300_000,
+    );
+    const softTimeoutMs = clampPositiveInt(input.anmSoftTimeoutMs, Math.min(2_000, timeoutMs), 200, timeoutMs);
+    const fallbackToDirect =
+      typeof input.anmFallbackToDirect === "boolean"
+        ? input.anmFallbackToDirect
+        : parseBooleanFlag(process.env.KNEXAI_ANM_FALLBACK_TO_DIRECT, true);
+
+    return {
+      enabled: Boolean(baseUrl),
+      baseUrl,
+      timeoutMs,
+      softTimeoutMs,
+      fallbackToDirect,
+    };
+  }
+
+  private resolveAnmCandidates(baseUrl: string) {
+    const primary = normalizeUrl(baseUrl);
+    const fallbackEnv = parseBaseUrlList(process.env.ANM_BACKEND_BASE_URL_FALLBACKS || "");
+    const seedUrls = [primary, ...fallbackEnv];
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const url of seedUrls) {
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      unique.push(url);
+    }
+
+    if (!this.wslDiscoveryEnabled || process.platform !== "win32") {
+      return unique;
+    }
+
+    const loopbackSeeds = unique.filter((url) => {
+      try {
+        return isLoopbackHostname(new URL(url).hostname);
+      } catch {
+        return false;
+      }
+    });
+    if (!loopbackSeeds.length) {
+      return unique;
+    }
+
+    const cacheKey = loopbackSeeds.join("|");
+    const now = Date.now();
+    if (
+      this.anmWslDiscoveryCache &&
+      this.anmWslDiscoveryCache.key === cacheKey &&
+      now - this.anmWslDiscoveryCache.checkedAt < WSL_DISCOVERY_CACHE_MS
+    ) {
+      for (const url of this.anmWslDiscoveryCache.urls) {
+        if (!seen.has(url)) {
+          seen.add(url);
+          unique.push(url);
+        }
+      }
+      return unique;
+    }
+
+    const discoveredHosts: string[] = [];
+    const configuredHost = (
+      process.env.ANM_WSL_HOST_IP ||
+      process.env.KNEXAI_WSL_HOST_IP ||
+      process.env.LOCAL_WSL_HOST_IP ||
+      process.env.RAG_LLM_WSL_HOST_IP ||
+      ""
+    ).trim();
+    if (isIpv4Address(configuredHost)) {
+      discoveredHosts.push(configuredHost);
+    } else {
+      const discovered = this.tryDiscoverWslHostIp();
+      if (discovered && isIpv4Address(discovered)) {
+        discoveredHosts.push(discovered);
+      }
+    }
+
+    const dynamicUrls = Array.from(
+      new Set(
+        discoveredHosts.flatMap((host) =>
+          loopbackSeeds
+            .map((seed) => replaceHostname(seed, host))
+            .filter(Boolean),
+        ),
+      ),
+    );
+    this.anmWslDiscoveryCache = { key: cacheKey, checkedAt: now, urls: dynamicUrls };
+    if (dynamicUrls.length) {
+      logger.debug("RAG_ANM_DYNAMIC_FALLBACKS", {
+        discoveredHosts,
+        dynamicUrls,
+      });
+    }
+    for (const url of dynamicUrls) {
+      if (!seen.has(url)) {
+        seen.add(url);
+        unique.push(url);
+      }
+    }
+    return unique;
+  }
+
+  private async requestAnmCompletionAtBaseUrl(input: {
+    baseUrl: string;
+    config: AnmRuntimeConfig;
+    prompt: string;
+    history: RagChatHistoryItem[];
+    localeHint: string;
+  }) {
+    const resolvedBaseUrl = normalizeUrl(input.baseUrl);
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), input.config.timeoutMs);
+    try {
+      const history = Array.isArray(input.history)
+        ? input.history
+            .slice(-20)
+            .map((row) => ({
+              role: row.role === "assistant" ? "assistant" : "user",
+              content: `${row.content || ""}`.trim(),
+            }))
+            .filter((row) => row.content.length > 0)
+        : [];
+
+      const leticiaResponse = await fetch(
+        `${resolvedBaseUrl}/assistant/leticia/respond`,
+        this.withDispatcher({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: input.prompt,
+            prompt: input.prompt,
+            mode: "chat",
+            locale_hint: input.localeHint || undefined,
+            history,
+          }),
+          signal: controller.signal,
+          cache: "no-store",
+        }),
+      );
+
+      if (leticiaResponse.ok) {
+        const payload = await leticiaResponse.json().catch(() => null);
+        const resolved = extractAnmAnswer(payload);
+        if (!resolved.answer) {
+          throw new RagPipelineError(502, "RAG_ANM_EMPTY_RESPONSE", "ANM nao retornou resposta textual.");
+        }
+        return {
+          answer: resolved.answer,
+          traceId: resolved.traceId,
+          elapsedMs: Date.now() - startedAt,
+          endpoint: "/assistant/leticia/respond",
+          baseUrl: resolvedBaseUrl,
+        };
+      }
+
+      if (leticiaResponse.status !== 404) {
+        const detail = (await leticiaResponse.text().catch(() => "")).trim().slice(0, 240);
+        throw new RagPipelineError(
+          leticiaResponse.status >= 500 ? 503 : 502,
+          "RAG_ANM_UPSTREAM_ERROR",
+          `ANM respondeu com erro HTTP ${leticiaResponse.status}${detail ? `: ${detail}` : "."}`,
+        );
+      }
+
+      const legacyResponse = await fetch(
+        `${resolvedBaseUrl}/chat`,
+        this.withDispatcher({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: input.prompt,
+          }),
+          signal: controller.signal,
+          cache: "no-store",
+        }),
+      );
+
+      if (!legacyResponse.ok) {
+        const detail = (await legacyResponse.text().catch(() => "")).trim().slice(0, 240);
+        throw new RagPipelineError(
+          legacyResponse.status >= 500 ? 503 : 502,
+          "RAG_ANM_UPSTREAM_ERROR",
+          `ANM respondeu com erro HTTP ${legacyResponse.status}${detail ? `: ${detail}` : "."}`,
+        );
+      }
+      const payload = await legacyResponse.json().catch(() => null);
+      const resolved = extractAnmAnswer(payload);
+      if (!resolved.answer) {
+        throw new RagPipelineError(502, "RAG_ANM_EMPTY_RESPONSE", "ANM nao retornou resposta textual.");
+      }
+      return {
+        answer: resolved.answer,
+        traceId: resolved.traceId,
+        elapsedMs: Date.now() - startedAt,
+        endpoint: "/chat",
+        baseUrl: resolvedBaseUrl,
+      };
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new RagPipelineError(504, "RAG_ANM_TIMEOUT", "Timeout ao consultar o ANM backend.");
+      }
+      if (error instanceof RagPipelineError) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new RagPipelineError(503, "RAG_ANM_UNAVAILABLE", `ANM indisponivel em ${resolvedBaseUrl}: ${detail}.`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private async requestAnmCompletion(input: {
+    config: AnmRuntimeConfig;
+    prompt: string;
+    history: RagChatHistoryItem[];
+    localeHint: string;
+  }): Promise<AnmCompletionResult> {
+    const candidates = this.resolveAnmCandidates(input.config.baseUrl);
+    let lastError: RagPipelineError | null = null;
+
+    for (const candidate of candidates) {
+      try {
+        return await this.requestAnmCompletionAtBaseUrl({
+          ...input,
+          baseUrl: candidate,
+        });
+      } catch (error) {
+        if (error instanceof RagPipelineError) {
+          lastError = error;
+          continue;
+        }
+        const detail = error instanceof Error ? error.message : String(error);
+        lastError = new RagPipelineError(503, "RAG_ANM_UNAVAILABLE", `ANM indisponivel em ${candidate}: ${detail}.`);
+      }
+    }
+
+    if (lastError) {
+      throw new RagPipelineError(
+        lastError.status,
+        lastError.code,
+        `${lastError.message} Endpoints ANM tentados: ${candidates.join(", ")}.`,
+      );
+    }
+
+    throw new RagPipelineError(
+      503,
+      "RAG_ANM_UNAVAILABLE",
+      `ANM indisponivel em ${input.config.baseUrl}. Endpoints ANM tentados: ${candidates.join(", ")}.`,
+    );
   }
 
   private resolveCandidates() {
@@ -1226,6 +1607,56 @@ export class VllmInternalClient {
       explicitOverride: input.responseLanguageExplicitOverride,
       isTranslationIntent: input.responseLanguageIsTranslationIntent,
     });
+    const anmRuntime = this.resolveAnmRuntimeConfig(input);
+    if (anmRuntime.enabled) {
+      const anmPrompt = buildUserPrompt(
+        input.question,
+        input.contextPack,
+        promptProfile,
+        responseLanguage,
+        input.followupMode === "required" ? "required" : "omit",
+      );
+      try {
+        const anmResult = await this.requestAnmCompletion({
+          config: anmRuntime,
+          prompt: anmPrompt,
+          history: normalizeHistoryForVllm(input.history),
+          localeHint: responseLanguage.id,
+        });
+        const guardedAnswer = applyVerifiableContextGuard(anmResult.answer, promptProfile);
+        logger.info("RAG_LLM_ANM_CALL_DONE", {
+          baseUrl: anmResult.baseUrl,
+          endpoint: anmResult.endpoint,
+          elapsedMs: anmResult.elapsedMs,
+          traceId: anmResult.traceId,
+          fallbackToDirect: anmRuntime.fallbackToDirect,
+        });
+        this.registerCircuitSuccess();
+        return {
+          answer: guardedAnswer,
+          model: "anm:leticia",
+          finishReason: "stop",
+          usage: {
+            promptTokens: null,
+            completionTokens: null,
+            totalTokens: null,
+          },
+          elapsedMs: anmResult.elapsedMs,
+        };
+      } catch (error) {
+        logger.warn("RAG_LLM_ANM_CALL_FAILED", {
+          baseUrl: anmRuntime.baseUrl,
+          fallbackToDirect: anmRuntime.fallbackToDirect,
+          errorCode: error instanceof RagPipelineError ? error.code : null,
+          errorStatus: error instanceof RagPipelineError ? error.status : null,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        if (!anmRuntime.fallbackToDirect) {
+          this.registerCircuitFailure(error);
+          throw error;
+        }
+      }
+    }
     logger.info("RAG_LLM_CALL_START", {
       baseUrl: this.config.baseUrl,
       fallbacks: this.config.fallbackBaseUrls,
@@ -1548,7 +1979,7 @@ export class VllmInternalClient {
         }
 
         const firstChoice = payload.choices?.[0];
-        const answer = extractAnswerTextFromPayload(payload);
+        const answer = applyVerifiableContextGuard(extractAnswerTextFromPayload(payload), promptProfile);
         if (!answer) {
           attempts.push({ baseUrl, kind: "empty_answer" });
           lastStructuredError = new RagPipelineError(502, "RAG_LLM_EMPTY_ANSWER", "vLLM retornou resposta vazia.");
@@ -1655,6 +2086,46 @@ export class VllmInternalClient {
       explicitOverride: input.responseLanguageExplicitOverride,
       isTranslationIntent: input.responseLanguageIsTranslationIntent,
     });
+    const anmRuntime = this.resolveAnmRuntimeConfig(input);
+    if (anmRuntime.enabled) {
+      const anmPrompt = buildUserPrompt(
+        input.question,
+        input.contextPack,
+        promptProfile,
+        responseLanguage,
+        input.followupMode === "required" ? "required" : "omit",
+      );
+      try {
+        const anmResult = await this.requestAnmCompletion({
+          config: anmRuntime,
+          prompt: anmPrompt,
+          history: normalizeHistoryForVllm(input.history),
+          localeHint: responseLanguage.id,
+        });
+        const guardedAnswer = applyVerifiableContextGuard(anmResult.answer, promptProfile);
+        logger.info("RAG_LLM_STREAM_ANM_CALL_DONE", {
+          baseUrl: anmResult.baseUrl,
+          endpoint: anmResult.endpoint,
+          elapsedMs: anmResult.elapsedMs,
+          traceId: anmResult.traceId,
+          fallbackToDirect: anmRuntime.fallbackToDirect,
+        });
+        this.registerCircuitSuccess();
+        return createChunkedTextStream(guardedAnswer);
+      } catch (error) {
+        logger.warn("RAG_LLM_STREAM_ANM_CALL_FAILED", {
+          baseUrl: anmRuntime.baseUrl,
+          fallbackToDirect: anmRuntime.fallbackToDirect,
+          errorCode: error instanceof RagPipelineError ? error.code : null,
+          errorStatus: error instanceof RagPipelineError ? error.status : null,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        if (!anmRuntime.fallbackToDirect) {
+          this.registerCircuitFailure(error);
+          throw error;
+        }
+      }
+    }
     logger.info("RAG_LLM_STREAM_START", {
       baseUrl: this.config.baseUrl,
       fallbacks: this.config.fallbackBaseUrls,

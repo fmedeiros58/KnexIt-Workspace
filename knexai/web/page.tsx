@@ -783,7 +783,45 @@ function formatElapsedLabel(elapsedMs: number | null) {
 }
 
 function sanitizePersistedAssistantContent(content: string) {
-  return `${content || ""}`.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "").replace(/\u0000/g, "");
+  let output = `${content || ""}`.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "").replace(/\u0000/g, "");
+  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant)\s*[:\-]\s*/i, "");
+  output = output.replace(/^\s*["']?(?:leticia|l\.e\.t\.i\.c\.i\.a)["']?\s*[:\-]\s*/i, "");
+  return output.trim();
+}
+
+function normalizeVerifiablePrompt(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isVerifiablePrompt(value: string) {
+  const normalized = normalizeVerifiablePrompt(value);
+  if (!normalized) return false;
+  const asksCurrentOffice =
+    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+      normalized,
+    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksVerifiableData =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksVerifiableData;
+}
+
+function sanitizeAssistantFinalContent(content: string, prompt: string) {
+  let output = sanitizePersistedAssistantContent(content);
+  if (!output) return output;
+  if (isVerifiablePrompt(prompt)) {
+    output = output
+      .replace(/^\s*(?:oi|ola|olá|bom dia|boa tarde|boa noite)[^.!?]*[.!?]\s*/i, "")
+      .replace(/^\s*(?:usuario|usuário|user)\s*[,:\-]\s*/i, "")
+      .trim();
+  }
+  return output;
 }
 
 function toModelHistory(messages: LeticiaMessage[]): LeticiaMessage[] {
@@ -851,7 +889,10 @@ function toLocalThread(thread: PersistedThread): ChatThread {
           .filter((message) => message.role === "user" || message.role === "assistant")
           .map((message) => ({
             role: message.role as "user" | "assistant",
-            content: message.content,
+            content:
+              message.role === "assistant"
+                ? sanitizePersistedAssistantContent(message.content)
+                : message.content,
             metadata: normalizeMessageMetadata(message.metadata),
           }))
       : initialMessages;
@@ -884,7 +925,10 @@ function sanitizeCachedThreads(raw: string | null): ChatThread[] {
               )
               .map((message) => ({
                 role: message.role,
-                content: message.content,
+                content:
+                  message.role === "assistant"
+                    ? sanitizePersistedAssistantContent(message.content)
+                    : message.content,
                 metadata: normalizeMessageMetadata(message.metadata),
               }))
           : [];
@@ -3108,6 +3152,9 @@ export default function KnexAiPage() {
     let assistantResponse = "";
     const controller = new AbortController();
     try {
+      const readyWritingDocumentIds = normalizeDocumentScopeIds(
+        writingWorks.filter((work) => work.embeddingStatus === "completed").map((work) => work.documentId),
+      );
       const worksContext = writingWorks
         .slice(0, 24)
         .map((work, index) => `${index + 1}. ${work.title} | disponibilidade:${work.embeddingStatus}`)
@@ -3124,15 +3171,26 @@ export default function KnexAiPage() {
             trimmed,
           ].join("\n")
         : trimmed;
-      await streamLeticia(promptWithWorks, [], {
-        signal: controller.signal,
-        onChunk: (delta) => {
-          assistantResponse += delta;
+      await streamLeticia(
+        promptWithWorks,
+        [],
+        {
+          signal: controller.signal,
+          onChunk: (delta) => {
+            assistantResponse += delta;
+          },
+          onDone: () => {
+            setWritingStatus("idle");
+          },
         },
-        onDone: () => {
-          setWritingStatus("idle");
+        {
+          conversationKey: activeThread.id,
+          documentIds: readyWritingDocumentIds,
+          documentId: readyWritingDocumentIds.length === 1 ? readyWritingDocumentIds[0] : undefined,
+          topK: readyWritingDocumentIds.length ? 24 : undefined,
+          maxDistance: readyWritingDocumentIds.length ? null : undefined,
         },
-      });
+      );
       insertWritingText(assistantResponse);
       setWriteSession((current) => ({
         ...current,
@@ -3517,6 +3575,25 @@ export default function KnexAiPage() {
           maxDistance: scopedDocumentIds.length ? null : undefined,
         },
       );
+      const normalizedAssistant = sanitizeAssistantFinalContent(assistantResponse, trimmed);
+      if (normalizedAssistant !== assistantResponse) {
+        assistantResponse = normalizedAssistant;
+        setThreads((prev) =>
+          prev.map((thread) => {
+            if (thread.id !== targetThreadId) return thread;
+            const lastIndex = thread.messages.length - 1;
+            const last = thread.messages[lastIndex];
+            if (!last || last.role !== "assistant") return thread;
+            const nextMessages = [...thread.messages];
+            nextMessages[lastIndex] = { ...last, content: assistantResponse };
+            return {
+              ...thread,
+              updatedAt: Date.now(),
+              messages: nextMessages,
+            };
+          }),
+        );
+      }
       await persistMessage(storedThreadId, "assistant", assistantResponse);
     } catch (err: any) {
       if (streamIdRef.current !== streamId) return;

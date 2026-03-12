@@ -1,8 +1,13 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { execFileSync } from "node:child_process";
+import { createAssistantPipelineOrchestratorService } from "@/core/assistant/pipeline/pipeline-orchestrator.service";
 import { LETICIA_SYSTEM_PROMPT } from "@/lib/knexai/spec";
 import { loadPathConfig } from "@/core/config/paths";
 import { resolveIdentityRuntimeSharedContext } from "@/core/identity/shared-memory-context";
+import { createRagQueryService } from "@/core/rag/rag-query-service";
+import { createRagInternetSearchService, type InternetSearchResponse } from "@/core/rag/internet-search-service";
+import { RagPipelineError } from "@/core/rag/rag-errors";
+import { toSseStream } from "@/core/rag/streaming-response";
 import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
 import {
   buildConversationStateSummaryBlock,
@@ -13,6 +18,11 @@ import { enforceResponseStructure } from "@/core/chat/perception/response-struct
 import type { ConversationPerceptionState } from "@/core/chat/perception/types";
 
 export const runtime = "nodejs";
+
+const ragService = createRagQueryService();
+const internetSearchService = createRagInternetSearchService();
+const assistantOrchestrator = createAssistantPipelineOrchestratorService(ragService);
+
 
 type ChatRole = "user" | "assistant";
 type ChatHistoryItem = { role: ChatRole; content: string };
@@ -53,6 +63,12 @@ type AnmChatResult = {
 type ResponsePolicyContext = {
   state: ConversationPerceptionState;
   complexity: PromptComplexity;
+};
+type AutoWebEvidence = {
+  contextBlock: string;
+  queryCount: number;
+  resultCount: number;
+  sources: string[];
 };
 type EngineAttempt<T> = {
   source: "anm" | "direct";
@@ -116,6 +132,14 @@ function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return fallback;
+}
+
+function parseOptionalBoolean(value: string | undefined | null): boolean | undefined {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
 }
 
 function parseBaseUrlList(value: string) {
@@ -230,6 +254,140 @@ function buildCurrentDateContext() {
 function buildCurrentDateAnswer() {
   const current = buildCurrentDateContext();
   return `Hoje e ${current.weekday}, ${current.date}. (Fuso: ${current.timeZone})`;
+}
+
+function buildWebVerificationUnavailableAnswer(localeHint: string) {
+  const normalized = `${localeHint || ""}`.trim().toLowerCase();
+  if (normalized.startsWith("en")) {
+    return "I could not validate this fact with web sources in this turn. To avoid outdated information, I need to rerun multi-source verification before confirming it.";
+  }
+  if (normalized.startsWith("es")) {
+    return "No pude validar este dato con fuentes web en este turno. Para evitar informacion desactualizada, necesito repetir la verificacion multifuente antes de confirmarlo.";
+  }
+  return "Nao consegui validar esse fato em fontes web neste turno. Para evitar informacao desatualizada, preciso repetir a verificacao multifonte antes de confirmar.";
+}
+
+function normalizeForVerification(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isVerifiableQuestionForAutoSearch(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  const asksCurrentOffice =
+    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+      normalized,
+    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksVerifiableData =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksVerifiableData;
+}
+
+function dedupeUrls(results: Array<InternetSearchResponse["results"][number]>, maxItems: number) {
+  const unique: Array<InternetSearchResponse["results"][number]> = [];
+  const seen = new Set<string>();
+  for (const row of results) {
+    const url = `${row.url || ""}`.trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(row);
+    if (unique.length >= maxItems) break;
+  }
+  return unique;
+}
+
+function buildAutoSearchQueries(prompt: string) {
+  const base = `${prompt || ""}`.trim();
+  if (!base) return [];
+  const maxQueries = Number.isFinite(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_QUERIES))
+    ? Math.max(1, Math.min(5, Math.trunc(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_QUERIES))))
+    : 3;
+  const candidates = [base, `${base} site:gov.br`, `${base} site:wikipedia.org`, `${base} atualizado`];
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const query of candidates) {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(query.trim());
+    if (unique.length >= maxQueries) break;
+  }
+  return unique;
+}
+
+async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidence | null> {
+  const autoEnabled = parseOptionalBoolean(process.env.KNEXAI_AUTO_WEB_SEARCH_ENABLED) !== false;
+  const forceMultiSource = parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
+  if (!autoEnabled) return null;
+  if (!internetSearchService.isEnabled()) return null;
+  if (!forceMultiSource && !isVerifiableQuestionForAutoSearch(prompt)) return null;
+
+  const queries = buildAutoSearchQueries(prompt);
+  if (!queries.length) return null;
+
+  const allResults: Array<InternetSearchResponse["results"][number]> = [];
+  for (const query of queries) {
+    try {
+      const payload = await internetSearchService.search({ query, preferPdf: false });
+      if (!payload || !Array.isArray(payload.results) || !payload.results.length) continue;
+      allResults.push(...payload.results);
+    } catch (error) {
+      console.warn("KNEXAI_AUTO_WEB_SEARCH_QUERY_FAILED", {
+        query,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (!allResults.length) {
+    if (!forceMultiSource) return null;
+    const missingBlock = [
+      "[WEB_VERIFIED_CONTEXT]",
+      `Pergunta: ${prompt.trim()}`,
+      "Consultas executadas: 0",
+      "Status: nenhuma fonte web recuperada neste turno.",
+      "Regra: nao responder fato verificavel por memoria; informar falha de verificacao web e solicitar nova tentativa.",
+      "[/WEB_VERIFIED_CONTEXT]",
+    ].join("\n");
+    return {
+      contextBlock: missingBlock,
+      queryCount: 0,
+      resultCount: 0,
+      sources: [],
+    };
+  }
+
+  const maxResults = Number.isFinite(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_MAX_RESULTS))
+    ? Math.max(2, Math.min(12, Math.trunc(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_MAX_RESULTS))))
+    : 8;
+  const selected = dedupeUrls(allResults, maxResults);
+  if (!selected.length) return null;
+
+  const lines: string[] = [];
+  lines.push("[WEB_VERIFIED_CONTEXT]");
+  lines.push(`Pergunta: ${prompt.trim()}`);
+  lines.push(`Consultas executadas: ${queries.length}`);
+  selected.forEach((row, index) => {
+    const title = `${row.title || `Fonte ${index + 1}`}`.trim();
+    const snippet = `${row.snippet || ""}`.trim();
+    lines.push(`${index + 1}. ${title}`);
+    lines.push(`URL: ${row.url}`);
+    if (snippet) lines.push(`Trecho: ${snippet}`);
+  });
+  lines.push("[/WEB_VERIFIED_CONTEXT]");
+
+  return {
+    contextBlock: lines.join("\n"),
+    queryCount: queries.length,
+    resultCount: selected.length,
+    sources: selected.map((row) => `${row.url || ""}`.trim()).filter(Boolean),
+  };
 }
 
 function resolveLogicalModelName() {
@@ -564,14 +722,27 @@ function buildEngineCompositeError(attempts: Array<EngineAttempt<unknown>>) {
   );
 }
 
+function stripConversationRoleArtifacts(text: string) {
+  let output = `${text || ""}`.trim();
+  if (!output) return "";
+  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant|resposta|answer)\s*[:：-]\s*/i, "");
+  const markerIndex = output.search(/\b(?:usuario|user|assistente|assistant)\s*[:：]/i);
+  if (markerIndex >= 0) {
+    output = output.slice(0, markerIndex).trim();
+  }
+  output = output.replace(/\n{3,}/g, "\n\n").trim();
+  return output;
+}
+
 function toAnmTextResponse(anm: AnmChatResult, policyContext: ResponsePolicyContext) {
-  const enforcedAnswer = enforceResponseStructure(anm.answer, {
+  const cleaned = stripConversationRoleArtifacts(anm.answer);
+  const enforcedAnswer = enforceResponseStructure(cleaned || anm.answer, {
     state: policyContext.state,
     complexity: policyContext.complexity,
   });
   const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
   if (anm.traceId) headers["X-KnexAI-Trace-Id"] = anm.traceId;
-  return new Response(createChunkedTextStream(enforcedAnswer || anm.answer), {
+  return new Response(createChunkedTextStream(enforcedAnswer || cleaned || anm.answer), {
     status: 200,
     headers,
   });
@@ -591,6 +762,85 @@ function normalizeHistory(value: unknown): ChatHistoryItem[] {
   }
   // Mantem uma janela maior para preservar continuidade semantica entre turnos.
   return items.slice(-16);
+}
+
+function parseOptionalBooleanFromBody(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (value === null || value === undefined || value === "") return undefined;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return undefined;
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return undefined;
+}
+
+function parseOptionalFiniteNumberFromBody(value: unknown) {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalPositiveIntFromBody(value: unknown) {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const rounded = Math.round(parsed);
+  return rounded > 0 ? rounded : undefined;
+}
+
+function parseOptionalPositiveIntArrayFromBody(value: unknown, maxItems = 64) {
+  if (!Array.isArray(value)) return undefined;
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of value) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) continue;
+    const rounded = Math.round(parsed);
+    if (rounded <= 0 || seen.has(rounded)) continue;
+    seen.add(rounded);
+    normalized.push(rounded);
+    if (normalized.length >= maxItems) break;
+  }
+  return normalized.length ? normalized : undefined;
+}
+
+function parseStreamModeFromBody(value: unknown): "" | "sse" | "plain" {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "sse" || normalized === "plain") return normalized;
+  return "";
+}
+
+function parsePipelineVersionFromBody(value: unknown): "v1" | "v2" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "v1" || normalized === "v2") return normalized;
+  return undefined;
+}
+
+function parseOptionalEngineModeFromBody(value: unknown): EngineMode | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "direct" || normalized === "anm") return normalized;
+  return undefined;
+}
+
+function parseOptionalLanguageIdFromBody(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, 32);
+}
+
+function buildAttachmentsFromComposer(
+  composerAttachmentIds: number[] | undefined,
+  scopedDocumentIds: number[] | undefined,
+) {
+  const ids = (composerAttachmentIds && composerAttachmentIds.length ? composerAttachmentIds : scopedDocumentIds) || [];
+  return ids.map((id) => ({ id: `${id}`, kind: "file" as const, name: `documento-${id}` }));
 }
 
 function normalizeRecord(value: unknown): Record<string, unknown> | null {
@@ -709,11 +959,11 @@ function isMicroSocialPrompt(prompt: string): boolean {
   if (words.length > 8 || normalized.length > 60) return false;
 
   const microSocialPatterns = [
-    /^(oi|ola|ol[aá]|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
+    /^(oi|ola|ol[a�]|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
     /^(bom dia|boa tarde|boa noite)$/i,
     /^(blz|beleza|tudo bem|td bem|como vai|como vc esta|como voce esta|how are you|que tal)$/i,
     /^(nada por agora|nada agora|de boa|tranquilo|ok|okay|ok obrigado|obrigado|obg|valeu)$/i,
-    /^(ate logo|at[eé] logo|ate mais|at[eé] mais|tchau|falou|ate breve|at[eé] breve|bye)$/i,
+    /^(ate logo|at[e�] logo|ate mais|at[e�] mais|tchau|falou|ate breve|at[e�] breve|bye)$/i,
   ];
 
   return microSocialPatterns.some((pattern) => pattern.test(compact));
@@ -730,10 +980,10 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
   const charCount = normalized.length;
 
   const directIntentPatterns = [
-    /\b(sin[oÃ´]nimo|sinonimo|sin[oÃ´]nimos|sinonimos|ant[oÃ´]nimo|antonimo|ant[oÃ´]nimos|antonimos)\b/i,
-    /\b(traduz|traduza|tradu[cÃ§][aÃ£]o|translation)\b/i,
-    /\b(defina|defini[cÃ§][aÃ£]o|o que significa|significa)\b/i,
-    /\b(corrija|corre[cÃ§][aÃ£]o|ortografia|gram[Ã¡a]tica)\b/i,
+    /\b(sin[oô]nimo|sinonimo|sin[oô]nimos|sinonimos|ant[oô]nimo|antonimo|ant[oô]nimos|antonimos)\b/i,
+    /\b(traduz|traduza|tradu[cç][aã]o|translation)\b/i,
+    /\b(defina|defini[cç][aã]o|o que significa|significa)\b/i,
+    /\b(corrija|corre[cç][aã]o|ortografia|gram[áa]tica)\b/i,
     /\b(responda em uma frase|responda curto|resuma em uma frase|bem curto)\b/i,
   ];
   const directIntent = directIntentPatterns.some((pattern) => pattern.test(normalized));
@@ -748,7 +998,7 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
     "passo a passo",
     "arquitetura",
     "estrategia",
-    "estratÃ©gia",
+    "estratégia",
     "plano",
     "trade-off",
     "vantagens e desvantagens",
@@ -1524,11 +1774,12 @@ async function toClientTextStreamResponse(
   } else {
     rawText = await mapNonStreamingToText(upstream);
   }
-  const enforced = enforceResponseStructure(rawText, {
+  const cleaned = stripConversationRoleArtifacts(rawText);
+  const enforced = enforceResponseStructure(cleaned || rawText, {
     state: policyContext.state,
     complexity: policyContext.complexity,
   });
-  return new Response(createChunkedTextStream(enforced || rawText), {
+  return new Response(createChunkedTextStream(enforced || cleaned || rawText), {
     status: 200,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
@@ -1575,19 +1826,55 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const prompt = body?.prompt;
+    const prompt = body?.prompt ?? body?.message ?? body?.question;
     const history = body?.history;
     const safePrompt = typeof prompt === "string" ? prompt.trim() : "";
     if (!safePrompt) {
       return safeBackendError(400, "EMPTY_PROMPT", "Informe a mensagem atual em 'prompt' para enviar ao modelo.");
     }
-    if (isCurrentDatePrompt(safePrompt)) {
+    const pipelineVersion = parsePipelineVersionFromBody(body?.pipeline);
+    const composerBound = parseOptionalBooleanFromBody(body?.composerBound);
+    const composerAttachmentIds = parseOptionalPositiveIntArrayFromBody(body?.composerAttachmentIds);
+    const topK = parseOptionalPositiveIntFromBody(body?.topK);
+    const maxDistance = body?.maxDistance === null ? null : parseOptionalFiniteNumberFromBody(body?.maxDistance);
+    const documentId = parseOptionalPositiveIntFromBody(body?.documentId);
+    const documentIds = parseOptionalPositiveIntArrayFromBody(body?.documentIds);
+    const sourceType = typeof body?.sourceType === "string" ? body.sourceType.trim() : "";
+    const retrievalEmbeddingModel = typeof body?.retrievalEmbeddingModel === "string" ? body.retrievalEmbeddingModel.trim() : "";
+    const preferredResponseLanguageId = parseOptionalLanguageIdFromBody(body?.preferredResponseLanguageId);
+    const maxResponseTokens = parseOptionalPositiveIntFromBody(body?.maxResponseTokens);
+    const temperature = parseOptionalFiniteNumberFromBody(body?.temperature);
+    const seedRaw = body?.seed;
+    const seed = seedRaw === null ? null : parseOptionalFiniteNumberFromBody(seedRaw);
+    const anmEngineModeFromBody = parseOptionalEngineModeFromBody(body?.anmEngineMode ?? body?.engineMode);
+    const anmBaseUrlFromBody = typeof body?.anmBaseUrl === "string" ? body.anmBaseUrl.trim() : "";
+    const anmTimeoutMsFromBody = parseOptionalPositiveIntFromBody(body?.anmTimeoutMs);
+    const anmSoftTimeoutMsFromBody = parseOptionalPositiveIntFromBody(body?.anmSoftTimeoutMs);
+    const anmFallbackToDirectFromBody = parseOptionalBooleanFromBody(body?.anmFallbackToDirect);
+    const streamRequested = parseOptionalBooleanFromBody(body?.stream) === true;
+    const requestedStreamMode = parseStreamModeFromBody(body?.streamMode);
+    const acceptHeader = `${req.headers.get("accept") || ""}`.toLowerCase();
+    const streamMode = requestedStreamMode || (acceptHeader.includes("text/event-stream") ? "sse" : "plain");
+
+    const hasDocumentScope =
+      Boolean(documentId) ||
+      Boolean(documentIds?.length) ||
+      Boolean(composerAttachmentIds?.length) ||
+      composerBound === true;
+    const forceRagForVerifiable = true;
+    const verifiableQuestion = isVerifiableQuestionForAutoSearch(safePrompt);
+    const forceRag =
+      parseOptionalBooleanFromBody(body?.forceRag) === true ||
+      hasDocumentScope ||
+      (forceRagForVerifiable && verifiableQuestion);
+
+    if (!forceRag && isCurrentDatePrompt(safePrompt)) {
       return new Response(createChunkedTextStream(buildCurrentDateAnswer()), {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
-    if (isMicroSocialPrompt(safePrompt)) {
+    if (!forceRag && isMicroSocialPrompt(safePrompt)) {
       return new Response(createChunkedTextStream(buildMicroSocialAnswer(safePrompt)), {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -1609,6 +1896,77 @@ export async function POST(req: NextRequest) {
       "chat-session";
 
     const normalizedHistory = normalizeHistory(history);
+    if (forceRag) {
+      const ragEngineMode = verifiableQuestion ? "anm" : anmEngineModeFromBody || engineMode.mode;
+      const ragAnmBaseUrl = anmBaseUrlFromBody || engineMode.anmBaseUrl;
+      const ragAnmTimeoutMs = anmTimeoutMsFromBody || engineMode.anmTimeoutMs;
+      const ragAnmSoftTimeoutMs = anmSoftTimeoutMsFromBody || engineMode.anmSoftTimeoutMs;
+      const forceWebMultiSource = parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
+      const ragAnmFallbackToDirect =
+        forceWebMultiSource && verifiableQuestion
+          ? false
+          : typeof anmFallbackToDirectFromBody === "boolean"
+            ? anmFallbackToDirectFromBody
+            : engineMode.fallbackToDirect;
+      const run = await assistantOrchestrator.run({
+        requestId: typeof body?.requestId === "string" ? body.requestId : undefined,
+        conversationKey: conversationKeyFromBody,
+        mode: "chat",
+        stream: streamRequested,
+        message: safePrompt,
+        conversation: normalizedHistory,
+        attachments: buildAttachmentsFromComposer(composerAttachmentIds, documentIds),
+        ragInput: {
+          pipelineVersion,
+          composerBound,
+          composerAttachmentIds,
+          topK,
+          maxDistance,
+          documentId,
+          documentIds,
+          sourceType: sourceType || undefined,
+          retrievalEmbeddingModel: retrievalEmbeddingModel || undefined,
+          preferredResponseLanguageId,
+          maxResponseTokens,
+          temperature,
+          seed,
+          anmEngineMode: ragEngineMode,
+          anmBaseUrl: ragAnmBaseUrl,
+          anmTimeoutMs: ragAnmTimeoutMs,
+          anmSoftTimeoutMs: ragAnmSoftTimeoutMs,
+          anmFallbackToDirect: ragAnmFallbackToDirect,
+        },
+      });
+
+      if (streamRequested) {
+        if (!run.stream) {
+          throw new LlmRouteError(500, "ASSISTANT_STREAM_MISSING", "Falha ao abrir stream do assistant pipeline.");
+        }
+        const responseStream = streamMode === "sse" ? toSseStream(run.stream) : run.stream;
+        return new Response(responseStream, {
+          status: 200,
+          headers: {
+            "Content-Type": streamMode === "sse" ? "text/event-stream; charset=utf-8" : "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+          },
+        });
+      }
+      return Response.json(
+        {
+          ok: true,
+          reply: {
+            role: "assistant",
+            content: run.content,
+          },
+          metadata: run.ragMetadata,
+          meta: run.meta,
+        },
+        { status: 200 },
+      );
+    }
+
     const conversationState = rebuildConversationState({
       conversationKey: conversationKeyFromBody,
       prompt: safePrompt,
@@ -1620,13 +1978,39 @@ export async function POST(req: NextRequest) {
       state: conversationState,
       complexity: classifyPromptComplexity(safePrompt),
     };
+    const autoWebEvidence = await buildAutomaticWebEvidence(safePrompt).catch((error) => {
+      console.warn("KNEXAI_AUTO_WEB_SEARCH_FAILED", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+    const autoWebContextBlock = autoWebEvidence?.contextBlock?.trim() || "";
+    if (autoWebEvidence) {
+      console.info("KNEXAI_AUTO_WEB_SEARCH_CONTEXT", {
+        queryCount: autoWebEvidence.queryCount,
+        resultCount: autoWebEvidence.resultCount,
+        sources: autoWebEvidence.sources,
+      });
+    }
+    const forceWebMultiSource = parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
+    const hasWebEvidence = Boolean(autoWebEvidence && autoWebEvidence.resultCount > 0);
+    if (!forceRag && forceWebMultiSource && verifiableQuestion && !hasWebEvidence) {
+      const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+      return new Response(createChunkedTextStream(fallbackText), {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
 
     const clientSharedIdentityRuntime =
       normalizeRecord(body?.sharedIdentityRuntime) || normalizeRecord(body?.shared_identity_runtime);
     const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
-    const promptForAnm = injectConversationStatePrompt(safePrompt, conversationStateBlock);
+    const promptForAnm = injectConversationStatePrompt(
+      autoWebContextBlock ? `${safePrompt}\n\n${autoWebContextBlock}` : safePrompt,
+      conversationStateBlock,
+    );
     const promptForDirect = safePrompt;
-    const directContextBlock = [conversationStateBlock.trim(), identitySharedMemory.promptBlock.trim()]
+    const directContextBlock = [conversationStateBlock.trim(), identitySharedMemory.promptBlock.trim(), autoWebContextBlock]
       .filter(Boolean)
       .join("\n\n");
     const sharedIdentityRuntimePayload = clientSharedIdentityRuntime
@@ -1668,6 +2052,44 @@ export async function POST(req: NextRequest) {
 
     if (effectiveEngineMode.mode === "anm") {
       if (effectiveEngineMode.fallbackToDirect) {
+        const strictAnmPrimary = parseOptionalBoolean(process.env.KNEXAI_ANM_STRICT_PRIMARY) !== false;
+        if (strictAnmPrimary) {
+          const anmAttempt = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
+            .then((anm) => toAttemptOk("anm", anm))
+            .catch((error: unknown) => toAttemptError("anm", error));
+          if (anmAttempt.ok && anmAttempt.source === "anm") {
+            console.info("KNEXAI_ANM_CHAT_OK", {
+              traceId: anmAttempt.value.traceId,
+              anmBaseUrl: effectiveEngineMode.anmBaseUrl,
+              answerChars: anmAttempt.value.answer.length,
+              routePolicy: "anm_strict_primary",
+            });
+            return toAnmTextResponse(anmAttempt.value, responsePolicyContext);
+          }
+
+          const directHealth = await probeDirectHealth(config);
+          if (!directHealth.ok) {
+            const directUnavailable = toAttemptError(
+              "direct",
+              new LlmRouteError(
+                503,
+                "LLM_UNAVAILABLE",
+                `Motor local indisponivel em ${config.baseUrl}. Endpoints tentados: ${(directHealth.attemptedBaseUrls || [config.baseUrl]).join(", ")}.`,
+              ),
+            );
+            throw buildEngineCompositeError([anmAttempt, directUnavailable]);
+          }
+
+          const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
+          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForDirect, directContextBlock)
+            .then((upstream) => toAttemptOk("direct", upstream))
+            .catch((error: unknown) => toAttemptError("direct", error));
+          if (directAttempt.ok && directAttempt.source === "direct") {
+            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext);
+          }
+          throw buildEngineCompositeError([anmAttempt, directAttempt]);
+        }
+
         const [anmHealth, directHealth] = await Promise.all([probeAnmHealth(effectiveEngineMode), probeDirectHealth(config)]);
         const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
         console.info("KNEXAI_ENGINE_HEALTH_SNAPSHOT", {
@@ -1832,9 +2254,15 @@ export async function POST(req: NextRequest) {
       console.error("KNEXAI_LLM_ERROR", { code: error.code, status: error.status, message: error.message });
       return safeBackendError(error.status, error.code, error.message);
     }
+    if (error instanceof RagPipelineError) {
+      console.error("KNEXAI_RAG_PIPELINE_ERROR", { code: error.code, status: error.status, message: error.message });
+      return safeBackendError(error.status, error.code, error.message);
+    }
     console.error("KNEXAI_POST_UNEXPECTED_ERROR", error);
     return safeBackendError(500, "INTERNAL_ERROR", "Erro interno ao processar a requisicao.");
   }
 }
+
+
 
 

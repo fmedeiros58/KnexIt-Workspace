@@ -43,6 +43,14 @@ function parseBoundedInt(value: string | undefined, fallback: number, min: numbe
   return Math.max(min, Math.min(max, Math.round(parsed)));
 }
 
+function parseOptionalBooleanEnv(value: string | undefined | null): boolean | undefined {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
 function resolveLlmContextWindowTokens() {
   const raw = process.env.RAG_LLM_CONTEXT_WINDOW || process.env.LLM_CONTEXT_WINDOW || process.env.VLLM_CONTEXT_WINDOW;
   return parseBoundedInt(raw, DEFAULT_LLM_CONTEXT_WINDOW_TOKENS, 512, 262_144);
@@ -205,6 +213,33 @@ function renderConversationState(ctx: PipelineContext) {
   return lines.join("\n");
 }
 
+function normalizeForVerification(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isVerifiableQuestionForAutoSearch(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  const asksCurrentOffice =
+    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+      normalized,
+    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksVerifiableData =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksVerifiableData;
+}
+
+function hasWebEvidence(ctx: PipelineContext) {
+  return (ctx.evidence || []).some((row) => row.ref.startsWith("web:") || /\[WEB\]/i.test(`${row.text || ""}`));
+}
+
 export class ComposeStage implements Stage {
   constructor(private readonly ragService: RagQueryService) {}
 
@@ -295,6 +330,9 @@ export class ComposeStage implements Stage {
     intentConfidence: number;
     hasDocumentScope: boolean;
     scopedDocumentRefs: string;
+    forceWebMultiSource: boolean;
+    hasWebEvidence: boolean;
+    verifiableQuestion: boolean;
   }) {
     return [
       "CONTRATO DE IDIOMA:",
@@ -305,8 +343,25 @@ export class ComposeStage implements Stage {
       "- Responda o objetivo do usuario sem explicar regras, politicas ou processo interno.",
       "- Nao use metalinguagem (ex.: 'nao ha pergunta', 'como IA', 'vou seguir diretrizes').",
       "- Nao gere rotulos artificiais (ex.: '[Paragrafo 1]', '[450-600 caracteres]').",
+      "- Nao inclua prefixos como 'Leticia:', 'Assistente:' ou 'Resposta:' na saida final.",
       "- Evite repeticao de frases e evite reiniciar o tema sem solicitacao.",
       "- Em saudacoes/confirmacoes curtas, responda em uma frase natural e objetiva.",
+      "- Em perguntas factuais objetivas, responda sem saudacao e sem introducoes longas.",
+      "",
+      ...(params.forceWebMultiSource
+        ? [
+            "CONTRATO DE VERIFICACAO WEB MULTI-FONTE (OBRIGATORIO):",
+            "- Responda fatos verificaveis com base em evidencias web multi-fonte.",
+            "- Se nao houver evidencia web suficiente neste turno, nao chute; informe que a verificacao web falhou e solicite nova tentativa.",
+            params.hasWebEvidence
+              ? "- Evidencias web detectadas neste turno: use-as como base principal."
+              : "- Nenhuma evidencia web detectada neste turno: nao responda fato atual por memoria interna.",
+            "",
+          ]
+        : []),
+      ...(params.verifiableQuestion
+        ? ["- Esta pergunta e temporal/verificavel: priorize precisao factual e data mais recente valida."]
+        : []),
       "",
       "CONTRATO DE CONTINUIDADE:",
       "- Preserve o assunto e a tarefa ativa quando a mensagem for continuacao.",
@@ -360,6 +415,8 @@ export class ComposeStage implements Stage {
     const scopedDocumentRefs = scopedDocumentIds.length
       ? scopedDocumentIds.slice(0, 12).map((id) => `doc:${id}`).join(", ")
       : "nenhum";
+    const forceWebMultiSource = parseOptionalBooleanEnv(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
+    const webEvidenceAvailable = hasWebEvidence(ctx);
     const genre = `${ctx.genre || "GENERIC_ACADEMIC"}`;
     const templateTitle = `${ctx.templateSpec?.title || "Template academico generico"}`;
     const noInfoToken = placeholderForMissingInfo(targetLanguage);
@@ -375,6 +432,7 @@ export class ComposeStage implements Stage {
         plan: renderPlan(ctx),
         userMessage: `${ctx.userMessage || ""}`.trim(),
       };
+      const verifiableQuestion = isVerifiableQuestionForAutoSearch(rawSections.userMessage);
       const conversationStateCap = Math.max(260, Math.min(caps.processStateMaxChars, 1_600));
       const sections = {
         conversationState: clipToLimit(rawSections.conversationState, conversationStateCap, "estado conversacional"),
@@ -401,6 +459,9 @@ export class ComposeStage implements Stage {
           intentConfidence: Number(ctx.intent?.confidence || 0),
           hasDocumentScope,
           scopedDocumentRefs,
+          forceWebMultiSource,
+          hasWebEvidence: webEvidenceAvailable,
+          verifiableQuestion,
         });
 
       const originalPrompt = assemble();
