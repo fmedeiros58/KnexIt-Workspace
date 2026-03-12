@@ -149,6 +149,31 @@ function renderTemplate(ctx: PipelineContext) {
     .join("\n");
 }
 
+function renderConversationState(ctx: PipelineContext) {
+  const processState = ctx.processState;
+  if (!processState || typeof processState !== "object") return "";
+  const summary = (processState as Record<string, unknown>)["conversation_state_summary"];
+  if (typeof summary === "string" && summary.trim()) {
+    return summary.trim();
+  }
+  const state = (processState as Record<string, unknown>)["conversation_state"];
+  if (!state || typeof state !== "object") return "";
+  const row = state as Record<string, unknown>;
+  const lines = [
+    "[conversation_state]",
+    `active_topic: ${`${row.active_topic || ""}`.trim() || "-"}`,
+    `active_subtopic: ${`${row.active_subtopic || ""}`.trim() || "-"}`,
+    `active_task: ${`${row.active_task || ""}`.trim() || "-"}`,
+    `active_text_reference: ${`${row.active_text_reference || ""}`.trim() || "-"}`,
+    `required_style: ${`${row.required_style || ""}`.trim() || "-"}`,
+    `response_mode: ${`${row.response_mode || ""}`.trim() || "-"}`,
+    `continuity_anchor: ${`${row.continuity_anchor || ""}`.trim() || "-"}`,
+    `continuity_mode: ${`${row.continuity_mode || ""}`.trim() || "-"}`,
+    "[/conversation_state]",
+  ];
+  return lines.join("\n");
+}
+
 export class ComposeStage implements Stage {
   constructor(private readonly ragService: RagQueryService) {}
 
@@ -225,6 +250,64 @@ export class ComposeStage implements Stage {
     ].join("\n");
   }
 
+  private assembleChatPrompt(params: {
+    targetLanguage: string;
+    constraints: string;
+    conversationState: string;
+    conversation: string;
+    processState: string;
+    prefs: string;
+    evidence: string;
+    plan: string;
+    userMessage: string;
+    intentType: string;
+    intentConfidence: number;
+  }) {
+    return [
+      "CONTRATO DE IDIOMA:",
+      `- Responda SOMENTE em: ${params.targetLanguage}.`,
+      "- Nao alterne idioma sem solicitacao explicita.",
+      "",
+      "CONTRATO DE CONVERSA DIRETA:",
+      "- Responda o objetivo do usuario sem explicar regras, politicas ou processo interno.",
+      "- Nao use metalinguagem (ex.: 'nao ha pergunta', 'como IA', 'vou seguir diretrizes').",
+      "- Nao gere rotulos artificiais (ex.: '[Paragrafo 1]', '[450-600 caracteres]').",
+      "- Evite repeticao de frases e evite reiniciar o tema sem solicitacao.",
+      "- Em saudacoes/confirmacoes curtas, responda em uma frase natural e objetiva.",
+      "",
+      "CONTRATO DE CONTINUIDADE:",
+      "- Preserve o assunto e a tarefa ativa quando a mensagem for continuacao.",
+      "- Use o texto-base ativo quando houver referencia implicita ao texto anterior.",
+      "- Trate ajustes como refinamento do mesmo fluxo, salvo troca explicita de assunto.",
+      "",
+      `INTENCAO: ${params.intentType} (confianca=${Number(params.intentConfidence).toFixed(2)})`,
+      `RESTRICOES: ${params.constraints}`,
+      "",
+      "ESTADO CONVERSACIONAL ATIVO:",
+      params.conversationState || "(nao informado)",
+      "",
+      "CONVERSA RELEVANTE:",
+      params.conversation || "(nenhuma)",
+      "",
+      "ESTADO DO PROCESSO:",
+      params.processState || "{}",
+      "",
+      "PREFERENCIAS PERSISTENTES:",
+      params.prefs || "{}",
+      "",
+      "EVIDENCIAS (use so quando realmente agregarem):",
+      params.evidence || "(nenhuma)",
+      "",
+      "PLANO OPERACIONAL:",
+      params.plan || "- Resposta direta",
+      "",
+      "MENSAGEM DO USUARIO:",
+      params.userMessage || "(vazia)",
+      "",
+      `Escreva agora apenas a resposta final em ${params.targetLanguage}, de forma objetiva, natural e contextualizada.`,
+    ].join("\n");
+  }
+
   private buildPromptFromContext(ctx: PipelineContext): PromptBuildResult {
     const targetLanguage = this.resolveTargetLanguage(ctx);
     const constraints = renderConstraints(ctx);
@@ -232,6 +315,134 @@ export class ComposeStage implements Stage {
     const templateTitle = `${ctx.templateSpec?.title || "Template academico generico"}`;
     const noInfoToken = placeholderForMissingInfo(targetLanguage);
     const caps = resolveComposePromptCaps();
+
+    if (ctx.mode === "chat") {
+      const rawSections = {
+        conversationState: renderConversationState(ctx),
+        conversation: renderConversation(ctx.conversation),
+        processState: serializeProcessState(ctx),
+        prefs: serializePrefs(ctx),
+        evidence: renderEvidence(ctx),
+        plan: renderPlan(ctx),
+        userMessage: `${ctx.userMessage || ""}`.trim(),
+      };
+      const conversationStateCap = Math.max(260, Math.min(caps.processStateMaxChars, 1_600));
+      const sections = {
+        conversationState: clipToLimit(rawSections.conversationState, conversationStateCap, "estado conversacional"),
+        conversation: clipToLimit(rawSections.conversation, caps.conversationMaxChars, "conversa"),
+        processState: clipToLimit(rawSections.processState, caps.processStateMaxChars, "estado do processo"),
+        prefs: clipToLimit(rawSections.prefs, caps.prefsMaxChars, "preferencias"),
+        evidence: clipToLimit(rawSections.evidence, caps.evidenceMaxChars, "evidencias"),
+        plan: clipToLimit(rawSections.plan, caps.planMaxChars, "plano"),
+        userMessage: clipToLimit(rawSections.userMessage, caps.userMessageMaxChars, "mensagem do usuario"),
+      };
+
+      const assemble = () =>
+        this.assembleChatPrompt({
+          targetLanguage,
+          constraints,
+          conversationState: sections.conversationState.value,
+          conversation: sections.conversation.value,
+          processState: sections.processState.value,
+          prefs: sections.prefs.value,
+          evidence: sections.evidence.value,
+          plan: sections.plan.value,
+          userMessage: sections.userMessage.value,
+          intentType: ctx.intent?.type || "geral",
+          intentConfidence: Number(ctx.intent?.confidence || 0),
+        });
+
+      const originalPrompt = assemble();
+      let prompt = originalPrompt;
+      if (prompt.length > caps.totalMaxChars) {
+        const shrinkPlan: Array<{ key: keyof typeof sections; min: number; ratio: number; label: string }> = [
+          { key: "evidence", min: 320, ratio: 0.52, label: "evidencias" },
+          { key: "conversation", min: 260, ratio: 0.55, label: "conversa" },
+          { key: "processState", min: 220, ratio: 0.6, label: "estado do processo" },
+          { key: "prefs", min: 160, ratio: 0.62, label: "preferencias" },
+          { key: "plan", min: 160, ratio: 0.62, label: "plano" },
+          { key: "conversationState", min: 220, ratio: 0.65, label: "estado conversacional" },
+          { key: "userMessage", min: 260, ratio: 0.72, label: "mensagem do usuario" },
+        ];
+        for (const step of shrinkPlan) {
+          if (prompt.length <= caps.totalMaxChars) break;
+          const current = sections[step.key].value;
+          if (!current) continue;
+          const nextLimit = Math.max(step.min, Math.trunc(current.length * step.ratio));
+          sections[step.key] = clipToLimit(current, nextLimit, step.label);
+          prompt = assemble();
+        }
+      }
+
+      if (prompt.length > caps.totalMaxChars) {
+        sections.conversation = { value: "(conversa resumida por limite de contexto)", truncated: true };
+        sections.processState = { value: "{}", truncated: true };
+        sections.prefs = { value: "{}", truncated: true };
+        sections.evidence = { value: "(evidencias omitidas por limite de contexto)", truncated: true };
+        sections.plan = { value: "- Resposta direta", truncated: true };
+        prompt = assemble();
+      }
+
+      let hardTruncated = false;
+      if (prompt.length > caps.totalMaxChars) {
+        prompt = clipToLimit(prompt, caps.totalMaxChars, "prompt consolidado").value;
+        hardTruncated = true;
+      }
+
+      const audit: PromptBuildAudit = {
+        caps,
+        totalCharsBefore: originalPrompt.length,
+        totalCharsAfter: prompt.length,
+        hardTruncated,
+        sections: [
+          {
+            name: "conversationState",
+            originalChars: rawSections.conversationState.length,
+            finalChars: sections.conversationState.value.length,
+            truncated:
+              sections.conversationState.truncated ||
+              sections.conversationState.value.length < rawSections.conversationState.length,
+          },
+          {
+            name: "conversation",
+            originalChars: rawSections.conversation.length,
+            finalChars: sections.conversation.value.length,
+            truncated: sections.conversation.truncated || sections.conversation.value.length < rawSections.conversation.length,
+          },
+          {
+            name: "processState",
+            originalChars: rawSections.processState.length,
+            finalChars: sections.processState.value.length,
+            truncated: sections.processState.truncated || sections.processState.value.length < rawSections.processState.length,
+          },
+          {
+            name: "prefs",
+            originalChars: rawSections.prefs.length,
+            finalChars: sections.prefs.value.length,
+            truncated: sections.prefs.truncated || sections.prefs.value.length < rawSections.prefs.length,
+          },
+          {
+            name: "evidence",
+            originalChars: rawSections.evidence.length,
+            finalChars: sections.evidence.value.length,
+            truncated: sections.evidence.truncated || sections.evidence.value.length < rawSections.evidence.length,
+          },
+          {
+            name: "plan",
+            originalChars: rawSections.plan.length,
+            finalChars: sections.plan.value.length,
+            truncated: sections.plan.truncated || sections.plan.value.length < rawSections.plan.length,
+          },
+          {
+            name: "userMessage",
+            originalChars: rawSections.userMessage.length,
+            finalChars: sections.userMessage.value.length,
+            truncated: sections.userMessage.truncated || sections.userMessage.value.length < rawSections.userMessage.length,
+          },
+        ],
+      };
+      return { prompt, audit };
+    }
 
     const rawSections = {
       templateSections: renderTemplate(ctx),

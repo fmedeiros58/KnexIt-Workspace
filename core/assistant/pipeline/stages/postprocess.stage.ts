@@ -4,10 +4,13 @@ import { GenericStructureEnforcer } from "@/core/assistant/postprocess/generic-s
 import type { PipelineContext } from "@/core/assistant/pipeline/pipeline-context";
 import { toRagHistory } from "@/core/assistant/pipeline/pipeline-context";
 import type { Stage } from "@/core/assistant/pipeline/stages/stage.interface";
+import { enforceResponseStructure } from "@/core/chat/perception/response-structure.enforcer";
+import type { ConversationPerceptionState } from "@/core/chat/perception/types";
 import type { RagQueryService } from "@/core/rag/rag-query-service";
 
 const CTA_MIN_CHARS = 120;
 const DEFAULT_REPAIR_PASSES = 1;
+const STREAM_PREFIX_BUFFER_MAX_CHARS = 520;
 
 function normalize(value: string) {
   return `${value || ""}`
@@ -101,6 +104,237 @@ function buildRepairPrompt(ctx: PipelineContext, repairPrompt: string, baseText:
   ].join("\n");
 }
 
+function normalizeFold(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeRegex(value: string) {
+  return `${value || ""}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripAnswerLabelPrefix(text: string) {
+  let output = `${text || ""}`.trimStart();
+  output = output.replace(/^\(*\s*(?:resposta|response|answer)\s*[:：-]\s*/i, "");
+  output = output.replace(/^\)\s*/, "");
+  output = output.replace(/^\s*(?:resposta|response|answer)\s*[:：-]\s*/i, "");
+  return output;
+}
+
+function stripQuestionAnswerEnvelope(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized.startsWith("pergunta:") && !normalized.startsWith("question:")) return text;
+  const answerMatch = text.match(/(?:resposta|answer|response)\s*[:：-]\s*/i);
+  if (!answerMatch || answerMatch.index === undefined) return text;
+  return text.slice(answerMatch.index + answerMatch[0].length).trimStart();
+}
+
+function stripEchoedUserMessage(text: string, userMessage: string) {
+  const message = `${userMessage || ""}`.trim();
+  if (!message || message.length > 180) return text;
+  const escapedMessagePattern = escapeRegex(message).replace(/\s+/g, "\\s+");
+  const patterns = [
+    new RegExp(`^\\s*${escapedMessagePattern}\\s*(?:\\n+|[-–—:：]+\\s*|$)`, "i"),
+    new RegExp(`^\\s*[\"'“”‘’]?${escapedMessagePattern}[\"'“”‘’]?\\s*(?:\\n+|[-–—:：]+\\s*|$)`, "i"),
+  ];
+  for (const pattern of patterns) {
+    if (!pattern.test(text)) continue;
+    return text.replace(pattern, "").trimStart();
+  }
+  return text;
+}
+
+
+function trimOuterParentheses(text: string) {
+  const trimmed = `${text || ""}`.trim();
+  if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) return trimmed;
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner || /[()]/.test(inner)) return trimmed;
+  return inner;
+}
+function foldLoose(value: string) {
+  return `${value || ""}`
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripTrailingAnswerWrapper(text: string) {
+  let output = `${text || ""}`.trim();
+  const pattern =
+    /[\(\[]\s*(?:resposta|response|answer)(?:\s+em\s+(?:portugues|portugu[e?]s|english|ingles|espanol|espa?ol)(?:\s+brasileiro)?)?\s*[:\-]\s*([\s\S]*?)\s*[\)\]]\s*$/i;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const match = output.match(pattern);
+    if (!match || match.index === undefined) break;
+    const prefix = output.slice(0, match.index).trim();
+    const inner = `${match[1] || ""}`.trim();
+    if (!inner) {
+      output = prefix;
+      continue;
+    }
+    if (!prefix) {
+      output = inner;
+      continue;
+    }
+    const foldedPrefix = foldLoose(prefix);
+    const foldedInner = foldLoose(inner);
+    if (
+      foldedPrefix &&
+      foldedInner &&
+      (foldedPrefix === foldedInner || foldedPrefix.endsWith(foldedInner) || foldedInner.endsWith(foldedPrefix))
+    ) {
+      output = prefix;
+      continue;
+    }
+    output = prefix;
+  }
+  return output;
+}
+
+function sanitizeChatArtifacts(text: string, userMessage: string) {
+  let output = `${text || ""}`;
+  if (!output.trim()) return "";
+  output = stripEchoedUserMessage(output, userMessage);
+  output = stripQuestionAnswerEnvelope(output);
+  output = stripAnswerLabelPrefix(output);
+  output = stripTrailingAnswerWrapper(output);
+  output = trimOuterParentheses(output);
+  output = output.replace(/^\s*[-–—:：]\s*/, "");
+  output = output.replace(/\n{3,}/g, "\n\n").trim();
+  return output;
+}
+
+function createChatStreamSanitizerStream(stream: ReadableStream<Uint8Array>, userMessage: string) {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = stream.getReader();
+      let prefixBuffer = "";
+      let prefixFlushed = false;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value || !value.length) continue;
+          const chunkText = decoder.decode(value, { stream: true });
+          if (!chunkText) continue;
+          if (!prefixFlushed) {
+            prefixBuffer += chunkText;
+            const shouldFlushPrefix =
+              prefixBuffer.length >= STREAM_PREFIX_BUFFER_MAX_CHARS ||
+              /\n\n/.test(prefixBuffer) ||
+              /[.!?)]\s*$/.test(prefixBuffer);
+            if (!shouldFlushPrefix) continue;
+            const sanitizedPrefix = sanitizeChatArtifacts(prefixBuffer, userMessage);
+            if (sanitizedPrefix) controller.enqueue(encoder.encode(sanitizedPrefix));
+            prefixFlushed = true;
+            prefixBuffer = "";
+            continue;
+          }
+          controller.enqueue(encoder.encode(chunkText));
+        }
+        const tail = decoder.decode();
+        if (!prefixFlushed) {
+          const sanitized = sanitizeChatArtifacts(`${prefixBuffer}${tail}`, userMessage);
+          if (sanitized) controller.enqueue(encoder.encode(sanitized));
+        } else if (tail) {
+          controller.enqueue(encoder.encode(tail));
+        }
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      } finally {
+        reader.releaseLock();
+      }
+    },
+  });
+}
+
+function toConversationPerceptionState(ctx: PipelineContext): ConversationPerceptionState {
+  const fallback: ConversationPerceptionState = {
+    active_topic: "conversa em andamento",
+    active_subtopic: "",
+    active_task: "responder ao objetivo imediato do usuario",
+    active_text_reference: "",
+    user_constraints: ctx.constraints || [],
+    required_style: "resposta contextualizada e natural",
+    response_mode: "conversation",
+    unresolved_pending_point: "",
+    last_contextual_decision: "",
+    continuity_anchor: "",
+    continuity_mode: "continue",
+    updated_at: Date.now(),
+  };
+  const raw = ctx.processState && typeof ctx.processState === "object" ? (ctx.processState as Record<string, unknown>) : null;
+  if (!raw) return fallback;
+  const state = raw.conversation_state;
+  if (!state || typeof state !== "object") return fallback;
+  const row = state as Record<string, unknown>;
+  return {
+    active_topic: `${row.active_topic || fallback.active_topic}`,
+    active_subtopic: `${row.active_subtopic || ""}`,
+    active_task: `${row.active_task || fallback.active_task}`,
+    active_text_reference: `${row.active_text_reference || ""}`,
+    user_constraints: Array.isArray(row.user_constraints)
+      ? row.user_constraints.map((item) => `${item || ""}`.trim()).filter(Boolean)
+      : fallback.user_constraints,
+    required_style: `${row.required_style || fallback.required_style}`,
+    response_mode: `${row.response_mode || fallback.response_mode}`,
+    unresolved_pending_point: `${row.unresolved_pending_point || ""}`,
+    last_contextual_decision: `${row.last_contextual_decision || ""}`,
+    continuity_anchor: `${row.continuity_anchor || ""}`,
+    continuity_mode:
+      row.continuity_mode === "adjust" || row.continuity_mode === "replace" || row.continuity_mode === "continue"
+        ? row.continuity_mode
+        : "continue",
+    updated_at: Number(row.updated_at) || fallback.updated_at,
+  };
+}
+
+function isMicroSocialPrompt(value: string) {
+  const normalized = `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[!?.,;:"]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  const patterns = [
+    /^(oi|ola|oie|oii|opa|e ai|eae|hey|hello|hi)$/i,
+    /^(bom dia|boa tarde|boa noite)$/i,
+    /^(como vc esta|como voce esta|tudo bem|blz|beleza)$/i,
+    /^(obrigado|obg|valeu|thanks|thank you)$/i,
+  ];
+  return patterns.some((pattern) => pattern.test(normalized));
+}
+
+function resolveChatComplexity(ctx: PipelineContext, answer: string): "micro" | "direct" | "short" | "medium" | "complex" {
+  const userMessage = `${ctx.userMessage || ""}`.trim();
+  const text = `${answer || ""}`.trim();
+  if (isMicroSocialPrompt(userMessage)) return "micro";
+  if (text.length <= 140) return "direct";
+  if (text.length <= 360) return "short";
+  if (text.length <= 1_200) return "medium";
+  return "complex";
+}
+
+function enforceChatResponseStructure(ctx: PipelineContext, text: string) {
+  const sanitized = sanitizeChatArtifacts(text, ctx.userMessage);
+  const state = toConversationPerceptionState(ctx);
+  const complexity = resolveChatComplexity(ctx, sanitized || text);
+  const enforced = enforceResponseStructure(sanitized || text, { state, complexity });
+  return enforced || sanitized || text;
+}
+
 export class PostprocessStage implements Stage {
   constructor(
     private readonly ragService?: RagQueryService,
@@ -112,6 +346,9 @@ export class PostprocessStage implements Stage {
   async run(ctx: PipelineContext) {
     ctx.progress.stage = "postprocess";
     if (ctx.stream) {
+      if (ctx.mode === "chat" && ctx.finalStream) {
+        ctx.finalStream = createChatStreamSanitizerStream(ctx.finalStream, ctx.userMessage);
+      }
       ctx.progress.filteredRedundancy = true;
       return;
     }
@@ -161,8 +398,14 @@ export class PostprocessStage implements Stage {
       }
     }
 
+    if (ctx.mode === "chat") {
+      finalText = enforceChatResponseStructure(ctx, finalText);
+    }
+
     const nextStepCta = buildNextStepCta(ctx, finalText);
     ctx.finalAnswer = nextStepCta ? `${finalText}\n\n${nextStepCta}` : finalText;
     ctx.progress.filteredRedundancy = true;
   }
 }
+
+

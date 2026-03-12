@@ -4,9 +4,34 @@ import type { PipelineContext } from "@/core/assistant/pipeline/pipeline-context
 import { PostprocessStage } from "@/core/assistant/pipeline/stages/postprocess.stage";
 import { TemplateRegistry } from "@/core/assistant/templates/template-registry";
 
+function streamFromText(text: string) {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    },
+  });
+}
+
+async function readStream(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) output += decoder.decode(value, { stream: true });
+  }
+  output += decoder.decode();
+  reader.releaseLock();
+  return output;
+}
+
 function makeContext(answer: string): PipelineContext {
   return {
     requestId: "req-postprocess",
+    conversationKey: "test-postprocess",
     mode: "chat",
     stream: false,
     userMessage: "Faça uma analise critica.",
@@ -110,5 +135,51 @@ describe("PostprocessStage", () => {
     const stage = new PostprocessStage(ragService);
     await stage.run(ctx);
     expect(repairCalls).toBe(0);
+  });
+
+  it("remove eco da pergunta e prefixo 'Resposta:' no modo chat", async () => {
+    const ctx = makeContext("Tudo bem?\n\n(Resposta: Sim, tudo bem.)");
+    ctx.userMessage = "Tudo bem?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer?.toLowerCase()).toContain("sim, tudo bem");
+    expect(ctx.finalAnswer).not.toMatch(/resposta\s*:/i);
+    expect(ctx.finalAnswer).not.toMatch(/^Tudo bem\?/i);
+  });
+
+  it("remove sufixo parentetico de resposta duplicada", async () => {
+    const ctx = makeContext("Sim, tudo bem. (Resposta em portugues brasileiro: Sim, tudo bem.)");
+    ctx.userMessage = "Como voce esta?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer).not.toMatch(/\(\s*resposta[^)]*\)/i);
+    expect(ctx.finalAnswer).not.toMatch(/resposta em portugues brasileiro\s*:/i);
+  });
+
+  it("sanitiza prefixo indevido tambem no stream de chat", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "Tudo bem?";
+    ctx.finalStream = streamFromText("Tudo bem?\n\n(Resposta: Sim, tudo bem.)");
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalStream).toBeDefined();
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered.toLowerCase()).toContain("sim, tudo bem");
+    expect(rendered).not.toMatch(/resposta\s*:/i);
+    expect(rendered).not.toMatch(/^Tudo bem\?/i);
+  });
+
+  it("sanitiza sufixo parentetico duplicado tambem no stream", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "Como voce esta?";
+    ctx.finalStream = streamFromText("Sim, tudo bem. (Resposta em portugues brasileiro: Sim, tudo bem.)");
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalStream).toBeDefined();
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toMatch(/^Sim, tudo bem\.?$/i);
+    expect(rendered).not.toMatch(/\(\s*resposta[^)]*\)/i);
   });
 });

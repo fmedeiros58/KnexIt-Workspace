@@ -5,6 +5,8 @@ export type IdentityRuntimeSnapshot = {
   awareness_state?: Record<string, unknown>;
   current_identity?: Record<string, unknown> | null;
   tracked_entities?: unknown[];
+  visual_context?: Record<string, unknown>;
+  recent_scene_events?: Array<Record<string, unknown>>;
 };
 
 function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
@@ -48,6 +50,8 @@ export function buildSharedIdentityRuntimePayload(snapshot: IdentityRuntimeSnaps
   const awareness = snapshot.awareness_state && typeof snapshot.awareness_state === "object" ? snapshot.awareness_state : {};
   const currentIdentity = snapshot.current_identity && typeof snapshot.current_identity === "object" ? snapshot.current_identity : null;
   const trackedEntities = Array.isArray(snapshot.tracked_entities) ? snapshot.tracked_entities.slice(0, 8) : [];
+  const visualContext = snapshot.visual_context && typeof snapshot.visual_context === "object" ? snapshot.visual_context : {};
+  const recentSceneEvents = Array.isArray(snapshot.recent_scene_events) ? snapshot.recent_scene_events.slice(0, 10) : [];
   return {
     source: "identity_runtime_status",
     captured_at: new Date().toISOString(),
@@ -55,6 +59,7 @@ export function buildSharedIdentityRuntimePayload(snapshot: IdentityRuntimeSnaps
     awareness_state: awareness,
     current_identity: currentIdentity,
     tracked_entities: trackedEntities,
+    visual_context: visualContext,
+    recent_scene_events: recentSceneEvents,
   };
 }
-

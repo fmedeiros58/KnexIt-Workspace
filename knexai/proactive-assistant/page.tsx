@@ -1,10 +1,12 @@
 "use client";
 
+import { detectLanguage } from "@/core/assistant/language/language.utils";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Camera, MessageSquareText, Mic, MicOff, Sparkles, Volume2, VolumeX } from "lucide-react";
 
 type ChatRole = "user" | "assistant" | "system";
+type SupportedLocale = "pt-BR" | "en-US" | "es-ES";
 
 type AssistantMessage = {
   id: string;
@@ -12,6 +14,7 @@ type AssistantMessage = {
   content: string;
   createdAt: number;
   source?: "user" | "proactive" | "event";
+  locale?: SupportedLocale;
 };
 
 type PresencePayload = {
@@ -20,13 +23,18 @@ type PresencePayload = {
   identity_confirmed?: boolean;
   awareness_state?: Record<string, unknown>;
   current_identity?: Record<string, unknown> | null;
+  visual_context?: Record<string, unknown>;
+  recent_scene_events?: Array<Record<string, unknown>>;
   at?: string;
 };
 
 type SendOptions = {
   hiddenUser?: boolean;
   source?: "user" | "proactive";
+  locale?: SupportedLocale;
 };
+
+type SendPromptFn = (rawPrompt: string, options?: SendOptions) => Promise<void>;
 
 type SiriWaveInstance = {
   start: () => void;
@@ -37,11 +45,47 @@ type SiriWaveInstance = {
   setAmplitude: (value: number) => void;
 };
 
-type VoiceOption = {
-  id: string;
-  name: string;
-  lang: string;
+type SpeechRecognitionAlternativeLike = {
+  transcript: string;
+  confidence?: number;
 };
+
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  length: number;
+  [index: number]: SpeechRecognitionAlternativeLike;
+};
+
+type SpeechRecognitionResultListLike = {
+  length: number;
+  [index: number]: SpeechRecognitionResultLike;
+};
+
+type SpeechRecognitionEventLike = Event & {
+  resultIndex: number;
+  results: SpeechRecognitionResultListLike;
+};
+
+type SpeechRecognitionErrorEventLike = Event & {
+  error?: string;
+  message?: string;
+};
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  onstart: ((event: Event) => void) | null;
+  onend: ((event: Event) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognition;
 
 type VoiceStyle = "neutral" | "focused" | "warm" | "dynamic";
 
@@ -54,12 +98,18 @@ type VoiceProfile = {
 };
 
 const PROACTIVE_COOLDOWN_MS = 45_000;
+const PROACTIVE_USER_GRACE_MS = 20_000;
 const VOICE_PROFILE_STORAGE_KEY = "knexai.proactive.voice.profile.v1";
+const CONVERSATION_KEY_STORAGE_KEY = "knexai.proactive.conversation.v1";
+const BACKGROUND_VISION_STORAGE_KEY = "knexai.proactive.background-vision.v1";
+const CAMERA_PREVIEW_STORAGE_KEY = "knexai.proactive.camera-preview.v1";
+const MAX_ASSISTANT_VOLUME = 1;
+const DEFAULT_INPUT_LOCALE: SupportedLocale = "pt-BR";
 
 const DEFAULT_VOICE_PROFILE: VoiceProfile = {
   rate: 1,
   pitch: 1,
-  volume: 1,
+  volume: MAX_ASSISTANT_VOLUME,
   pauseMs: 140,
   style: "neutral",
 };
@@ -80,6 +130,13 @@ function makeMessageId() {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function makeConversationKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `proactive-${crypto.randomUUID()}`;
+  }
+  return `proactive-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function extractIdentityLabel(payload: PresencePayload) {
   const identity = payload.current_identity;
   if (!identity || typeof identity !== "object") return "visitante";
@@ -88,6 +145,65 @@ function extractIdentityLabel(payload: PresencePayload) {
   const label = typeof identity.label === "string" ? identity.label.trim() : "";
   if (label) return label;
   return "visitante";
+}
+
+function readVisualContext(payload: PresencePayload | null | undefined) {
+  if (!payload || !payload.visual_context || typeof payload.visual_context !== "object") return {};
+  return payload.visual_context;
+}
+
+function readRecentSceneEvents(payload: PresencePayload | null | undefined) {
+  if (!payload || !Array.isArray(payload.recent_scene_events)) return [];
+  return payload.recent_scene_events.filter((item) => item && typeof item === "object");
+}
+
+function readVisualString(payload: PresencePayload | null | undefined, key: string) {
+  const visual = readVisualContext(payload);
+  const value = visual[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readVisualBoolean(payload: PresencePayload | null | undefined, key: string) {
+  return Boolean(readVisualContext(payload)[key]);
+}
+
+function extractSceneSummary(payload: PresencePayload | null | undefined) {
+  return readVisualString(payload, "scene_summary");
+}
+
+function extractCurrentInterlocutorLabel(payload: PresencePayload | null | undefined) {
+  const visual = readVisualContext(payload);
+  const labelCandidates = [
+    visual.current_interlocutor_label,
+    visual.current_interlocutor_display_name,
+    visual.current_interlocutor_entity_id,
+  ];
+  for (const candidate of labelCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return "";
+}
+
+function extractRecentSceneHeadline(payload: PresencePayload | null | undefined) {
+  const recentEvents = readRecentSceneEvents(payload);
+  const topEvent = recentEvents[0];
+  if (!topEvent) return "";
+  const eventType = typeof topEvent.event_type === "string" ? topEvent.event_type.trim() : "";
+  if (!eventType) return "";
+  const detail =
+    (typeof topEvent.detail === "string" && topEvent.detail.trim()) ||
+    (typeof topEvent.summary === "string" && topEvent.summary.trim()) ||
+    (typeof topEvent.label === "string" && topEvent.label.trim()) ||
+    "";
+  return detail ? `${eventType}: ${detail}` : eventType;
+}
+
+function readStoredBoolean(key: string, fallback: boolean) {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw === "1" || raw === "true") return true;
+  if (raw === "0" || raw === "false") return false;
+  return fallback;
 }
 
 async function parseErrorMessage(response: Response) {
@@ -136,40 +252,99 @@ function normalizeAssistantVoiceError(error: unknown) {
   return "Falha na sintese de voz.";
 }
 
-function sanitizeVoiceLabel(name: string) {
-  return name
-    .replace(/\(.*?\)/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function normalizeLocaleTag(value: string | null | undefined): SupportedLocale {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (normalized.startsWith("en")) return "en-US";
+  if (normalized.startsWith("es")) return "es-ES";
+  return "pt-BR";
 }
 
-function scoreVoiceQuality(voice: VoiceOption) {
-  const lowerName = voice.name.toLowerCase();
-  const lowerLang = voice.lang.toLowerCase();
-  let score = 0;
-  if (lowerLang === "pt-br" || lowerLang === "pt_br") score += 120;
-  if (lowerLang.startsWith("pt")) score += 60;
-  if (lowerName.includes("natural")) score += 80;
-  if (lowerName.includes("neural")) score += 70;
-  if (lowerName.includes("online")) score += 40;
-  if (lowerName.includes("premium")) score += 30;
-  if (lowerName.includes("wavenet")) score += 30;
-  if (lowerName.includes("google")) score += 20;
-  if (lowerName.includes("microsoft")) score += 20;
-  if (lowerName.includes("aria") || lowerName.includes("jenny") || lowerName.includes("sofia")) score += 24;
-  if (lowerName.includes("female") || lowerName.includes("feminina")) score += 12;
-  return score;
+function resolveBrowserLocale(): SupportedLocale {
+  if (typeof navigator === "undefined") return DEFAULT_INPUT_LOCALE;
+  const candidates = Array.isArray(navigator.languages) && navigator.languages.length ? navigator.languages : [navigator.language];
+  for (const candidate of candidates) {
+    const normalized = `${candidate || ""}`.trim().toLowerCase();
+    if (normalized.startsWith("pt") || normalized.startsWith("en") || normalized.startsWith("es")) {
+      return normalizeLocaleTag(normalized);
+    }
+  }
+  return DEFAULT_INPUT_LOCALE;
+}
+
+function detectShortTextLocale(text: string, fallback: SupportedLocale) {
+  const raw = `${text || ""}`.trim();
+  if (!raw) return fallback;
+  if (/[ãõç]/i.test(raw)) return "pt-BR";
+  if (/[ñ¿¡]/i.test(raw)) return "es-ES";
+
+  const normalized = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return fallback;
+
+  const tokens = new Set(normalized.split(" ").filter(Boolean));
+  const score = (terms: string[]) => terms.reduce((acc, term) => acc + (tokens.has(term) ? 1 : 0), 0);
+
+  const ptScore = score(["voce", "ola", "obrigado", "preciso", "ajuda", "agora", "como", "quero", "resposta", "fale"]);
+  const enScore = score(["hello", "please", "thanks", "need", "help", "what", "how", "answer", "speak", "today"]);
+  const esScore = score(["hola", "gracias", "necesito", "ayuda", "ahora", "como", "quiero", "respuesta", "habla", "por"]);
+
+  if (ptScore > enScore && ptScore > esScore) return "pt-BR";
+  if (enScore > ptScore && enScore > esScore) return "en-US";
+  if (esScore > ptScore && esScore > enScore) return "es-ES";
+  return fallback;
+}
+
+function detectConversationLocale(text: string, fallback: SupportedLocale = DEFAULT_INPUT_LOCALE) {
+  const normalized = `${text || ""}`.replace(/\s+/g, " ").trim();
+  if (!normalized) return fallback;
+
+  const detected = detectLanguage(normalized);
+  if (detected.iso3 !== "und" && detected.confidence >= 0.45) {
+    return normalizeLocaleTag(detected.tag);
+  }
+  return detectShortTextLocale(normalized, fallback);
+}
+
+function resolveSpeechRecognitionCtor(): BrowserSpeechRecognitionCtor | null {
+  if (typeof window === "undefined") return null;
+  const speechWindow = window as Window & {
+    SpeechRecognition?: BrowserSpeechRecognitionCtor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionCtor;
+  };
+  return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition || null;
+}
+
+function normalizeSpeechRecognitionError(error: string | null | undefined) {
+  const code = `${error || ""}`.trim().toLowerCase();
+  if (!code) return "Falha no reconhecimento de voz.";
+  if (code === "not-allowed" || code === "service-not-allowed") return "Permissao de voz negada pelo navegador.";
+  if (code === "audio-capture") return "Captura de voz indisponivel no dispositivo.";
+  if (code === "network") return "Falha de rede no reconhecimento de voz.";
+  if (code === "language-not-supported") return "Idioma de voz nao suportado neste navegador.";
+  if (code === "no-speech") return "";
+  if (code === "aborted") return "";
+  return `Falha no reconhecimento de voz (${code}).`;
 }
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function smoothstep(value: number) {
+  const clamped = clamp(value, 0, 1);
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
 function normalizeVoiceProfile(value: Partial<VoiceProfile> | null | undefined): VoiceProfile {
   return {
     rate: clamp(Number(value?.rate ?? DEFAULT_VOICE_PROFILE.rate) || DEFAULT_VOICE_PROFILE.rate, 0.75, 1.35),
     pitch: clamp(Number(value?.pitch ?? DEFAULT_VOICE_PROFILE.pitch) || DEFAULT_VOICE_PROFILE.pitch, 0.7, 1.35),
-    volume: clamp(Number(value?.volume ?? DEFAULT_VOICE_PROFILE.volume) || DEFAULT_VOICE_PROFILE.volume, 0.2, 1),
+    volume: MAX_ASSISTANT_VOLUME,
     pauseMs: Math.round(clamp(Number(value?.pauseMs ?? DEFAULT_VOICE_PROFILE.pauseMs) || DEFAULT_VOICE_PROFILE.pauseMs, 0, 700)),
     style:
       value?.style === "focused" || value?.style === "warm" || value?.style === "dynamic" || value?.style === "neutral"
@@ -200,52 +375,53 @@ function applySpeechStyle(text: string, style: VoiceStyle) {
   return clean;
 }
 
-function splitSpeechSegments(text: string) {
-  const normalized = text.trim();
-  if (!normalized) return [] as string[];
-  const segments = normalized
-    .split(/(?<=[.!?;:])\s+/)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  return segments.length ? segments : [normalized];
-}
-
 export default function ProactiveAssistantPage() {
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState("");
+  const [conversationLocale, setConversationLocale] = useState<SupportedLocale>(DEFAULT_INPUT_LOCALE);
   const [streamStatus, setStreamStatus] = useState("Conectando...");
   const [proactiveEnabled, setProactiveEnabled] = useState(true);
+  const [backgroundVisionEnabled, setBackgroundVisionEnabled] = useState(true);
   const [showCameraPane, setShowCameraPane] = useState(true);
   const [presenceState, setPresenceState] = useState<PresencePayload | null>(null);
+  const [sceneState, setSceneState] = useState<PresencePayload | null>(null);
+  const [scenePulseOn, setScenePulseOn] = useState(false);
   const [microphoneState, setMicrophoneState] = useState<"off" | "starting" | "on" | "error">("off");
   const [microphoneError, setMicrophoneError] = useState("");
+  const [microphoneTranscript, setMicrophoneTranscript] = useState("");
   const [assistantVoiceEnabled, setAssistantVoiceEnabled] = useState(false);
   const [assistantVoiceError, setAssistantVoiceError] = useState("");
   const [assistantSpeaking, setAssistantSpeaking] = useState(false);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(DEFAULT_VOICE_PROFILE);
-  const [selectedVoiceId, setSelectedVoiceId] = useState("auto");
-  const [availableVoices, setAvailableVoices] = useState<VoiceOption[]>([]);
-  const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const [inactiveComposerBlinkOn, setInactiveComposerBlinkOn] = useState(true);
+  const [stageLoadingDotIndex, setStageLoadingDotIndex] = useState(0);
 
   const messagesRef = useRef(messages);
   const statusRef = useRef(status);
+  const conversationLocaleRef = useRef<SupportedLocale>(conversationLocale);
   const assistantVoiceEnabledRef = useRef(assistantVoiceEnabled);
   const voiceProfileRef = useRef<VoiceProfile>(voiceProfile);
-  const selectedVoiceIdRef = useRef(selectedVoiceId);
+  const conversationKeyRef = useRef("");
   const lastProactiveAtRef = useRef(0);
+  const lastUserInteractionAtRef = useRef(0);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
-  const voiceMenuRef = useRef<HTMLDivElement | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechRestartTimeoutRef = useRef<number | null>(null);
+  const speechCommitTimeoutRef = useRef<number | null>(null);
+  const scenePulseTimeoutRef = useRef<number | null>(null);
+  const speechBufferedTranscriptRef = useRef("");
+  const sendPromptRef = useRef<SendPromptFn | null>(null);
+  const microphoneManuallyStoppedRef = useRef(false);
   const voiceWaveHostRef = useRef<HTMLDivElement | null>(null);
   const voiceWaveRef = useRef<SiriWaveInstance | null>(null);
   const voiceWavePulseIntervalRef = useRef<number | null>(null);
-  const voiceVisualTestTimeoutRef = useRef<number | null>(null);
-  const voiceBetweenSegmentsTimeoutRef = useRef<number | null>(null);
-  const assistantVoiceUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const assistantVoiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const assistantVoiceAudioObjectUrlRef = useRef("");
+  const assistantVoiceFetchAbortRef = useRef<AbortController | null>(null);
   const cameraStageRef = useRef<HTMLDivElement | null>(null);
   const stageTextViewportRef = useRef<HTMLDivElement | null>(null);
   const stageTextRef = useRef<HTMLParagraphElement | null>(null);
@@ -261,16 +437,34 @@ export default function ProactiveAssistantPage() {
   }, [status]);
 
   useEffect(() => {
+    conversationLocaleRef.current = conversationLocale;
+  }, [conversationLocale]);
+
+  useEffect(() => {
     assistantVoiceEnabledRef.current = assistantVoiceEnabled;
   }, [assistantVoiceEnabled]);
 
   useEffect(() => {
-    selectedVoiceIdRef.current = selectedVoiceId;
-  }, [selectedVoiceId]);
-
-  useEffect(() => {
     voiceProfileRef.current = voiceProfile;
   }, [voiceProfile]);
+
+  useEffect(() => {
+    setConversationLocale(resolveBrowserLocale());
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(CONVERSATION_KEY_STORAGE_KEY)?.trim() || "";
+    const next = stored || makeConversationKey();
+    conversationKeyRef.current = next;
+    window.localStorage.setItem(CONVERSATION_KEY_STORAGE_KEY, next);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setBackgroundVisionEnabled(readStoredBoolean(BACKGROUND_VISION_STORAGE_KEY, true));
+    setShowCameraPane(readStoredBoolean(CAMERA_PREVIEW_STORAGE_KEY, true));
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -294,69 +488,22 @@ export default function ProactiveAssistantPage() {
   }, [voiceProfile]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    const synth = window.speechSynthesis;
-
-    const readVoices = () => {
-      const voices = synth.getVoices();
-      const normalized = voices
-        .map((voice) => ({
-          id: voice.voiceURI || `${voice.name}-${voice.lang}`,
-          name: voice.name,
-          lang: voice.lang,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-      setAvailableVoices(normalized);
-      if (selectedVoiceIdRef.current !== "auto" && !normalized.some((voice) => voice.id === selectedVoiceIdRef.current)) {
-        setSelectedVoiceId("auto");
-      }
-    };
-
-    readVoices();
-
-    const onVoicesChanged = () => readVoices();
-    synth.addEventListener?.("voiceschanged", onVoicesChanged);
-    return () => {
-      synth.removeEventListener?.("voiceschanged", onVoicesChanged);
-    };
-  }, []);
-
-  const rankedVoices = useMemo(() => {
-    return [...availableVoices].sort((a, b) => scoreVoiceQuality(b) - scoreVoiceQuality(a) || a.name.localeCompare(b.name, "pt-BR"));
-  }, [availableVoices]);
-
-  const bestVoices = useMemo(() => {
-    const preferred = rankedVoices.filter((voice) => scoreVoiceQuality(voice) >= 90);
-    const source = preferred.length ? preferred : rankedVoices;
-    return source.slice(0, 8);
-  }, [rankedVoices]);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(BACKGROUND_VISION_STORAGE_KEY, backgroundVisionEnabled ? "1" : "0");
+    } catch {
+      // Ignore storage write errors.
+    }
+  }, [backgroundVisionEnabled]);
 
   useEffect(() => {
-    if (!voiceMenuOpen) return;
-
-    const closeOnOutside = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node | null;
-      if (!voiceMenuRef.current || !target) return;
-      if (!voiceMenuRef.current.contains(target)) {
-        setVoiceMenuOpen(false);
-      }
-    };
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setVoiceMenuOpen(false);
-      }
-    };
-
-    window.addEventListener("mousedown", closeOnOutside);
-    window.addEventListener("touchstart", closeOnOutside);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("mousedown", closeOnOutside);
-      window.removeEventListener("touchstart", closeOnOutside);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [voiceMenuOpen]);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(CAMERA_PREVIEW_STORAGE_KEY, showCameraPane ? "1" : "0");
+    } catch {
+      // Ignore storage write errors.
+    }
+  }, [showCameraPane]);
 
   const forceComposerFocus = useCallback(() => {
     const inputEl = commandInputRef.current;
@@ -372,13 +519,26 @@ export default function ProactiveAssistantPage() {
     }
   }, []);
 
-  const updateVoiceProfile = useCallback((partial: Partial<VoiceProfile>) => {
-    setVoiceProfile((current) => normalizeVoiceProfile({ ...current, ...partial }));
-  }, []);
-
   useEffect(() => {
     forceComposerFocus();
   }, [forceComposerFocus]);
+
+  useEffect(() => {
+    if (backgroundVisionEnabled) return;
+    setShowCameraPane(false);
+    setPresenceState(null);
+    setSceneState(null);
+    setStreamStatus("Olhos pausados");
+  }, [backgroundVisionEnabled]);
+
+  useEffect(
+    () => () => {
+      if (scenePulseTimeoutRef.current !== null) {
+        window.clearTimeout(scenePulseTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!showCameraPane) {
@@ -433,8 +593,176 @@ export default function ProactiveAssistantPage() {
     setMessages((prev) => prev.map((row) => (row.id === assistantId ? { ...row, content: nextContent } : row)));
   }, []);
 
+  const clearSpeechRestartTimeout = useCallback(() => {
+    if (speechRestartTimeoutRef.current !== null) {
+      window.clearTimeout(speechRestartTimeoutRef.current);
+      speechRestartTimeoutRef.current = null;
+    }
+  }, []);
+
+  const flashScenePulse = useCallback(() => {
+    if (scenePulseTimeoutRef.current !== null) {
+      window.clearTimeout(scenePulseTimeoutRef.current);
+    }
+    setScenePulseOn(true);
+    scenePulseTimeoutRef.current = window.setTimeout(() => {
+      setScenePulseOn(false);
+      scenePulseTimeoutRef.current = null;
+    }, 900);
+  }, []);
+
+  const toggleBackgroundVision = useCallback(() => {
+    setBackgroundVisionEnabled((current) => !current);
+  }, []);
+
+  const clearSpeechCommitTimeout = useCallback(() => {
+    if (speechCommitTimeoutRef.current !== null) {
+      window.clearTimeout(speechCommitTimeoutRef.current);
+      speechCommitTimeoutRef.current = null;
+    }
+  }, []);
+
+  const stopSpeechRecognition = useCallback(
+    (mode: "stop" | "abort" = "abort") => {
+      clearSpeechRestartTimeout();
+      const recognition = speechRecognitionRef.current;
+      speechRecognitionRef.current = null;
+      if (!recognition) return;
+      recognition.onstart = null;
+      recognition.onend = null;
+      recognition.onerror = null;
+      recognition.onresult = null;
+      try {
+        if (mode === "stop") {
+          recognition.stop();
+        } else {
+          recognition.abort();
+        }
+      } catch {
+        // Ignore repeated stop/abort attempts.
+      }
+    },
+    [clearSpeechRestartTimeout],
+  );
+
+  const commitMicrophoneTranscriptRef = useRef<(() => void) | null>(null);
+  const scheduleMicrophoneTranscriptCommit = useCallback(
+    (delayMs = 900) => {
+      clearSpeechCommitTimeout();
+      speechCommitTimeoutRef.current = window.setTimeout(() => {
+        speechCommitTimeoutRef.current = null;
+        commitMicrophoneTranscriptRef.current?.();
+      }, delayMs);
+    },
+    [clearSpeechCommitTimeout],
+  );
+
+  const commitMicrophoneTranscript = useCallback(() => {
+    clearSpeechCommitTimeout();
+    const transcript = (speechBufferedTranscriptRef.current || microphoneTranscript).replace(/\s+/g, " ").trim();
+    if (!transcript) {
+      setMicrophoneTranscript("");
+      return;
+    }
+    if (statusRef.current === "sending" || !sendPromptRef.current) {
+      scheduleMicrophoneTranscriptCommit(680);
+      return;
+    }
+    const nextLocale = detectConversationLocale(transcript, conversationLocaleRef.current);
+    speechBufferedTranscriptRef.current = "";
+    setMicrophoneTranscript("");
+    setConversationLocale(nextLocale);
+    void sendPromptRef.current(transcript, { source: "user", locale: nextLocale });
+  }, [clearSpeechCommitTimeout, microphoneTranscript, scheduleMicrophoneTranscriptCommit]);
+
+  useEffect(() => {
+    commitMicrophoneTranscriptRef.current = commitMicrophoneTranscript;
+  }, [commitMicrophoneTranscript]);
+
+  const startSpeechRecognitionRef = useRef<((locale: SupportedLocale) => void) | null>(null);
+  const startSpeechRecognition = useCallback(
+    (locale: SupportedLocale) => {
+      const RecognitionCtor = resolveSpeechRecognitionCtor();
+      if (!RecognitionCtor) {
+        const detail = "Reconhecimento de voz indisponivel neste navegador.";
+        setMicrophoneError(detail);
+        setMicrophoneState("error");
+        return;
+      }
+
+      stopSpeechRecognition("abort");
+
+      const recognition = new RecognitionCtor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.lang = locale;
+
+      recognition.onresult = (event) => {
+        let bufferedTranscript = speechBufferedTranscriptRef.current;
+        let interimTranscript = "";
+        let receivedFinalResult = false;
+
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = `${result?.[0]?.transcript || ""}`.replace(/\s+/g, " ").trim();
+          if (!transcript) continue;
+          if (result.isFinal) {
+            bufferedTranscript = `${bufferedTranscript} ${transcript}`.replace(/\s+/g, " ").trim();
+            receivedFinalResult = true;
+          } else {
+            interimTranscript = `${interimTranscript} ${transcript}`.replace(/\s+/g, " ").trim();
+          }
+        }
+
+        speechBufferedTranscriptRef.current = bufferedTranscript;
+        setMicrophoneTranscript([bufferedTranscript, interimTranscript].filter(Boolean).join(" ").trim());
+
+        if (receivedFinalResult && bufferedTranscript) {
+          scheduleMicrophoneTranscriptCommit(1_050);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        const detail = normalizeSpeechRecognitionError(event.error);
+        if (!detail) return;
+        setMicrophoneError(detail);
+        setMicrophoneState("error");
+        pushSystemMessage(detail);
+      };
+
+      recognition.onend = () => {
+        speechRecognitionRef.current = null;
+        if (microphoneManuallyStoppedRef.current || !microphoneStreamRef.current) return;
+        clearSpeechRestartTimeout();
+        speechRestartTimeoutRef.current = window.setTimeout(() => {
+          speechRestartTimeoutRef.current = null;
+          startSpeechRecognitionRef.current?.(conversationLocaleRef.current);
+        }, 280);
+      };
+
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    },
+    [clearSpeechRestartTimeout, pushSystemMessage, scheduleMicrophoneTranscriptCommit, stopSpeechRecognition],
+  );
+
+  useEffect(() => {
+    startSpeechRecognitionRef.current = startSpeechRecognition;
+  }, [startSpeechRecognition]);
+
   const disableMicrophone = useCallback(
-    (options?: { silent?: boolean }) => {
+    (options?: { silent?: boolean; flushTranscript?: boolean }) => {
+      microphoneManuallyStoppedRef.current = true;
+      clearSpeechRestartTimeout();
+      if (options?.flushTranscript !== false) {
+        commitMicrophoneTranscriptRef.current?.();
+      } else {
+        clearSpeechCommitTimeout();
+        speechBufferedTranscriptRef.current = "";
+        setMicrophoneTranscript("");
+      }
+      stopSpeechRecognition("stop");
       const stream = microphoneStreamRef.current;
       microphoneStreamRef.current = null;
       if (stream) {
@@ -449,7 +777,7 @@ export default function ProactiveAssistantPage() {
         pushSystemMessage("Microfone desativado.");
       }
     },
-    [pushSystemMessage],
+    [clearSpeechCommitTimeout, clearSpeechRestartTimeout, pushSystemMessage, stopSpeechRecognition],
   );
 
   const enableMicrophone = useCallback(async () => {
@@ -461,10 +789,20 @@ export default function ProactiveAssistantPage() {
       pushSystemMessage(detail);
       return;
     }
+    if (!resolveSpeechRecognitionCtor()) {
+      const detail = "Reconhecimento de voz indisponivel neste navegador.";
+      setMicrophoneError(detail);
+      setMicrophoneState("error");
+      pushSystemMessage(detail);
+      return;
+    }
 
     setMicrophoneError("");
     setMicrophoneState("starting");
     try {
+      microphoneManuallyStoppedRef.current = false;
+      speechBufferedTranscriptRef.current = "";
+      setMicrophoneTranscript("");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -485,22 +823,22 @@ export default function ProactiveAssistantPage() {
         track.onended = () => {
           if (microphoneStreamRef.current !== stream) return;
           microphoneStreamRef.current = null;
-          setMicrophoneState("off");
-          setMicrophoneError("");
+          disableMicrophone({ silent: true, flushTranscript: false });
           pushSystemMessage("Microfone desativado pelo sistema.");
         };
       }
       microphoneStreamRef.current = stream;
+      startSpeechRecognition(conversationLocaleRef.current);
       setMicrophoneState("on");
       setMicrophoneError("");
-      pushSystemMessage("Microfone ativado.");
+      pushSystemMessage(`Microfone ativado com transcricao direta em ${conversationLocaleRef.current}.`);
     } catch (err) {
       const detail = normalizeMicrophoneError(err);
       setMicrophoneState("error");
       setMicrophoneError(detail);
       pushSystemMessage(detail);
     }
-  }, [microphoneState, pushSystemMessage]);
+  }, [disableMicrophone, microphoneState, pushSystemMessage, startSpeechRecognition]);
 
   const toggleMicrophone = useCallback(async () => {
     if (microphoneState === "starting") return;
@@ -513,10 +851,18 @@ export default function ProactiveAssistantPage() {
 
   useEffect(
     () => () => {
-      disableMicrophone({ silent: true });
+      disableMicrophone({ silent: true, flushTranscript: false });
     },
     [disableMicrophone],
   );
+
+  useEffect(() => {
+    if (microphoneState !== "on") return;
+    const recognition = speechRecognitionRef.current;
+    if (!recognition) return;
+    if (normalizeLocaleTag(recognition.lang) === conversationLocale) return;
+    startSpeechRecognition(conversationLocale);
+  }, [conversationLocale, microphoneState, startSpeechRecognition]);
 
   const setVoiceWaveBaseLevel = useCallback((amplitude: number, speed: number) => {
     const wave = voiceWaveRef.current;
@@ -543,26 +889,35 @@ export default function ProactiveAssistantPage() {
     }, 170);
   }, [setVoiceWaveBaseLevel, stopVoiceWavePulse]);
 
+  const clearAssistantVoiceAudio = useCallback(() => {
+    if (assistantVoiceFetchAbortRef.current) {
+      assistantVoiceFetchAbortRef.current.abort();
+      assistantVoiceFetchAbortRef.current = null;
+    }
+    const audio = assistantVoiceAudioRef.current;
+    if (audio) {
+      audio.onplay = null;
+      audio.onended = null;
+      audio.onerror = null;
+      try {
+        audio.pause();
+      } catch {
+        // Ignore pause failures for already-finished audio.
+      }
+      audio.removeAttribute("src");
+      assistantVoiceAudioRef.current = null;
+    }
+    const objectUrl = assistantVoiceAudioObjectUrlRef.current;
+    if (objectUrl && typeof URL !== "undefined") {
+      URL.revokeObjectURL(objectUrl);
+    }
+    assistantVoiceAudioObjectUrlRef.current = "";
+  }, []);
+
   const stopAssistantVoice = useCallback(() => {
-    if (voiceVisualTestTimeoutRef.current !== null) {
-      window.clearTimeout(voiceVisualTestTimeoutRef.current);
-      voiceVisualTestTimeoutRef.current = null;
-    }
-    if (voiceBetweenSegmentsTimeoutRef.current !== null) {
-      window.clearTimeout(voiceBetweenSegmentsTimeoutRef.current);
-      voiceBetweenSegmentsTimeoutRef.current = null;
-    }
-    if (assistantVoiceUtteranceRef.current) {
-      assistantVoiceUtteranceRef.current.onstart = null;
-      assistantVoiceUtteranceRef.current.onend = null;
-      assistantVoiceUtteranceRef.current.onerror = null;
-      assistantVoiceUtteranceRef.current = null;
-    }
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    clearAssistantVoiceAudio();
     stopVoiceWavePulse();
-  }, [stopVoiceWavePulse]);
+  }, [clearAssistantVoiceAudio, stopVoiceWavePulse]);
 
   useEffect(() => {
     let disposed = false;
@@ -612,82 +967,84 @@ export default function ProactiveAssistantPage() {
   }, [assistantVoiceEnabled, setVoiceWaveBaseLevel, stopVoiceWavePulse]);
 
   const speakAssistantReply = useCallback(
-    (rawText: string) => {
+    (rawText: string, locale: SupportedLocale) => {
       const text = rawText.trim();
       if (!text || !assistantVoiceEnabledRef.current) return;
-      if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-        setAssistantVoiceError("Sintese de voz indisponivel neste navegador.");
-        return;
-      }
-      try {
-        const profile = voiceProfileRef.current;
-        const styledText = applySpeechStyle(text, profile.style);
-        const segments = splitSpeechSegments(styledText);
-        if (!segments.length) return;
+      const profile = voiceProfileRef.current;
+      const styledText = applySpeechStyle(text, profile.style);
+      if (!styledText) return;
 
-        const synth = window.speechSynthesis;
+      void (async () => {
         stopAssistantVoice();
-        const voices = synth.getVoices();
-        const selectedVoice = voices.find(
-          (voice) => (voice.voiceURI || `${voice.name}-${voice.lang}`) === selectedVoiceIdRef.current,
-        );
-        const preferredVoice =
-          voices.find((voice) => /^pt[-_]br$/i.test(voice.lang)) || voices.find((voice) => voice.lang.toLowerCase().startsWith("pt"));
-        const resolvedVoice = selectedVoiceIdRef.current === "auto" ? preferredVoice : selectedVoice || preferredVoice;
         const style = speechStyleModifiers(profile.style);
         const resolvedRate = clamp(profile.rate * style.rateMul, 0.75, 1.35);
         const resolvedPitch = clamp(profile.pitch * style.pitchMul, 0.7, 1.35);
-        const resolvedVolume = clamp(profile.volume, 0.2, 1);
-        const interSegmentPause = Math.max(0, profile.pauseMs);
+        const controller = new AbortController();
+        assistantVoiceFetchAbortRef.current = controller;
 
-        const speakSegment = (index: number) => {
-          if (index >= segments.length) {
-            stopVoiceWavePulse();
-            assistantVoiceUtteranceRef.current = null;
-            return;
+        try {
+          const response = await fetch("/api/proactive-assistant/voice/synthesize", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            cache: "no-store",
+            signal: controller.signal,
+            body: JSON.stringify({
+              text: styledText,
+              locale_hint: locale,
+              voice_id: "pt-BR-BrendaNeural",
+              rate: resolvedRate,
+              pitch: resolvedPitch,
+              style: profile.style,
+            }),
+          });
+
+          if (!response.ok) {
+            const detail = await parseErrorMessage(response);
+            throw new Error(detail || `Falha de sintese no servidor (HTTP ${response.status}).`);
           }
 
-          const utterance = new SpeechSynthesisUtterance(segments[index]);
-          utterance.lang = "pt-BR";
-          utterance.rate = resolvedRate;
-          utterance.pitch = resolvedPitch;
-          utterance.volume = resolvedVolume;
-          if (resolvedVoice) {
-            utterance.voice = resolvedVoice;
+          const contentType = `${response.headers.get("content-type") || ""}`.toLowerCase();
+          if (!contentType.includes("audio")) {
+            throw new Error("Payload de voz invalido do servidor.");
           }
 
-          utterance.onstart = () => {
+          const audioBlob = await response.blob();
+          if (!audioBlob.size) {
+            throw new Error("Audio vazio recebido do servidor.");
+          }
+
+          const objectUrl = URL.createObjectURL(audioBlob);
+          assistantVoiceAudioObjectUrlRef.current = objectUrl;
+          const audio = new Audio(objectUrl);
+          audio.volume = MAX_ASSISTANT_VOLUME;
+          audio.onplay = () => {
             startVoiceWavePulse();
           };
-          utterance.onend = () => {
-            assistantVoiceUtteranceRef.current = null;
-            if (index >= segments.length - 1) {
-              stopVoiceWavePulse();
-              return;
-            }
-            voiceBetweenSegmentsTimeoutRef.current = window.setTimeout(() => {
-              voiceBetweenSegmentsTimeoutRef.current = null;
-              speakSegment(index + 1);
-            }, interSegmentPause);
-          };
-          utterance.onerror = (event) => {
+          audio.onended = () => {
+            clearAssistantVoiceAudio();
             stopVoiceWavePulse();
-            assistantVoiceUtteranceRef.current = null;
-            setAssistantVoiceError(normalizeAssistantVoiceError((event as SpeechSynthesisErrorEvent).error));
           };
-
-          assistantVoiceUtteranceRef.current = utterance;
+          audio.onerror = () => {
+            clearAssistantVoiceAudio();
+            stopVoiceWavePulse();
+            setAssistantVoiceError("Falha ao reproduzir audio de voz.");
+          };
+          assistantVoiceAudioRef.current = audio;
           setAssistantVoiceError("");
-          synth.speak(utterance);
-        };
-
-        speakSegment(0);
-      } catch (voiceError) {
-        stopVoiceWavePulse();
-        setAssistantVoiceError(normalizeAssistantVoiceError(voiceError));
-      }
+          await audio.play();
+        } catch (voiceError) {
+          if (controller.signal.aborted) return;
+          clearAssistantVoiceAudio();
+          stopVoiceWavePulse();
+          setAssistantVoiceError(normalizeAssistantVoiceError(voiceError));
+        } finally {
+          if (assistantVoiceFetchAbortRef.current === controller) {
+            assistantVoiceFetchAbortRef.current = null;
+          }
+        }
+      })();
     },
-    [startVoiceWavePulse, stopAssistantVoice, stopVoiceWavePulse],
+    [clearAssistantVoiceAudio, startVoiceWavePulse, stopAssistantVoice, stopVoiceWavePulse],
   );
 
   const disableAssistantVoice = useCallback(
@@ -707,8 +1064,8 @@ export default function ProactiveAssistantPage() {
 
   const enableAssistantVoice = useCallback(
     (options?: { silent?: boolean }) => {
-      if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-        const detail = "Sintese de voz indisponivel neste navegador.";
+      if (typeof window === "undefined" || typeof Audio === "undefined") {
+        const detail = "Audio indisponivel neste navegador.";
         setAssistantVoiceError(detail);
         pushSystemMessage(detail);
         return false;
@@ -734,26 +1091,6 @@ export default function ProactiveAssistantPage() {
     enableAssistantVoice();
   }, [assistantVoiceEnabled, disableAssistantVoice, enableAssistantVoice]);
 
-  const previewVoiceChoice = useCallback(
-    (voiceId: string, label?: string) => {
-      const enabled = enableAssistantVoice({ silent: true });
-      if (!enabled) return;
-      selectedVoiceIdRef.current = voiceId;
-      setSelectedVoiceId(voiceId);
-      stopAssistantVoice();
-      setShowCameraPane(false);
-      setAssistantVoiceError("");
-      if (label) {
-        pushSystemMessage(`Preview de voz: ${label.toUpperCase()}`);
-      }
-      voiceVisualTestTimeoutRef.current = window.setTimeout(() => {
-        voiceVisualTestTimeoutRef.current = null;
-        speakAssistantReply("TESTE DE VOZ KNEX EM EXECUCAO.");
-      }, 180);
-    },
-    [enableAssistantVoice, pushSystemMessage, speakAssistantReply, stopAssistantVoice],
-  );
-
   useEffect(
     () => () => {
       stopAssistantVoice();
@@ -768,8 +1105,13 @@ export default function ProactiveAssistantPage() {
       setShowCameraPane(false);
 
       const nextSource = options.source || "user";
+      const nextLocale = options.locale || detectConversationLocale(prompt, conversationLocaleRef.current);
       const currentHistory = buildHistoryForApi(messagesRef.current);
       const assistantId = makeMessageId();
+      if (nextSource === "user") {
+        lastUserInteractionAtRef.current = Date.now();
+      }
+      setConversationLocale(nextLocale);
 
       if (options.hiddenUser) {
         setMessages((prev) => [
@@ -787,6 +1129,7 @@ export default function ProactiveAssistantPage() {
             source: nextSource,
             content: "",
             createdAt: Date.now(),
+            locale: nextLocale,
           },
         ]);
       } else {
@@ -798,6 +1141,7 @@ export default function ProactiveAssistantPage() {
             source: "user",
             content: prompt,
             createdAt: Date.now(),
+            locale: nextLocale,
           },
           {
             id: assistantId,
@@ -805,6 +1149,7 @@ export default function ProactiveAssistantPage() {
             source: nextSource,
             content: "",
             createdAt: Date.now(),
+            locale: nextLocale,
           },
         ]);
       }
@@ -821,6 +1166,9 @@ export default function ProactiveAssistantPage() {
           body: JSON.stringify({
             prompt,
             history: currentHistory,
+            conversationKey: conversationKeyRef.current || makeConversationKey(),
+            localeHint: nextLocale,
+            locale: nextLocale,
           }),
         });
         if (!response.ok) {
@@ -831,7 +1179,7 @@ export default function ProactiveAssistantPage() {
           const fallback = (await response.text().catch(() => "")).trim();
           const nextContent = fallback || "Sem conteudo retornado.";
           upsertAssistantMessage(assistantId, nextContent);
-          speakAssistantReply(nextContent);
+          speakAssistantReply(nextContent, nextLocale);
           return;
         }
 
@@ -854,7 +1202,7 @@ export default function ProactiveAssistantPage() {
         if (!accumulated.trim()) {
           upsertAssistantMessage(assistantId, "Resposta vazia recebida.");
         } else {
-          speakAssistantReply(accumulated);
+          speakAssistantReply(accumulated, nextLocale);
         }
       } catch (sendError) {
         const detail = sendError instanceof Error ? sendError.message : "Falha ao gerar resposta.";
@@ -867,37 +1215,61 @@ export default function ProactiveAssistantPage() {
     [speakAssistantReply, upsertAssistantMessage],
   );
 
+  useEffect(() => {
+    sendPromptRef.current = sendPrompt;
+  }, [sendPrompt]);
+
   const runQuickAction = useCallback(
     (prompt: string) => {
-      void sendPrompt(prompt, { hiddenUser: true, source: "proactive" });
+      void sendPrompt(prompt, {
+        hiddenUser: true,
+        source: "proactive",
+        locale: conversationLocaleRef.current,
+      });
     },
     [sendPrompt],
   );
 
   const triggerProactiveReply = useCallback(
     (payload: PresencePayload) => {
+      if (!backgroundVisionEnabled) return;
       if (!proactiveEnabled) return;
       if (!payload.someone_in_frame) return;
       if (statusRef.current !== "idle") return;
 
       const now = Date.now();
+      if (now - lastUserInteractionAtRef.current < PROACTIVE_USER_GRACE_MS) return;
       if (now - lastProactiveAtRef.current < PROACTIVE_COOLDOWN_MS) return;
       lastProactiveAtRef.current = now;
 
       const identityLabel = extractIdentityLabel(payload);
+      const sceneSummary = extractSceneSummary(payload);
+      const interlocutorLabel = extractCurrentInterlocutorLabel(payload);
+      const recentSceneHeadline = extractRecentSceneHeadline(payload);
+      const stableInterlocutor = readVisualBoolean(payload, "current_interlocutor_stable");
       const proactivePrompt = [
         "Contexto de streaming em tempo real autorizado:",
         "- Presenca detectada: sim",
         `- Identidade confirmada: ${payload.identity_confirmed ? "sim" : "nao"}`,
         `- Rotulo observado: ${identityLabel}`,
+        sceneSummary ? `- Cena atual: ${sceneSummary}` : "",
+        interlocutorLabel ? `- Interlocutor atual: ${interlocutorLabel}` : "",
+        stableInterlocutor ? "- Interlocutor atual estavel no quadro: sim" : "",
+        recentSceneHeadline ? `- Evento recente: ${recentSceneHeadline}` : "",
         "",
         "Gere uma mensagem curta, natural e proativa para abrir conversa com o usuario agora.",
-        "Responda em pt-BR, sem mencionar regras internas.",
-      ].join("\n");
+        "Nao mencione regras internas.",
+      ]
+        .filter(Boolean)
+        .join("\n");
 
-      void sendPrompt(proactivePrompt, { hiddenUser: true, source: "proactive" });
+      void sendPrompt(proactivePrompt, {
+        hiddenUser: true,
+        source: "proactive",
+        locale: conversationLocaleRef.current,
+      });
     },
-    [proactiveEnabled, sendPrompt],
+    [backgroundVisionEnabled, proactiveEnabled, sendPrompt],
   );
 
   const executeTerminalCommand = useCallback(
@@ -907,12 +1279,17 @@ export default function ProactiveAssistantPage() {
 
       if (normalized === "/help") {
         pushSystemMessage(
-          "Comandos: /help | /camera on|off|toggle | /microfone on|off|toggle | /voz on|off|toggle|teste | /proativo on|off|toggle | /saudacao | /apoio | /resumo | /clear",
+          "Comandos: /help | /olhos on|off|toggle | /camera on|off|toggle | /microfone on|off|toggle | /voz on|off|toggle | /proativo on|off|toggle | /saudacao | /apoio | /resumo | /clear",
         );
         return true;
       }
 
       if (normalized === "/clear") {
+        const nextConversationKey = makeConversationKey();
+        conversationKeyRef.current = nextConversationKey;
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(CONVERSATION_KEY_STORAGE_KEY, nextConversationKey);
+        }
         setMessages((prev) =>
           prev.filter((row) => row.role === "assistant").slice(-1).length
             ? [prev.filter((row) => row.role === "assistant").slice(-1)[0]]
@@ -929,31 +1306,51 @@ export default function ProactiveAssistantPage() {
         return true;
       }
 
+      if (normalized === "/olhos on") {
+        setBackgroundVisionEnabled(true);
+        pushSystemMessage("Olhos ativos: ON");
+        return true;
+      }
+      if (normalized === "/olhos off") {
+        setBackgroundVisionEnabled(false);
+        pushSystemMessage("Olhos ativos: OFF");
+        return true;
+      }
+      if (normalized === "/olhos toggle") {
+        setBackgroundVisionEnabled((current) => !current);
+        pushSystemMessage("Olhos ativos: alternados.");
+        return true;
+      }
+
       if (normalized === "/camera on") {
+        if (!backgroundVisionEnabled) {
+          pushSystemMessage("Ative os olhos da Leticia antes de expor o preview. Use /olhos on.");
+          return true;
+        }
         if (assistantVoiceEnabled) {
-          pushSystemMessage("Camera bloqueada enquanto a Voz IA estiver ativa. Use /voz off para liberar.");
+          pushSystemMessage("Preview bloqueado enquanto a Voz IA estiver ativa. Use /voz off para liberar.");
           return true;
         }
         setShowCameraPane(true);
-        pushSystemMessage("Camera: ON");
+        pushSystemMessage("Preview de camera: ON");
         return true;
       }
       if (normalized === "/camera off") {
-        if (assistantVoiceEnabled) {
-          pushSystemMessage("Camera bloqueada enquanto a Voz IA estiver ativa. Use /voz off para liberar.");
-          return true;
-        }
         setShowCameraPane(false);
-        pushSystemMessage("Camera: OFF");
+        pushSystemMessage("Preview de camera: OFF");
         return true;
       }
       if (normalized === "/camera toggle") {
+        if (!backgroundVisionEnabled) {
+          pushSystemMessage("Ative os olhos da Leticia antes de expor o preview. Use /olhos on.");
+          return true;
+        }
         if (assistantVoiceEnabled) {
-          pushSystemMessage("Camera bloqueada enquanto a Voz IA estiver ativa. Use /voz off para liberar.");
+          pushSystemMessage("Preview bloqueado enquanto a Voz IA estiver ativa. Use /voz off para liberar.");
           return true;
         }
         setShowCameraPane((current) => !current);
-        pushSystemMessage("Camera: alternada.");
+        pushSystemMessage("Preview de camera: alternado.");
         return true;
       }
 
@@ -980,10 +1377,6 @@ export default function ProactiveAssistantPage() {
       }
       if (normalized === "/voz toggle") {
         toggleAssistantVoice();
-        return true;
-      }
-      if (normalized === "/voz teste") {
-        previewVoiceChoice(selectedVoiceIdRef.current || "auto");
         return true;
       }
 
@@ -1021,12 +1414,12 @@ export default function ProactiveAssistantPage() {
     },
     [
       assistantVoiceEnabled,
+      backgroundVisionEnabled,
       disableAssistantVoice,
       disableMicrophone,
       enableAssistantVoice,
       enableMicrophone,
       pushSystemMessage,
-      previewVoiceChoice,
       runQuickAction,
       toggleAssistantVoice,
       toggleMicrophone,
@@ -1034,6 +1427,11 @@ export default function ProactiveAssistantPage() {
   );
 
   useEffect(() => {
+    if (!backgroundVisionEnabled) {
+      setStreamStatus("Olhos pausados");
+      return;
+    }
+
     const eventSource = new EventSource("/api/proactive-assistant/events");
 
     const parsePayload = (event: Event) => {
@@ -1051,27 +1449,46 @@ export default function ProactiveAssistantPage() {
       const payload = parsePayload(event);
       if (!payload) return;
       setPresenceState(payload);
+      setSceneState(payload);
     };
     const onPresenceChanged = (event: Event) => {
       const payload = parsePayload(event);
       if (!payload) return;
       setPresenceState(payload);
+      setSceneState(payload);
       triggerProactiveReply(payload);
+    };
+    const onIdentityChanged = (event: Event) => {
+      const payload = parsePayload(event);
+      if (!payload) return;
+      setPresenceState(payload);
+      setSceneState(payload);
+    };
+    const onSceneChanged = (event: Event) => {
+      const payload = parsePayload(event);
+      if (!payload) return;
+      setPresenceState(payload);
+      setSceneState(payload);
+      flashScenePulse();
     };
 
     eventSource.addEventListener("ready", onReady);
     eventSource.addEventListener("state", onState);
     eventSource.addEventListener("presence_changed", onPresenceChanged);
+    eventSource.addEventListener("identity_changed", onIdentityChanged);
+    eventSource.addEventListener("scene_changed", onSceneChanged);
     eventSource.addEventListener("error", onError);
 
     return () => {
       eventSource.removeEventListener("ready", onReady);
       eventSource.removeEventListener("state", onState);
       eventSource.removeEventListener("presence_changed", onPresenceChanged);
+      eventSource.removeEventListener("identity_changed", onIdentityChanged);
+      eventSource.removeEventListener("scene_changed", onSceneChanged);
       eventSource.removeEventListener("error", onError);
       eventSource.close();
     };
-  }, [triggerProactiveReply]);
+  }, [backgroundVisionEnabled, flashScenePulse, triggerProactiveReply]);
 
   const latestAssistantMessage = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -1079,11 +1496,47 @@ export default function ProactiveAssistantPage() {
     }
     return null;
   }, [messages]);
+  const stageLocale = latestAssistantMessage?.locale || conversationLocale;
+  const hasStageAssistantContent = Boolean(latestAssistantMessage?.content?.trim());
   const stageText = useMemo(() => {
-    const content = latestAssistantMessage?.content?.trim() || (status === "sending" ? "Gerando resposta..." : "");
+    const content = latestAssistantMessage?.content?.trim() || "";
     if (!content) return "";
-    return content.toLocaleUpperCase("pt-BR");
-  }, [latestAssistantMessage, status]);
+    return content.toLocaleUpperCase(stageLocale);
+  }, [latestAssistantMessage, stageLocale]);
+  const stageTextFontSize = useMemo(() => {
+    if (!stageText) return "clamp(1.35rem, 2.5vw, 2.7rem)";
+
+    const textLength = stageText.replace(/\s+/g, " ").trim().length;
+    const shortTextThreshold = 28;
+    const longTextThreshold = 260;
+    const progress = smoothstep((textLength - shortTextThreshold) / (longTextThreshold - shortTextThreshold));
+    const emphasis = 1 - progress;
+
+    const minRem = 1.35 + 0.55 * emphasis;
+    const fluidVw = 2.5 + 1.25 * emphasis;
+    const maxRem = 2.7 + 1.35 * emphasis;
+
+    return `clamp(${minRem.toFixed(2)}rem, ${fluidVw.toFixed(2)}vw, ${maxRem.toFixed(2)}rem)`;
+  }, [stageText]);
+  const showStageLoadingIndicator = status === "sending" && !hasStageAssistantContent;
+  const effectivePresenceState = sceneState || presenceState;
+  const sceneSummary = useMemo(() => extractSceneSummary(effectivePresenceState), [effectivePresenceState]);
+  const sceneHeadline = useMemo(() => extractRecentSceneHeadline(effectivePresenceState), [effectivePresenceState]);
+  const sceneInterlocutorLabel = useMemo(
+    () => extractCurrentInterlocutorLabel(effectivePresenceState) || extractIdentityLabel(effectivePresenceState || {}),
+    [effectivePresenceState],
+  );
+  const sceneInterlocutorStable = useMemo(
+    () => readVisualBoolean(effectivePresenceState, "current_interlocutor_stable"),
+    [effectivePresenceState],
+  );
+  const eyesStatusLabel = backgroundVisionEnabled ? streamStatus : "Olhos pausados";
+  const eyesStatusToneClass = backgroundVisionEnabled
+    ? scenePulseOn
+      ? "text-white"
+      : "text-white/78"
+    : "text-white/42";
+  const showVisionRuntime = backgroundVisionEnabled;
 
   useEffect(() => {
     if (assistantVoiceEnabled || !stageText) {
@@ -1114,6 +1567,18 @@ export default function ProactiveAssistantPage() {
       window.removeEventListener("resize", computeLift);
     };
   }, [assistantVoiceEnabled, stageText]);
+
+  useEffect(() => {
+    if (!showStageLoadingIndicator) {
+      setStageLoadingDotIndex(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setStageLoadingDotIndex((current) => (current + 1) % 3);
+    }, 240);
+    return () => window.clearInterval(timer);
+  }, [showStageLoadingIndicator]);
+
   const cameraTargetAspectRatio = useMemo(() => {
     if (!cameraStageSize.width || !cameraStageSize.height) return 16 / 9;
     const viewportRatio = cameraStageSize.width / cameraStageSize.height;
@@ -1148,11 +1613,11 @@ export default function ProactiveAssistantPage() {
   }, [executeTerminalCommand, input, sendPrompt, status]);
 
   const showVoiceStage = assistantVoiceEnabled;
-  const showVideoStage = !showVoiceStage && showCameraPane;
+  const showVideoStage = !showVoiceStage && backgroundVisionEnabled && showCameraPane;
 
   return (
-    <main className="min-h-screen bg-black font-mono text-white">
-      <div className="flex min-h-screen w-full flex-col">
+    <main className="h-[100dvh] overflow-hidden bg-black font-mono text-white">
+      <div className="flex h-full w-full flex-col overflow-hidden">
         <section
           className={`relative flex-1 overflow-hidden ${showVideoStage ? "bg-black" : "bg-black/95"}`}
           onClick={() => {
@@ -1177,13 +1642,35 @@ export default function ProactiveAssistantPage() {
               </>
             )}
           </div>
-          {showVideoStage ? (
-            <div ref={cameraStageRef} className="absolute inset-0 flex items-center justify-center overflow-hidden">
+          <div
+            className={`pointer-events-none absolute right-1 top-2 z-20 flex max-w-[min(52vw,32rem)] items-center gap-2 px-2 py-1 text-right text-[11px] font-semibold uppercase tracking-[0.12em] md:text-sm ${eyesStatusToneClass}`}
+          >
+            <span
+              className={`inline-block h-2.5 w-2.5 rounded-full transition-all duration-300 ${
+                backgroundVisionEnabled ? (scenePulseOn ? "bg-white shadow-[0_0_18px_rgba(255,255,255,0.85)]" : "bg-white/70") : "bg-white/25"
+              }`}
+            />
+            <span className="truncate">
+              {backgroundVisionEnabled ? (showVideoStage ? "Olhos expostos" : "Olhos em segundo plano") : "Olhos pausados"}
+              {" | "}
+              {eyesStatusLabel}
+            </span>
+          </div>
+          {showVisionRuntime ? (
+            <div
+              ref={cameraStageRef}
+              aria-hidden={!showVideoStage}
+              className={
+                showVideoStage
+                  ? "absolute inset-0 flex items-center justify-center overflow-hidden"
+                  : "pointer-events-none absolute -left-[10000px] top-0 h-px w-px overflow-hidden opacity-0"
+              }
+            >
               <div
-                className="pointer-events-none overflow-hidden border-0 bg-black outline-none ring-0 shadow-none"
+                className="overflow-hidden border-0 bg-black outline-none ring-0 shadow-none"
                 style={{
-                  width: `${cameraFrameSize.width}px`,
-                  height: `${cameraFrameSize.height}px`,
+                  width: showVideoStage ? `${cameraFrameSize.width}px` : "1px",
+                  height: showVideoStage ? `${cameraFrameSize.height}px` : "1px",
                 }}
               >
                 <iframe
@@ -1226,11 +1713,30 @@ export default function ProactiveAssistantPage() {
                 >
                   <p
                     ref={stageTextRef}
-                    className="mx-auto inline-block max-w-[min(88vw,1200px)] whitespace-pre-wrap break-words text-center text-[clamp(1.35rem,2.5vw,2.7rem)] font-semibold uppercase leading-[1.12] tracking-[0.08em] text-white"
+                    className="mx-auto inline-block max-w-[min(88vw,1200px)] whitespace-pre-wrap break-words text-center font-semibold uppercase leading-[1.12] tracking-[0.08em] text-white"
+                    style={{ fontSize: stageTextFontSize }}
                   >
                     {stageText}
                   </p>
                 </div>
+              </div>
+            ) : null}
+            {!showVoiceStage && showStageLoadingIndicator ? (
+              <div className="absolute inset-0 flex items-center justify-center px-6 py-10 text-center">
+                <p
+                  aria-label="Gerando resposta"
+                  className="select-none text-[clamp(2rem,5vw,4.6rem)] font-semibold leading-none tracking-[0.45em] text-white"
+                >
+                  {[0, 1, 2].map((dotIndex) => (
+                    <span
+                      key={dotIndex}
+                      className="inline-block transition-opacity duration-150"
+                      style={{ opacity: stageLoadingDotIndex === dotIndex ? 1 : 0.14 }}
+                    >
+                      .
+                    </span>
+                  ))}
+                </p>
               </div>
             ) : null}
           </div>
@@ -1239,6 +1745,11 @@ export default function ProactiveAssistantPage() {
         <footer className="bg-black/95 px-3 py-3 md:px-5 md:py-4">
           {error ? <p className="mb-2 text-sm uppercase tracking-[0.12em] text-rose-400 md:text-base">{error}</p> : null}
           {microphoneError ? <p className="mb-2 text-sm uppercase tracking-[0.12em] text-amber-300 md:text-base">{microphoneError}</p> : null}
+          {microphoneState === "on" && microphoneTranscript ? (
+            <p className="mb-2 text-sm text-white/72 md:text-base">
+              Captacao: {microphoneTranscript}
+            </p>
+          ) : null}
           {assistantVoiceError ? (
             <p className="mb-2 text-sm uppercase tracking-[0.12em] text-amber-300 md:text-base">{assistantVoiceError}</p>
           ) : null}
@@ -1254,7 +1765,7 @@ export default function ProactiveAssistantPage() {
               {!composerFocused ? (
                 <span
                   aria-hidden
-                  className="inline-block h-6 w-3 shrink-0 rounded-sm bg-white transition-opacity"
+                  className="inline-block h-9 w-3.5 shrink-0 rounded-sm bg-white transition-opacity md:h-10"
                   style={{ opacity: inactiveComposerBlinkOn ? 1 : 0.15 }}
                   title="Composer inativo"
                 />
@@ -1262,7 +1773,13 @@ export default function ProactiveAssistantPage() {
               <input
                 ref={commandInputRef}
                 value={input}
-                onChange={(event) => setInput(event.target.value)}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setInput(nextValue);
+                  if (nextValue.trim()) {
+                    setConversationLocale(detectConversationLocale(nextValue, conversationLocaleRef.current));
+                  }
+                }}
                 onFocus={() => setComposerFocused(true)}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter") return;
@@ -1271,7 +1788,7 @@ export default function ProactiveAssistantPage() {
                 }}
                 onBlur={() => setComposerFocused(false)}
                 placeholder=""
-                className="h-8 flex-1 bg-transparent text-sm text-white caret-white outline-none placeholder:text-white/35 md:text-base"
+                className="h-10 flex-1 bg-transparent text-[1.05rem] text-white caret-white outline-none placeholder:text-white/35 md:h-12 md:text-[1.45rem]"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -1336,6 +1853,29 @@ export default function ProactiveAssistantPage() {
               </button>
               <button
                 type="button"
+                onClick={toggleBackgroundVision}
+                title={backgroundVisionEnabled ? "Desativar olhos em segundo plano" : "Ativar olhos em segundo plano"}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.12em] transition md:text-base ${
+                  backgroundVisionEnabled
+                    ? scenePulseOn
+                      ? "text-white"
+                      : "text-white"
+                    : "text-white/55 hover:text-white"
+                }`}
+              >
+                <span
+                  className={`inline-block h-2.5 w-2.5 rounded-full transition-all duration-300 ${
+                    backgroundVisionEnabled
+                      ? scenePulseOn
+                        ? "bg-white shadow-[0_0_18px_rgba(255,255,255,0.85)]"
+                        : "bg-white/75"
+                      : "bg-white/25"
+                  }`}
+                />
+                {backgroundVisionEnabled ? "Olhos on" : "Olhos off"}
+              </button>
+              <button
+                type="button"
                 onClick={toggleAssistantVoice}
                 title={assistantVoiceEnabled ? "Desativar voz da IA" : "Ativar voz da IA"}
                 className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.12em] md:text-base ${
@@ -1348,171 +1888,36 @@ export default function ProactiveAssistantPage() {
               <button
                 type="button"
                 onClick={() => setShowCameraPane((current) => !current)}
-                disabled={assistantVoiceEnabled}
+                disabled={assistantVoiceEnabled || !backgroundVisionEnabled}
                 title={
-                  assistantVoiceEnabled
-                    ? "Desative a voz da IA para habilitar a camera"
-                    : showCameraPane
-                      ? "Desativar camera"
-                      : "Ativar camera"
+                  !backgroundVisionEnabled
+                    ? "Ative os olhos da Leticia para liberar o preview"
+                    : assistantVoiceEnabled
+                      ? "Desative a voz da IA para habilitar o preview"
+                      : showCameraPane
+                        ? "Ocultar preview da camera"
+                        : "Exibir preview da camera"
                 }
                 className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.12em] transition md:text-base ${
-                  assistantVoiceEnabled ? "cursor-not-allowed text-white/35" : showCameraPane ? "text-white" : "text-white/55 hover:text-white"
+                  !backgroundVisionEnabled || assistantVoiceEnabled
+                    ? "cursor-not-allowed text-white/35"
+                    : showCameraPane
+                      ? "text-white"
+                      : "text-white/55 hover:text-white"
                 }`}
               >
                 <Camera className="h-3.5 w-3.5" />
-                {assistantVoiceEnabled ? "Camera bloqueada" : showCameraPane ? "Camera on" : "Camera off"}
+                {!backgroundVisionEnabled
+                  ? "Preview bloqueado"
+                  : assistantVoiceEnabled
+                    ? "Preview bloqueado"
+                    : showCameraPane
+                      ? "Preview on"
+                      : "Preview off"}
               </button>
             </div>
-            <div ref={voiceMenuRef} className="relative flex justify-end">
-              <button
-                type="button"
-                onClick={() => setVoiceMenuOpen((current) => !current)}
-                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.12em] text-white/70 hover:text-white md:text-base"
-                title="Abrir menu de vozes"
-              >
-                <Volume2 className="h-3.5 w-3.5" />
-                Melhores vozes
-                <span className="text-xs md:text-sm">{voiceMenuOpen ? "^" : "v"}</span>
-              </button>
-              {voiceMenuOpen ? (
-                <div className="absolute bottom-full right-0 z-30 mb-2 w-[360px] max-h-[60vh] overflow-y-auto bg-black/95 p-2">
-                  <div className="mb-2 bg-black/80 p-2">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-white/70">Perfil voz knex</p>
-                    <div className="mb-2 flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => updateVoiceProfile({ style: "neutral" })}
-                        className={`px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                          voiceProfile.style === "neutral" ? "text-white" : "text-white/60 hover:text-white"
-                        }`}
-                      >
-                        Neutro
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateVoiceProfile({ style: "focused" })}
-                        className={`px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                          voiceProfile.style === "focused" ? "text-white" : "text-white/60 hover:text-white"
-                        }`}
-                      >
-                        Focado
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateVoiceProfile({ style: "warm" })}
-                        className={`px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                          voiceProfile.style === "warm" ? "text-white" : "text-white/60 hover:text-white"
-                        }`}
-                      >
-                        Quente
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateVoiceProfile({ style: "dynamic" })}
-                        className={`px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                          voiceProfile.style === "dynamic" ? "text-white" : "text-white/60 hover:text-white"
-                        }`}
-                      >
-                        Dinamico
-                      </button>
-                    </div>
-
-                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60">
-                      Tom {voiceProfile.pitch.toFixed(2)}
-                    </label>
-                    <input
-                      type="range"
-                      min={0.7}
-                      max={1.35}
-                      step={0.01}
-                      value={voiceProfile.pitch}
-                      onChange={(event) => updateVoiceProfile({ pitch: Number(event.target.value) })}
-                      className="mb-2 w-full accent-white"
-                    />
-
-                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60">
-                      Velocidade {voiceProfile.rate.toFixed(2)}
-                    </label>
-                    <input
-                      type="range"
-                      min={0.75}
-                      max={1.35}
-                      step={0.01}
-                      value={voiceProfile.rate}
-                      onChange={(event) => updateVoiceProfile({ rate: Number(event.target.value) })}
-                      className="mb-2 w-full accent-white"
-                    />
-
-                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60">
-                      Pausa {voiceProfile.pauseMs}ms
-                    </label>
-                    <input
-                      type="range"
-                      min={0}
-                      max={700}
-                      step={10}
-                      value={voiceProfile.pauseMs}
-                      onChange={(event) => updateVoiceProfile({ pauseMs: Number(event.target.value) })}
-                      className="mb-2 w-full accent-white"
-                    />
-
-                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60">
-                      Volume {voiceProfile.volume.toFixed(2)}
-                    </label>
-                    <input
-                      type="range"
-                      min={0.2}
-                      max={1}
-                      step={0.01}
-                      value={voiceProfile.volume}
-                      onChange={(event) => updateVoiceProfile({ volume: Number(event.target.value) })}
-                      className="w-full accent-white"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => setVoiceProfile(DEFAULT_VOICE_PROFILE)}
-                      className="mt-2 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/65 hover:text-white"
-                    >
-                      Resetar perfil
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      previewVoiceChoice("auto", "Auto (pt-BR)");
-                      setVoiceMenuOpen(false);
-                    }}
-                    className={`block w-full px-2.5 py-1.5 text-left text-xs font-semibold uppercase tracking-[0.12em] md:text-sm ${
-                      selectedVoiceId === "auto" ? "text-white" : "text-white/60 hover:text-white"
-                    }`}
-                    title="Selecao automatica (pt-BR prioritaria)"
-                  >
-                    Auto (pt-BR)
-                  </button>
-                  {bestVoices.map((voice) => {
-                    const selected = selectedVoiceId === voice.id;
-                    return (
-                      <button
-                        key={voice.id}
-                        type="button"
-                        onClick={() => {
-                          previewVoiceChoice(voice.id, sanitizeVoiceLabel(voice.name));
-                          setVoiceMenuOpen(false);
-                        }}
-                        className={`block w-full px-2.5 py-1.5 text-left text-xs font-semibold uppercase tracking-[0.12em] md:text-sm ${
-                          selected ? "text-white" : "text-white/60 hover:text-white"
-                        }`}
-                        title={`${voice.name} (${voice.lang})`}
-                      >
-                        {sanitizeVoiceLabel(voice.name)} ({voice.lang})
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
+            <div className="flex items-center justify-end px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white/45 md:text-sm">
+              Idioma {conversationLocale} | Voz pt-BR-BrendaNeural
             </div>
           </div>
         </footer>
@@ -1520,4 +1925,5 @@ export default function ProactiveAssistantPage() {
     </main>
   );
 }
+
 

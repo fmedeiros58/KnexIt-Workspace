@@ -142,6 +142,13 @@ function parseOptionalLanguageId(value: unknown) {
   return trimmed.slice(0, 32);
 }
 
+function parseConversationKey(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, 160);
+}
+
 function buildAttachmentsFromComposer(
   composerAttachmentIds: number[] | undefined,
   scopedDocumentIds: number[] | undefined,
@@ -191,6 +198,10 @@ export async function POST(req: NextRequest) {
       });
     }
     const history = normalizedHistory.items;
+    const conversationKey =
+      parseConversationKey(body?.conversationKey) ||
+      parseConversationKey(body?.threadId) ||
+      parseConversationKey(body?.sessionId);
     const composerBound = parseOptionalBoolean(body?.composerBound);
     const composerAttachmentIds = parseOptionalPositiveIntArray(body?.composerAttachmentIds);
     const topK = parseOptionalPositiveInt(body?.topK);
@@ -211,6 +222,7 @@ export async function POST(req: NextRequest) {
     if (wantsStream) {
       const run = await assistantOrchestrator.run({
         requestId: context.requestId,
+        conversationKey,
         mode: "chat",
         stream: true,
         message,
@@ -253,6 +265,7 @@ export async function POST(req: NextRequest) {
 
     const run = await assistantOrchestrator.run({
       requestId: context.requestId,
+      conversationKey,
       mode: "chat",
       stream: false,
       message,

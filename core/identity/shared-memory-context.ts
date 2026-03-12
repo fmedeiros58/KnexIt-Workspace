@@ -145,6 +145,12 @@ function parseTimestampMs(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function isActiveIdentityPerson(row: GenericRow) {
+  if (normalizeBoolean(row.is_archived, false)) return false;
+  const expiresAt = parseTimestampMs(row.expires_at);
+  return !expiresAt || expiresAt > Date.now();
+}
+
 function rowRecencyMs(row: GenericRow) {
   return Math.max(
     parseTimestampMs(row.updated_at),
@@ -302,7 +308,7 @@ function mapTrackedEntities(rows: GenericRow[], maxItems: number): IdentityRunti
 
 function mapActiveTargets(rows: GenericRow[], maxItems: number): IdentityRuntimeSharedTarget[] {
   return sortByRecency(rows)
-    .filter((row) => normalizeBoolean(row.search_active, false))
+    .filter((row) => normalizeBoolean(row.search_active, false) && isActiveIdentityPerson(row))
     .slice(0, maxItems)
     .map((row) => ({
       personId: normalizeString(row.person_id),

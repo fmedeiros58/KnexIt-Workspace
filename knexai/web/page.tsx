@@ -736,12 +736,7 @@ function resolveIdentityStatusDotClass(status: string) {
   return "bg-zinc-400";
 }
 
-const initialMessages: LeticiaMessage[] = [
-  {
-    role: "assistant",
-    content: "Oi! Eu sou a L.E.T.I.C.I.A. Pergunte o que voce precisar.",
-  },
-];
+const initialMessages: LeticiaMessage[] = [];
 const INITIAL_THINKING_TEXT = "Enviando solicitacao";
 const THINKING_ROTATE_INTERVAL_MS = 1400;
 const THINKING_STALE_PROGRESS_MS = 2200;
@@ -1299,6 +1294,7 @@ export default function KnexAiPage() {
   const isWritingModeOpen = activeMode === "write";
 
   const endRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const lastAssistantBubbleRef = useRef<HTMLDivElement | null>(null);
   const writingEditorRef = useRef<HTMLDivElement | null>(null);
@@ -1324,6 +1320,8 @@ export default function KnexAiPage() {
   const writePanelUnmountTimerRef = useRef<number | null>(null);
   const composerIngestionTasksRef = useRef(new Map<string, { cancelled: boolean }>());
   const superadminAutoLoadRef = useRef(false);
+  const chatAutoScrollEnabledRef = useRef(true);
+  const previousChatThreadIdRef = useRef<string | null>(null);
 
   const activeThread = useMemo(() => threads.find((item) => item.id === activeThreadId) ?? threads[0], [activeThreadId, threads]);
   const activeMessages = activeThread?.messages ?? initialMessages;
@@ -1887,14 +1885,45 @@ export default function KnexAiPage() {
     };
   }, []);
 
+  const scrollChatToEnd = useCallback(
+    (force = false) => {
+      if (!showChat) return;
+      if (!force && !chatAutoScrollEnabledRef.current) return;
+      const container = chatScrollContainerRef.current;
+      if (container) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: status === "thinking" ? "auto" : "smooth",
+        });
+        return;
+      }
+      endRef.current?.scrollIntoView({
+        behavior: status === "thinking" ? "auto" : "smooth",
+        block: "end",
+        inline: "nearest",
+      });
+    },
+    [showChat, status],
+  );
+
+  const handleChatScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    chatAutoScrollEnabledRef.current = distanceToBottom <= 24;
+  }, []);
+
   useEffect(() => {
-    if (!showChat) return;
-    endRef.current?.scrollIntoView({
-      behavior: status === "thinking" ? "auto" : "smooth",
-      block: "end",
-      inline: "nearest",
-    });
-  }, [activeMessages, showChat, status, composerReservePx]);
+    const currentThreadId = activeThread?.id ?? null;
+    if (previousChatThreadIdRef.current !== currentThreadId) {
+      previousChatThreadIdRef.current = currentThreadId;
+      chatAutoScrollEnabledRef.current = true;
+      window.requestAnimationFrame(() => {
+        scrollChatToEnd(true);
+      });
+      return;
+    }
+    scrollChatToEnd(false);
+  }, [activeMessages, activeThread?.id, showChat, status, composerReservePx, scrollChatToEnd]);
 
   useEffect(() => {
     if (status !== "thinking") return;
@@ -3481,6 +3510,7 @@ export default function KnexAiPage() {
           onProgress: handleProgress,
         },
         {
+          conversationKey: targetThreadId,
           documentIds: scopedDocumentIds,
           documentId: scopedDocumentIds.length === 1 ? scopedDocumentIds[0] : undefined,
           topK: scopedDocumentIds.length ? 24 : undefined,
@@ -3734,7 +3764,12 @@ export default function KnexAiPage() {
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]" style={{ scrollPaddingBottom: `${composerReservePx}px` }}>
+              <div
+                ref={chatScrollContainerRef}
+                onScroll={handleChatScroll}
+                className="flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+                style={{ scrollPaddingBottom: `${composerReservePx}px` }}
+              >
                 <div className={`mx-auto w-full px-6 pt-5 pb-6 ${hasStructuredAssistantResponse ? "max-w-6xl" : "max-w-4xl"}`}>
                   {activeMessages.map((message, index) => (
                     <div
@@ -3780,7 +3815,7 @@ export default function KnexAiPage() {
                             ref={isLastAssistant ? lastAssistantBubbleRef : null}
                             className={`${whitespaceClass} relative text-[22px] leading-relaxed ${
                               message.role === "user"
-                                ? "max-w-[85%] rounded-2xl bg-zinc-900 px-4 py-3 text-white"
+                                ? "max-w-[85%] rounded-2xl border border-zinc-200 bg-[#f0f0f1] px-4 py-3 text-zinc-900"
                                 : assistantMode === "plain"
                                   ? "w-full max-w-none overflow-x-auto rounded-2xl bg-zinc-100 px-4 py-3 font-mono text-zinc-900"
                                   : "w-full max-w-none text-zinc-900"

@@ -2308,11 +2308,11 @@ export default function IdentityRuntimePage() {
   return (
     <main
       className={`min-h-screen bg-[#05070d] text-slate-100 ${
-        isEmbedded ? "h-full min-h-full p-2 sm:p-3" : "px-4 py-4 md:px-6"
+        isStreamOnly ? "h-full min-h-0 overflow-hidden p-0" : isEmbedded ? "h-full min-h-full p-2 sm:p-3" : "px-4 py-4 md:px-6"
       } [&_.bg-white]:!bg-[#0f172a] [&_.bg-white\\/95]:!bg-[#0f172a] [&_.bg-slate-50]:!bg-[#101d33] [&_.bg-slate-100]:!bg-[#17243b] [&_.border-slate-300]:!border-[#314464] [&_.border-slate-200]:!border-[#24324b] [&_.border-slate-100]:!border-[#1a2740] [&_.text-slate-900]:!text-slate-100 [&_.text-slate-800]:!text-slate-200 [&_.text-slate-700]:!text-slate-300 [&_.text-slate-600]:!text-slate-400 [&_.text-slate-500]:!text-slate-500 [&_.text-zinc-700]:!text-slate-300 [&_.text-zinc-800]:!text-slate-200 [&_.text-zinc-900]:!text-slate-100`}
     >
       {isStageMaximized ? <div className="fixed inset-0 z-[140] bg-black/70" onClick={() => setIsStageMaximized(false)} /> : null}
-      <div className="w-full">
+      <div className={isStreamOnly ? "h-full w-full overflow-hidden" : "w-full"}>
         {!isStreamOnly ? (
           <header
             className={`m-0 rounded-none border-0 bg-[#05070d] px-3 py-2 shadow-none ${
@@ -2491,6 +2491,21 @@ export default function IdentityRuntimePage() {
                       <p className="max-w-md text-xs text-slate-400">
                         Permita acesso a camera no navegador para exibir o palco principal e os ambientes de validacao.
                       </p>
+                      {isStreamOnly ? (
+                        <button
+                          type="button"
+                          onClick={() => void startCameraPreview()}
+                          disabled={cameraState === "starting"}
+                          className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
+                            cameraState === "starting"
+                              ? "cursor-not-allowed border-slate-500 bg-slate-800 text-slate-300"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {cameraState === "starting" ? "Conectando..." : "Ativar camera"}
+                        </button>
+                      ) : null}
+                      {cameraError ? <p className="max-w-md text-xs text-rose-300">{cameraError}</p> : null}
                     </div>
                   ) : null}
                   {!isStreamOnly ? (

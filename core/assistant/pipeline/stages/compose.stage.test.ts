@@ -5,7 +5,7 @@ import { ComposeStage } from "@/core/assistant/pipeline/stages/compose.stage";
 import { TemplateRegistry } from "@/core/assistant/templates/template-registry";
 
 describe("ComposeStage", () => {
-  it("inclui contrato de idioma e usa contexto consolidado", async () => {
+  it("inclui contrato academico no modo write", async () => {
     const template = new TemplateRegistry().getTemplate(AcademicGenre.CRITICAL_REVIEW, "pt-BR");
     let capturedQuestion = "";
     let capturedPreferredLanguage = "";
@@ -20,7 +20,8 @@ describe("ComposeStage", () => {
 
     const ctx: PipelineContext = {
       requestId: "req-compose",
-      mode: "chat",
+      conversationKey: "test-compose",
+      mode: "write",
       stream: false,
       userMessage: "Faça uma análise crítica com base no arquivo enviado.",
       conversation: [{ role: "user", content: "Use linguagem formal e objetiva." }],
@@ -53,6 +54,48 @@ describe("ComposeStage", () => {
     expect(ctx.progress.composed).toBe(true);
   });
 
+  it("usa contrato conversacional direto no modo chat", async () => {
+    let capturedQuestion = "";
+    const ragService = {
+      query: async (input: { question: string }) => {
+        capturedQuestion = input.question;
+        return { answer: "ok", metadata: {} };
+      },
+      queryStream: async () => new ReadableStream<Uint8Array>(),
+    } as any;
+
+    const ctx: PipelineContext = {
+      requestId: "req-compose-chat",
+      conversationKey: "test-compose-chat",
+      mode: "chat",
+      stream: false,
+      userMessage: "oi, continue do ponto anterior",
+      conversation: [
+        { role: "user", content: "vamos ajustar o texto anterior" },
+        { role: "assistant", content: "claro, posso seguir nesse mesmo fluxo" },
+      ],
+      attachments: [],
+      constraints: ["nao_metalinguagem"],
+      intent: { type: "general", confidence: 0.75 },
+      ragInput: {},
+      evidence: [],
+      processState: {
+        conversation_state_summary: "[conversation_state]\nactive_topic: ajuste de texto\n[/conversation_state]",
+      },
+      persistentPrefs: null,
+      language: { iso3: "por", tag: "pt-BR", confidence: 0.9 },
+      progress: createDefaultProgressSignals(),
+      plan: { sections: [{ title: "Resposta direta" }] },
+    };
+
+    const stage = new ComposeStage(ragService);
+    await stage.run(ctx);
+
+    expect(capturedQuestion).toContain("CONTRATO DE CONVERSA DIRETA");
+    expect(capturedQuestion).toContain("ESTADO CONVERSACIONAL ATIVO");
+    expect(capturedQuestion).not.toContain("CONTRATO DE GENERO ACADEMICO");
+  });
+
   it("compacta prompt consolidado quando ultrapassa limite configurado", async () => {
     const template = new TemplateRegistry().getTemplate(AcademicGenre.CRITICAL_REVIEW, "pt-BR");
     const previousCap = process.env.COMPOSE_PROMPT_MAX_CHARS;
@@ -75,7 +118,8 @@ describe("ComposeStage", () => {
       const longText = "texto extenso ".repeat(1200);
       const ctx: PipelineContext = {
         requestId: "req-compose-compact",
-        mode: "chat",
+        conversationKey: "test-compose-compact",
+        mode: "write",
         stream: false,
         userMessage: "Preciso de uma analise critica objetiva.",
         conversation: [

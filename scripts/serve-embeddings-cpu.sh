@@ -21,7 +21,7 @@ if [ ! -x "$VENV_DIR/bin/python3" ]; then
 fi
 
 PYTHON_BIN="$VENV_DIR/bin/python3"
-if ! "$PYTHON_BIN" -c "import fastapi, uvicorn, torch, transformers, numpy, PIL, facenet_pytorch" >/dev/null 2>&1; then
+if ! "$PYTHON_BIN" -c "import fastapi, uvicorn, torch, transformers, numpy, PIL" >/dev/null 2>&1; then
   echo "Instalando dependencias de embeddings CPU..."
   "$PYTHON_BIN" -m pip install --upgrade pip
   "$PYTHON_BIN" -m pip install -r scripts/requirements-embeddings-cpu.txt

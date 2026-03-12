@@ -4,4 +4,3 @@ transformers>=4.50,<5.0
 torch>=2.4,<3.0
 numpy>=1.26,<3.0
 pillow>=10.0,<12.0
-facenet-pytorch>=2.6,<3.0

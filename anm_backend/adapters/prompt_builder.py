@@ -118,7 +118,6 @@ class PromptBuilder:
             if isinstance(first, dict):
                 lines.append(
                     "- Shared identity lead: "
-                    f"entity={self._truncate(first.get('entityKey') or first.get('entity_key') or '-', 40)}, "
                     f"label={self._truncate(first.get('label') or first.get('display_label') or '-', 40)}, "
                     f"mode={self._truncate(first.get('mode') or first.get('entity_mode') or '-', 24)}"
                 )
@@ -127,10 +126,34 @@ class PromptBuilder:
             if isinstance(first_target, dict):
                 lines.append(
                     "- Shared target principal: "
-                    f"{self._truncate(first_target.get('displayName') or first_target.get('display_name') or '-', 60)} "
-                    f"(id={self._truncate(first_target.get('personId') or first_target.get('person_id') or '-', 40)})"
+                    f"{self._truncate(first_target.get('displayName') or first_target.get('display_name') or '-', 60)}"
                 )
         return lines
+
+    def _format_regulatory_state(self, value: object) -> str:
+        if not isinstance(value, dict) or not value:
+            return "n/a"
+        safe_keys = {
+            "stress_load": "stress_load",
+            "context_stability": "context_stability",
+            "focus_level": "focus_level",
+            "certainty": "certainty",
+            "mood": "mood",
+        }
+        parts: List[str] = []
+        for key, label in safe_keys.items():
+            raw = value.get(key)
+            if raw is None:
+                continue
+            if isinstance(raw, (int, float)):
+                parts.append(f"{label}={float(raw):.3f}")
+            else:
+                text = self._truncate(raw, 24)
+                if text:
+                    parts.append(f"{label}={text}")
+        if not parts:
+            return "n/a"
+        return ", ".join(parts)
 
     def build_messages(
         self,
@@ -200,17 +223,17 @@ class PromptBuilder:
         if selected_hypotheses:
             dominant = selected_hypotheses[0]
             context_lines.append(
-                f"- Hipotese dominante ({dominant.hypothesis_id}, score={dominant.score:.3f}, coherence={dominant.stimulus_coherence:.3f}): "
+                f"- Hipotese dominante (score={dominant.score:.3f}, coherence={dominant.stimulus_coherence:.3f}): "
                 f"{self._truncate(dominant.content, 300)}"
             )
             for hypothesis in selected_hypotheses[1:]:
                 context_lines.append(
-                    f"- Hipotese alternativa ({hypothesis.hypothesis_id}, score={hypothesis.score:.3f}): "
+                    f"- Hipotese alternativa (score={hypothesis.score:.3f}): "
                     f"{self._truncate(hypothesis.content, 220)}"
                 )
         context_lines.append(f"- Suficiencia de contexto RAM: {'baixa' if low_ram_context else 'adequada'}")
         context_lines.append(f"- Readiness atual: {readiness_state}")
-        context_lines.append(f"- Estado regulatorio: {self._truncate(regulatory, 200)}")
+        context_lines.append(f"- Estado regulatorio: {self._format_regulatory_state(regulatory)}")
         context_lines.extend(self._format_shared_identity_runtime(shared_identity_runtime))
         plan_payload = dict(response_plan or {})
         target_tokens_raw = plan_payload.get("target_tokens")

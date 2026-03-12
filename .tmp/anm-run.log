@@ -1,0 +1,4 @@
+
+> knexit-workspace@0.1.0 serve:anm
+> powershell -ExecutionPolicy Bypass -File scripts/serve-anm-wsl.ps1
+

@@ -1,8 +1,16 @@
-import { NextRequest } from "next/server";
+﻿import { NextRequest } from "next/server";
 import { execFileSync } from "node:child_process";
 import { LETICIA_SYSTEM_PROMPT } from "@/lib/knexai/spec";
 import { loadPathConfig } from "@/core/config/paths";
-import { injectIdentityRuntimePrompt, resolveIdentityRuntimeSharedContext } from "@/core/identity/shared-memory-context";
+import { resolveIdentityRuntimeSharedContext } from "@/core/identity/shared-memory-context";
+import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
+import {
+  buildConversationStateSummaryBlock,
+  injectConversationStatePrompt,
+  rebuildConversationState,
+} from "@/core/chat/perception/conversation-state.manager";
+import { enforceResponseStructure } from "@/core/chat/perception/response-structure.enforcer";
+import type { ConversationPerceptionState } from "@/core/chat/perception/types";
 
 export const runtime = "nodejs";
 
@@ -10,6 +18,7 @@ type ChatRole = "user" | "assistant";
 type ChatHistoryItem = { role: ChatRole; content: string };
 type ModelChatRole = "system" | "user" | "assistant";
 type ModelChatMessage = { role: ModelChatRole; content: string };
+type PromptComplexity = "micro" | "direct" | "short" | "medium" | "complex";
 type GenerationProfile = {
   temperature: number;
   topP: number;
@@ -39,6 +48,10 @@ type EngineModeConfig = {
 type AnmChatResult = {
   answer: string;
   traceId: string | null;
+};
+type ResponsePolicyContext = {
+  state: ConversationPerceptionState;
+  complexity: PromptComplexity;
 };
 type EngineAttempt<T> = {
   source: "anm" | "direct";
@@ -288,7 +301,7 @@ function readLlmConfig(): LlmConfig {
 function readEngineModeConfig(): EngineModeConfig {
   const modeRaw = pickFirstNonEmpty(process.env.KNEXAI_ENGINE_MODE, "direct").toLowerCase();
   const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
-  const anmBaseUrl = pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL).replace(/\/+$/, "");
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
   const parsedAnmTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedAnmTimeout) ? Math.max(3_000, Math.round(parsedAnmTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   const parsedAnmSoftTimeout = Number(process.env.KNEXAI_ANM_SOFT_TIMEOUT_MS || DEFAULT_ANM_SOFT_TIMEOUT_MS);
@@ -550,10 +563,14 @@ function buildEngineCompositeError(attempts: Array<EngineAttempt<unknown>>) {
   );
 }
 
-function toAnmTextResponse(anm: AnmChatResult) {
+function toAnmTextResponse(anm: AnmChatResult, policyContext: ResponsePolicyContext) {
+  const enforcedAnswer = enforceResponseStructure(anm.answer, {
+    state: policyContext.state,
+    complexity: policyContext.complexity,
+  });
   const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
   if (anm.traceId) headers["X-KnexAI-Trace-Id"] = anm.traceId;
-  return new Response(createChunkedTextStream(anm.answer), {
+  return new Response(createChunkedTextStream(enforcedAnswer || anm.answer), {
     status: 200,
     headers,
   });
@@ -571,8 +588,8 @@ function normalizeHistory(value: unknown): ChatHistoryItem[] {
     if (!trimmed) continue;
     items.push({ role, content: trimmed });
   }
-  // Mantem historico recente para reduzir deriva de tema.
-  return items.slice(-8);
+  // Mantem uma janela maior para preservar continuidade semantica entre turnos.
+  return items.slice(-16);
 }
 
 function normalizeRecord(value: unknown): Record<string, unknown> | null {
@@ -645,10 +662,10 @@ function optimizeHistoryForLatency(history: ChatHistoryItem[], prompt: string): 
 
   const limitsByComplexity: Record<PromptComplexity, { maxItems: number; charBudget: number; maxPerMessage: number; maxLast: number }> = {
     micro: { maxItems: 1, charBudget: 0, maxPerMessage: 320, maxLast: 320 },
-    direct: { maxItems: 3, charBudget: 700, maxPerMessage: 360, maxLast: 460 },
-    short: { maxItems: 5, charBudget: 1200, maxPerMessage: 520, maxLast: 560 },
-    medium: { maxItems: 7, charBudget: 2200, maxPerMessage: 760, maxLast: 760 },
-    complex: { maxItems: 9, charBudget: 3200, maxPerMessage: 1000, maxLast: 1000 },
+    direct: { maxItems: 5, charBudget: 1400, maxPerMessage: 550, maxLast: 700 },
+    short: { maxItems: 8, charBudget: 2400, maxPerMessage: 760, maxLast: 900 },
+    medium: { maxItems: 10, charBudget: 3800, maxPerMessage: 1000, maxLast: 1200 },
+    complex: { maxItems: 12, charBudget: 5600, maxPerMessage: 1400, maxLast: 1600 },
   };
   const limits = limitsByComplexity[complexity];
   const previous = history.slice(0, -1);
@@ -676,8 +693,6 @@ function isShortPrompt(prompt: string) {
   return normalized.length <= 90 && words.length <= 16;
 }
 
-type PromptComplexity = "micro" | "direct" | "short" | "medium" | "complex";
-
 function isMicroSocialPrompt(prompt: string): boolean {
   const normalized = prompt.trim();
   if (!normalized) return false;
@@ -693,11 +708,11 @@ function isMicroSocialPrompt(prompt: string): boolean {
   if (words.length > 8 || normalized.length > 60) return false;
 
   const microSocialPatterns = [
-    /^(oi|ola|olá|e ai|eae|opa|hey|hello)$/i,
+    /^(oi|ola|ol[aá]|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
     /^(bom dia|boa tarde|boa noite)$/i,
-    /^(blz|beleza|tudo bem|td bem|como vai)$/i,
+    /^(blz|beleza|tudo bem|td bem|como vai|como vc esta|como voce esta|how are you|que tal)$/i,
     /^(nada por agora|nada agora|de boa|tranquilo|ok|okay|ok obrigado|obrigado|obg|valeu)$/i,
-    /^(ate logo|até logo|ate mais|até mais|tchau|falou|ate breve|até breve)$/i,
+    /^(ate logo|at[eé] logo|ate mais|at[eé] mais|tchau|falou|ate breve|at[eé] breve|bye)$/i,
   ];
 
   return microSocialPatterns.some((pattern) => pattern.test(compact));
@@ -714,10 +729,10 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
   const charCount = normalized.length;
 
   const directIntentPatterns = [
-    /\b(sin[oô]nimo|sinonimo|sin[oô]nimos|sinonimos|ant[oô]nimo|antonimo|ant[oô]nimos|antonimos)\b/i,
-    /\b(traduz|traduza|tradu[cç][aã]o|translation)\b/i,
-    /\b(defina|defini[cç][aã]o|o que significa|significa)\b/i,
-    /\b(corrija|corre[cç][aã]o|ortografia|gram[áa]tica)\b/i,
+    /\b(sin[oÃ´]nimo|sinonimo|sin[oÃ´]nimos|sinonimos|ant[oÃ´]nimo|antonimo|ant[oÃ´]nimos|antonimos)\b/i,
+    /\b(traduz|traduza|tradu[cÃ§][aÃ£]o|translation)\b/i,
+    /\b(defina|defini[cÃ§][aÃ£]o|o que significa|significa)\b/i,
+    /\b(corrija|corre[cÃ§][aÃ£]o|ortografia|gram[Ã¡a]tica)\b/i,
     /\b(responda em uma frase|responda curto|resuma em uma frase|bem curto)\b/i,
   ];
   const directIntent = directIntentPatterns.some((pattern) => pattern.test(normalized));
@@ -732,7 +747,7 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
     "passo a passo",
     "arquitetura",
     "estrategia",
-    "estratégia",
+    "estratÃ©gia",
     "plano",
     "trade-off",
     "vantagens e desvantagens",
@@ -769,7 +784,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
       maxTokens: Math.min(config.maxTokens, 256),
       repetitionPenalty: 1.12,
       brevityInstruction:
-        "Resposta objetiva e pontual: va direto ao ponto em no maximo 2 frases curtas (ou lista curta), sem explicacao longa.",
+        "Resposta objetiva e pontual: va direto ao ponto em 1 paragrafo curto ou ate 2 frases encadeadas, sem fragmentacao.",
     };
   }
 
@@ -780,7 +795,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
       maxTokens: Math.min(config.maxTokens, 768),
       repetitionPenalty: 1.16,
       brevityInstruction:
-        "Resposta curta e direta: use no maximo 3 frases curtas, sem repeticao de palavras e sem rodeios.",
+        "Resposta curta e direta: use 1 paragrafo fluido (ate 4 frases), sem listas quebradas e sem repeticao desnecessaria.",
     };
   }
 
@@ -791,7 +806,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
       maxTokens: Math.min(config.maxTokens, 2048),
       repetitionPenalty: 1.1,
       brevityInstruction:
-        "Resposta equilibrada: explique com clareza e profundidade moderada, em 1 a 3 paragrafos curtos, com exemplos quando util.",
+        "Resposta equilibrada: explique com clareza em 1 a 3 paragrafos coesos e densos, mantendo continuidade com o turno anterior.",
     };
   }
 
@@ -801,26 +816,74 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
     maxTokens: config.maxTokens,
     repetitionPenalty: 1.08,
     brevityInstruction:
-      "Resposta aprofundada e estruturada: traga contexto, explicacao tecnica, trade-offs e conclusao pratica, sem repeticoes.",
+      "Resposta aprofundada e estruturada: traga contexto, explicacao tecnica, trade-offs e conclusao em paragrafos articulados e sem fragmentacao.",
   };
 }
 
-function buildSystemInstruction(profile: GenerationProfile) {
+function buildSystemInstruction(profile: GenerationProfile, conversationStateBlock = "") {
   const currentDate = buildCurrentDateContext();
-  return [
+  const lines = [
     LETICIA_SYSTEM_PROMPT.trim(),
     "",
     currentDate.line,
     "Para perguntas com termos relativos (hoje, amanha, ontem), use essa data de referencia.",
     "",
     "Regras criticas desta resposta:",
-    "- Responda exclusivamente a pergunta mais recente do usuario.",
-    "- Use historico apenas se for diretamente relevante para a pergunta atual.",
+    "- Responda a intencao mais recente do usuario (pergunta, saudacao, ajuste ou comando).",
+    "- Trate a mensagem atual como continuacao preferencial do fluxo em andamento, salvo mudanca explicita de assunto.",
+    "- Preserve tema principal, tarefa ativa e objeto textual em curso antes de responder.",
+    "- Use historico recente para manter continuidade semantica e nao reiniciar o raciocinio sem necessidade.",
     "- Nao invente fatos, termos tecnicos, ingredientes, nomes ou numeros.",
     "- Se houver incerteza factual, diga explicitamente que nao tem certeza.",
+    "- Evite respostas picotadas: priorize paragrafos completos, articulados e com fechamento coerente.",
     "",
     `Diretriz de estilo: ${profile.brevityInstruction}`,
-  ].join("\n");
+  ];
+  if (conversationStateBlock.trim()) {
+    lines.push("");
+    lines.push("Estado conversacional consolidado:");
+    lines.push(conversationStateBlock.trim());
+  }
+  return lines.join("\n");
+}
+
+function resolveMicroSocialLocale(prompt: string): SupportedLocale {
+  const lowered = prompt.toLowerCase();
+  if (/\b(hello|hi|hey|thanks|thank you|bye)\b/i.test(lowered)) return "en-US";
+  if (/\b(hola|gracias|adios)\b/i.test(lowered)) return "es-ES";
+  return "pt-BR";
+}
+
+function buildMicroSocialAnswer(prompt: string) {
+  const compact = prompt
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[!?.,;:"]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const locale = resolveMicroSocialLocale(prompt);
+
+  if (/^(como vc esta|como voce esta|como vai|how are you|tudo bem|td bem|que tal)$/.test(compact)) {
+    if (locale === "en-US") return "I am doing well and ready to help. What do you want to do next?";
+    if (locale === "es-ES") return "Estoy bien y lista para ayudar. Que quieres hacer ahora?";
+    return "Estou bem e pronta para ajudar. O que voce quer fazer agora?";
+  }
+
+  if (/^(tchau|falou|ate mais|ate logo|bye|adios)$/.test(compact)) {
+    if (locale === "en-US") return "See you! If you need anything else, I am here.";
+    if (locale === "es-ES") return "Hasta luego. Si necesitas algo mas, aqui estoy.";
+    return "Ate mais. Se precisar de algo, estou aqui.";
+  }
+  if (/^(obrigado|obg|valeu|thanks|thank you|gracias)$/.test(compact)) {
+    if (locale === "en-US") return "You are welcome. I am ready for the next step.";
+    if (locale === "es-ES") return "De nada. Estoy lista para el siguiente paso.";
+    return "De nada. Estou pronta para o proximo passo.";
+  }
+  if (locale === "en-US") return "Hi. How can I help you right now?";
+  if (locale === "es-ES") return "Hola. Como puedo ayudarte ahora?";
+  return "Oi. Como posso te ajudar agora?";
 }
 
 function shouldUseSystemRoleForChatCompletions() {
@@ -828,28 +891,37 @@ function shouldUseSystemRoleForChatCompletions() {
   return ["1", "true", "yes", "on"].includes(raw);
 }
 
-function buildChatMessages(history: ChatHistoryItem[], profile: GenerationProfile): ModelChatMessage[] {
+function buildChatMessages(
+  history: ChatHistoryItem[],
+  profile: GenerationProfile,
+  conversationStateBlock = "",
+): ModelChatMessage[] {
   if (!history.length) return [];
   if (shouldUseSystemRoleForChatCompletions()) {
-    return [{ role: "system", content: buildSystemInstruction(profile) }, ...history];
+    return [{ role: "system", content: buildSystemInstruction(profile, conversationStateBlock) }, ...history];
   }
 
   const injected = history.map((item) => ({ ...item }));
   const firstUserIndex = injected.findIndex((row) => row.role === "user");
   if (firstUserIndex >= 0) {
     const firstUser = injected[firstUserIndex];
-    firstUser.content = `${buildSystemInstruction(profile)}\n\nPergunta atual:\n${firstUser.content}`.trim();
+    firstUser.content = `${buildSystemInstruction(profile, conversationStateBlock)}\n\nPergunta atual:\n${firstUser.content}`.trim();
   }
   return injected;
 }
 
-function buildCompletionPrompt(history: ChatHistoryItem[], profile: GenerationProfile) {
+function buildCompletionPrompt(history: ChatHistoryItem[], profile: GenerationProfile, conversationStateBlock = "") {
   const currentDate = buildCurrentDateContext();
   const lines = [LETICIA_SYSTEM_PROMPT.trim()];
   lines.push(currentDate.line);
   lines.push("Para perguntas com termos relativos (hoje, amanha, ontem), use essa data de referencia.");
-  lines.push("Regras criticas: responda apenas a pergunta mais recente; use historico apenas se relevante; nao invente fatos.");
+  lines.push(
+    "Regras criticas: responda a pergunta atual com continuidade contextual, preserve o objeto textual ativo e evite paragrafos fragmentados.",
+  );
   lines.push(`Diretriz de estilo: ${profile.brevityInstruction}`);
+  if (conversationStateBlock.trim()) {
+    lines.push(`Estado conversacional consolidado:\n${conversationStateBlock.trim()}`);
+  }
   history.forEach((item) => {
     const prefix = item.role === "assistant" ? "Assistente" : "Usuario";
     lines.push(`${prefix}: ${item.content}`);
@@ -1084,11 +1156,58 @@ async function requestAnmChat(
   config: EngineModeConfig,
   prompt: string,
   sharedIdentityRuntime?: Record<string, unknown> | null,
+  options?: {
+    mode?: "chat" | "proactive" | "voice" | "identity_aware";
+    history?: ChatHistoryItem[];
+    localeHint?: string;
+    conversationKey?: string;
+    userKey?: string;
+  },
 ): Promise<AnmChatResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), config.anmTimeoutMs);
   try {
-    const response = await fetch(`${config.anmBaseUrl}/chat`, {
+    const mode = options?.mode || "chat";
+    const history = Array.isArray(options?.history) ? options.history.slice(-20) : [];
+    const localeHint = (options?.localeHint || "").trim();
+    const conversationKey = (options?.conversationKey || "").trim();
+    const userKey = (options?.userKey || "").trim();
+
+    const leticiaResponse = await fetch(`${config.anmBaseUrl}/assistant/leticia/respond`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: prompt,
+        mode,
+        history,
+        locale_hint: localeHint || undefined,
+        conversation_key: conversationKey || undefined,
+        user_key: userKey || undefined,
+        prompt,
+        shared_identity_runtime: sharedIdentityRuntime || undefined,
+      }),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    if (leticiaResponse.ok) {
+      const payload = await leticiaResponse.json().catch(() => null);
+      return resolveAnmAnswer(payload);
+    }
+
+    if (leticiaResponse.status !== 404) {
+      const responseText = await leticiaResponse.text().catch(() => "");
+      const detail = responseText.trim().slice(0, 240);
+      throw new LlmRouteError(
+        leticiaResponse.status >= 500 ? 503 : 502,
+        "ANM_UPSTREAM_ERROR",
+        `ANM respondeu com erro HTTP ${leticiaResponse.status}${detail ? ` (${detail})` : ""}.`,
+      );
+    }
+
+    const legacyResponse = await fetch(`${config.anmBaseUrl}/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1101,17 +1220,17 @@ async function requestAnmChat(
       cache: "no-store",
     });
 
-    if (!response.ok) {
-      const responseText = await response.text().catch(() => "");
+    if (!legacyResponse.ok) {
+      const responseText = await legacyResponse.text().catch(() => "");
       const detail = responseText.trim().slice(0, 240);
       throw new LlmRouteError(
-        response.status >= 500 ? 503 : 502,
+        legacyResponse.status >= 500 ? 503 : 502,
         "ANM_UPSTREAM_ERROR",
-        `ANM respondeu com erro HTTP ${response.status}${detail ? ` (${detail})` : ""}.`,
+        `ANM respondeu com erro HTTP ${legacyResponse.status}${detail ? ` (${detail})` : ""}.`,
       );
     }
 
-    const payload = await response.json().catch(() => null);
+    const payload = await legacyResponse.json().catch(() => null);
     return resolveAnmAnswer(payload);
   } catch (error) {
     if (error instanceof LlmRouteError) {
@@ -1166,6 +1285,26 @@ function sseToPlainTextStream(response: Response) {
       const reader = response.body!.getReader();
       let buffer = "";
       let closed = false;
+      const processSseDataLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) return;
+        const data = trimmed.slice(5).trim();
+        if (!data) return;
+        if (data === "[DONE]") {
+          safeClose();
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          const extracted = extractTextFromChunk(parsed, { streaming: true });
+          const delta = mergeChunk(extracted);
+          if (!delta) return;
+          emittedAny = true;
+          controller.enqueue(encoder.encode(delta));
+        } catch {
+          // Ignore malformed JSON chunks and continue stream parsing.
+        }
+      };
       const safeClose = () => {
         if (closed) return;
         closed = true;
@@ -1179,25 +1318,16 @@ function sseToPlainTextStream(response: Response) {
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split(/\r?\n/);
           buffer = lines.pop() || "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            const data = trimmed.slice(5).trim();
-            if (!data) continue;
-            if (data === "[DONE]") {
-              safeClose();
-              return;
-            }
-            try {
-              const parsed = JSON.parse(data);
-              const extracted = extractTextFromChunk(parsed, { streaming: true });
-              const delta = mergeChunk(extracted);
-              if (!delta) continue;
-              emittedAny = true;
-              controller.enqueue(encoder.encode(delta));
-            } catch {
-              continue;
-            }
+          for (const line of lines) processSseDataLine(line);
+        }
+
+        // Flush final decoder state and parse any trailing SSE line without newline terminator.
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          const trailingLines = buffer.split(/\r?\n/);
+          for (const line of trailingLines) {
+            processSseDataLine(line);
+            if (closed) return;
           }
         }
       } catch (error) {
@@ -1211,7 +1341,12 @@ function sseToPlainTextStream(response: Response) {
   return { stream, emittedAny: () => emittedAny };
 }
 
-async function requestLlmStreaming(config: LlmConfig, history: ChatHistoryItem[], prompt: string) {
+async function requestLlmStreaming(
+  config: LlmConfig,
+  history: ChatHistoryItem[],
+  prompt: string,
+  conversationStateBlock = "",
+) {
   const chatUrl = `${config.baseUrl}/chat/completions`;
   const completionUrl = `${config.baseUrl}/completions`;
   const profile = resolveGenerationProfile(prompt, config);
@@ -1256,7 +1391,7 @@ async function requestLlmStreaming(config: LlmConfig, history: ChatHistoryItem[]
       const isLastCandidate = index === tokenCandidates.length - 1;
       const chatPayload = {
         model: modelName,
-        messages: buildChatMessages(history, profile),
+        messages: buildChatMessages(history, profile, conversationStateBlock),
         temperature: profile.temperature,
         top_p: profile.topP,
         repetition_penalty: profile.repetitionPenalty,
@@ -1306,7 +1441,7 @@ async function requestLlmStreaming(config: LlmConfig, history: ChatHistoryItem[]
       const isLastCandidate = index === tokenCandidates.length - 1;
       const completionPayload = {
         model: modelName,
-        prompt: buildCompletionPrompt(history, profile),
+        prompt: buildCompletionPrompt(history, profile, conversationStateBlock),
         temperature: profile.temperature,
         top_p: profile.topP,
         repetition_penalty: profile.repetitionPenalty,
@@ -1376,18 +1511,23 @@ async function requestLlmStreaming(config: LlmConfig, history: ChatHistoryItem[]
   );
 }
 
-async function toClientTextStreamResponse(upstream: Response): Promise<Response> {
+async function toClientTextStreamResponse(
+  upstream: Response,
+  policyContext: ResponsePolicyContext,
+): Promise<Response> {
   const contentType = upstream.headers.get("content-type") || "";
+  let rawText = "";
   if (contentType.includes("text/event-stream")) {
     const { stream } = sseToPlainTextStream(upstream);
-    return new Response(stream, {
-      status: 200,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+    rawText = await new Response(stream).text();
+  } else {
+    rawText = await mapNonStreamingToText(upstream);
   }
-
-  const text = await mapNonStreamingToText(upstream);
-  return new Response(text, {
+  const enforced = enforceResponseStructure(rawText, {
+    state: policyContext.state,
+    complexity: policyContext.complexity,
+  });
+  return new Response(createChunkedTextStream(enforced || rawText), {
     status: 200,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
@@ -1396,13 +1536,24 @@ async function toClientTextStreamResponse(upstream: Response): Promise<Response>
 export async function GET() {
   const config = readLlmConfig();
   const engineMode = readEngineModeConfig();
+  const anmResolution =
+    engineMode.mode === "anm"
+      ? await resolveReachableAnmBaseUrl({
+          configuredBaseUrl: engineMode.anmBaseUrl,
+          timeoutMs: Math.min(2_000, engineMode.anmTimeoutMs),
+          healthPath: "/healthz",
+        })
+      : null;
+
   return Response.json(
     {
       ok: true,
       endpoint: "/api/knexai",
       provider: engineMode.mode === "anm" ? "anm-backend" : "openai-compatible",
       engineMode: engineMode.mode,
-      anmBaseUrl: engineMode.anmBaseUrl,
+      anmBaseUrl: anmResolution?.baseUrl || engineMode.anmBaseUrl,
+      anmConfiguredBaseUrl: engineMode.anmBaseUrl,
+      anmAttemptedBaseUrls: anmResolution?.attemptedBaseUrls || [engineMode.anmBaseUrl],
       anmSoftTimeoutMs: engineMode.anmSoftTimeoutMs,
       anmFallbackToDirect: engineMode.fallbackToDirect,
       baseUrl: config.baseUrl,
@@ -1435,38 +1586,100 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
-    const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
-    const promptForInference = injectIdentityRuntimePrompt(safePrompt, identitySharedMemory.promptBlock);
+    if (isMicroSocialPrompt(safePrompt)) {
+      return new Response(createChunkedTextStream(buildMicroSocialAnswer(safePrompt)), {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    const localeHintFromBody =
+      (typeof body?.localeHint === "string" && body.localeHint.trim()) ||
+      (typeof body?.locale === "string" && body.locale.trim()) ||
+      "";
+    const conversationKeyFromBody =
+      (typeof body?.conversationKey === "string" && body.conversationKey.trim()) ||
+      (typeof body?.conversation_key === "string" && body.conversation_key.trim()) ||
+      (typeof body?.sessionId === "string" && body.sessionId.trim()) ||
+      (typeof body?.threadId === "string" && body.threadId.trim()) ||
+      "knexai:chat";
+    const userKeyFromBody =
+      (typeof body?.userKey === "string" && body.userKey.trim()) ||
+      (typeof body?.user_key === "string" && body.user_key.trim()) ||
+      "chat-session";
+
+    const normalizedHistory = normalizeHistory(history);
+    const conversationState = rebuildConversationState({
+      conversationKey: conversationKeyFromBody,
+      prompt: safePrompt,
+      history: normalizedHistory,
+      localeHint: localeHintFromBody,
+    });
+    const conversationStateBlock = buildConversationStateSummaryBlock(conversationState);
+    const responsePolicyContext: ResponsePolicyContext = {
+      state: conversationState,
+      complexity: classifyPromptComplexity(safePrompt),
+    };
+
     const clientSharedIdentityRuntime =
       normalizeRecord(body?.sharedIdentityRuntime) || normalizeRecord(body?.shared_identity_runtime);
-    const sharedIdentityRuntimePayload =
-      identitySharedMemory.snapshot || clientSharedIdentityRuntime
-        ? {
-            source: identitySharedMemory.snapshot ? "server_identity_shared_memory" : "client_identity_snapshot",
-            status: identitySharedMemory.status,
-            loaded_at: identitySharedMemory.loadedAt,
-            server_snapshot: identitySharedMemory.snapshot || undefined,
-            client_snapshot: clientSharedIdentityRuntime || undefined,
-          }
-        : null;
-    const safeHistory = sanitizeHistoryForModel(ensurePrompt(normalizeHistory(history), promptForInference));
-    const effectiveHistory = optimizeHistoryForLatency(
-      resolveEffectiveHistory(safeHistory, promptForInference),
-      promptForInference,
-    );
+    const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
+    const promptForAnm = injectConversationStatePrompt(safePrompt, conversationStateBlock);
+    const promptForDirect = safePrompt;
+    const directContextBlock = [conversationStateBlock.trim(), identitySharedMemory.promptBlock.trim()]
+      .filter(Boolean)
+      .join("\n\n");
+    const sharedIdentityRuntimePayload = clientSharedIdentityRuntime
+      ? {
+          source: "client_identity_snapshot",
+          client_snapshot: clientSharedIdentityRuntime,
+        }
+      : null;
 
-    if (engineMode.mode === "anm") {
-      if (engineMode.fallbackToDirect) {
-        const [anmHealth, directHealth] = await Promise.all([probeAnmHealth(engineMode), probeDirectHealth(config)]);
+    const safeHistory = sanitizeHistoryForModel(ensurePrompt(normalizedHistory, promptForDirect));
+    const effectiveHistory = optimizeHistoryForLatency(
+      resolveEffectiveHistory(safeHistory, promptForDirect),
+      promptForDirect,
+    );
+    const safeAnmHistory = sanitizeHistoryForModel(ensurePrompt(normalizedHistory, promptForDirect));
+    const anmEffectiveHistory = optimizeHistoryForLatency(
+      resolveEffectiveHistory(safeAnmHistory, promptForDirect),
+      promptForDirect,
+    );
+    const anmRequestOptions = {
+      mode: "chat" as const,
+      history: anmEffectiveHistory,
+      localeHint: localeHintFromBody,
+      conversationKey: conversationKeyFromBody,
+      userKey: userKeyFromBody,
+    };
+    const anmResolution =
+      engineMode.mode === "anm"
+        ? await resolveReachableAnmBaseUrl({
+            configuredBaseUrl: engineMode.anmBaseUrl,
+            timeoutMs: Math.min(2_000, engineMode.anmSoftTimeoutMs),
+            healthPath: "/healthz",
+          })
+        : null;
+    const effectiveEngineMode =
+      anmResolution && engineMode.mode === "anm"
+        ? { ...engineMode, anmBaseUrl: anmResolution.baseUrl }
+        : engineMode;
+
+    if (effectiveEngineMode.mode === "anm") {
+      if (effectiveEngineMode.fallbackToDirect) {
+        const [anmHealth, directHealth] = await Promise.all([probeAnmHealth(effectiveEngineMode), probeDirectHealth(config)]);
         const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
         console.info("KNEXAI_ENGINE_HEALTH_SNAPSHOT", {
-          mode: engineMode.mode,
+          mode: effectiveEngineMode.mode,
           anmOk: anmHealth.ok,
           anmStatus: anmHealth.status,
           anmDetail: anmHealth.detail,
           directOk: directHealth.ok,
           directStatus: directHealth.status,
           directDetail: directHealth.detail,
+          anmConfiguredBaseUrl: engineMode.anmBaseUrl,
+          anmSelectedBaseUrl: effectiveEngineMode.anmBaseUrl,
+          anmAttemptedBaseUrls: anmResolution?.attemptedBaseUrls || [engineMode.anmBaseUrl],
           directConfiguredBaseUrl: config.baseUrl,
           directSelectedBaseUrl: directConfig.baseUrl,
           directAttemptedBaseUrls: directHealth.attemptedBaseUrls || [],
@@ -1475,45 +1688,45 @@ export async function POST(req: NextRequest) {
         });
 
         if (anmHealth.ok && !directHealth.ok) {
-          const anmAttempt = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
+          const anmAttempt = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (anmAttempt.ok && anmAttempt.source === "anm") {
             console.info("KNEXAI_ANM_CHAT_OK", {
               traceId: anmAttempt.value.traceId,
-              anmBaseUrl: engineMode.anmBaseUrl,
+              anmBaseUrl: effectiveEngineMode.anmBaseUrl,
               answerChars: anmAttempt.value.answer.length,
               routePolicy: "anm_only_due_direct_unhealthy",
             });
-            return toAnmTextResponse(anmAttempt.value);
+            return toAnmTextResponse(anmAttempt.value, responsePolicyContext);
           }
-          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForInference)
+          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForDirect, directContextBlock)
             .then((upstream) => toAttemptOk("direct", upstream))
             .catch((error: unknown) => toAttemptError("direct", error));
           if (directAttempt.ok && directAttempt.source === "direct") {
-            return toClientTextStreamResponse(directAttempt.value);
+            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext);
           }
           throw buildEngineCompositeError([anmAttempt, directAttempt]);
         }
 
         if (!anmHealth.ok && directHealth.ok) {
-          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForInference)
+          const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForDirect, directContextBlock)
             .then((upstream) => toAttemptOk("direct", upstream))
             .catch((error: unknown) => toAttemptError("direct", error));
           if (directAttempt.ok && directAttempt.source === "direct") {
-            return toClientTextStreamResponse(directAttempt.value);
+            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext);
           }
-          const anmAttempt = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
+          const anmAttempt = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (anmAttempt.ok && anmAttempt.source === "anm") {
             console.info("KNEXAI_ANM_CHAT_OK", {
               traceId: anmAttempt.value.traceId,
-              anmBaseUrl: engineMode.anmBaseUrl,
+              anmBaseUrl: effectiveEngineMode.anmBaseUrl,
               answerChars: anmAttempt.value.answer.length,
               routePolicy: "anm_fallback_after_direct_failure",
             });
-            return toAnmTextResponse(anmAttempt.value);
+            return toAnmTextResponse(anmAttempt.value, responsePolicyContext);
           }
           throw buildEngineCompositeError([directAttempt, anmAttempt]);
         }
@@ -1523,18 +1736,20 @@ export async function POST(req: NextRequest) {
             503,
             "ENGINE_PATHS_UNAVAILABLE",
             `ANM indisponivel (${anmHealth.detail}) e LLM direta indisponivel (${directHealth.detail}).` +
+              ` Endpoints ANM tentados: ${(anmResolution?.attemptedBaseUrls || [effectiveEngineMode.anmBaseUrl]).join(", ")}.` +
               ` Endpoints diretos tentados: ${(directHealth.attemptedBaseUrls || [config.baseUrl]).join(", ")}.`,
           );
         }
 
         const anmSoftPromise = requestAnmChat(
-          { ...engineMode, anmTimeoutMs: engineMode.anmSoftTimeoutMs },
-          promptForInference,
+          { ...effectiveEngineMode, anmTimeoutMs: effectiveEngineMode.anmSoftTimeoutMs },
+          promptForAnm,
           sharedIdentityRuntimePayload,
+          anmRequestOptions,
         )
           .then((anm) => toAttemptOk("anm", anm))
           .catch((error: unknown) => toAttemptError("anm", error));
-        const directPromise = requestLlmStreaming(directConfig, effectiveHistory, promptForInference)
+        const directPromise = requestLlmStreaming(directConfig, effectiveHistory, promptForDirect, directContextBlock)
           .then((upstream) => toAttemptOk("direct", upstream))
           .catch((error: unknown) => toAttemptError("direct", error));
 
@@ -1543,60 +1758,60 @@ export async function POST(req: NextRequest) {
           const anm = first.value as AnmChatResult;
           console.info("KNEXAI_ANM_CHAT_OK", {
             traceId: anm.traceId,
-            anmBaseUrl: engineMode.anmBaseUrl,
+            anmBaseUrl: effectiveEngineMode.anmBaseUrl,
             answerChars: anm.answer.length,
             routePolicy: "anm_soft_won_race",
           });
-          return toAnmTextResponse(anm);
+          return toAnmTextResponse(anm, responsePolicyContext);
         }
         if (first.ok && first.source === "direct") {
           const upstream = first.value as Response;
-          return toClientTextStreamResponse(upstream);
+          return toClientTextStreamResponse(upstream, responsePolicyContext);
         }
 
         if (!first.ok && first.source === "anm") {
           const second = await directPromise;
           if (second.ok && second.source === "direct") {
-            return toClientTextStreamResponse(second.value);
+            return toClientTextStreamResponse(second.value, responsePolicyContext);
           }
-          const hardAnm = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
+          const hardAnm = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (hardAnm.ok && hardAnm.source === "anm") {
             console.info("KNEXAI_ANM_CHAT_OK", {
               traceId: hardAnm.value.traceId,
-              anmBaseUrl: engineMode.anmBaseUrl,
+              anmBaseUrl: effectiveEngineMode.anmBaseUrl,
               answerChars: hardAnm.value.answer.length,
               routePolicy: "anm_hard_retry_after_soft_timeout",
             });
-            return toAnmTextResponse(hardAnm.value);
+            return toAnmTextResponse(hardAnm.value, responsePolicyContext);
           }
           throw buildEngineCompositeError([first, second, hardAnm]);
         }
 
         if (!first.ok && first.source === "direct") {
-          const hardAnm = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload)
+          const hardAnm = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
             .then((anm) => toAttemptOk("anm", anm))
             .catch((error: unknown) => toAttemptError("anm", error));
           if (hardAnm.ok && hardAnm.source === "anm") {
             console.info("KNEXAI_ANM_CHAT_OK", {
               traceId: hardAnm.value.traceId,
-              anmBaseUrl: engineMode.anmBaseUrl,
+              anmBaseUrl: effectiveEngineMode.anmBaseUrl,
               answerChars: hardAnm.value.answer.length,
               routePolicy: "anm_hard_after_direct_failure",
             });
-            return toAnmTextResponse(hardAnm.value);
+            return toAnmTextResponse(hardAnm.value, responsePolicyContext);
           }
           throw buildEngineCompositeError([first, hardAnm]);
         }
       } else {
-        const anm = await requestAnmChat(engineMode, promptForInference, sharedIdentityRuntimePayload);
+        const anm = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions);
         console.info("KNEXAI_ANM_CHAT_OK", {
           traceId: anm.traceId,
-          anmBaseUrl: engineMode.anmBaseUrl,
+          anmBaseUrl: effectiveEngineMode.anmBaseUrl,
           answerChars: anm.answer.length,
         });
-        return toAnmTextResponse(anm);
+        return toAnmTextResponse(anm, responsePolicyContext);
       }
     }
 
@@ -1609,8 +1824,8 @@ export async function POST(req: NextRequest) {
       );
     }
     const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
-    const upstream = await requestLlmStreaming(directConfig, effectiveHistory, promptForInference);
-    return toClientTextStreamResponse(upstream);
+    const upstream = await requestLlmStreaming(directConfig, effectiveHistory, promptForDirect, directContextBlock);
+    return toClientTextStreamResponse(upstream, responsePolicyContext);
   } catch (error) {
     if (error instanceof LlmRouteError) {
       console.error("KNEXAI_LLM_ERROR", { code: error.code, status: error.status, message: error.message });
@@ -1620,3 +1835,5 @@ export async function POST(req: NextRequest) {
     return safeBackendError(500, "INTERNAL_ERROR", "Erro interno ao processar a requisicao.");
   }
 }
+
+

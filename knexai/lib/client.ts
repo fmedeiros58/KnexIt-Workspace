@@ -59,6 +59,7 @@ export type StreamProgressEvent = {
 };
 
 export type RagChatRequestOptions = {
+  conversationKey?: string;
   documentId?: number;
   documentIds?: number[];
   sourceType?: string;
@@ -414,6 +415,7 @@ export async function streamLeticia(
       pipeline: DEFAULT_STREAM_PIPELINE,
       message: prompt,
       history,
+      conversationKey: typeof options.conversationKey === "string" ? options.conversationKey : undefined,
       maxResponseTokens: requestMaxResponseTokens,
       stream: true,
       streamMode: "sse",

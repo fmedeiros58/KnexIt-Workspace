@@ -20,6 +20,17 @@ export class GenreStage implements Stage {
     });
     ctx.genre = detection.genre;
     ctx.genreConfidence = detection.confidence;
+    if (ctx.mode === "chat") {
+      ctx.templateSpec = undefined;
+      if (!ctx.constraints.includes("sem_fuga_escopo")) {
+        ctx.constraints.push("sem_fuga_escopo");
+      }
+      if (!ctx.constraints.includes("nao_metalinguagem")) {
+        ctx.constraints.push("nao_metalinguagem");
+      }
+      return;
+    }
+
     const languageTag = `${ctx.language?.tag || FALLBACK_LANG}`.trim() || FALLBACK_LANG;
     ctx.templateSpec = this.templates.getTemplate(detection.genre, languageTag);
     if (ctx.templateSpec.rules.noInvention && !ctx.constraints.includes("sem_inventar")) {

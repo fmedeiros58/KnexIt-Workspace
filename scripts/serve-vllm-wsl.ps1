@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$WorkspacePath = "",
   [string]$EntryScript = "scripts/serve-vllm.sh",
   [string]$Distro = "",
@@ -73,10 +73,8 @@ if ($null -ne $env:VLLM_HOST) {
   $effectiveVllmHost = "$($env:VLLM_HOST)"
 }
 $effectiveVllmHost = $effectiveVllmHost.Trim()
-if ([string]::IsNullOrWhiteSpace($effectiveVllmHost)) {
-  $effectiveVllmHost = "127.0.0.1"
-} elseif ($effectiveVllmHost -eq "0.0.0.0" -or $effectiveVllmHost -eq "::") {
-  Write-Warning "VLLM_HOST=$effectiveVllmHost expõe o motor fora do loopback. Prefira 127.0.0.1 em host-only."
+if ($effectiveVllmHost -eq "0.0.0.0" -or $effectiveVllmHost -eq "::") {
+  Write-Warning "VLLM_HOST=$effectiveVllmHost expoe o motor fora do loopback. Prefira 127.0.0.1 em host-only."
 }
 
 $safeWorkspacePath = Escape-BashDoubleQuoted $WorkspacePath
@@ -93,7 +91,26 @@ if ($LASTEXITCODE -ne 0) {
   throw "Entry script do vLLM nao encontrado no workspace WSL: $WorkspacePath/$entryScriptPath"
 }
 
-$command = "cd `"$safeWorkspacePath`" && VLLM_HOST=`"$safeVllmHost`" bash `"$safeEntryScriptPath`""
+$envPrefix = @()
+if (-not [string]::IsNullOrWhiteSpace($safeVllmHost)) {
+  $envPrefix += "VLLM_HOST=`"$safeVllmHost`""
+}
+if (-not [string]::IsNullOrWhiteSpace($env:VLLM_FORCE_RESTART)) {
+  $envPrefix += "VLLM_FORCE_RESTART=`"$($env:VLLM_FORCE_RESTART)`""
+}
+if (-not [string]::IsNullOrWhiteSpace($env:VLLM_KILL_PORT_OWNER)) {
+  $envPrefix += "VLLM_KILL_PORT_OWNER=`"$($env:VLLM_KILL_PORT_OWNER)`""
+}
+if (-not [string]::IsNullOrWhiteSpace($env:VLLM_REUSE_EXISTING)) {
+  $envPrefix += "VLLM_REUSE_EXISTING=`"$($env:VLLM_REUSE_EXISTING)`""
+}
+
+$envPrefixText = ""
+if ($envPrefix.Count -gt 0) {
+  $envPrefixText = "$($envPrefix -join ' ') "
+}
+
+$command = "cd `"$safeWorkspacePath`" && ${envPrefixText}bash `"$safeEntryScriptPath`""
 
 Invoke-WslBash $command
 if ($LASTEXITCODE -ne 0) {
