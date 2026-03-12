@@ -1,6 +1,8 @@
 import type { EvidenceItem, PipelineContext } from "@/core/assistant/pipeline/pipeline-context";
 import { createQueryEmbeddingClient, type QueryEmbeddingClient } from "@/core/rag/embedding-client";
+import { createDocumentFullTextService, type DocumentFullTextService } from "@/core/rag/document-fulltext-service";
 import { createRagRetrievalService, type RagRetrievalService } from "@/core/rag/retrieval-service";
+import { logger } from "@/core/utils/logger";
 
 function normalize(value: string) {
   return `${value || ""}`
@@ -57,7 +59,38 @@ export class RetrieverAdapter {
   constructor(
     private readonly embeddingClient: QueryEmbeddingClient = createQueryEmbeddingClient(),
     private readonly retrievalService: RagRetrievalService = createRagRetrievalService(),
+    private readonly documentFullTextService: DocumentFullTextService = createDocumentFullTextService(),
   ) {}
+
+  private async buildScopedDocumentFallbackEvidence(documentIds: number[], topK: number): Promise<EvidenceItem[]> {
+    if (!documentIds.length) return [];
+    try {
+      const context = await this.documentFullTextService.buildContextFromDocumentIds(documentIds);
+      const normalized = `${context.text || ""}`.replace(/\s+/g, " ").trim();
+      if (!normalized) return [];
+
+      const maxItems = Math.max(1, Math.min(4, topK));
+      const chunkSize = 1_200;
+      const evidence: EvidenceItem[] = [];
+      for (let cursor = 0; cursor < normalized.length && evidence.length < maxItems; cursor += chunkSize) {
+        const slice = normalized.slice(cursor, cursor + chunkSize).trim();
+        if (!slice) continue;
+        evidence.push({
+          source: "rag",
+          ref: `docscope:${documentIds.join(",")}:fulltext:${evidence.length + 1}`,
+          score: Math.max(0.25, 0.64 - evidence.length * 0.08),
+          text: slice,
+        });
+      }
+      return evidence;
+    } catch (error) {
+      logger.warn("ASSISTANT_SCOPED_DOC_FALLBACK_FAILED", {
+        documentIds,
+        message: error instanceof Error ? error.message : "unknown_error",
+      });
+      return [];
+    }
+  }
 
   shouldRetrieve(ctx: PipelineContext) {
     if (ctx.attachments.length > 0) return true;
@@ -77,19 +110,26 @@ export class RetrieverAdapter {
 
   async search(input: { query: string; conversation: PipelineContext["conversation"]; ctx: PipelineContext }) {
     const query = `${input.query || ""}`.trim();
-    if (!query) return fallbackEvidenceFromConversation(input.ctx);
-
     const scopedDocumentIds = normalizeDocumentIds(input.ctx.ragInput.documentIds);
     const scopedComposerIds = normalizeDocumentIds(input.ctx.ragInput.composerAttachmentIds);
     const scopedAttachmentIds = extractDocumentIdsFromAttachments(input.ctx);
-    const mergedScopeIds = Array.from(new Set([...scopedDocumentIds, ...scopedComposerIds, ...scopedAttachmentIds]));
     const documentId = parsePositiveInt(input.ctx.ragInput.documentId);
+    const mergedScopeIds = Array.from(new Set([...scopedDocumentIds, ...scopedComposerIds, ...scopedAttachmentIds]));
+    const strictScopedDocIds = Array.from(new Set([...(documentId ? [documentId] : []), ...mergedScopeIds]));
     const topK = parsePositiveInt(input.ctx.ragInput.topK) || 8;
     const maxDistanceRaw = input.ctx.ragInput.maxDistance;
     const maxDistance = maxDistanceRaw === null ? null : Number.isFinite(Number(maxDistanceRaw)) ? Number(maxDistanceRaw) : undefined;
     const sourceType = typeof input.ctx.ragInput.sourceType === "string" ? input.ctx.ragInput.sourceType : undefined;
     const embeddingModel =
       typeof input.ctx.ragInput.retrievalEmbeddingModel === "string" ? input.ctx.ragInput.retrievalEmbeddingModel : undefined;
+
+    if (!query) {
+      if (strictScopedDocIds.length > 0) {
+        const scopedFallback = await this.buildScopedDocumentFallbackEvidence(strictScopedDocIds, topK);
+        if (scopedFallback.length > 0) return scopedFallback;
+      }
+      return fallbackEvidenceFromConversation(input.ctx);
+    }
 
     try {
       const embedding = await this.embeddingClient.embedQuery(query);
@@ -110,8 +150,36 @@ export class RetrieverAdapter {
         text: `${hit.text || ""}`.replace(/\s+/g, " ").trim().slice(0, 1200),
       }));
       if (evidence.length > 0) return evidence;
+      if (strictScopedDocIds.length > 0) {
+        const scopedFallback = await this.buildScopedDocumentFallbackEvidence(strictScopedDocIds, topK);
+        if (scopedFallback.length > 0) return scopedFallback;
+        return [
+          {
+            source: "memory",
+            ref: `docscope:${strictScopedDocIds.join(",")}:missing`,
+            score: 0.2,
+            text: "Nao foi possivel recuperar trechos do documento anexado. Informe para o usuario revisar a ingestao/indexacao do arquivo.",
+          },
+        ];
+      }
       return fallbackEvidenceFromConversation(input.ctx);
-    } catch {
+    } catch (error) {
+      if (strictScopedDocIds.length > 0) {
+        const scopedFallback = await this.buildScopedDocumentFallbackEvidence(strictScopedDocIds, topK);
+        if (scopedFallback.length > 0) return scopedFallback;
+        logger.warn("ASSISTANT_SCOPED_DOC_RETRIEVAL_FAILED", {
+          documentIds: strictScopedDocIds,
+          message: error instanceof Error ? error.message : "unknown_error",
+        });
+        return [
+          {
+            source: "memory",
+            ref: `docscope:${strictScopedDocIds.join(",")}:error`,
+            score: 0.2,
+            text: "Nao foi possivel consultar o conteudo do documento anexado nesta tentativa. Priorize transparencia e evite respostas desconectadas do arquivo.",
+          },
+        ];
+      }
       return fallbackEvidenceFromConversation(input.ctx);
     }
   }

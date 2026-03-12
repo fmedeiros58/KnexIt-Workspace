@@ -111,6 +111,37 @@ function renderConstraints(ctx: PipelineContext) {
   return (ctx.constraints || []).length ? (ctx.constraints || []).join("; ") : "nenhuma";
 }
 
+function parsePositiveInt(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const rounded = Math.round(parsed);
+  return rounded > 0 ? rounded : undefined;
+}
+
+function normalizePositiveIntArray(values: unknown, maxItems = 64) {
+  if (!Array.isArray(values)) return [] as number[];
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of values) {
+    const parsed = parsePositiveInt(raw);
+    if (!parsed || seen.has(parsed)) continue;
+    seen.add(parsed);
+    normalized.push(parsed);
+    if (normalized.length >= maxItems) break;
+  }
+  return normalized;
+}
+
+function resolveScopedDocumentIds(ctx: PipelineContext) {
+  const fromRagInput = normalizePositiveIntArray(ctx.ragInput.documentIds);
+  const fromComposer = normalizePositiveIntArray(ctx.ragInput.composerAttachmentIds);
+  const fromAttachments = normalizePositiveIntArray((ctx.attachments || []).map((item) => item.id));
+  const documentId = parsePositiveInt(ctx.ragInput.documentId);
+  const merged = new Set<number>([...fromRagInput, ...fromComposer, ...fromAttachments]);
+  if (documentId) merged.add(documentId);
+  return Array.from(merged);
+}
+
 function serializeProcessState(ctx: PipelineContext) {
   try {
     return JSON.stringify(ctx.processState || {}, null, 2);
@@ -262,6 +293,8 @@ export class ComposeStage implements Stage {
     userMessage: string;
     intentType: string;
     intentConfidence: number;
+    hasDocumentScope: boolean;
+    scopedDocumentRefs: string;
   }) {
     return [
       "CONTRATO DE IDIOMA:",
@@ -279,6 +312,17 @@ export class ComposeStage implements Stage {
       "- Preserve o assunto e a tarefa ativa quando a mensagem for continuacao.",
       "- Use o texto-base ativo quando houver referencia implicita ao texto anterior.",
       "- Trate ajustes como refinamento do mesmo fluxo, salvo troca explicita de assunto.",
+      "",
+      "CONTRATO DE DOCUMENTO ANEXADO:",
+      params.hasDocumentScope
+        ? `- Esta resposta esta vinculada ao(s) documento(s) anexado(s): ${params.scopedDocumentRefs}.`
+        : "- Nao ha escopo de documento anexado neste turno.",
+      params.hasDocumentScope
+        ? "- Priorize os trechos recuperados do documento anexado em vez de responder de forma generica."
+        : "- Quando nao houver documento anexado, responda direto ao ponto com o contexto conversacional.",
+      params.hasDocumentScope
+        ? "- Se o documento anexado nao trouxer evidencias suficientes, informe essa limitacao objetivamente e solicite reindexacao/reenvio."
+        : "- Sem documento anexado, mantenha objetividade e nao invente fontes.",
       "",
       `INTENCAO: ${params.intentType} (confianca=${Number(params.intentConfidence).toFixed(2)})`,
       `RESTRICOES: ${params.constraints}`,
@@ -311,6 +355,11 @@ export class ComposeStage implements Stage {
   private buildPromptFromContext(ctx: PipelineContext): PromptBuildResult {
     const targetLanguage = this.resolveTargetLanguage(ctx);
     const constraints = renderConstraints(ctx);
+    const scopedDocumentIds = resolveScopedDocumentIds(ctx);
+    const hasDocumentScope = scopedDocumentIds.length > 0 || ctx.ragInput.composerBound === true;
+    const scopedDocumentRefs = scopedDocumentIds.length
+      ? scopedDocumentIds.slice(0, 12).map((id) => `doc:${id}`).join(", ")
+      : "nenhum";
     const genre = `${ctx.genre || "GENERIC_ACADEMIC"}`;
     const templateTitle = `${ctx.templateSpec?.title || "Template academico generico"}`;
     const noInfoToken = placeholderForMissingInfo(targetLanguage);
@@ -350,6 +399,8 @@ export class ComposeStage implements Stage {
           userMessage: sections.userMessage.value,
           intentType: ctx.intent?.type || "geral",
           intentConfidence: Number(ctx.intent?.confidence || 0),
+          hasDocumentScope,
+          scopedDocumentRefs,
         });
 
       const originalPrompt = assemble();

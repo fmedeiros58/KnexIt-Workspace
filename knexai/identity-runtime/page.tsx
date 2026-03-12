@@ -385,6 +385,50 @@ function asNonEmptyString(value: unknown) {
   return normalized;
 }
 
+type CameraPermissionState = "granted" | "prompt" | "denied" | "unknown";
+
+async function readCameraPermissionState(): Promise<CameraPermissionState> {
+  if (typeof navigator === "undefined") return "unknown";
+  const permissionApi = (navigator as Navigator & { permissions?: Permissions }).permissions;
+  if (!permissionApi || typeof permissionApi.query !== "function") return "unknown";
+  try {
+    const status = await permissionApi.query({ name: "camera" as PermissionName });
+    if (status?.state === "granted" || status?.state === "prompt" || status?.state === "denied") {
+      return status.state;
+    }
+  } catch {
+    // Browser may not expose camera permission through Permissions API.
+  }
+  return "unknown";
+}
+
+function normalizeCameraAccessError(error: unknown, permissionState: CameraPermissionState) {
+  const errName = typeof error === "object" && error && "name" in error ? `${(error as { name?: unknown }).name || ""}` : "";
+  const rawMessage =
+    typeof error === "object" && error && "message" in error ? `${(error as { message?: unknown }).message || ""}`.trim() : "";
+  const lowered = rawMessage.toLowerCase();
+
+  if (
+    permissionState === "denied" ||
+    errName === "NotAllowedError" ||
+    lowered.includes("permission denied") ||
+    lowered.includes("permission dismissed")
+  ) {
+    return "Permissao da camera negada. Libere a camera nas configuracoes do navegador para este site e tente novamente.";
+  }
+  if (errName === "NotFoundError") {
+    return "Nenhuma camera foi detectada neste dispositivo.";
+  }
+  if (errName === "NotReadableError" || lowered.includes("could not start video source")) {
+    return "A camera parece estar em uso por outro aplicativo. Feche o app que esta usando a camera e tente novamente.";
+  }
+  if (errName === "SecurityError") {
+    return "Acesso a camera bloqueado por politica de seguranca do navegador.";
+  }
+  if (rawMessage) return rawMessage.slice(0, 280);
+  return "Falha ao conectar camera local.";
+}
+
 function sanitizeRuntimeText(value: unknown, maxLength: number) {
   const normalized = `${value ?? ""}`.trim().replace(/\s+/g, " ");
   return normalized.slice(0, maxLength);
@@ -614,6 +658,7 @@ export default function IdentityRuntimePage() {
   });
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const cameraStartInFlightRef = useRef(false);
   const streamAnalyzeInFlightRef = useRef(false);
   const browserFaceDetectorRef = useRef<BrowserFaceDetectorLike | null>(null);
   const browserFaceDetectorCheckedRef = useRef(false);
@@ -784,35 +829,63 @@ export default function IdentityRuntimePage() {
     setCameraState("idle");
   }, []);
 
-  const startCameraPreview = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Camera local indisponivel neste navegador.");
-      return;
-    }
-    setCameraState("starting");
-    setCameraError("");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-      const previous = localStreamRef.current;
-      if (previous) previous.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        await localVideoRef.current.play().catch(() => null);
+  const startCameraPreview = useCallback(
+    async (options?: { userInitiated?: boolean }) => {
+      if (cameraStartInFlightRef.current) return;
+      cameraStartInFlightRef.current = true;
+
+      let permissionState: CameraPermissionState = "unknown";
+      try {
+        if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+          setCameraState("idle");
+          setCameraError("Camera local indisponivel neste navegador.");
+          return;
+        }
+
+        permissionState = await readCameraPermissionState();
+        const userInitiated = options?.userInitiated === true;
+        if (!userInitiated && isStreamOnly) {
+          if (permissionState === "denied") {
+            setCameraState("idle");
+            setCameraError(normalizeCameraAccessError(null, permissionState));
+            return;
+          }
+          if (permissionState === "prompt") {
+            setCameraState("idle");
+            setCameraError("");
+            return;
+          }
+        }
+
+        setCameraState("starting");
+        setCameraError("");
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: "user",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+          const previous = localStreamRef.current;
+          if (previous) previous.getTracks().forEach((track) => track.stop());
+          localStreamRef.current = stream;
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+            await localVideoRef.current.play().catch(() => null);
+          }
+          setCameraState("streaming");
+        } catch (err) {
+          setCameraState("idle");
+          setCameraError(normalizeCameraAccessError(err, permissionState));
+        }
+      } finally {
+        cameraStartInFlightRef.current = false;
       }
-      setCameraState("streaming");
-    } catch (err) {
-      setCameraState("idle");
-      setCameraError(err instanceof Error ? err.message : "Falha ao conectar camera local.");
-    }
-  }, []);
+    },
+    [isStreamOnly],
+  );
 
   const loadPanel = useCallback(async () => {
     try {
@@ -1746,7 +1819,7 @@ export default function IdentityRuntimePage() {
   }, [cameraState]);
 
   useEffect(() => {
-    void startCameraPreview();
+    void startCameraPreview({ userInitiated: false });
   }, [startCameraPreview]);
 
   useEffect(() => {
@@ -2403,7 +2476,7 @@ export default function IdentityRuntimePage() {
                           stopCameraPreview();
                           return;
                         }
-                        void startCameraPreview();
+                        void startCameraPreview({ userInitiated: true });
                       }}
                       className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
                         cameraState === "streaming"
@@ -2416,7 +2489,7 @@ export default function IdentityRuntimePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void startCameraPreview()}
+                      onClick={() => void startCameraPreview({ userInitiated: true })}
                       className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                     >
                       <RefreshCcw size={14} />
@@ -2494,7 +2567,7 @@ export default function IdentityRuntimePage() {
                       {isStreamOnly ? (
                         <button
                           type="button"
-                          onClick={() => void startCameraPreview()}
+                          onClick={() => void startCameraPreview({ userInitiated: true })}
                           disabled={cameraState === "starting"}
                           className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
                             cameraState === "starting"

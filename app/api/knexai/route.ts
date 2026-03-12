@@ -19,6 +19,7 @@ type ChatHistoryItem = { role: ChatRole; content: string };
 type ModelChatRole = "system" | "user" | "assistant";
 type ModelChatMessage = { role: ModelChatRole; content: string };
 type PromptComplexity = "micro" | "direct" | "short" | "medium" | "complex";
+type SupportedLocale = "en-US" | "es-ES" | "pt-BR";
 type GenerationProfile = {
   temperature: number;
   topP: number;
