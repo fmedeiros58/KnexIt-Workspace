@@ -59,6 +59,7 @@ export type StreamProgressEvent = {
 };
 
 export type RagChatRequestOptions = {
+  conversationKey?: string;
   documentId?: number;
   documentIds?: number[];
   sourceType?: string;
@@ -69,6 +70,7 @@ export type RagChatRequestOptions = {
   maxResponseTokens?: number;
   temperature?: number;
   seed?: number | null;
+  apiPath?: string;
 };
 
 type RagChatResponse = {
@@ -87,6 +89,11 @@ const DEFAULT_RAG_MAX_RESPONSE_TOKENS = Math.max(
   Math.min(65_536, Number(process.env.NEXT_PUBLIC_RAG_MAX_RESPONSE_TOKENS || 2048) || 2048),
 );
 const DEFAULT_STREAM_PIPELINE = `${process.env.NEXT_PUBLIC_CHAT_STREAM_PIPELINE || "v1"}`.trim().toLowerCase() === "v2" ? "v2" : "v1";
+const DEFAULT_CHAT_API_PATH = (() => {
+  const raw = `${process.env.NEXT_PUBLIC_CHAT_API_PATH || "/api/knexai"}`.trim();
+  if (!raw) return "/api/knexai";
+  return raw.startsWith("/") ? raw : `/${raw}`;
+})();
 const STREAM_DELAY_MS = Math.max(8, Number(process.env.NEXT_PUBLIC_CHAT_STREAM_DELAY_MS || 16) || 16);
 
 function resolvePublicApiKey() {
@@ -132,6 +139,80 @@ function normalizePositiveIntArray(value: unknown, maxItems = 64): number[] {
     if (normalized.length >= maxItems) break;
   }
   return normalized;
+}
+
+function normalizeForVerification(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isVerifiablePrompt(value: string) {
+  const normalized = normalizeForVerification(value);
+  if (!normalized) return false;
+  const hasOfficeKeyword = /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+    normalized,
+  );
+  const asksCurrentOffice = hasOfficeKeyword && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksOfficeDetails =
+    hasOfficeKeyword &&
+    /\b(fale|conte|detalhe|sobre|mais|historico|historia|mandato|eleito|reeleito|informacao|informacoes|detail|details|history)\b/.test(
+      normalized,
+    );
+  const asksVerifiableData =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  const asksVerificationFollowUp =
+    normalized.length <= 120 &&
+    /\b(verifique|verificar|confirme|confirmar|cheque|checar|validar|validacao|confirm|verify|check|fonte|fontes|source|sources)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksOfficeDetails || asksVerifiableData || asksVerificationFollowUp;
+}
+
+function stripLeadingGreetingForVerifiablePrompt(text: string, prompt: string) {
+  if (!isVerifiablePrompt(prompt)) return text;
+  return `${text || ""}`
+    .replace(/^\s*(?:oi|ola|olá|bom dia|boa tarde|boa noite)[^.!?]*[.!?]\s*/i, "")
+    .replace(/^\s*(?:usuario|usuário|user)\s*[,:\-]\s*/i, "")
+    .trimStart();
+}
+
+function stripConversationRoleArtifacts(text: string) {
+  let output = `${text || ""}`;
+  if (!output.trim()) return "";
+  output = output.replace(/\[(?:end(?:\s+of)?\s+(?:response|answer)|fim da resposta|fim da mensagem)\]/gi, " ");
+  output = output.replace(/\[\s*\/?end(?:_of)?_response\s*\]/gi, " ");
+  output = output.replace(/<\|eot_id\|>/gi, " ");
+  output = output.replace(/<\/?end(?:_of)?_response>/gi, " ");
+  output = output.replace(/\[\s*no response intended[^\]\n]*\]?/gi, " ");
+  output = output.replace(/\bno response intended(?: beyond this greeting)?\.?/gi, " ");
+  output = output.replace(/\n{3,}/g, "\n\n");
+  output = output
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd())
+    .filter(
+      (line) =>
+        !/^(?:respondo com naturalidade|respondo como uma pessoa|respondo de forma|se houver saudacao|nao uso observacoes|nao exponho processos internos|politica conversacional ativa)/i.test(
+          line.trim(),
+        ),
+    )
+    .join("\n");
+  return output.trim();
+}
+
+function sanitizeAssistantResponse(text: string, prompt: string) {
+  let output = `${text || ""}`.trim();
+  if (!output) return "";
+  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant)\s*[:\-]\s*/i, "");
+  output = output.replace(/^\s*["']?(?:leticia|l\.e\.t\.i\.c\.i\.a)["']?\s*[:\-]\s*/i, "");
+  output = stripConversationRoleArtifacts(output);
+  output = stripLeadingGreetingForVerifiablePrompt(output, prompt);
+  return output.trim();
 }
 
 function detectPreferredResponseLanguageIdFromPrompt(prompt: string): string | null {
@@ -380,7 +461,7 @@ async function consumeSseStream(response: Response, handlers: StreamHandlers) {
 }
 
 /**
- * Cliente do endpoint /chat (RAG).
+ * Cliente de chat (gateway ANM-first com fallback para pipeline RAG quando houver escopo de documento).
  * Preferencialmente consome stream de texto do backend; cai para JSON quando necessario.
  */
 export async function streamLeticia(
@@ -406,14 +487,21 @@ export async function streamLeticia(
     (typeof options.preferredResponseLanguageId === "string" && options.preferredResponseLanguageId.trim()) ||
     detectPreferredResponseLanguageIdFromPrompt(prompt) ||
     undefined;
+  const targetApiPath = (typeof options.apiPath === "string" && options.apiPath.trim()) || DEFAULT_CHAT_API_PATH;
+  const verifiable = isVerifiablePrompt(prompt);
+  // No chat principal, RAG forcado fica restrito a escopo documental.
+  const forceRag = scopedDocumentIds.length > 0;
 
-  const res = await fetch("/chat", {
+  const res = await fetch(targetApiPath, {
     method: "POST",
     headers,
     body: JSON.stringify({
       pipeline: DEFAULT_STREAM_PIPELINE,
+      prompt,
       message: prompt,
+      question: prompt,
       history,
+      conversationKey: typeof options.conversationKey === "string" ? options.conversationKey : undefined,
       maxResponseTokens: requestMaxResponseTokens,
       stream: true,
       streamMode: "sse",
@@ -429,6 +517,12 @@ export async function streamLeticia(
       maxDistance: normalizeOptionalFiniteNumber(options.maxDistance),
       temperature: normalizeOptionalFiniteNumber(options.temperature),
       seed: options.seed === null ? null : normalizeOptionalFiniteNumber(options.seed),
+      forceRag,
+      forceWebMultiSource: verifiable,
+      // Mantem ANM como nucleo conversacional; o backend decide fallback para direct quando necessario.
+      anmEngineMode: undefined,
+      // Mantem a UX da pagina /knexai/web resiliente quando o ANM oscila.
+      anmFallbackToDirect: true,
     }),
     signal: handlers.signal,
   });
@@ -462,7 +556,7 @@ export async function streamLeticia(
         const message = payload?.message || "";
         throw new Error(message ? `${code}: ${message}` : code);
       }
-      const content = `${payload?.reply?.content || ""}`.trim();
+      const content = sanitizeAssistantResponse(`${payload?.reply?.content || ""}`.trim(), prompt);
       if (!content) throw new Error("RAG_CHAT_EMPTY_REPLY");
       await emitAsStreaming(content, handlers);
     } else if (contentType.includes("text/event-stream")) {

@@ -237,7 +237,10 @@ export function createPublicApiContext(req: NextRequest): PublicApiContext {
   const requestId = randomUUID();
   const origin = normalizeOrigin(req.headers.get("origin"));
   const allowedOrigins = loadAllowedOrigins();
-  const allowedOrigin = origin && allowedOrigins.includes(origin) ? origin : null;
+  const requestOrigin = normalizeOrigin(req.nextUrl.origin);
+  const forwardedBaseOrigin = normalizeOrigin(getPublicBaseUrl(req));
+  const allowedOrigin =
+    origin && (allowedOrigins.includes(origin) || origin === requestOrigin || origin === forwardedBaseOrigin) ? origin : null;
 
   return {
     requestId,

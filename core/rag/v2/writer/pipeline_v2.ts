@@ -41,6 +41,11 @@ export type WriterPipelineInput = {
   history?: RagChatHistoryItem[];
   maxTokens: number;
   temperature: number;
+  anmEngineMode?: "direct" | "anm";
+  anmBaseUrl?: string;
+  anmTimeoutMs?: number;
+  anmSoftTimeoutMs?: number;
+  anmFallbackToDirect?: boolean;
   onProgress?: (event: WriterPipelineProgressEvent) => void | Promise<void>;
   onFinalDelta?: (delta: string) => void | Promise<void>;
 };
@@ -484,6 +489,11 @@ export class WriterPipelineV2 {
         responseLanguageSource: languageDecision.source,
         responseLanguageExplicitOverride: languageDecision.explicitOverride,
         responseLanguageIsTranslationIntent: languageDecision.isTranslationIntent,
+        anmEngineMode: input.anmEngineMode,
+        anmBaseUrl: input.anmBaseUrl,
+        anmTimeoutMs: input.anmTimeoutMs,
+        anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+        anmFallbackToDirect: input.anmFallbackToDirect,
       });
       addUsage(usageAggregate, response.usage, response.model || null);
       sectionDrafts.push({ title: section.title, content: response.answer, usedChunks: packed.selected.length });
@@ -558,6 +568,11 @@ export class WriterPipelineV2 {
         responseLanguageSource: languageDecision.source,
         responseLanguageExplicitOverride: languageDecision.explicitOverride,
         responseLanguageIsTranslationIntent: languageDecision.isTranslationIntent,
+        anmEngineMode: input.anmEngineMode,
+        anmBaseUrl: input.anmBaseUrl,
+        anmTimeoutMs: input.anmTimeoutMs,
+        anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+        anmFallbackToDirect: input.anmFallbackToDirect,
       });
       const reader = stream.getReader();
       const decoder = new TextDecoder();
@@ -600,6 +615,11 @@ export class WriterPipelineV2 {
         responseLanguageSource: languageDecision.source,
         responseLanguageExplicitOverride: languageDecision.explicitOverride,
         responseLanguageIsTranslationIntent: languageDecision.isTranslationIntent,
+        anmEngineMode: input.anmEngineMode,
+        anmBaseUrl: input.anmBaseUrl,
+        anmTimeoutMs: input.anmTimeoutMs,
+        anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+        anmFallbackToDirect: input.anmFallbackToDirect,
       });
       addUsage(usageAggregate, mergeResponse.usage, mergeResponse.model || null);
       mergedText = `${mergeResponse.answer || ""}`.trim();
@@ -641,6 +661,11 @@ export class WriterPipelineV2 {
         responseLanguageSource: languageDecision.source,
         responseLanguageExplicitOverride: languageDecision.explicitOverride,
         responseLanguageIsTranslationIntent: languageDecision.isTranslationIntent,
+        anmEngineMode: input.anmEngineMode,
+        anmBaseUrl: input.anmBaseUrl,
+        anmTimeoutMs: input.anmTimeoutMs,
+        anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+        anmFallbackToDirect: input.anmFallbackToDirect,
       });
       addUsage(usageAggregate, repair.usage, repair.model || null);
       mergedText = `${repair.answer || ""}`.trim() || mergedText;

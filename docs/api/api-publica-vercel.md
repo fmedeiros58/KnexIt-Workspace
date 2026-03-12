@@ -90,6 +90,33 @@ Endpoints de diagnostico (`/health` e `/ready`) retornam metadados de request pa
    - `https://api.knexspace.com/query`
 4. Enviar `x-api-key` (ou Bearer token) nas rotas protegidas.
 
+## 6.1) Pre-condicao critica para Vercel
+
+Se o backend Next/API estiver rodando no Vercel, o valor de `ANM_BACKEND_BASE_URL` precisa ser
+**publicamente acessivel pela internet**.
+
+Exemplos validos:
+- `https://api.knexspace.com/anm` (via Nginx/Caddy em servidor publico)
+- `https://anm.seu-dominio.com`
+
+Exemplos invalidos no Vercel:
+- `http://127.0.0.1:8100`
+- `http://localhost:8100`
+- IP privado de WSL/LAN sem exposicao publica
+
+Resumo:
+- instalar Nginx/Caddy localmente sem DNS/TLS/firewall/roteamento externo nao publica API para o Vercel;
+- para producao, concluir publicacao com dominio publico e HTTPS.
+
+## 6.2) Checklist rapido de publicacao
+
+1. DNS do dominio apontando para servidor publico.
+2. Proxy (Nginx/Caddy) ativo em `80/443` com TLS valido.
+3. Backend interno acessivel pelo proxy (`127.0.0.1:3000`).
+4. Rota do ANM publicada no proxy (ex.: `https://api.knexspace.com/anm/*` -> `127.0.0.1:8100/*`).
+5. `ANM_BACKEND_BASE_URL` no Vercel apontando para URL publica final (ex.: `https://api.knexspace.com/anm`).
+6. CORS/API key configurados conforme este documento.
+
 ## 7) Formatos de request/response (resumo)
 
 ### `POST /query`

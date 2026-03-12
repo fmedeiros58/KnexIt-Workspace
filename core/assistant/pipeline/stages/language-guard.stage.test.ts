@@ -13,6 +13,7 @@ describe("LanguageGuardStage", () => {
     } as any;
     const ctx: PipelineContext = {
       requestId: "req-guard",
+      conversationKey: "test-guard",
       mode: "chat",
       stream: false,
       userMessage: "Faça análise em português.",
@@ -47,6 +48,7 @@ describe("LanguageGuardStage", () => {
     } as any;
     const ctx: PipelineContext = {
       requestId: "req-guard-lite",
+      conversationKey: "test-guard-lite",
       mode: "chat",
       stream: false,
       userMessage: "oi",

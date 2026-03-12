@@ -12,12 +12,18 @@ const DEFAULT_TIMEOUT_MS = 45_000;
 
 const CAPTURE_VIEW_ALLOWED = new Set(["main", "left", "front", "right", "gallery", "unknown"]);
 const PROFILE_KIND_ALLOWED = new Set(["wanted", "passive"]);
+const IDENTITY_SCOPE_ALLOWED = new Set(["permanent", "temporary", "test"]);
+
+type IdentityScope = "permanent" | "temporary" | "test";
 
 type PersonRow = {
   person_id: string;
   display_name: string;
   external_id?: string | null;
   profile_kind: "wanted" | "passive";
+  identity_scope?: IdentityScope | null;
+  is_archived?: boolean | null;
+  expires_at?: string | null;
   search_active: boolean;
   preliminary_similarity_threshold: number;
   strong_similarity_threshold: number;
@@ -73,13 +79,23 @@ function asProfileKind(value: unknown) {
   return "wanted";
 }
 
+function asIdentityScope(value: unknown, fallback: IdentityScope = "permanent") {
+  const normalized = sanitizeText(value, 20).toLowerCase();
+  if (IDENTITY_SCOPE_ALLOWED.has(normalized)) return normalized as IdentityScope;
+  return fallback;
+}
+
 function clamp01(value: unknown, fallback: number) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string" && !value.trim()) return fallback;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, Math.min(1, parsed));
 }
 
 function parseIntBounded(value: unknown, fallback: number, min: number, max: number) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string" && !value.trim()) return fallback;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.round(parsed)));
@@ -92,6 +108,28 @@ function parseBoolean(value: unknown, fallback = false) {
   if (["1", "true", "yes", "on", "sim"].includes(normalized)) return true;
   if (["0", "false", "no", "off", "nao"].includes(normalized)) return false;
   return fallback;
+}
+
+function parseIsoTimestamp(value: unknown) {
+  const normalized = sanitizeText(value, 64);
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function defaultExpiresAtForScope(scope: IdentityScope) {
+  if (scope === "permanent") return null;
+  const now = Date.now();
+  const days = scope === "test" ? 7 : 30;
+  return new Date(now + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function isFutureTimestamp(value: unknown) {
+  const normalized = sanitizeText(value, 64);
+  if (!normalized) return false;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) && parsed > Date.now();
 }
 
 function asCaptureView(value: unknown) {
@@ -262,15 +300,24 @@ async function runRpcWithSchemaFallback(
   return first;
 }
 
-async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profileKind: "wanted" | "passive", limit: number) {
+async function loadPeople(
+  admin: ReturnType<typeof identitySupabaseAdmin>,
+  profileKind: "wanted" | "passive",
+  limit: number,
+  options?: {
+    identityScope?: IdentityScope | null;
+    includeArchived?: boolean;
+    includeExpired?: boolean;
+  },
+) {
   const loadPersons = async (useScopedSchema: boolean) =>
     tableRef(admin, "identity_persons", useScopedSchema)
       .select(
-        "person_id, display_name, external_id, profile_kind, search_active, preliminary_similarity_threshold, strong_similarity_threshold, min_consecutive_hits, min_window_ms, metadata, updated_at",
+        "person_id, display_name, external_id, profile_kind, identity_scope, is_archived, expires_at, search_active, preliminary_similarity_threshold, strong_similarity_threshold, min_consecutive_hits, min_window_ms, metadata, updated_at",
       )
       .eq("profile_kind", profileKind)
       .order("updated_at", { ascending: false })
-      .limit(limit);
+      .limit(Math.max(limit * 3, 200));
 
   let personsResult = await loadPersons(true);
   if (personsResult.error && isSchemaProfileError(personsResult.error.message)) {
@@ -283,7 +330,20 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
     throw new Error(personsResult.error.message);
   }
 
-  const persons = (personsResult.data || []) as PersonRow[];
+  let persons = (personsResult.data || []) as PersonRow[];
+  if (options?.identityScope) {
+    persons = persons.filter((row) => asIdentityScope(row.identity_scope, "permanent") === options.identityScope);
+  }
+  if (!options?.includeArchived) {
+    persons = persons.filter((row) => !parseBoolean(row.is_archived, false));
+  }
+  if (!options?.includeExpired) {
+    persons = persons.filter((row) => {
+      const expiresAt = sanitizeText(row.expires_at, 64);
+      return !expiresAt || isFutureTimestamp(expiresAt);
+    });
+  }
+  persons = persons.slice(0, limit);
   if (!persons.length) return [];
   const personIds = persons.map((row) => row.person_id).filter(Boolean);
 
@@ -406,6 +466,9 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
       display_name: person.display_name,
       external_id: person.external_id || null,
       profile_kind: person.profile_kind,
+      identity_scope: asIdentityScope(person.identity_scope, "permanent"),
+      is_archived: parseBoolean(person.is_archived, false),
+      expires_at: sanitizeText(person.expires_at, 64) || null,
       search_active: Boolean(person.search_active),
       preliminary_similarity_threshold: Number(person.preliminary_similarity_threshold || 0.72),
       strong_similarity_threshold: Number(person.strong_similarity_threshold || 0.82),
@@ -433,12 +496,30 @@ async function loadPeople(admin: ReturnType<typeof identitySupabaseAdmin>, profi
 
 export async function GET(req: NextRequest) {
   const profileKind = asProfileKind(req.nextUrl.searchParams.get("profile_kind"));
+  const identityScopeParam = sanitizeText(req.nextUrl.searchParams.get("identity_scope"), 20);
+  const identityScope = identityScopeParam ? asIdentityScope(identityScopeParam) : null;
+  const includeArchived = parseBoolean(req.nextUrl.searchParams.get("include_archived"), false);
+  const includeExpired = parseBoolean(req.nextUrl.searchParams.get("include_expired"), false);
   const limitRaw = Number(req.nextUrl.searchParams.get("limit") || 50);
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.round(limitRaw))) : 50;
   try {
     const admin = identitySupabaseAdmin();
-    const people = await loadPeople(admin, profileKind, limit);
-    return Response.json({ ok: true, profile_kind: profileKind, people }, { status: 200 });
+    const people = await loadPeople(admin, profileKind, limit, {
+      identityScope,
+      includeArchived,
+      includeExpired,
+    });
+    return Response.json(
+      {
+        ok: true,
+        profile_kind: profileKind,
+        identity_scope: identityScope,
+        include_archived: includeArchived,
+        include_expired: includeExpired,
+        people,
+      },
+      { status: 200 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "wanted_people_query_failed";
     return Response.json(
@@ -475,6 +556,9 @@ export async function POST(req: NextRequest) {
     const personId = sanitizeText(formData.get("person_id"), 120) || `wanted-${randomUUID().slice(0, 12)}`;
     const displayName = sanitizeText(formData.get("display_name"), 220) || personId;
     const profileKind = asProfileKind(formData.get("profile_kind"));
+    const identityScope = asIdentityScope(formData.get("identity_scope"), "permanent");
+    const explicitExpiresAt = parseIsoTimestamp(formData.get("expires_at"));
+    const expiresAt = identityScope === "permanent" ? null : explicitExpiresAt || defaultExpiresAtForScope(identityScope);
     const searchActive = parseBoolean(formData.get("search_active"), profileKind === "wanted");
     const externalId = sanitizeText(formData.get("external_id"), 120) || null;
     const sourceKey = sanitizeText(formData.get("source_key"), 120) || "wanted-registry";
@@ -493,6 +577,9 @@ export async function POST(req: NextRequest) {
           display_name: displayName,
           external_id: externalId,
           profile_kind: profileKind,
+          identity_scope: identityScope,
+          is_archived: false,
+          expires_at: expiresAt,
           search_active: searchActive,
           preliminary_similarity_threshold: preliminaryThreshold,
           strong_similarity_threshold: strongThreshold,
@@ -500,6 +587,7 @@ export async function POST(req: NextRequest) {
           min_window_ms: minWindowMs,
           metadata: {
             origin: "wanted_ingest_api",
+            identity_scope: identityScope,
           },
         },
         { onConflict: "person_id" },
@@ -652,7 +740,7 @@ export async function POST(req: NextRequest) {
     await runRpcWithSchemaFallback(admin, "refresh_identity_person_profile", { p_person_id: personId }).catch(() => null);
     await runRpcWithSchemaFallback(admin, "apply_person_reference_retention", { p_person_id: personId }).catch(() => null);
 
-    const people = await loadPeople(admin, profileKind, 200);
+    const people = await loadPeople(admin, profileKind, 200, { includeExpired: true, includeArchived: true });
     const person = people.find((item) => item.person_id === personId) || null;
 
     return Response.json(
@@ -686,6 +774,23 @@ export async function PATCH(req: NextRequest) {
     if (body.display_name !== undefined) patch.display_name = sanitizeText(body.display_name, 220) || personId;
     if (body.external_id !== undefined) patch.external_id = sanitizeText(body.external_id, 120) || null;
     if (body.profile_kind !== undefined) patch.profile_kind = asProfileKind(body.profile_kind);
+    const nextIdentityScope =
+      body.identity_scope !== undefined ? asIdentityScope(body.identity_scope, "permanent") : undefined;
+    if (nextIdentityScope !== undefined) {
+      patch.identity_scope = nextIdentityScope;
+      if (nextIdentityScope === "permanent") {
+        patch.expires_at = null;
+      }
+    }
+    if (body.expires_at !== undefined) {
+      const explicitExpiresAt = parseIsoTimestamp(body.expires_at);
+      patch.expires_at = nextIdentityScope === "permanent" ? null : explicitExpiresAt;
+    }
+    if (body.is_archived !== undefined) {
+      const archived = parseBoolean(body.is_archived, false);
+      patch.is_archived = archived;
+      if (archived) patch.search_active = false;
+    }
     if (body.search_active !== undefined) patch.search_active = parseBoolean(body.search_active, true);
     if (body.preliminary_similarity_threshold !== undefined) {
       patch.preliminary_similarity_threshold = clamp01(body.preliminary_similarity_threshold, 0.72);
@@ -734,7 +839,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const profileKind = asProfileKind(body.profile_kind || "wanted");
-    const people = await loadPeople(admin, profileKind, 200);
+    const people = await loadPeople(admin, profileKind, 200, { includeArchived: true, includeExpired: true });
     const person = people.find((item) => item.person_id === personId) || null;
     return Response.json({ ok: true, person }, { status: 200 });
   } catch (error) {

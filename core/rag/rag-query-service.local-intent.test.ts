@@ -131,6 +131,7 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient, searchService } = createTestService({
       searchResponse: {
         provider: "duckduckgo_html",
+        providersUsed: ["duckduckgo_html"],
         query: "perspectiva heliocentrica pdf",
         elapsedMs: 35,
         results: [

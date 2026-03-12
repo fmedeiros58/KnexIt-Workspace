@@ -105,6 +105,8 @@ class IdentityRuntimeSnapshot:
     tracked_entities: List[IdentityEntity]
     current_identity: Optional[IdentityEntity]
     awareness_state: Dict[str, Any]
+    visual_context: Dict[str, Any]
+    recent_scene_events: List[Dict[str, Any]]
     self_model_state: Dict[str, Any]
     user_pattern_state: Dict[str, Any]
     last_error: str = ""
@@ -122,6 +124,8 @@ class IdentityRuntimeSnapshot:
             "tracked_entities": [item.to_dict() for item in self.tracked_entities],
             "current_identity": self.current_identity.to_dict() if self.current_identity else None,
             "awareness_state": dict(self.awareness_state),
+            "visual_context": dict(self.visual_context),
+            "recent_scene_events": list(self.recent_scene_events),
             "self_model_state": dict(self.self_model_state),
             "user_pattern_state": dict(self.user_pattern_state),
             "last_error": self.last_error,

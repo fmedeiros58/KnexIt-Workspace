@@ -90,6 +90,13 @@ function parsePipelineVersion(value: unknown): "v1" | "v2" | undefined {
   return undefined;
 }
 
+function parseOptionalEngineMode(value: unknown): "direct" | "anm" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "direct" || normalized === "anm") return normalized;
+  return undefined;
+}
+
 function truncateHistoryContent(value: string) {
   if (value.length <= MAX_HISTORY_ITEM_CHARS) return value;
   const maxBaseLength = Math.max(64, MAX_HISTORY_ITEM_CHARS - HISTORY_ITEM_TRUNCATE_SUFFIX.length);
@@ -142,6 +149,13 @@ function parseOptionalLanguageId(value: unknown) {
   return trimmed.slice(0, 32);
 }
 
+function parseConversationKey(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, 160);
+}
+
 function buildAttachmentsFromComposer(
   composerAttachmentIds: number[] | undefined,
   scopedDocumentIds: number[] | undefined,
@@ -191,6 +205,10 @@ export async function POST(req: NextRequest) {
       });
     }
     const history = normalizedHistory.items;
+    const conversationKey =
+      parseConversationKey(body?.conversationKey) ||
+      parseConversationKey(body?.threadId) ||
+      parseConversationKey(body?.sessionId);
     const composerBound = parseOptionalBoolean(body?.composerBound);
     const composerAttachmentIds = parseOptionalPositiveIntArray(body?.composerAttachmentIds);
     const topK = parseOptionalPositiveInt(body?.topK);
@@ -204,6 +222,11 @@ export async function POST(req: NextRequest) {
     const temperature = parseOptionalFiniteNumber(body?.temperature);
     const seed = parseOptionalSeed(body?.seed);
     const pipelineVersion = parsePipelineVersion(body?.pipeline) || parsePipelineVersion(req.headers.get("x-pipeline"));
+    const anmEngineMode = parseOptionalEngineMode(body?.anmEngineMode ?? body?.engineMode);
+    const anmBaseUrl = normalizeString(body?.anmBaseUrl);
+    const anmTimeoutMs = parseOptionalPositiveInt(body?.anmTimeoutMs);
+    const anmSoftTimeoutMs = parseOptionalPositiveInt(body?.anmSoftTimeoutMs);
+    const anmFallbackToDirect = parseOptionalBoolean(body?.anmFallbackToDirect);
     const wantsStream = parseOptionalBoolean(body?.stream) === true;
     const requestedStreamMode = parseStreamMode(body?.streamMode);
     const acceptHeader = `${req.headers.get("accept") || ""}`.toLowerCase();
@@ -211,6 +234,7 @@ export async function POST(req: NextRequest) {
     if (wantsStream) {
       const run = await assistantOrchestrator.run({
         requestId: context.requestId,
+        conversationKey,
         mode: "chat",
         stream: true,
         message,
@@ -230,6 +254,11 @@ export async function POST(req: NextRequest) {
           maxResponseTokens,
           temperature,
           seed,
+          anmEngineMode,
+          anmBaseUrl: anmBaseUrl || undefined,
+          anmTimeoutMs,
+          anmSoftTimeoutMs,
+          anmFallbackToDirect,
         },
       });
       const plainStream = run.stream;
@@ -253,6 +282,7 @@ export async function POST(req: NextRequest) {
 
     const run = await assistantOrchestrator.run({
       requestId: context.requestId,
+      conversationKey,
       mode: "chat",
       stream: false,
       message,
@@ -272,6 +302,11 @@ export async function POST(req: NextRequest) {
         maxResponseTokens,
         temperature,
         seed,
+        anmEngineMode,
+        anmBaseUrl: anmBaseUrl || undefined,
+        anmTimeoutMs,
+        anmSoftTimeoutMs,
+        anmFallbackToDirect,
       },
     });
     const content = `${run.content || ""}`.trim();

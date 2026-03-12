@@ -41,6 +41,7 @@ export type PipelinePlan = {
 
 export type PipelineContext = {
   requestId: string;
+  conversationKey: string;
   mode: "chat" | "write";
   stream: boolean;
   userMessage: string;

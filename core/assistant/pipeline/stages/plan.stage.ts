@@ -4,6 +4,19 @@ import type { Stage } from "@/core/assistant/pipeline/stages/stage.interface";
 export class PlanStage implements Stage {
   async run(ctx: PipelineContext) {
     ctx.progress.stage = "plan";
+    if (ctx.mode === "chat") {
+      ctx.plan = {
+        sections: [
+          {
+            title: "Resposta direta",
+            bullets: ["responder o pedido atual sem metalinguagem", "manter continuidade com o contexto ativo"],
+          },
+        ],
+      };
+      ctx.progress.planned = true;
+      return;
+    }
+
     if (ctx.templateSpec?.sections?.length) {
       ctx.plan = {
         sections: ctx.templateSpec.sections.map((section) => {

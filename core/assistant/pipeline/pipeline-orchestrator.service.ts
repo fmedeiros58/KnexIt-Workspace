@@ -17,6 +17,7 @@ import type { ProgressHeaderMode, ProgressHeaderStyle, ProgressHeaderTarget } fr
 
 export type AssistantPipelineRunInput = {
   requestId?: string;
+  conversationKey?: string;
   mode?: "chat" | "write";
   stream?: boolean;
   message: string;
@@ -53,6 +54,12 @@ function safeRandomId() {
   }
 }
 
+function resolveConversationKey(input: AssistantPipelineRunInput, requestId: string) {
+  const raw = `${input.conversationKey || ""}`.trim();
+  if (!raw) return `assistant:${requestId}`;
+  return raw.slice(0, 160);
+}
+
 function parseOptionalBoolean(value: string | undefined) {
   const normalized = `${value || ""}`.trim().toLowerCase();
   if (!normalized) return undefined;
@@ -78,8 +85,10 @@ export class PipelineOrchestratorService {
   ) {}
 
   async run(input: AssistantPipelineRunInput): Promise<AssistantPipelineRunResult> {
+    const resolvedRequestId = input.requestId || safeRandomId();
     const ctx: PipelineContext = {
-      requestId: input.requestId || safeRandomId(),
+      requestId: resolvedRequestId,
+      conversationKey: resolveConversationKey(input, resolvedRequestId),
       mode: input.mode || "chat",
       stream: input.stream === true,
       userMessage: `${input.message || ""}`.trim(),

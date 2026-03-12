@@ -43,6 +43,14 @@ function parseBoundedInt(value: string | undefined, fallback: number, min: numbe
   return Math.max(min, Math.min(max, Math.round(parsed)));
 }
 
+function parseOptionalBooleanEnv(value: string | undefined | null): boolean | undefined {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
 function resolveLlmContextWindowTokens() {
   const raw = process.env.RAG_LLM_CONTEXT_WINDOW || process.env.LLM_CONTEXT_WINDOW || process.env.VLLM_CONTEXT_WINDOW;
   return parseBoundedInt(raw, DEFAULT_LLM_CONTEXT_WINDOW_TOKENS, 512, 262_144);
@@ -111,6 +119,37 @@ function renderConstraints(ctx: PipelineContext) {
   return (ctx.constraints || []).length ? (ctx.constraints || []).join("; ") : "nenhuma";
 }
 
+function parsePositiveInt(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const rounded = Math.round(parsed);
+  return rounded > 0 ? rounded : undefined;
+}
+
+function normalizePositiveIntArray(values: unknown, maxItems = 64) {
+  if (!Array.isArray(values)) return [] as number[];
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of values) {
+    const parsed = parsePositiveInt(raw);
+    if (!parsed || seen.has(parsed)) continue;
+    seen.add(parsed);
+    normalized.push(parsed);
+    if (normalized.length >= maxItems) break;
+  }
+  return normalized;
+}
+
+function resolveScopedDocumentIds(ctx: PipelineContext) {
+  const fromRagInput = normalizePositiveIntArray(ctx.ragInput.documentIds);
+  const fromComposer = normalizePositiveIntArray(ctx.ragInput.composerAttachmentIds);
+  const fromAttachments = normalizePositiveIntArray((ctx.attachments || []).map((item) => item.id));
+  const documentId = parsePositiveInt(ctx.ragInput.documentId);
+  const merged = new Set<number>([...fromRagInput, ...fromComposer, ...fromAttachments]);
+  if (documentId) merged.add(documentId);
+  return Array.from(merged);
+}
+
 function serializeProcessState(ctx: PipelineContext) {
   try {
     return JSON.stringify(ctx.processState || {}, null, 2);
@@ -147,6 +186,58 @@ function renderTemplate(ctx: PipelineContext) {
       return `${idx + 1}. ${section.title} [${flags.join("; ")}]`;
     })
     .join("\n");
+}
+
+function renderConversationState(ctx: PipelineContext) {
+  const processState = ctx.processState;
+  if (!processState || typeof processState !== "object") return "";
+  const summary = (processState as Record<string, unknown>)["conversation_state_summary"];
+  if (typeof summary === "string" && summary.trim()) {
+    return summary.trim();
+  }
+  const state = (processState as Record<string, unknown>)["conversation_state"];
+  if (!state || typeof state !== "object") return "";
+  const row = state as Record<string, unknown>;
+  const lines = [
+    "[conversation_state]",
+    `active_topic: ${`${row.active_topic || ""}`.trim() || "-"}`,
+    `active_subtopic: ${`${row.active_subtopic || ""}`.trim() || "-"}`,
+    `active_task: ${`${row.active_task || ""}`.trim() || "-"}`,
+    `active_text_reference: ${`${row.active_text_reference || ""}`.trim() || "-"}`,
+    `required_style: ${`${row.required_style || ""}`.trim() || "-"}`,
+    `response_mode: ${`${row.response_mode || ""}`.trim() || "-"}`,
+    `continuity_anchor: ${`${row.continuity_anchor || ""}`.trim() || "-"}`,
+    `continuity_mode: ${`${row.continuity_mode || ""}`.trim() || "-"}`,
+    "[/conversation_state]",
+  ];
+  return lines.join("\n");
+}
+
+function normalizeForVerification(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isVerifiableQuestionForAutoSearch(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  const asksCurrentOffice =
+    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+      normalized,
+    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksVerifiableData =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksVerifiableData;
+}
+
+function hasWebEvidence(ctx: PipelineContext) {
+  return (ctx.evidence || []).some((row) => row.ref.startsWith("web:") || /\[WEB\]/i.test(`${row.text || ""}`));
 }
 
 export class ComposeStage implements Stage {
@@ -225,13 +316,245 @@ export class ComposeStage implements Stage {
     ].join("\n");
   }
 
+  private assembleChatPrompt(params: {
+    targetLanguage: string;
+    constraints: string;
+    conversationState: string;
+    conversation: string;
+    processState: string;
+    prefs: string;
+    evidence: string;
+    plan: string;
+    userMessage: string;
+    intentType: string;
+    intentConfidence: number;
+    hasDocumentScope: boolean;
+    scopedDocumentRefs: string;
+    forceWebMultiSource: boolean;
+    hasWebEvidence: boolean;
+    verifiableQuestion: boolean;
+  }) {
+    return [
+      "CONTRATO DE IDIOMA:",
+      `- Responda SOMENTE em: ${params.targetLanguage}.`,
+      "- Nao alterne idioma sem solicitacao explicita.",
+      "",
+      "CONTRATO DE CONVERSA DIRETA:",
+      "- Responda o objetivo do usuario sem explicar regras, politicas ou processo interno.",
+      "- Nao use metalinguagem (ex.: 'nao ha pergunta', 'como IA', 'vou seguir diretrizes').",
+      "- Nao gere rotulos artificiais (ex.: '[Paragrafo 1]', '[450-600 caracteres]').",
+      "- Nao inclua prefixos como 'Leticia:', 'Assistente:' ou 'Resposta:' na saida final.",
+      "- Evite repeticao de frases e evite reiniciar o tema sem solicitacao.",
+      "- Em saudacoes/confirmacoes curtas, responda em uma frase natural e objetiva.",
+      "- Em perguntas factuais objetivas, responda sem saudacao e sem introducoes longas.",
+      "",
+      ...(params.forceWebMultiSource
+        ? [
+            "CONTRATO DE VERIFICACAO WEB MULTI-FONTE (OBRIGATORIO):",
+            "- Responda fatos verificaveis com base em evidencias web multi-fonte.",
+            "- Se nao houver evidencia web suficiente neste turno, nao chute; informe que a verificacao web falhou e solicite nova tentativa.",
+            params.hasWebEvidence
+              ? "- Evidencias web detectadas neste turno: use-as como base principal."
+              : "- Nenhuma evidencia web detectada neste turno: nao responda fato atual por memoria interna.",
+            "",
+          ]
+        : []),
+      ...(params.verifiableQuestion
+        ? ["- Esta pergunta e temporal/verificavel: priorize precisao factual e data mais recente valida."]
+        : []),
+      "",
+      "CONTRATO DE CONTINUIDADE:",
+      "- Preserve o assunto e a tarefa ativa quando a mensagem for continuacao.",
+      "- Use o texto-base ativo quando houver referencia implicita ao texto anterior.",
+      "- Trate ajustes como refinamento do mesmo fluxo, salvo troca explicita de assunto.",
+      "",
+      "CONTRATO DE DOCUMENTO ANEXADO:",
+      params.hasDocumentScope
+        ? `- Esta resposta esta vinculada ao(s) documento(s) anexado(s): ${params.scopedDocumentRefs}.`
+        : "- Nao ha escopo de documento anexado neste turno.",
+      params.hasDocumentScope
+        ? "- Priorize os trechos recuperados do documento anexado em vez de responder de forma generica."
+        : "- Quando nao houver documento anexado, responda direto ao ponto com o contexto conversacional.",
+      params.hasDocumentScope
+        ? "- Se o documento anexado nao trouxer evidencias suficientes, informe essa limitacao objetivamente e solicite reindexacao/reenvio."
+        : "- Sem documento anexado, mantenha objetividade e nao invente fontes.",
+      "",
+      `INTENCAO: ${params.intentType} (confianca=${Number(params.intentConfidence).toFixed(2)})`,
+      `RESTRICOES: ${params.constraints}`,
+      "",
+      "ESTADO CONVERSACIONAL ATIVO:",
+      params.conversationState || "(nao informado)",
+      "",
+      "CONVERSA RELEVANTE:",
+      params.conversation || "(nenhuma)",
+      "",
+      "ESTADO DO PROCESSO:",
+      params.processState || "{}",
+      "",
+      "PREFERENCIAS PERSISTENTES:",
+      params.prefs || "{}",
+      "",
+      "EVIDENCIAS (use so quando realmente agregarem):",
+      params.evidence || "(nenhuma)",
+      "",
+      "PLANO OPERACIONAL:",
+      params.plan || "- Resposta direta",
+      "",
+      "MENSAGEM DO USUARIO:",
+      params.userMessage || "(vazia)",
+      "",
+      `Escreva agora apenas a resposta final em ${params.targetLanguage}, de forma objetiva, natural e contextualizada.`,
+    ].join("\n");
+  }
+
   private buildPromptFromContext(ctx: PipelineContext): PromptBuildResult {
     const targetLanguage = this.resolveTargetLanguage(ctx);
     const constraints = renderConstraints(ctx);
+    const scopedDocumentIds = resolveScopedDocumentIds(ctx);
+    const hasDocumentScope = scopedDocumentIds.length > 0 || ctx.ragInput.composerBound === true;
+    const scopedDocumentRefs = scopedDocumentIds.length
+      ? scopedDocumentIds.slice(0, 12).map((id) => `doc:${id}`).join(", ")
+      : "nenhum";
+    const forceWebMultiSource = parseOptionalBooleanEnv(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
+    const webEvidenceAvailable = hasWebEvidence(ctx);
     const genre = `${ctx.genre || "GENERIC_ACADEMIC"}`;
     const templateTitle = `${ctx.templateSpec?.title || "Template academico generico"}`;
     const noInfoToken = placeholderForMissingInfo(targetLanguage);
     const caps = resolveComposePromptCaps();
+
+    if (ctx.mode === "chat") {
+      const rawSections = {
+        conversationState: renderConversationState(ctx),
+        conversation: renderConversation(ctx.conversation),
+        processState: serializeProcessState(ctx),
+        prefs: serializePrefs(ctx),
+        evidence: renderEvidence(ctx),
+        plan: renderPlan(ctx),
+        userMessage: `${ctx.userMessage || ""}`.trim(),
+      };
+      const verifiableQuestion = isVerifiableQuestionForAutoSearch(rawSections.userMessage);
+      const conversationStateCap = Math.max(260, Math.min(caps.processStateMaxChars, 1_600));
+      const sections = {
+        conversationState: clipToLimit(rawSections.conversationState, conversationStateCap, "estado conversacional"),
+        conversation: clipToLimit(rawSections.conversation, caps.conversationMaxChars, "conversa"),
+        processState: clipToLimit(rawSections.processState, caps.processStateMaxChars, "estado do processo"),
+        prefs: clipToLimit(rawSections.prefs, caps.prefsMaxChars, "preferencias"),
+        evidence: clipToLimit(rawSections.evidence, caps.evidenceMaxChars, "evidencias"),
+        plan: clipToLimit(rawSections.plan, caps.planMaxChars, "plano"),
+        userMessage: clipToLimit(rawSections.userMessage, caps.userMessageMaxChars, "mensagem do usuario"),
+      };
+
+      const assemble = () =>
+        this.assembleChatPrompt({
+          targetLanguage,
+          constraints,
+          conversationState: sections.conversationState.value,
+          conversation: sections.conversation.value,
+          processState: sections.processState.value,
+          prefs: sections.prefs.value,
+          evidence: sections.evidence.value,
+          plan: sections.plan.value,
+          userMessage: sections.userMessage.value,
+          intentType: ctx.intent?.type || "geral",
+          intentConfidence: Number(ctx.intent?.confidence || 0),
+          hasDocumentScope,
+          scopedDocumentRefs,
+          forceWebMultiSource,
+          hasWebEvidence: webEvidenceAvailable,
+          verifiableQuestion,
+        });
+
+      const originalPrompt = assemble();
+      let prompt = originalPrompt;
+      if (prompt.length > caps.totalMaxChars) {
+        const shrinkPlan: Array<{ key: keyof typeof sections; min: number; ratio: number; label: string }> = [
+          { key: "evidence", min: 320, ratio: 0.52, label: "evidencias" },
+          { key: "conversation", min: 260, ratio: 0.55, label: "conversa" },
+          { key: "processState", min: 220, ratio: 0.6, label: "estado do processo" },
+          { key: "prefs", min: 160, ratio: 0.62, label: "preferencias" },
+          { key: "plan", min: 160, ratio: 0.62, label: "plano" },
+          { key: "conversationState", min: 220, ratio: 0.65, label: "estado conversacional" },
+          { key: "userMessage", min: 260, ratio: 0.72, label: "mensagem do usuario" },
+        ];
+        for (const step of shrinkPlan) {
+          if (prompt.length <= caps.totalMaxChars) break;
+          const current = sections[step.key].value;
+          if (!current) continue;
+          const nextLimit = Math.max(step.min, Math.trunc(current.length * step.ratio));
+          sections[step.key] = clipToLimit(current, nextLimit, step.label);
+          prompt = assemble();
+        }
+      }
+
+      if (prompt.length > caps.totalMaxChars) {
+        sections.conversation = { value: "(conversa resumida por limite de contexto)", truncated: true };
+        sections.processState = { value: "{}", truncated: true };
+        sections.prefs = { value: "{}", truncated: true };
+        sections.evidence = { value: "(evidencias omitidas por limite de contexto)", truncated: true };
+        sections.plan = { value: "- Resposta direta", truncated: true };
+        prompt = assemble();
+      }
+
+      let hardTruncated = false;
+      if (prompt.length > caps.totalMaxChars) {
+        prompt = clipToLimit(prompt, caps.totalMaxChars, "prompt consolidado").value;
+        hardTruncated = true;
+      }
+
+      const audit: PromptBuildAudit = {
+        caps,
+        totalCharsBefore: originalPrompt.length,
+        totalCharsAfter: prompt.length,
+        hardTruncated,
+        sections: [
+          {
+            name: "conversationState",
+            originalChars: rawSections.conversationState.length,
+            finalChars: sections.conversationState.value.length,
+            truncated:
+              sections.conversationState.truncated ||
+              sections.conversationState.value.length < rawSections.conversationState.length,
+          },
+          {
+            name: "conversation",
+            originalChars: rawSections.conversation.length,
+            finalChars: sections.conversation.value.length,
+            truncated: sections.conversation.truncated || sections.conversation.value.length < rawSections.conversation.length,
+          },
+          {
+            name: "processState",
+            originalChars: rawSections.processState.length,
+            finalChars: sections.processState.value.length,
+            truncated: sections.processState.truncated || sections.processState.value.length < rawSections.processState.length,
+          },
+          {
+            name: "prefs",
+            originalChars: rawSections.prefs.length,
+            finalChars: sections.prefs.value.length,
+            truncated: sections.prefs.truncated || sections.prefs.value.length < rawSections.prefs.length,
+          },
+          {
+            name: "evidence",
+            originalChars: rawSections.evidence.length,
+            finalChars: sections.evidence.value.length,
+            truncated: sections.evidence.truncated || sections.evidence.value.length < rawSections.evidence.length,
+          },
+          {
+            name: "plan",
+            originalChars: rawSections.plan.length,
+            finalChars: sections.plan.value.length,
+            truncated: sections.plan.truncated || sections.plan.value.length < rawSections.plan.length,
+          },
+          {
+            name: "userMessage",
+            originalChars: rawSections.userMessage.length,
+            finalChars: sections.userMessage.value.length,
+            truncated: sections.userMessage.truncated || sections.userMessage.value.length < rawSections.userMessage.length,
+          },
+        ],
+      };
+      return { prompt, audit };
+    }
 
     const rawSections = {
       templateSections: renderTemplate(ctx),

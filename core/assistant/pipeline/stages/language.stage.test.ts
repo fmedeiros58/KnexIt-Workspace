@@ -5,6 +5,7 @@ import { LanguageStage } from "@/core/assistant/pipeline/stages/language.stage";
 function makeContext(message: string): PipelineContext {
   return {
     requestId: "test-req",
+    conversationKey: "test-language",
     mode: "chat",
     stream: false,
     userMessage: message,

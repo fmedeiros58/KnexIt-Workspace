@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
 
 export const runtime = "nodejs";
 
@@ -18,14 +19,13 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
 }
 
 function readProxyConfig() {
-  const anmBaseUrl = pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL).replace(/\/+$/, "");
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
   const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const timeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, timeoutMs };
 }
 
-function buildTargetUrl(req: NextRequest, segments: string[]) {
-  const { anmBaseUrl } = readProxyConfig();
+function buildTargetUrl(req: NextRequest, segments: string[], anmBaseUrl: string) {
   const safePath = segments
     .map((segment) => segment.trim())
     .filter(Boolean)
@@ -39,8 +39,13 @@ function buildTargetUrl(req: NextRequest, segments: string[]) {
 async function proxyWriteRequest(req: NextRequest, context: RouteContext) {
   const method = req.method.toUpperCase();
   const segments = context.params.path || [];
-  const targetUrl = buildTargetUrl(req, segments);
-  const { timeoutMs } = readProxyConfig();
+  const { anmBaseUrl, timeoutMs } = readProxyConfig();
+  const anmResolution = await resolveReachableAnmBaseUrl({
+    configuredBaseUrl: anmBaseUrl,
+    timeoutMs: Math.min(2_000, timeoutMs),
+    healthPath: "/healthz",
+  });
+  const targetUrl = buildTargetUrl(req, segments, anmResolution.baseUrl);
 
   const headers = new Headers();
   const contentType = req.headers.get("content-type");
@@ -68,6 +73,7 @@ async function proxyWriteRequest(req: NextRequest, context: RouteContext) {
     if (upstreamType) responseHeaders.set("content-type", upstreamType);
     const upstreamRequestId = upstream.headers.get("x-request-id");
     if (upstreamRequestId) responseHeaders.set("x-request-id", upstreamRequestId);
+    responseHeaders.set("x-anm-base-url", anmResolution.baseUrl);
 
     return new Response(await upstream.arrayBuffer(), {
       status: upstream.status,
@@ -84,7 +90,7 @@ async function proxyWriteRequest(req: NextRequest, context: RouteContext) {
       {
         ok: false,
         code: "WRITE_PROXY_ERROR",
-        message,
+        message: `${message}; ANM=${anmResolution.baseUrl}; tentados=${anmResolution.attemptedBaseUrls.join(",")}`,
       },
       { status: 502 },
     );

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
 
 export const runtime = "nodejs";
 
@@ -107,7 +108,7 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
 }
 
 function readProxyConfig() {
-  const anmBaseUrl = pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL).replace(/\/+$/, "");
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
   const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const timeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, timeoutMs };
@@ -162,6 +163,35 @@ function buildFallbackSnapshot() {
 
   const tracked_entities = fallbackRuntimeState.tracked_entities.map((entity) => ({ ...entity }));
   const current_identity = tracked_entities.length ? tracked_entities[0] : null;
+  const visual_context = {
+    scene_summary: current_identity
+      ? `Interlocutor atual: ${current_identity.label}; fonte ${current_identity.source_id || fallbackRuntimeState.selected_source_id || "desconhecida"}; identidade confirmada.`
+      : "Nenhuma pessoa em quadro.",
+    presence_duration_ms: 0,
+    current_interlocutor_duration_ms: 0,
+    current_interlocutor_stable: Boolean(current_identity),
+    current_interlocutor_persistence_level: current_identity ? 1 : 0,
+    current_interlocutor_entity_id: current_identity?.entity_id || null,
+    current_interlocutor_label: current_identity?.label || null,
+    source_id: current_identity?.source_id || fallbackRuntimeState.selected_source_id || null,
+    interlocutor_switched: false,
+    tracked_entities_count: tracked_entities.length,
+    recent_scene_event_count: current_identity ? 1 : 0,
+  };
+  const recent_scene_events = current_identity
+    ? [
+        {
+          event_type: "fallback_identity_detected",
+          at: heartbeat,
+          entity_id: current_identity.entity_id,
+          label: current_identity.label,
+          source_id: current_identity.source_id,
+          confidence: current_identity.confidence,
+          summary: `Interlocutor ${current_identity.label} detectado em modo fallback.`,
+          payload: { fallback_mode: true },
+        },
+      ]
+    : [];
 
   return {
     status: computeFallbackStatus(),
@@ -180,6 +210,8 @@ function buildFallbackSnapshot() {
     active_streams,
     tracked_entities,
     current_identity,
+    visual_context,
+    recent_scene_events,
     self_model_state: { fallback_mode: true, detail: "identity_runtime_unavailable" },
     user_pattern_state: { fallback_mode: true, detail: "identity_runtime_unavailable" },
     last_error: undefined,
@@ -424,8 +456,7 @@ function fallbackIdentityResponse(method: string, segments: string[], body?: Arr
   return null;
 }
 
-function buildTargetUrl(req: NextRequest, segments: string[]) {
-  const { anmBaseUrl } = readProxyConfig();
+function buildTargetUrl(req: NextRequest, segments: string[], anmBaseUrl: string) {
   const safePath = segments
     .map((segment) => segment.trim())
     .filter(Boolean)
@@ -440,8 +471,13 @@ async function proxyIdentityRequest(req: NextRequest, context: RouteContext) {
   const method = req.method.toUpperCase();
   const resolvedParams = await context.params;
   const segments = Array.isArray(resolvedParams?.path) ? resolvedParams.path : [];
-  const targetUrl = buildTargetUrl(req, segments);
-  const { timeoutMs } = readProxyConfig();
+  const { anmBaseUrl, timeoutMs } = readProxyConfig();
+  const anmResolution = await resolveReachableAnmBaseUrl({
+    configuredBaseUrl: anmBaseUrl,
+    timeoutMs: Math.min(2_000, timeoutMs),
+    healthPath: "/healthz",
+  });
+  const targetUrl = buildTargetUrl(req, segments, anmResolution.baseUrl);
   const hasBody = !["GET", "HEAD"].includes(method);
   const body = hasBody ? await req.arrayBuffer() : undefined;
 
@@ -470,11 +506,21 @@ async function proxyIdentityRequest(req: NextRequest, context: RouteContext) {
         return fallback;
       }
     }
+    if (upstream.status === 503 && segments.join("/").trim() === "frame/analyze") {
+      const fallback = fallbackIdentityResponse(method, segments, body);
+      if (fallback) {
+        return fallback;
+      }
+    }
     const responseHeaders = new Headers();
     const upstreamType = upstream.headers.get("content-type");
     if (upstreamType) responseHeaders.set("content-type", upstreamType);
     const upstreamRequestId = upstream.headers.get("x-request-id");
     if (upstreamRequestId) responseHeaders.set("x-request-id", upstreamRequestId);
+    if (upstream.status === 503) {
+      responseHeaders.set("x-identity-upstream-error", "1");
+    }
+    responseHeaders.set("x-anm-base-url", anmResolution.baseUrl);
 
     return new Response(await upstream.arrayBuffer(), {
       status: upstream.status,
@@ -495,7 +541,7 @@ async function proxyIdentityRequest(req: NextRequest, context: RouteContext) {
       {
         ok: false,
         code: "IDENTITY_PROXY_ERROR",
-        message,
+        message: `${message}; ANM=${anmResolution.baseUrl}; tentados=${anmResolution.attemptedBaseUrls.join(",")}`,
       },
       { status: 502 },
     );

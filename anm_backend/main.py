@@ -20,6 +20,7 @@ from anm_backend.adapters.engine_client import EngineClient
 from anm_backend.adapters.llm_adapter import LLMAdapter
 from anm_backend.adapters.prompt_builder import PromptBuilder
 from anm_backend.adapters.response_parser import ResponseParser
+from anm_backend.assistant.leticia import LeticiaOrchestrator
 from anm_backend.anm.network import Network
 from anm_backend.anm.neuron import Neuron
 from anm_backend.anm.nodule import Nodule
@@ -29,6 +30,7 @@ from anm_backend.api.routes_admin import router as admin_router
 from anm_backend.api.routes_chat import router as chat_router
 from anm_backend.api.routes_debug import router as debug_router
 from anm_backend.api.routes_identity import router as identity_router
+from anm_backend.api.routes_leticia import router as leticia_router
 from anm_backend.api.routes_memory import router as memory_router
 from anm_backend.api.routes_write import router as write_router
 from anm_backend.memory.checkpoint_manager import CheckpointManager
@@ -75,6 +77,7 @@ from anm_backend.services.identity_runtime import (
     VectorMatcher,
 )
 from anm_backend.services.response_orchestration import ResponseOrchestrator
+from anm_backend.services.voice import AzureSpeechService
 from anm_backend.services.write_continue_service import WriteContinueService
 from anm_backend.services.write_service import WriteService
 from anm_backend.services.write_summary_service import WriteSummaryService
@@ -215,6 +218,13 @@ def create_app() -> FastAPI:
     identity_runtime_bootstrap = IdentityRuntimeBootstrap(runtime=identity_runtime)
     self_model_engine = SelfModelEngine(runtime=identity_runtime)
     user_pattern_recognizer = UserPatternRecognizer()
+    leticia_orchestrator = LeticiaOrchestrator(
+        llm_adapter=llm_adapter,
+        memory_manager=memory_manager,
+        identity_runtime=identity_runtime,
+        self_model_engine=self_model_engine,
+        user_pattern_recognizer=user_pattern_recognizer,
+    )
     face_detector = FaceDetector()
     pose_estimator = PoseEstimator()
     frame_quality_gate = FrameQualityGate()
@@ -251,6 +261,7 @@ def create_app() -> FastAPI:
         llm_adapter=llm_adapter,
         response_orchestrator=response_orchestrator,
     )
+    azure_speech_service = AzureSpeechService.from_env()
     cognitive_service = CognitiveService(
         memory_manager=memory_manager,
         resonance_engine=resonance_engine,
@@ -270,6 +281,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="ANM Backend", version="0.2.0")
     app.include_router(chat_router)
+    app.include_router(leticia_router)
     app.include_router(write_router)
     app.include_router(memory_router)
     app.include_router(identity_router)
@@ -292,6 +304,7 @@ def create_app() -> FastAPI:
     app.state.resonance_engine = resonance_engine
     app.state.engine_client = engine_client
     app.state.llm_adapter = llm_adapter
+    app.state.leticia_orchestrator = leticia_orchestrator
     app.state.response_orchestrator = response_orchestrator
     app.state.source_discovery_manager = source_discovery_manager
     app.state.multi_camera_stream_manager = multi_camera_stream_manager
@@ -320,6 +333,7 @@ def create_app() -> FastAPI:
     app.state.write_service = write_service
     app.state.write_continue_service = write_continue_service
     app.state.write_summary_service = write_summary_service
+    app.state.azure_speech_service = azure_speech_service
 
     bootstrap_checkpoint = str(os.getenv("ANM_BOOTSTRAP_CHECKPOINT", "")).strip()
     if bootstrap_checkpoint:

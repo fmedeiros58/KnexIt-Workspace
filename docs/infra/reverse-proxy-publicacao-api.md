@@ -10,6 +10,7 @@ Escopo: exposicao segura da API em dominio proprio com backend interno.
   - `443/tcp` (API publica)
 - Privado (localhost):
   - `127.0.0.1:3000` (backend Next API)
+  - `127.0.0.1:8100` (ANM backend, publicado apenas por path `/anm` no proxy)
   - `127.0.0.1:8000` (vLLM)
   - `127.0.0.1:5432` ou equivalente (Postgres)
 
@@ -35,6 +36,7 @@ Privado:
 
 Atendidos nos artefatos:
 - `proxy_pass` / `reverse_proxy` para `127.0.0.1:3000`
+- `proxy_pass` / `reverse_proxy` para `127.0.0.1:8100` via path `/anm/*`
 - `Host`
 - `X-Real-IP`
 - `X-Forwarded-For`
@@ -79,6 +81,7 @@ Exemplo (UFW):
 - Validar resposta externa:
   - `curl -I http://api.knexspace.com/health` (deve redirecionar para https)
   - `curl -I https://api.knexspace.com/health` (200)
+  - `curl -I https://api.knexspace.com/anm/healthz` (200)
   - `curl https://api.knexspace.com/ready` (200/503 conforme dependencia)
 
 ## 9) Depuracao comum
@@ -91,4 +94,3 @@ Exemplo (UFW):
   - paths de certificado incorretos
 - CORS 403:
   - origem nao cadastrada em `PUBLIC_API_ALLOWED_ORIGINS`/`VERCEL_FRONTEND_ORIGIN`.
-

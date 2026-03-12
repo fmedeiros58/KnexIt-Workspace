@@ -16,17 +16,33 @@ function parseCurrentIdentity(snapshot: IdentityRuntimeSnapshot | null) {
   return snapshot.current_identity as Record<string, unknown>;
 }
 
+function parseVisualContext(snapshot: IdentityRuntimeSnapshot | null) {
+  if (!snapshot || !snapshot.visual_context || typeof snapshot.visual_context !== "object") return {};
+  return snapshot.visual_context as Record<string, unknown>;
+}
+
+function parseRecentSceneEvents(snapshot: IdentityRuntimeSnapshot | null) {
+  if (!snapshot || !Array.isArray(snapshot.recent_scene_events)) return [];
+  return snapshot.recent_scene_events
+    .filter((item) => item && typeof item === "object")
+    .slice(0, 10) as Array<Record<string, unknown>>;
+}
+
 function parseAwareness(snapshot: IdentityRuntimeSnapshot | null) {
   const awarenessRaw = snapshot?.awareness_state;
   const awareness = awarenessRaw && typeof awarenessRaw === "object" ? (awarenessRaw as Record<string, unknown>) : {};
   const someoneInFrame = Boolean(awareness.someone_in_frame);
   const identityConfirmed = Boolean(awareness.identity_confirmed);
+  const visualContext = parseVisualContext(snapshot);
+  const recentSceneEvents = parseRecentSceneEvents(snapshot);
   return {
     status: typeof snapshot?.status === "string" ? snapshot.status : "unavailable",
     someone_in_frame: someoneInFrame,
     identity_confirmed: identityConfirmed,
     awareness_state: awareness,
     current_identity: parseCurrentIdentity(snapshot),
+    visual_context: visualContext,
+    recent_scene_events: recentSceneEvents,
     at: new Date().toISOString(),
   };
 }
@@ -41,6 +57,7 @@ export async function GET(req: NextRequest) {
       let closed = false;
       let lastPresenceKey = "";
       let lastIdentityKey = "";
+      let lastSceneKey = "";
 
       let pollTimer: ReturnType<typeof setInterval> | null = null;
       let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -75,9 +92,19 @@ export async function GET(req: NextRequest) {
 
         const awareness = parseAwareness(snapshot);
         const currentIdentity = parseCurrentIdentity(snapshot);
+        const visualContext = parseVisualContext(snapshot);
+        const recentSceneEvents = parseRecentSceneEvents(snapshot);
         const entityId =
           currentIdentity && typeof currentIdentity.entity_id === "string" ? `${currentIdentity.entity_id}`.trim() : "";
         const presenceKey = `${awareness.status}|${awareness.someone_in_frame ? 1 : 0}|${awareness.identity_confirmed ? 1 : 0}`;
+        const topSceneEvent = recentSceneEvents[0] || null;
+        const sceneKey = [
+          typeof visualContext.current_interlocutor_entity_id === "string" ? visualContext.current_interlocutor_entity_id : "",
+          typeof visualContext.current_interlocutor_persistence_level === "number" ? visualContext.current_interlocutor_persistence_level : "",
+          typeof visualContext.scene_summary === "string" ? visualContext.scene_summary : "",
+          typeof (topSceneEvent?.event_type) === "string" ? topSceneEvent.event_type : "",
+          typeof (topSceneEvent?.at) === "string" ? topSceneEvent.at : "",
+        ].join("|");
 
         if (presenceKey !== lastPresenceKey) {
           lastPresenceKey = presenceKey;
@@ -89,6 +116,15 @@ export async function GET(req: NextRequest) {
           safeEnqueue("identity_changed", {
             ...awareness,
             current_identity: currentIdentity,
+          });
+        }
+
+        if (sceneKey !== lastSceneKey) {
+          lastSceneKey = sceneKey;
+          safeEnqueue("scene_changed", {
+            ...awareness,
+            visual_context: visualContext,
+            recent_scene_events: recentSceneEvents,
           });
         }
 
@@ -129,4 +165,3 @@ export async function GET(req: NextRequest) {
     },
   });
 }
-

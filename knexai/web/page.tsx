@@ -736,12 +736,7 @@ function resolveIdentityStatusDotClass(status: string) {
   return "bg-zinc-400";
 }
 
-const initialMessages: LeticiaMessage[] = [
-  {
-    role: "assistant",
-    content: "Oi! Eu sou a L.E.T.I.C.I.A. Pergunte o que voce precisar.",
-  },
-];
+const initialMessages: LeticiaMessage[] = [];
 const INITIAL_THINKING_TEXT = "Enviando solicitacao";
 const THINKING_ROTATE_INTERVAL_MS = 1400;
 const THINKING_STALE_PROGRESS_MS = 2200;
@@ -787,8 +782,80 @@ function formatElapsedLabel(elapsedMs: number | null) {
   return `${minutes}m ${remSeconds}s`;
 }
 
+function stripConversationRoleArtifacts(text: string) {
+  let output = `${text || ""}`;
+  if (!output.trim()) return "";
+  output = output.replace(/\[(?:end(?:\s+of)?\s+(?:response|answer)|fim da resposta|fim da mensagem)\]/gi, " ");
+  output = output.replace(/\[\s*\/?end(?:_of)?_response\s*\]/gi, " ");
+  output = output.replace(/<\|eot_id\|>/gi, " ");
+  output = output.replace(/<\/?end(?:_of)?_response>/gi, " ");
+  output = output.replace(/\[\s*no response intended[^\]\n]*\]?/gi, " ");
+  output = output.replace(/\bno response intended(?: beyond this greeting)?\.?/gi, " ");
+  output = output.replace(/\n{3,}/g, "\n\n");
+  output = output
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd())
+    .filter(
+      (line) =>
+        !/^(?:respondo com naturalidade|respondo como uma pessoa|respondo de forma|se houver saudacao|nao uso observacoes|nao exponho processos internos|politica conversacional ativa)/i.test(
+          line.trim(),
+        ),
+    )
+    .join("\n");
+  return output.trim();
+}
+
 function sanitizePersistedAssistantContent(content: string) {
-  return `${content || ""}`.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "").replace(/\u0000/g, "");
+  let output = `${content || ""}`.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "").replace(/\u0000/g, "");
+  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant)\s*[:\-]\s*/i, "");
+  output = output.replace(/^\s*["']?(?:leticia|l\.e\.t\.i\.c\.i\.a)["']?\s*[:\-]\s*/i, "");
+  output = stripConversationRoleArtifacts(output);
+  return output.trim();
+}
+
+function normalizeVerifiablePrompt(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isVerifiablePrompt(value: string) {
+  const normalized = normalizeVerifiablePrompt(value);
+  if (!normalized) return false;
+  const hasOfficeKeyword = /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+    normalized,
+  );
+  const asksCurrentOffice = hasOfficeKeyword && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksOfficeDetails =
+    hasOfficeKeyword &&
+    /\b(fale|conte|detalhe|sobre|mais|historico|historia|mandato|eleito|reeleito|informacao|informacoes|detail|details|history)\b/.test(
+      normalized,
+    );
+  const asksVerifiableData =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  const asksVerificationFollowUp =
+    normalized.length <= 120 &&
+    /\b(verifique|verificar|confirme|confirmar|cheque|checar|validar|validacao|confirm|verify|check|fonte|fontes|source|sources)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksOfficeDetails || asksVerifiableData || asksVerificationFollowUp;
+}
+
+function sanitizeAssistantFinalContent(content: string, prompt: string) {
+  let output = sanitizePersistedAssistantContent(content);
+  if (!output) return output;
+  if (isVerifiablePrompt(prompt)) {
+    output = output
+      .replace(/^\s*(?:oi|ola|olá|bom dia|boa tarde|boa noite)[^.!?]*[.!?]\s*/i, "")
+      .replace(/^\s*(?:usuario|usuário|user)\s*[,:\-]\s*/i, "")
+      .trim();
+  }
+  return output;
 }
 
 function toModelHistory(messages: LeticiaMessage[]): LeticiaMessage[] {
@@ -856,7 +923,10 @@ function toLocalThread(thread: PersistedThread): ChatThread {
           .filter((message) => message.role === "user" || message.role === "assistant")
           .map((message) => ({
             role: message.role as "user" | "assistant",
-            content: message.content,
+            content:
+              message.role === "assistant"
+                ? sanitizePersistedAssistantContent(message.content)
+                : message.content,
             metadata: normalizeMessageMetadata(message.metadata),
           }))
       : initialMessages;
@@ -889,7 +959,10 @@ function sanitizeCachedThreads(raw: string | null): ChatThread[] {
               )
               .map((message) => ({
                 role: message.role,
-                content: message.content,
+                content:
+                  message.role === "assistant"
+                    ? sanitizePersistedAssistantContent(message.content)
+                    : message.content,
                 metadata: normalizeMessageMetadata(message.metadata),
               }))
           : [];
@@ -1299,6 +1372,7 @@ export default function KnexAiPage() {
   const isWritingModeOpen = activeMode === "write";
 
   const endRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const lastAssistantBubbleRef = useRef<HTMLDivElement | null>(null);
   const writingEditorRef = useRef<HTMLDivElement | null>(null);
@@ -1324,6 +1398,8 @@ export default function KnexAiPage() {
   const writePanelUnmountTimerRef = useRef<number | null>(null);
   const composerIngestionTasksRef = useRef(new Map<string, { cancelled: boolean }>());
   const superadminAutoLoadRef = useRef(false);
+  const chatAutoScrollEnabledRef = useRef(true);
+  const previousChatThreadIdRef = useRef<string | null>(null);
 
   const activeThread = useMemo(() => threads.find((item) => item.id === activeThreadId) ?? threads[0], [activeThreadId, threads]);
   const activeMessages = activeThread?.messages ?? initialMessages;
@@ -1887,14 +1963,45 @@ export default function KnexAiPage() {
     };
   }, []);
 
+  const scrollChatToEnd = useCallback(
+    (force = false) => {
+      if (!showChat) return;
+      if (!force && !chatAutoScrollEnabledRef.current) return;
+      const container = chatScrollContainerRef.current;
+      if (container) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: status === "thinking" ? "auto" : "smooth",
+        });
+        return;
+      }
+      endRef.current?.scrollIntoView({
+        behavior: status === "thinking" ? "auto" : "smooth",
+        block: "end",
+        inline: "nearest",
+      });
+    },
+    [showChat, status],
+  );
+
+  const handleChatScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    chatAutoScrollEnabledRef.current = distanceToBottom <= 24;
+  }, []);
+
   useEffect(() => {
-    if (!showChat) return;
-    endRef.current?.scrollIntoView({
-      behavior: status === "thinking" ? "auto" : "smooth",
-      block: "end",
-      inline: "nearest",
-    });
-  }, [activeMessages, showChat, status, composerReservePx]);
+    const currentThreadId = activeThread?.id ?? null;
+    if (previousChatThreadIdRef.current !== currentThreadId) {
+      previousChatThreadIdRef.current = currentThreadId;
+      chatAutoScrollEnabledRef.current = true;
+      window.requestAnimationFrame(() => {
+        scrollChatToEnd(true);
+      });
+      return;
+    }
+    scrollChatToEnd(false);
+  }, [activeMessages, activeThread?.id, showChat, status, composerReservePx, scrollChatToEnd]);
 
   useEffect(() => {
     if (status !== "thinking") return;
@@ -3079,6 +3186,9 @@ export default function KnexAiPage() {
     let assistantResponse = "";
     const controller = new AbortController();
     try {
+      const readyWritingDocumentIds = normalizeDocumentScopeIds(
+        writingWorks.filter((work) => work.embeddingStatus === "completed").map((work) => work.documentId),
+      );
       const worksContext = writingWorks
         .slice(0, 24)
         .map((work, index) => `${index + 1}. ${work.title} | disponibilidade:${work.embeddingStatus}`)
@@ -3095,15 +3205,26 @@ export default function KnexAiPage() {
             trimmed,
           ].join("\n")
         : trimmed;
-      await streamLeticia(promptWithWorks, [], {
-        signal: controller.signal,
-        onChunk: (delta) => {
-          assistantResponse += delta;
+      await streamLeticia(
+        promptWithWorks,
+        [],
+        {
+          signal: controller.signal,
+          onChunk: (delta) => {
+            assistantResponse += delta;
+          },
+          onDone: () => {
+            setWritingStatus("idle");
+          },
         },
-        onDone: () => {
-          setWritingStatus("idle");
+        {
+          conversationKey: activeThread.id,
+          documentIds: readyWritingDocumentIds,
+          documentId: readyWritingDocumentIds.length === 1 ? readyWritingDocumentIds[0] : undefined,
+          topK: readyWritingDocumentIds.length ? 24 : undefined,
+          maxDistance: readyWritingDocumentIds.length ? null : undefined,
         },
-      });
+      );
       insertWritingText(assistantResponse);
       setWriteSession((current) => ({
         ...current,
@@ -3481,13 +3602,37 @@ export default function KnexAiPage() {
           onProgress: handleProgress,
         },
         {
+          conversationKey: targetThreadId,
           documentIds: scopedDocumentIds,
           documentId: scopedDocumentIds.length === 1 ? scopedDocumentIds[0] : undefined,
           topK: scopedDocumentIds.length ? 24 : undefined,
           maxDistance: scopedDocumentIds.length ? null : undefined,
         },
       );
-      await persistMessage(storedThreadId, "assistant", assistantResponse);
+      const normalizedAssistant = sanitizeAssistantFinalContent(assistantResponse, trimmed);
+      if (normalizedAssistant !== assistantResponse) {
+        assistantResponse = normalizedAssistant;
+        setThreads((prev) =>
+          prev.map((thread) => {
+            if (thread.id !== targetThreadId) return thread;
+            const lastIndex = thread.messages.length - 1;
+            const last = thread.messages[lastIndex];
+            if (!last || last.role !== "assistant") return thread;
+            const nextMessages = [...thread.messages];
+            nextMessages[lastIndex] = { ...last, content: assistantResponse };
+            return {
+              ...thread,
+              updatedAt: Date.now(),
+              messages: nextMessages,
+            };
+          }),
+        );
+      }
+      try {
+        await persistMessage(storedThreadId, "assistant", assistantResponse);
+      } catch (persistError) {
+        console.warn("KNEXAI_WEB_PERSIST_ASSISTANT_FAILED", persistError);
+      }
     } catch (err: any) {
       if (streamIdRef.current !== streamId) return;
       if (flushFrameRef.current !== null) {
@@ -3734,7 +3879,12 @@ export default function KnexAiPage() {
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]" style={{ scrollPaddingBottom: `${composerReservePx}px` }}>
+              <div
+                ref={chatScrollContainerRef}
+                onScroll={handleChatScroll}
+                className="flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+                style={{ scrollPaddingBottom: `${composerReservePx}px` }}
+              >
                 <div className={`mx-auto w-full px-6 pt-5 pb-6 ${hasStructuredAssistantResponse ? "max-w-6xl" : "max-w-4xl"}`}>
                   {activeMessages.map((message, index) => (
                     <div
@@ -3780,7 +3930,7 @@ export default function KnexAiPage() {
                             ref={isLastAssistant ? lastAssistantBubbleRef : null}
                             className={`${whitespaceClass} relative text-[22px] leading-relaxed ${
                               message.role === "user"
-                                ? "max-w-[85%] rounded-2xl bg-zinc-900 px-4 py-3 text-white"
+                                ? "max-w-[85%] rounded-2xl border border-zinc-200 bg-[#f0f0f1] px-4 py-3 text-zinc-900"
                                 : assistantMode === "plain"
                                   ? "w-full max-w-none overflow-x-auto rounded-2xl bg-zinc-100 px-4 py-3 font-mono text-zinc-900"
                                   : "w-full max-w-none text-zinc-900"

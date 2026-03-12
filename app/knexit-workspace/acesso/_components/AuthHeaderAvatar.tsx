@@ -456,15 +456,22 @@ export default function AuthHeaderAvatar() {
   const handleAddExternalAccount = async () => {
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
-    await supabase.auth.signOut();
+    setAvatar(null);
+    setIsLoggedIn(false);
+    await supabase.auth.signOut({ scope: "local" });
     router.push(buildAccessEmailHref());
   };
 
   const handleSignOut = async () => {
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
+    setAvatar(null);
+    setIsLoggedIn(false);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("loginEmailHint");
+    }
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     } finally {
       if (typeof window !== "undefined") {
         window.location.assign("/knexit-workspace/acesso");
@@ -520,7 +527,7 @@ export default function AuthHeaderAvatar() {
         className="hidden"
       />
       {menuOpen ? (
-        <div className="absolute right-0 bottom-full mb-3 w-[min(92vw,340px)] rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_30px_80px_-45px_rgba(15,23,42,0.6)]">
+        <div className="absolute right-0 top-full z-50 mt-3 w-[min(92vw,340px)] max-w-[calc(100vw-1rem)] rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_30px_80px_-45px_rgba(15,23,42,0.6)]">
           <div className="relative flex items-center justify-end">
             <button
               type="button"
