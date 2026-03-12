@@ -192,6 +192,16 @@ function stripConversationRoleArtifacts(text: string) {
   output = output.replace(/\[\s*no response intended[^\]\n]*\]?/gi, " ");
   output = output.replace(/\bno response intended(?: beyond this greeting)?\.?/gi, " ");
   output = output.replace(/\n{3,}/g, "\n\n");
+  output = output
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd())
+    .filter(
+      (line) =>
+        !/^(?:respondo com naturalidade|respondo como uma pessoa|respondo de forma|se houver saudacao|nao uso observacoes|nao exponho processos internos|politica conversacional ativa)/i.test(
+          line.trim(),
+        ),
+    )
+    .join("\n");
   return output.trim();
 }
 

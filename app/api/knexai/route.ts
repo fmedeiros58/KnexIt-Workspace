@@ -339,12 +339,12 @@ function buildDeterministicOfficeAnswer(localeHint: string, candidate: string, s
           : ` Fontes: ${sourceList.join(" | ")}`
       : "";
   if (normalized.startsWith("en")) {
-    return `Verified current office holder: ${candidate}. Confidence: high. Verified at: ${verifiedAt}.${sourceSuffix}`;
+    return `${candidate}. Confidence: high. Verified at: ${verifiedAt}.${sourceSuffix}`;
   }
   if (normalized.startsWith("es")) {
-    return `Titular actual verificado: ${candidate}. Confianza: alta. Verificado en: ${verifiedAt}.${sourceSuffix}`;
+    return `${candidate}. Confianza: alta. Verificado en: ${verifiedAt}.${sourceSuffix}`;
   }
-  return `Titular atual verificado: ${candidate}. Confianca: alta. Verificado em: ${verifiedAt}.${sourceSuffix}`;
+  return `${candidate}. Confianca: alta. Verificado em: ${verifiedAt}.${sourceSuffix}`;
 }
 
 function normalizeForVerification(value: string) {
@@ -426,6 +426,18 @@ function isTrustedOfficeDomain(hostname: string) {
     host.includes("estadao.com.br") ||
     host.includes("cnnbrasil.com.br")
   );
+}
+
+function isPrimaryAuthorityOfficeDomain(hostname: string) {
+  const host = `${hostname || ""}`.trim().toLowerCase();
+  if (!host) return false;
+  if (host.endsWith(".gov")) return true;
+  if (host.endsWith(".gov.br")) return true;
+  if (host.includes("whitehouse.gov")) return true;
+  if (host.includes("usa.gov")) return true;
+  if (host.includes("planalto.gov.br")) return true;
+  if (host.includes("presidencia.gov.br")) return true;
+  return false;
 }
 
 function isVerificationFollowUpPrompt(prompt: string) {
@@ -796,6 +808,7 @@ function collapseOfficeCandidatesByConsensus(
 function extractOfficeCandidates(prompt: string, rows: Array<InternetSearchResponse["results"][number]>) {
   if (!isOfficeContextPrompt(prompt)) return [];
   const scopeTokens = extractOfficeScopeTokens(prompt);
+  const requiresCurrentSignal = isCurrentOfficeQuestion(prompt);
   const names: string[] = [];
   const seen = new Set<string>();
   const patterns = [
@@ -809,11 +822,16 @@ function extractOfficeCandidates(prompt: string, rows: Array<InternetSearchRespo
   for (const row of rows) {
     if (!rowMatchesOfficeScope(row, scopeTokens)) continue;
     const combined = `${row.title || ""}. ${row.snippet || ""}`;
+    const normalizedCombined = normalizeForVerification(combined);
+    const hasCurrentSignal = /\b(atual|current|incumbente|incumbent|titular|em exercicio|in office|verificado em|verified at)\b/.test(
+      normalizedCombined,
+    );
     for (const pattern of patterns) {
       const match = combined.match(pattern);
       const candidate = normalizeOfficeCandidateName(match?.[1] || "");
       if (!candidate) continue;
       if (!isLikelyOfficeHolderName(candidate)) continue;
+      if (requiresCurrentSignal && !hasCurrentSignal && !/(?:titular atual|incumbente)/i.test(combined)) continue;
       const normalized = normalizeForVerification(candidate);
       if (!normalized || seen.has(normalized)) continue;
       seen.add(normalized);
@@ -1197,6 +1215,31 @@ async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidenc
     };
   }
   selected = selected.slice(0, maxResults);
+  const currentOfficeQuestion = isCurrentOfficeQuestion(prompt);
+  if (currentOfficeQuestion) {
+    const requiresPrimaryAuthority = parseOptionalBoolean(process.env.KNEXAI_REQUIRE_PRIMARY_AUTHORITY_FOR_CURRENT_OFFICE) !== false;
+    if (requiresPrimaryAuthority) {
+      const hasPrimaryAuthority = selected.some((row) => isPrimaryAuthorityOfficeDomain(extractHostname(row.url)));
+      if (!hasPrimaryAuthority) {
+        const primaryAuthorityBlock = [
+          "[WEB_VERIFIED_CONTEXT]",
+          `Pergunta: ${prompt.trim()}`,
+          `Consultas executadas: ${executedQueryCount}`,
+          "Status: fontes primarias de autoridade insuficientes para confirmar titular atual.",
+          "Regra: nao responder fato verificavel por memoria; solicitar nova tentativa de verificacao.",
+          "[/WEB_VERIFIED_CONTEXT]",
+        ].join("\n");
+        return {
+          contextBlock: primaryAuthorityBlock,
+          queryCount: executedQueryCount,
+          resultCount: 0,
+          sources: selected.map((row) => `${row.url || ""}`.trim()).filter(Boolean),
+          domainCount: 0,
+          officeCandidates: [],
+        };
+      }
+    }
+  }
   const selectedDomains = Array.from(new Set(selected.map((row) => extractHostname(row.url)).filter(Boolean)));
   const hasTrustedAuthority = selected.some((row) => isTrustedOfficeDomain(extractHostname(row.url)));
   let officeCandidates = extractOfficeCandidates(prompt, selected);
@@ -1616,6 +1659,20 @@ function buildEngineCompositeError(attempts: Array<EngineAttempt<unknown>>) {
   );
 }
 
+function stripPersonaPolicyLeak(text: string) {
+  const lines = `${text || ""}`
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .filter(
+      (line) =>
+        !/^(?:respondo com naturalidade|respondo como uma pessoa|respondo de forma|se houver saudacao|nao uso observacoes|nao exponho processos internos|respondo curto e cordial|sou leticia|politica conversacional ativa)/i.test(
+          line,
+        ),
+    );
+  return lines.join("\n").trim();
+}
+
 function stripConversationRoleArtifacts(text: string) {
   let output = `${text || ""}`.trim();
   if (!output) return "";
@@ -1630,6 +1687,7 @@ function stripConversationRoleArtifacts(text: string) {
   if (markerIndex >= 0) {
     output = output.slice(0, markerIndex).trim();
   }
+  output = stripPersonaPolicyLeak(output);
   output = output.replace(/\n{3,}/g, "\n\n").trim();
   return output;
 }
