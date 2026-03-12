@@ -80,6 +80,11 @@ export type RagQueryInput = {
   temperature?: number;
   seed?: number | null;
   preferredResponseLanguageId?: string;
+  anmEngineMode?: "direct" | "anm";
+  anmBaseUrl?: string;
+  anmTimeoutMs?: number;
+  anmSoftTimeoutMs?: number;
+  anmFallbackToDirect?: boolean;
 };
 
 type RouterStats = {
@@ -930,6 +935,16 @@ export class RagQueryService {
     });
   }
 
+  private resolveAnmRoutingInput(input: RagQueryInput) {
+    return {
+      anmEngineMode: input.anmEngineMode,
+      anmBaseUrl: input.anmBaseUrl,
+      anmTimeoutMs: input.anmTimeoutMs,
+      anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+      anmFallbackToDirect: input.anmFallbackToDirect,
+    };
+  }
+
   private resolveLiteTokens(requestedMaxTokens: number) {
     const liteCap = parsePositiveInt(process.env.RAG_LITE_MAX_TOKENS, 192, 64, 2048);
     return Math.max(64, Math.min(requestedMaxTokens, liteCap));
@@ -1155,6 +1170,7 @@ export class RagQueryService {
       seed: normalizeSeed(input.seed, this.generationConfig.seed),
       runtimeMode: "lite",
       responseLanguageId: input.preferredResponseLanguageId,
+      ...this.resolveAnmRoutingInput(input),
     });
     const totalMs = Date.now() - startedAt;
     logger.info("RAG_LITE_QUERY_DONE", {
@@ -1259,6 +1275,7 @@ export class RagQueryService {
       seed: normalizeSeed(input.seed, this.generationConfig.seed),
       runtimeMode: "lite",
       responseLanguageId: input.preferredResponseLanguageId,
+      ...this.resolveAnmRoutingInput(input),
     });
   }
 
@@ -1643,6 +1660,11 @@ export class RagQueryService {
           maxResponseTokens: effectiveMaxResponseTokens,
           temperature: runtimeInput.temperature,
           seed: runtimeInput.seed,
+          anmEngineMode: runtimeInput.anmEngineMode,
+          anmBaseUrl: runtimeInput.anmBaseUrl,
+          anmTimeoutMs: runtimeInput.anmTimeoutMs,
+          anmSoftTimeoutMs: runtimeInput.anmSoftTimeoutMs,
+          anmFallbackToDirect: runtimeInput.anmFallbackToDirect,
         });
       } catch (error) {
         const groundingFallback = resolveGroundingFallbackReply(error, {
@@ -1722,6 +1744,7 @@ export class RagQueryService {
       maxTokens: effectiveMaxResponseTokens,
       temperature: clampTemperature(runtimeInput.temperature, this.generationConfig.temperature),
       seed: normalizeSeed(runtimeInput.seed, this.generationConfig.seed),
+      ...this.resolveAnmRoutingInput(runtimeInput),
     });
 
     const metadata: RagQueryResult["metadata"] = {
@@ -1961,6 +1984,11 @@ export class RagQueryService {
                 maxResponseTokens: effectiveMaxResponseTokens,
                 temperature: runtimeInput.temperature,
                 seed: runtimeInput.seed,
+                anmEngineMode: runtimeInput.anmEngineMode,
+                anmBaseUrl: runtimeInput.anmBaseUrl,
+                anmTimeoutMs: runtimeInput.anmTimeoutMs,
+                anmSoftTimeoutMs: runtimeInput.anmSoftTimeoutMs,
+                anmFallbackToDirect: runtimeInput.anmFallbackToDirect,
                 onProgress: async (event) => {
                   if (!showPasses) return;
                   if (event.progress) {
@@ -2196,6 +2224,7 @@ export class RagQueryService {
         maxTokens: effectiveMaxTokens,
         temperature: clampTemperature(runtimeInput.temperature, this.generationConfig.temperature),
         seed: normalizeSeed(runtimeInput.seed, this.generationConfig.seed),
+        ...this.resolveAnmRoutingInput(runtimeInput),
       });
     }
 
@@ -2220,6 +2249,7 @@ export class RagQueryService {
               temperature: clampTemperature(runtimeInput.temperature, this.generationConfig.temperature),
               seed: normalizeSeed(runtimeInput.seed, this.generationConfig.seed),
               followupMode: passIndex < streamPassCount ? "omit" : "required",
+              ...this.resolveAnmRoutingInput(runtimeInput),
             });
 
             const reader = passStream.getReader();

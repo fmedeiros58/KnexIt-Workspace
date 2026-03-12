@@ -210,7 +210,10 @@ function hasPersonaPolicyLeak(text: string) {
   if (!normalized) return false;
   return (
     /\b(i won t reveal internal processes|responding professionally and objectively|inside knexit)\b/.test(normalized) ||
-    /\b(nao vou revelar processos internos|ia nativa do ecossistema|respondo com naturalidade objetividade)\b/.test(normalized)
+    /\b(nao vou revelar processos internos|ia nativa do ecossistema|respondo com naturalidade objetividade)\b/.test(
+      normalized,
+    ) ||
+    /\b(assistente interno|plataforma knexit|nao sou leticia|nao exponho processos internos)\b/.test(normalized)
   );
 }
 

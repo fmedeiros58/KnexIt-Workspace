@@ -16,8 +16,14 @@ npm run supabase:local:start
 Esse comando:
 - sobe o Supabase local (`npx supabase start`);
 - aplica a migration unica do KnexAI;
-- atualiza as variaveis Supabase em `.env.local` para o stack local;
+- preserva as variaveis Supabase atuais em `.env.local`;
 - cria backup automatico de `.env.local`.
+
+Se quiser sobrescrever `.env.local` com as chaves locais, use:
+
+```bash
+npm run supabase:local:start:update-env
+```
 
 Depois do bootstrap, aplicar identidade no mesmo fluxo:
 

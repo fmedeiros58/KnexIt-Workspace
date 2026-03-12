@@ -153,15 +153,25 @@ function normalizeForVerification(value: string) {
 function isVerifiablePrompt(value: string) {
   const normalized = normalizeForVerification(value);
   if (!normalized) return false;
-  const asksCurrentOffice =
-    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+  const hasOfficeKeyword = /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+    normalized,
+  );
+  const asksCurrentOffice = hasOfficeKeyword && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksOfficeDetails =
+    hasOfficeKeyword &&
+    /\b(fale|conte|detalhe|sobre|mais|historico|historia|mandato|eleito|reeleito|informacao|informacoes|detail|details|history)\b/.test(
       normalized,
-    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+    );
   const asksVerifiableData =
     /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
       normalized,
     );
-  return asksCurrentOffice || asksVerifiableData;
+  const asksVerificationFollowUp =
+    normalized.length <= 120 &&
+    /\b(verifique|verificar|confirme|confirmar|cheque|checar|validar|validacao|confirm|verify|check|fonte|fontes|source|sources)\b/.test(
+      normalized,
+    );
+  return asksCurrentOffice || asksOfficeDetails || asksVerifiableData || asksVerificationFollowUp;
 }
 
 function stripLeadingGreetingForVerifiablePrompt(text: string, prompt: string) {
@@ -172,11 +182,25 @@ function stripLeadingGreetingForVerifiablePrompt(text: string, prompt: string) {
     .trimStart();
 }
 
+function stripConversationRoleArtifacts(text: string) {
+  let output = `${text || ""}`;
+  if (!output.trim()) return "";
+  output = output.replace(/\[(?:end(?:\s+of)?\s+(?:response|answer)|fim da resposta|fim da mensagem)\]/gi, " ");
+  output = output.replace(/\[\s*\/?end(?:_of)?_response\s*\]/gi, " ");
+  output = output.replace(/<\|eot_id\|>/gi, " ");
+  output = output.replace(/<\/?end(?:_of)?_response>/gi, " ");
+  output = output.replace(/\[\s*no response intended[^\]\n]*\]?/gi, " ");
+  output = output.replace(/\bno response intended(?: beyond this greeting)?\.?/gi, " ");
+  output = output.replace(/\n{3,}/g, "\n\n");
+  return output.trim();
+}
+
 function sanitizeAssistantResponse(text: string, prompt: string) {
   let output = `${text || ""}`.trim();
   if (!output) return "";
   output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant)\s*[:\-]\s*/i, "");
   output = output.replace(/^\s*["']?(?:leticia|l\.e\.t\.i\.c\.i\.a)["']?\s*[:\-]\s*/i, "");
+  output = stripConversationRoleArtifacts(output);
   output = stripLeadingGreetingForVerifiablePrompt(output, prompt);
   return output.trim();
 }
@@ -455,7 +479,8 @@ export async function streamLeticia(
     undefined;
   const targetApiPath = (typeof options.apiPath === "string" && options.apiPath.trim()) || DEFAULT_CHAT_API_PATH;
   const verifiable = isVerifiablePrompt(prompt);
-  const forceRag = verifiable || scopedDocumentIds.length > 0;
+  // No chat principal, RAG forcado fica restrito a escopo documental.
+  const forceRag = scopedDocumentIds.length > 0;
 
   const res = await fetch(targetApiPath, {
     method: "POST",
@@ -483,8 +508,11 @@ export async function streamLeticia(
       temperature: normalizeOptionalFiniteNumber(options.temperature),
       seed: options.seed === null ? null : normalizeOptionalFiniteNumber(options.seed),
       forceRag,
-      anmEngineMode: verifiable ? "anm" : undefined,
-      anmFallbackToDirect: verifiable ? false : undefined,
+      forceWebMultiSource: verifiable,
+      // Mantem ANM como nucleo conversacional; o backend decide fallback para direct quando necessario.
+      anmEngineMode: undefined,
+      // Mantem a UX da pagina /knexai/web resiliente quando o ANM oscila.
+      anmFallbackToDirect: true,
     }),
     signal: handlers.signal,
   });

@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
-import { getKnexAiStoreAdmin, normalizeSessionId, resolveKnexAiSession } from "@/app/api/knexai/_store";
+import {
+  getKnexAiStoreAdmin,
+  isKnexAiSchemaMissingError,
+  normalizeSessionId,
+  resolveKnexAiSession,
+} from "@/app/api/knexai/_store";
 
 export const runtime = "nodejs";
 
@@ -90,6 +95,17 @@ export async function POST(req: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
+    if (isKnexAiSchemaMissingError(error)) {
+      console.warn("KNEXAI_MESSAGES_POST_SCHEMA_MISSING", error);
+      return Response.json(
+        {
+          persisted: false,
+          code: "KNEXAI_STORE_SCHEMA_MISSING",
+          message: "KnexAI persistence schema is not available; continuing in stateless mode.",
+        },
+        { status: 202 },
+      );
+    }
     console.error("KNEXAI_MESSAGES_POST_ERROR", error);
     return Response.json({ message: "Failed to persist message" }, { status: 500 });
   }

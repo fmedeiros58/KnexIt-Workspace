@@ -29,13 +29,15 @@ Template com Next.js 14 + Tailwind + Supabase para autenticaÃ§Ã£o (senha, OT
 - `npm run serve:next:wsl`: sobe o Next no WSL (mesmo host/rede do vLLM host-only), com bootstrap de Node Linux via `nvm` quando disponivel.
 - `npm run serve:vllm:wsl`: levanta o vLLM local (porta 8000) com perfil seguro (`max-num-seqs=2`, `max-model-len=4096`, `gpu-memory-utilization=0.90`).
 - `npm run serve:vllm:wsl:restart`: reinicia o vLLM forçando limpeza da porta (evita conflito/processo zumbi).
+- `npm run serve:knexai:watchdog`: monitora vLLM/ANM e aciona restart bootstrap quando alguma porta critica cai (8000/8100).
 - `npm run serve:embeddings:cpu`: sobe endpoint local `/v1/embeddings` em CPU (porta 8001).
 - `npm run bench:rag:router:wsl`: roda benchmark do roteador usando `/api/chat` no proprio WSL (`127.0.0.1:<porta>`), evitando falso 5xx por rota Windows↔WSL.
 - `npm run dev:knexai`: abre automaticamente `http://localhost:3004/knexai` e inicia o Next em 3004.
 - `npm run dev:supadrive`: abre `http://localhost:3005/supadrive` e inicia Next em 3005.
 - `npm run dev:vioclass`: abre `http://localhost:3006/vioclass` e inicia Next em 3006.
 - `npm run dev:vioread`: abre `http://localhost:3007/vioread` e inicia Next em 3007.
-- `npm run supabase:local:start`: sobe Supabase local, aplica migration unificada do KnexAI + bootstrap pgvector e atualiza chaves Supabase em `.env.local`.
+- `npm run supabase:local:start`: sobe Supabase local e aplica migration unificada do KnexAI + bootstrap pgvector, preservando o `.env.local`.
+- `npm run supabase:local:start:update-env`: mesmo fluxo, mas sobrescreve chaves Supabase no `.env.local` para o stack local.
 - `npm run supabase:local:identity:migrate`: aplica migrations de `supabase/identity/migrations` no banco local e registra versoes no historico.
 - `npm run supabase:local:prep-nvme`: gera template de Docker Engine para mover armazenamento para NVMe2.
 - `npm run supabase:local:apply-engine-template`: aplica o template no `~/.docker/daemon.json` e reinicia o Docker Desktop.

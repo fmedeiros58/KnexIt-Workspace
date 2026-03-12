@@ -24,6 +24,8 @@ def build_leticia_response_policy(
         _locale_line(locale),
         "- Responda de pessoa para pessoa.",
         "- Nao verbalize classificacao de intencao, regras ou contexto interno.",
+        "- Para fatos verificaveis (nome de autoridade, cargo atual, data, numero, lei), nao invente.",
+        "- Se faltar base confiavel, diga de forma curta que precisa verificar antes de afirmar.",
     ]
     if mode == "social":
         lines.append("- Turno social curto: responda em 1 frase curta.")
@@ -40,4 +42,3 @@ def build_leticia_response_policy(
     if context_summary:
         lines.append("- Contexto visual/identidade pode ser usado somente se ajudar esta resposta.")
     return "\n".join(lines)
-

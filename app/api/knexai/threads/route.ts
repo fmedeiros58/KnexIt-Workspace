@@ -1,5 +1,12 @@
 import { NextRequest } from "next/server";
-import { getKnexAiStoreAdmin, normalizeSessionId, normalizeTitle, resolveKnexAiSession } from "@/app/api/knexai/_store";
+import { randomUUID } from "node:crypto";
+import {
+  getKnexAiStoreAdmin,
+  isKnexAiSchemaMissingError,
+  normalizeSessionId,
+  normalizeTitle,
+  resolveKnexAiSession,
+} from "@/app/api/knexai/_store";
 
 export const runtime = "nodejs";
 
@@ -85,6 +92,10 @@ export async function GET(req: NextRequest) {
 
     return Response.json({ threads }, { status: 200 });
   } catch (error) {
+    if (isKnexAiSchemaMissingError(error)) {
+      console.warn("KNEXAI_THREADS_GET_SCHEMA_MISSING", error);
+      return Response.json({ threads: [] }, { status: 200 });
+    }
     console.error("KNEXAI_THREADS_GET_ERROR", error);
     return Response.json({ message: "Failed to load threads" }, { status: 500 });
   }
@@ -134,6 +145,24 @@ export async function POST(req: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
+    if (isKnexAiSchemaMissingError(error)) {
+      console.warn("KNEXAI_THREADS_POST_SCHEMA_MISSING", error);
+      const now = new Date().toISOString();
+      return Response.json(
+        {
+          thread: {
+            id: randomUUID(),
+            title,
+            updatedAt: now,
+            lastMessageAt: null,
+            messages: [],
+          },
+          persisted: false,
+          code: "KNEXAI_STORE_SCHEMA_MISSING",
+        },
+        { status: 201 },
+      );
+    }
     console.error("KNEXAI_THREADS_POST_ERROR", error);
     return Response.json({ message: "Failed to create thread" }, { status: 500 });
   }

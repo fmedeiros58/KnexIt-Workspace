@@ -46,6 +46,11 @@ export type OrchestratorV2Input = {
   maxResponseTokens?: number;
   temperature?: number;
   seed?: number | null;
+  anmEngineMode?: "direct" | "anm";
+  anmBaseUrl?: string;
+  anmTimeoutMs?: number;
+  anmSoftTimeoutMs?: number;
+  anmFallbackToDirect?: boolean;
   onProgress?: (event: OrchestratorV2ProgressEvent) => void | Promise<void>;
   onFinalDelta?: (delta: string) => void | Promise<void>;
 };
@@ -808,6 +813,11 @@ export class RagOrchestratorV2 {
             history: Array.isArray(input.history) ? input.history : [],
             maxTokens,
             temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
+            anmEngineMode: input.anmEngineMode,
+            anmBaseUrl: input.anmBaseUrl,
+            anmTimeoutMs: input.anmTimeoutMs,
+            anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+            anmFallbackToDirect: input.anmFallbackToDirect,
             onProgress: async (event) => {
               const stage = event.stage === "merge_start" || event.stage === "merge_done" ? "MERGE" : "DRAFT";
               const message = event.message;
@@ -897,6 +907,11 @@ export class RagOrchestratorV2 {
             seed: normalizeSeed(input.seed, this.generationConfig.seed),
             followupMode: "omit",
             responseLanguageId: input.preferredResponseLanguageId,
+            anmEngineMode: input.anmEngineMode,
+            anmBaseUrl: input.anmBaseUrl,
+            anmTimeoutMs: input.anmTimeoutMs,
+            anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+            anmFallbackToDirect: input.anmFallbackToDirect,
           });
           const mergedText = await streamCompletionToText(stream, async (delta) => {
             await input.onFinalDelta?.(delta);
@@ -925,6 +940,11 @@ export class RagOrchestratorV2 {
               seed: normalizeSeed(input.seed, this.generationConfig.seed),
               followupMode: "omit",
               responseLanguageId: input.preferredResponseLanguageId,
+              anmEngineMode: input.anmEngineMode,
+              anmBaseUrl: input.anmBaseUrl,
+              anmTimeoutMs: input.anmTimeoutMs,
+              anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+              anmFallbackToDirect: input.anmFallbackToDirect,
             }),
         );
         finalAnswer = `${singlePass.answer || ""}`.trim();
@@ -984,6 +1004,11 @@ export class RagOrchestratorV2 {
               temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
               seed: normalizeSeed(input.seed, this.generationConfig.seed),
               followupMode: "omit",
+              anmEngineMode: input.anmEngineMode,
+              anmBaseUrl: input.anmBaseUrl,
+              anmTimeoutMs: input.anmTimeoutMs,
+              anmSoftTimeoutMs: input.anmSoftTimeoutMs,
+              anmFallbackToDirect: input.anmFallbackToDirect,
             }),
           {
             lockPass: pass,

@@ -236,6 +236,25 @@ describe("PostprocessStage", () => {
     expect(ctx.finalAnswer || "").not.toContain("inside KnexIT");
   });
 
+  it("bloqueia vazamento de meta-resposta do assistente interno em pergunta verificavel", async () => {
+    const ctx = makeContext(
+      "Ola, sou o assistente interno da plataforma KnexIT. Nao sou Leticia e nao exponho processos internos.",
+    );
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.72,
+        text: "[WEB] Fonte valida | URL: https://exemplo.org",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").not.toContain("assistente interno");
+  });
+
   it("bloqueia vazamento de diretiva/persona no stream para pergunta verificavel", async () => {
     const ctx = makeContext("");
     ctx.stream = true;

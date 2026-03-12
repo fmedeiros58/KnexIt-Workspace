@@ -87,17 +87,91 @@ function isVerifiableQuestionForAutoSearch(prompt: string) {
   return asksCurrentOffice || asksVerifiableData;
 }
 
+function isCurrentOfficeQuestion(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  return (
+    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+      normalized,
+    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized)
+  );
+}
+
+function isUsOfficeQuestion(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  return /\b(estados unidos|eua|usa|united states|u\.s\.)\b/.test(normalized);
+}
+
+function isBrazilOfficeQuestion(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  return /\b(brasil|brazil|acre|sao paulo|rio de janeiro|minas gerais|bahia|parana|goias|amazonas|estado)\b/.test(
+    normalized,
+  );
+}
+
 function isForceMultiSourceWebSearchEnabled() {
   return parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
 }
 
+function stripAutoSearchPreamble(prompt: string) {
+  let value = `${prompt || ""}`.trim().replace(/\s+/g, " ");
+  if (!value) return "";
+  const patterns = [
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:voce|vc)\s+pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
+    /^(?:por favor[,:\s-]*)?pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
+    /^(?:por favor[,:\s-]*)?me\s+(?:diga|informe|responda)\s+/i,
+    /^(?:qual\s+(?:e|eh|é)\s+(?:o|a)\s+nome\s+(?:do|da|de)\s+)/i,
+    /^(?:qual\s+o\s+nome\s+(?:do|da|de)\s+)/i,
+    /^(?:quem\s+(?:e|eh|é)\s+(?:o|a)\s+)/i,
+  ];
+  for (const pattern of patterns) {
+    value = value.replace(pattern, "");
+  }
+  return value.trim();
+}
+
 function buildAutoSearchQueries(prompt: string) {
-  const base = `${prompt || ""}`.trim();
-  if (!base) return [];
+  const raw = `${prompt || ""}`.trim();
+  if (!raw) return [];
+  const base = stripAutoSearchPreamble(raw) || raw;
   const maxQueries = Number.isFinite(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_QUERIES))
     ? Math.max(1, Math.min(5, Math.trunc(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_QUERIES))))
-    : 3;
-  const candidates = [base, `${base} site:gov.br`, `${base} site:wikipedia.org`, `${base} atualizado`];
+    : 4;
+  const asksCurrentOffice = isCurrentOfficeQuestion(base);
+  const asksUsOffice = asksCurrentOffice && isUsOfficeQuestion(base);
+  const asksBrazilOffice = asksCurrentOffice && isBrazilOfficeQuestion(base);
+  const candidates = asksUsOffice
+    ? [
+        base,
+        "current president of the united states site:whitehouse.gov",
+        `${base} site:wikipedia.org`,
+        "president of the united states wikipedia incumbent",
+        "current president of the united states site:reuters.com",
+        "current president of the united states site:apnews.com",
+        `${base} site:whitehouse.gov`,
+        `${base} site:reuters.com`,
+        `${base} site:apnews.com`,
+        `${base} site:bbc.com`,
+        `${base} site:wikipedia.org`,
+        `${base} latest`,
+        `${base} atualizado`,
+      ]
+    : asksBrazilOffice
+      ? [
+          `${base} site:gov.br`,
+          `${base} site:agenciabrasil.ebc.com.br`,
+          `${base} site:wikipedia.org`,
+          `${base} site:g1.globo.com`,
+          `${base} site:uol.com.br`,
+          `${base} site:cnnbrasil.com.br`,
+          base,
+          `${base} atualizado`,
+        ]
+      : [base, `${base} site:gov.br`, `${base} site:wikipedia.org`, `${base} atualizado`];
   const unique: string[] = [];
   const seen = new Set<string>();
   for (const query of candidates) {
@@ -191,17 +265,22 @@ export class RetrieverAdapter {
     if (!queries.length) return [];
 
     const allResults: Array<InternetSearchResponse["results"][number]> = [];
-    for (const currentQuery of queries) {
-      try {
-        const payload = await this.internetSearchService.search({ query: currentQuery, preferPdf: false });
-        if (!payload?.results?.length) continue;
-        allResults.push(...payload.results);
-      } catch (error) {
+    const payloads = await Promise.allSettled(
+      queries.map((currentQuery) => this.internetSearchService.search({ query: currentQuery, preferPdf: false })),
+    );
+    for (let index = 0; index < payloads.length; index += 1) {
+      const result = payloads[index];
+      const currentQuery = queries[index] || "";
+      if (result.status === "rejected") {
         logger.warn("ASSISTANT_AUTO_WEB_QUERY_FAILED", {
           query: currentQuery,
-          message: error instanceof Error ? error.message : "unknown_error",
+          message: result.reason instanceof Error ? result.reason.message : "unknown_error",
         });
+        continue;
       }
+      const payload = result.value;
+      if (!payload?.results?.length) continue;
+      allResults.push(...payload.results);
     }
     if (!allResults.length) {
       if (!forceMultiSource) return [];

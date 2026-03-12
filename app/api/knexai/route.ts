@@ -69,6 +69,19 @@ type AutoWebEvidence = {
   queryCount: number;
   resultCount: number;
   sources: string[];
+  domainCount: number;
+  officeCandidates: string[];
+};
+type VerificationCascadePlan = {
+  version: string;
+  targetPrompt: string;
+  verifiableQuestion: boolean;
+  forceWebMultiSource: boolean;
+  forceRag: boolean;
+  shouldForceFullRagMode: boolean;
+  shouldRequireWebBeforeRag: boolean;
+  forceUserOnlyHistory: boolean;
+  forceDirectWithoutDocumentScope: boolean;
 };
 type EngineAttempt<T> = {
   source: "anm" | "direct";
@@ -101,6 +114,7 @@ const WSL_DISCOVERY_CACHE_MS = 60_000;
 const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 const DEFAULT_ANM_SOFT_TIMEOUT_MS = 200;
+const VERIFICATION_CASCADE_VERSION = "2026-03-12.1";
 
 type AvailableModelsCache = {
   baseUrl: string;
@@ -256,6 +270,10 @@ function buildCurrentDateAnswer() {
   return `Hoje e ${current.weekday}, ${current.date}. (Fuso: ${current.timeZone})`;
 }
 
+function buildVerificationDateStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function buildWebVerificationUnavailableAnswer(localeHint: string) {
   const normalized = `${localeHint || ""}`.trim().toLowerCase();
   if (normalized.startsWith("en")) {
@@ -267,6 +285,68 @@ function buildWebVerificationUnavailableAnswer(localeHint: string) {
   return "Nao consegui validar esse fato em fontes web neste turno. Para evitar informacao desatualizada, preciso repetir a verificacao multifonte antes de confirmar.";
 }
 
+function buildWebVerificationResponsePolicy(localeHint: string) {
+  const normalized = `${localeHint || ""}`.trim().toLowerCase();
+  if (normalized.startsWith("en")) {
+    return [
+      "[WEB_VERIFIED_POLICY]",
+      "Answer only with facts supported by WEB_VERIFIED_CONTEXT.",
+      "Start with one direct sentence answering the question.",
+      "Include 'Confidence: high|medium|low' based on evidence consistency.",
+      `Include 'Verified at: ${buildVerificationDateStamp()}' in the final answer.`,
+      "At the end, include 'Sources:' with at least 2 distinct URLs used.",
+      "If sources conflict, explicitly state uncertainty.",
+      "Do not infer unstated historical facts (e.g., predecessors) unless explicitly present in sources.",
+      "[/WEB_VERIFIED_POLICY]",
+    ].join("\n");
+  }
+  if (normalized.startsWith("es")) {
+    return [
+      "[WEB_VERIFIED_POLICY]",
+      "Responde solo con hechos respaldados por WEB_VERIFIED_CONTEXT.",
+      "Comienza con una frase directa que responda a la pregunta.",
+      "Incluye 'Confianza: alta|media|baja' segun consistencia de evidencia.",
+      `Incluye 'Verificado en: ${buildVerificationDateStamp()}' en la respuesta final.`,
+      "Al final, incluye 'Fuentes:' con al menos 2 URL distintas utilizadas.",
+      "Si hay conflicto entre fuentes, declara la incertidumbre de forma explicita.",
+      "No infieras hechos historicos no citados (por ejemplo, predecesores) sin fuente explicita.",
+      "[/WEB_VERIFIED_POLICY]",
+    ].join("\n");
+  }
+  return [
+    "[WEB_VERIFIED_POLICY]",
+    "Responda apenas com fatos sustentados pelo bloco WEB_VERIFIED_CONTEXT.",
+    "Comece com 1 frase objetiva respondendo diretamente a pergunta.",
+    "Inclua 'Confianca: alta|media|baixa' conforme consistencia das evidencias.",
+    `Inclua 'Verificado em: ${buildVerificationDateStamp()}' na resposta final.`,
+    "Ao final, inclua 'Fontes:' com pelo menos 2 URLs distintas usadas.",
+    "Se houver conflito entre as fontes, declare a incerteza explicitamente.",
+    "Nao infira fatos historicos nao citados (ex.: antecessores) sem fonte explicita.",
+    "[/WEB_VERIFIED_POLICY]",
+  ].join("\n");
+}
+
+function buildDeterministicOfficeAnswer(localeHint: string, candidate: string, sources: string[]) {
+  const normalized = `${localeHint || ""}`.trim().toLowerCase();
+  const verifiedAt = buildVerificationDateStamp();
+  const sourceList = sources.slice(0, 2).filter(Boolean);
+  const sourceSuffix =
+    sourceList.length > 0
+      ? normalized.startsWith("en")
+        ? ` Sources: ${sourceList.join(" | ")}`
+        : normalized.startsWith("es")
+          ? ` Fuentes: ${sourceList.join(" | ")}`
+          : ` Fontes: ${sourceList.join(" | ")}`
+      : "";
+  if (normalized.startsWith("en")) {
+    return `Verified current office holder: ${candidate}. Confidence: high. Verified at: ${verifiedAt}.${sourceSuffix}`;
+  }
+  if (normalized.startsWith("es")) {
+    return `Titular actual verificado: ${candidate}. Confianza: alta. Verificado en: ${verifiedAt}.${sourceSuffix}`;
+  }
+  return `Titular atual verificado: ${candidate}. Confianca: alta. Verificado em: ${verifiedAt}.${sourceSuffix}`;
+}
+
 function normalizeForVerification(value: string) {
   return `${value || ""}`
     .toLowerCase()
@@ -276,18 +356,156 @@ function normalizeForVerification(value: string) {
     .trim();
 }
 
+function isOfficeContextPrompt(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  return /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
+    normalized,
+  );
+}
+
+function isCurrentOfficeQuestion(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  return isOfficeContextPrompt(normalized) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+}
+
+function isOfficeDetailPrompt(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  if (!isOfficeContextPrompt(normalized)) return false;
+  return /\b(fale|conte|detalhe|sobre|mais|historico|historia|mandato|eleito|reeleito|informacao|informacoes)\b/.test(
+    normalized,
+  );
+}
+
+function isUsOfficeQuestion(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  return /\b(estados unidos|eua|usa|united states|u\.s\.)\b/.test(normalized);
+}
+
+function isBrazilOfficeQuestion(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  return /\b(brasil|brazil|acre|sao paulo|rio de janeiro|minas gerais|bahia|parana|goias|amazonas|estado)\b/.test(
+    normalized,
+  );
+}
+
 function isVerifiableQuestionForAutoSearch(prompt: string) {
   const normalized = normalizeForVerification(prompt);
   if (!normalized) return false;
-  const asksCurrentOffice =
-    /\b(reitor|reitora|presidente|prefeito|governador|ministro|secretario|diretor|ceo|rector|chancellor)\b/.test(
-      normalized,
-    ) && /\b(quem|who|qual|nome|current|atual|hoje|agora)\b/.test(normalized);
+  const asksCurrentOffice = isCurrentOfficeQuestion(normalized);
+  const asksOfficeDetails = isOfficeDetailPrompt(normalized);
   const asksVerifiableData =
     /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
       normalized,
     );
-  return asksCurrentOffice || asksVerifiableData;
+  return asksCurrentOffice || asksOfficeDetails || asksVerifiableData;
+}
+
+function isTrustedOfficeDomain(hostname: string) {
+  const host = `${hostname || ""}`.trim().toLowerCase();
+  if (!host) return false;
+  if (host.endsWith(".gov")) return true;
+  if (host.endsWith(".gov.br")) return true;
+  if (host.endsWith(".jus.br")) return true;
+  if (host.endsWith(".leg.br")) return true;
+  return (
+    host.includes("whitehouse.gov") ||
+    host.includes("usa.gov") ||
+    host.includes("wikipedia.org") ||
+    host.includes("reuters.com") ||
+    host.includes("apnews.com") ||
+    host.includes("bbc.") ||
+    host.includes("state.gov") ||
+    host.includes("agenciabrasil.ebc.com.br") ||
+    host.includes("g1.globo.com") ||
+    host.includes("uol.com.br") ||
+    host.includes("estadao.com.br") ||
+    host.includes("cnnbrasil.com.br")
+  );
+}
+
+function isVerificationFollowUpPrompt(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  const conciseFollowUp = normalized.length <= 80;
+  const asksVerification = /\b(verifique|verificar|confirme|confirmar|cheque|checar|validar|validacao|confirm|verify|check)\b/.test(
+    normalized,
+  );
+  const asksForSources = /\b(fonte|fontes|source|sources|evidencia|evidence)\b/.test(normalized);
+  return conciseFollowUp && (asksVerification || asksForSources);
+}
+
+function resolveVerificationTargetPrompt(prompt: string, history: ChatHistoryItem[]) {
+  const current = `${prompt || ""}`.trim();
+  if (!current) return "";
+  if (isVerifiableQuestionForAutoSearch(current)) return current;
+  if (!isVerificationFollowUpPrompt(current)) return current;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const item = history[index];
+    if (item.role !== "user") continue;
+    const candidate = `${item.content || ""}`.trim();
+    if (!candidate) continue;
+    if (candidate === current) continue;
+    if (isVerifiableQuestionForAutoSearch(candidate)) return candidate;
+  }
+  return current;
+}
+
+function resolveVerificationCascadePlan(input: {
+  prompt: string;
+  hasDocumentScope: boolean;
+  requestedForceRag: boolean;
+  forceWebMultiSource: boolean;
+  forceRagForVerifiable: boolean;
+  forceDirectForVerifiable: boolean;
+}) {
+  const verifiableQuestion = isVerifiableQuestionForAutoSearch(input.prompt);
+  const forceRag = input.requestedForceRag || input.hasDocumentScope || (input.forceRagForVerifiable && verifiableQuestion);
+  const shouldForceFullRagMode = input.forceWebMultiSource && (verifiableQuestion || input.requestedForceRag);
+  const shouldRequireWebBeforeRag = shouldForceFullRagMode && !input.hasDocumentScope;
+  const forceUserOnlyHistory = input.forceWebMultiSource && verifiableQuestion;
+  const forceDirectWithoutDocumentScope =
+    input.forceDirectForVerifiable && input.forceWebMultiSource && verifiableQuestion && !input.hasDocumentScope;
+  return {
+    version: VERIFICATION_CASCADE_VERSION,
+    targetPrompt: input.prompt,
+    verifiableQuestion,
+    forceWebMultiSource: input.forceWebMultiSource,
+    forceRag,
+    shouldForceFullRagMode,
+    shouldRequireWebBeforeRag,
+    forceUserOnlyHistory,
+    forceDirectWithoutDocumentScope,
+  } satisfies VerificationCascadePlan;
+}
+
+function logVerificationCascadeStage(stage: string, plan: VerificationCascadePlan, extra?: Record<string, unknown>) {
+  console.info("KNEXAI_VERIFICATION_CASCADE", {
+    stage,
+    version: plan.version,
+    prompt: plan.targetPrompt,
+    verifiableQuestion: plan.verifiableQuestion,
+    forceWebMultiSource: plan.forceWebMultiSource,
+    forceRag: plan.forceRag,
+    shouldForceFullRagMode: plan.shouldForceFullRagMode,
+    shouldRequireWebBeforeRag: plan.shouldRequireWebBeforeRag,
+    forceUserOnlyHistory: plan.forceUserOnlyHistory,
+    forceDirectWithoutDocumentScope: plan.forceDirectWithoutDocumentScope,
+    ...(extra || {}),
+  });
+}
+
+function extractHostname(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname || ""}`.trim().toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
 }
 
 function dedupeUrls(results: Array<InternetSearchResponse["results"][number]>, maxItems: number) {
@@ -303,13 +521,412 @@ function dedupeUrls(results: Array<InternetSearchResponse["results"][number]>, m
   return unique;
 }
 
+const OFFICE_STOPWORDS = new Set([
+  "qual",
+  "quem",
+  "nome",
+  "atual",
+  "current",
+  "do",
+  "da",
+  "de",
+  "dos",
+  "das",
+  "o",
+  "a",
+  "os",
+  "as",
+  "e",
+  "the",
+  "of",
+  "is",
+  "sao",
+  "sao",
+]);
+
+function extractOfficeScopeTokens(prompt: string) {
+  const stripped = stripAutoSearchPreamble(prompt);
+  const normalized = normalizeForVerification(stripped);
+  if (!normalized) return [];
+  const officeWords = new Set(["governador", "prefeito", "presidente", "ministro", "reitor", "ceo", "rector", "chancellor"]);
+  const tokens = normalized
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !OFFICE_STOPWORDS.has(token) && !officeWords.has(token));
+  return Array.from(new Set(tokens)).slice(0, 5);
+}
+
+function rowMatchesOfficeScope(row: InternetSearchResponse["results"][number], scopeTokens: string[]) {
+  if (!scopeTokens.length) return true;
+  const haystack = normalizeForVerification(`${row.title || ""} ${row.snippet || ""} ${row.url || ""}`);
+  const matchedTokens = scopeTokens.filter((token) => {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`);
+    return pattern.test(haystack);
+  });
+  const minimumMatches = Math.min(2, scopeTokens.length);
+  return matchedTokens.length >= minimumMatches;
+}
+
+function normalizeOfficeCandidateName(raw: string) {
+  let value = `${raw || ""}`.trim();
+  if (!value) return "";
+  value = value.replace(/\[[^\]]+\]/g, " ");
+  value = value.replace(/\([^)]+\)/g, " ");
+  value = value.replace(/<[^>]+>/g, " ");
+  value = value.replace(/["'`]/g, "");
+  value = value.replace(/\s+/g, " ").trim();
+  if (!/[A-Z]/.test(value)) {
+    value = value.replace(/\b(\p{L})(\p{L}*)\b/gu, (_match, first: string, rest: string) => {
+      return `${first.toUpperCase()}${rest.toLowerCase()}`;
+    });
+  }
+  if (value.length < 3) return "";
+  return value.slice(0, 120);
+}
+
+function isLikelyOfficeHolderName(candidate: string) {
+  const value = `${candidate || ""}`.trim();
+  if (!value || value.length < 4) return false;
+  if (/\d/.test(value)) return false;
+  const normalized = normalizeForVerification(value);
+  if (!normalized) return false;
+  const blockedTerms = [
+    "reconduzido",
+    "reeleito",
+    "eleito",
+    "incumbente",
+    "titular",
+    "atual",
+    "prefeito",
+    "governador",
+    "presidente",
+    "ministro",
+    "mandato",
+    "governo",
+  ];
+  if (blockedTerms.some((term) => normalized.includes(term))) return false;
+
+  const connectorPattern = /^(da|de|do|das|dos|e|d['Ã¢â‚¬â„¢]|del|la|el)$/i;
+  const tokens = value
+    .split(/\s+/g)
+    .map((token) => token.replace(/^[^\p{L}]+|[^\p{L}.'Ã¢â‚¬â„¢-]+$/gu, ""))
+    .filter(Boolean);
+  if (!tokens.length) return false;
+  const significant = tokens.filter((token) => !connectorPattern.test(token));
+  if (significant.length < 2) return false;
+  const blockedNameTokens = new Set([
+    "lei",
+    "acesso",
+    "informacao",
+    "secretaria",
+    "prefeitura",
+    "municipio",
+    "municipal",
+    "cidade",
+    "estado",
+    "governo",
+    "portal",
+    "oficial",
+    "noticia",
+    "eleicao",
+    "eleicoes",
+    "mandato",
+    "prefeito",
+    "governador",
+    "presidente",
+    "rio",
+    "branco",
+    "acre",
+  ]);
+  for (const token of significant) {
+    const normalizedToken = normalizeForVerification(token).replace(/[^a-z]/g, "");
+    if (!normalizedToken) continue;
+    if (blockedNameTokens.has(normalizedToken)) return false;
+  }
+
+  let uppercaseLike = 0;
+  for (const token of significant) {
+    const clean = token.replace(/\.+$/g, "");
+    if (!clean) continue;
+    const looksNamePart = /^\p{Lu}[\p{L}'Ã¢â‚¬â„¢.-]*$/u.test(clean) || /^\p{Lu}\.$/u.test(clean);
+    if (!looksNamePart) return false;
+    uppercaseLike += 1;
+  }
+  return uppercaseLike >= 2;
+}
+
+function stripWikipediaMarkup(value: string) {
+  let output = `${value || ""}`;
+  if (!output) return "";
+  output = output.replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, " ");
+  output = output.replace(/<[^>]+>/g, " ");
+  output = output.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
+  output = output.replace(/\[\[([^\]]+)\]\]/g, "$1");
+  output = output.replace(/\{\{[^{}]*\}\}/g, " ");
+  output = output.replace(/''+/g, "");
+  output = output.replace(/\|/g, " ");
+  output = output.replace(/\s+/g, " ").trim();
+  return output;
+}
+
+function extractWikipediaTitleFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.endsWith("wikipedia.org")) return "";
+    const prefix = "/wiki/";
+    const index = parsed.pathname.indexOf(prefix);
+    if (index < 0) return "";
+    return decodeURIComponent(parsed.pathname.slice(index + prefix.length) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+async function fetchWikipediaOfficeCandidateFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.endsWith("wikipedia.org")) return "";
+    const language = parsed.hostname.startsWith("pt.") ? "pt" : "en";
+    const title = extractWikipediaTitleFromUrl(url);
+    if (!title) return "";
+    const endpoint =
+      `https://${language}.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main` +
+      `&formatversion=2&format=json&titles=${encodeURIComponent(title)}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4_000);
+    try {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "knexit-rag/1.0 (+https://knexit.local)",
+          Accept: "application/json",
+        },
+      });
+      if (!response.ok) return "";
+      const payload = (await response.json()) as {
+        query?: { pages?: Array<{ revisions?: Array<{ slots?: { main?: { content?: string } } }> }> };
+      };
+      const wikiText = payload?.query?.pages?.[0]?.revisions?.[0]?.slots?.main?.content || "";
+      if (!wikiText) return "";
+      const patterns = [
+        /\|\s*incumbente\s*=\s*([^\n]+)/i,
+        /\|\s*incumbent\s*=\s*([^\n]+)/i,
+        /\|\s*titular\s*=\s*([^\n]+)/i,
+        /\|\s*prefeito(?:a)?\s*=\s*([^\n]+)/i,
+        /\|\s*governador(?:a)?\s*=\s*([^\n]+)/i,
+        /\|\s*presidente\s*=\s*([^\n]+)/i,
+        /\|\s*mayor\s*=\s*([^\n]+)/i,
+        /\|\s*governor\s*=\s*([^\n]+)/i,
+      ];
+      for (const pattern of patterns) {
+        const match = wikiText.match(pattern);
+        const candidate = normalizeOfficeCandidateName(stripWikipediaMarkup(match?.[1] || ""));
+        if (candidate && isLikelyOfficeHolderName(candidate)) return candidate;
+      }
+      return "";
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch {
+    return "";
+  }
+}
+
+async function recoverOfficeCandidatesFromWikipedia(rows: Array<InternetSearchResponse["results"][number]>) {
+  const wikipediaUrls = Array.from(
+    new Set(
+      rows
+        .map((row) => `${row.url || ""}`.trim())
+        .filter((url) => url.includes("wikipedia.org/wiki/")),
+    ),
+  ).slice(0, 3);
+  if (!wikipediaUrls.length) return [];
+  const candidates = await Promise.all(wikipediaUrls.map((url) => fetchWikipediaOfficeCandidateFromUrl(url)));
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const normalized = normalizeForVerification(candidate);
+    if (!candidate || !normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(candidate);
+  }
+  return unique;
+}
+
+function scoreOfficeCandidate(candidate: string, rows: Array<InternetSearchResponse["results"][number]>) {
+  const normalizedCandidate = normalizeForVerification(candidate);
+  if (!normalizedCandidate) return 0;
+  let score = 0;
+  for (const row of rows) {
+    const haystack = normalizeForVerification(`${row.title || ""} ${row.snippet || ""}`);
+    if (!haystack || !haystack.includes(normalizedCandidate)) continue;
+    score += 2;
+    if (/\b(atual|incumbente|incumbent|titular|desde|current)\b/.test(haystack)) score += 2;
+    if (/\b(governador|prefeito|presidente|ministro|reitor|governor|president|minister|rector)\b/.test(haystack)) score += 1;
+    if (isTrustedOfficeDomain(extractHostname(row.url))) score += 2;
+  }
+  return score;
+}
+
+function collapseOfficeCandidatesByConsensus(
+  candidates: string[],
+  rows: Array<InternetSearchResponse["results"][number]>,
+) {
+  if (candidates.length <= 1) return candidates;
+  const scored = candidates
+    .map((candidate) => ({
+      candidate,
+      score: scoreOfficeCandidate(candidate, rows),
+    }))
+    .sort((left, right) => right.score - left.score);
+  const top = scored[0];
+  const second = scored[1];
+  if (!top) return [];
+  const hasStrongTopScore = top.score >= 4;
+  const hasClearMargin = !second || top.score >= second.score + 2;
+  if (hasStrongTopScore && hasClearMargin) {
+    return [top.candidate];
+  }
+  return candidates;
+}
+
+function extractOfficeCandidates(prompt: string, rows: Array<InternetSearchResponse["results"][number]>) {
+  if (!isOfficeContextPrompt(prompt)) return [];
+  const scopeTokens = extractOfficeScopeTokens(prompt);
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const patterns = [
+    /Titular atual:\s*([^.;,\n]+)/i,
+    /incumbente\s*[:\-]\s*([^.;,\n]+)/i,
+    /(?:presidencia|presid\u00EAncia)\s+da\s+republica[^.\n]{0,80}?(?:\u00E9|e|:)\s+([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})/iu,
+    /([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})\s*[-|]\s*(?:presidencia|presid\u00EAncia)\s+da\s+republica/iu,
+    /(?:governador|prefeito|presidente|ministro|reitor)[^.\n]{0,80}?\s(?:\u00E9|e|:)\s+([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})/iu,
+    /([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})[^.\n]{0,80}\b(?:prefeito|governador|presidente|ministro|reitor)\b/iu,
+  ];
+  for (const row of rows) {
+    if (!rowMatchesOfficeScope(row, scopeTokens)) continue;
+    const combined = `${row.title || ""}. ${row.snippet || ""}`;
+    for (const pattern of patterns) {
+      const match = combined.match(pattern);
+      const candidate = normalizeOfficeCandidateName(match?.[1] || "");
+      if (!candidate) continue;
+      if (!isLikelyOfficeHolderName(candidate)) continue;
+      const normalized = normalizeForVerification(candidate);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      names.push(candidate);
+      break;
+    }
+  }
+  return names;
+}
+
+function stripAutoSearchPreamble(prompt: string) {
+  let value = `${prompt || ""}`.trim().replace(/\s+/g, " ");
+  if (!value) return "";
+  const patterns = [
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:voce|vc)\s+pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
+    /^(?:por favor[,:\s-]*)?pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
+    /^(?:por favor[,:\s-]*)?me\s+(?:diga|informe|responda)\s+/i,
+    /^(?:e\s+)?(?:o|a)\s+atual\s+/i,
+    /^(?:me\s+d(?:e|\u00EA)\s+o\s+nome\s+(?:do|da|de)\s+)/i,
+    /^(?:e\s+o\s+nome\s+(?:do|da|de)\s+)/i,
+    /^(?:qual\s+(?:e|eh|\u00E9)\s+(?:o|a)\s+nome\s+(?:do|da|de)\s+)/i,
+    /^(?:qual\s+o\s+nome\s+(?:do|da|de)\s+)/i,
+    /^(?:quem\s+(?:e|eh|\u00E9)\s+(?:o|a)\s+)/i,
+  ];
+  for (const pattern of patterns) {
+    value = value.replace(pattern, "");
+  }
+  return value.trim();
+}
+
+function normalizePromptWhitespace(value: string) {
+  return `${value || ""}`.replace(/\s+/g, " ").trim();
+}
+
+function extractOfficeScopePhrase(prompt: string) {
+  const stripped = stripAutoSearchPreamble(prompt);
+  const normalized = normalizePromptWhitespace(stripped);
+  if (!normalized) return "";
+  const match = normalized.match(/\b(?:prefeito|governador|presidente|ministro|reitor)\s+(?:de|do|da)\s+(.+)$/i);
+  if (!match) return "";
+  return normalizePromptWhitespace((match[1] || "").replace(/\b(atual|hoje|agora)\b/gi, "")).slice(0, 96);
+}
+
+function extractOfficeRoleKeyword(prompt: string) {
+  const stripped = stripAutoSearchPreamble(prompt);
+  const normalized = normalizeForVerification(stripped);
+  if (!normalized) return "";
+  const match = normalized.match(/\b(prefeito|governador|presidente|ministro|reitor)\b/);
+  return (match?.[1] || "").trim();
+}
+
 function buildAutoSearchQueries(prompt: string) {
-  const base = `${prompt || ""}`.trim();
-  if (!base) return [];
+  const raw = `${prompt || ""}`.trim();
+  if (!raw) return [];
+  const base = stripAutoSearchPreamble(raw) || raw;
+  const scopePhrase = extractOfficeScopePhrase(base);
+  const officeRole = extractOfficeRoleKeyword(base);
   const maxQueries = Number.isFinite(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_QUERIES))
     ? Math.max(1, Math.min(5, Math.trunc(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_QUERIES))))
-    : 3;
-  const candidates = [base, `${base} site:gov.br`, `${base} site:wikipedia.org`, `${base} atualizado`];
+    : 4;
+  const normalized = normalizeForVerification(base);
+  const asksOfficeContext = isOfficeContextPrompt(base);
+  const asksUsOffice = asksOfficeContext && isUsOfficeQuestion(base);
+  const asksBrazilOffice = asksOfficeContext && isBrazilOfficeQuestion(base);
+  const candidates = asksUsOffice
+    ? [
+        base,
+        "current president of the united states site:whitehouse.gov",
+        `${base} site:wikipedia.org`,
+        "president of the united states wikipedia incumbent",
+        "current president of the united states site:reuters.com",
+        "current president of the united states site:apnews.com",
+        `${base} site:whitehouse.gov`,
+        `${base} site:reuters.com`,
+        `${base} site:apnews.com`,
+        `${base} site:bbc.com`,
+        `${base} site:wikipedia.org`,
+        `${base} latest`,
+        `${base} atualizado`,
+      ]
+    : asksBrazilOffice
+      ? [
+          base,
+          `"${base}"`,
+          scopePhrase && officeRole === "prefeito" ? `prefeito de ${scopePhrase} prefeitura` : "",
+          scopePhrase && officeRole ? `${officeRole} de ${scopePhrase} site:gov.br` : "",
+          scopePhrase && officeRole ? `${officeRole} de ${scopePhrase} site:wikipedia.org` : "",
+          officeRole === "presidente" ? "presidencia da republica brasil site:gov.br" : "",
+          scopePhrase ? `${scopePhrase} site:wikipedia.org` : "",
+          `${base} prefeitura`,
+          `${base} site:wikipedia.org`,
+          `${base} site:gov.br`,
+          `${base} site:agenciabrasil.ebc.com.br`,
+          `${base} site:g1.globo.com`,
+          `${base} site:uol.com.br`,
+          `${base} site:cnnbrasil.com.br`,
+          `${base} atualizado`,
+          `${base} governo`,
+          `${base} titular atual`,
+        ]
+    : [
+        base,
+        `${base} site:.gov`,
+        `${base} site:gov.br`,
+        `${base} site:reuters.com`,
+        `${base} site:apnews.com`,
+        `${base} site:bbc.com`,
+        `${base} site:wikipedia.org`,
+        `${base} latest`,
+        `${base} atualizado`,
+      ];
   const unique: string[] = [];
   const seen = new Set<string>();
   for (const query of candidates) {
@@ -322,57 +939,332 @@ function buildAutoSearchQueries(prompt: string) {
   return unique;
 }
 
+function stripSearchOperatorsFromQuery(value: string) {
+  return `${value || ""}`
+    .replace(/\bsite:[^\s]+/gi, " ")
+    .replace(/\bfiletype:[^\s]+/gi, " ")
+    .replace(/\binurl:[^\s]+/gi, " ")
+    .replace(/\bintitle:[^\s]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildAutoSearchRecoveryQueries(prompt: string, attemptedQueries: string[]) {
+  const maxRecoveryQueries = Number.isFinite(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_RECOVERY_QUERIES))
+    ? Math.max(1, Math.min(8, Math.trunc(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_RECOVERY_QUERIES))))
+    : 4;
+  const base = stripAutoSearchPreamble(prompt) || prompt.trim();
+  const scopePhrase = extractOfficeScopePhrase(base);
+  const officeRole = extractOfficeRoleKeyword(base);
+  const normalizedPrompt = normalizeForVerification(base);
+  const currentOfficeQuestion = isOfficeContextPrompt(base);
+  const asksUsOffice = currentOfficeQuestion && isUsOfficeQuestion(base);
+  const asksBrazilOffice = currentOfficeQuestion && isBrazilOfficeQuestion(base);
+  const candidates: string[] = [
+    stripSearchOperatorsFromQuery(base),
+    `${stripSearchOperatorsFromQuery(base)} wikipedia`,
+    `${stripSearchOperatorsFromQuery(base)} titular atual`,
+    `${stripSearchOperatorsFromQuery(base)} incumbente`,
+    `${stripSearchOperatorsFromQuery(base)} hoje`,
+  ];
+
+  if (asksUsOffice) {
+    candidates.push(
+      "who is the current president of the united states",
+      "president of the united states incumbent wikipedia",
+      "current president united states whitehouse",
+    );
+  }
+  if (asksBrazilOffice) {
+    candidates.push(
+      scopePhrase && officeRole === "prefeito" ? `prefeito de ${scopePhrase} prefeitura` : "",
+      scopePhrase && officeRole ? `${officeRole} de ${scopePhrase} site:gov.br` : "",
+      scopePhrase && officeRole ? `${officeRole} de ${scopePhrase} site:wikipedia.org` : "",
+      officeRole === "presidente" ? "presidencia da republica brasil site:gov.br" : "",
+      scopePhrase ? `${scopePhrase} site:wikipedia.org` : "",
+      `${stripSearchOperatorsFromQuery(base)} site:gov.br`,
+      `${stripSearchOperatorsFromQuery(base)} site:wikipedia.org`,
+      `${stripSearchOperatorsFromQuery(base)} governo`,
+    );
+  }
+  if (!currentOfficeQuestion && normalizedPrompt) {
+    candidates.push(`${stripSearchOperatorsFromQuery(base)} source`, `${stripSearchOperatorsFromQuery(base)} official source`);
+  }
+
+  const attempted = new Set(
+    attemptedQueries
+      .map((query) => query.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const query = `${candidate || ""}`.trim();
+    if (!query) continue;
+    const normalized = query.toLowerCase();
+    if (seen.has(normalized) || attempted.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(query);
+    if (unique.length >= maxRecoveryQueries) break;
+  }
+  return unique;
+}
+
+async function collectAutomaticWebResults(queries: string[]) {
+  const allResults: Array<InternetSearchResponse["results"][number]> = [];
+  const providers = new Set<string>();
+  const executedQueries: string[] = [];
+  const payloads = await Promise.allSettled(
+    queries.map((query) => internetSearchService.search({ query, preferPdf: false })),
+  );
+  for (let index = 0; index < payloads.length; index += 1) {
+    const result = payloads[index];
+    const query = queries[index] || "";
+    if (!query) continue;
+    executedQueries.push(query);
+    if (result.status === "rejected") {
+      console.warn("KNEXAI_AUTO_WEB_SEARCH_QUERY_FAILED", {
+        query,
+        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+      continue;
+    }
+    const payload = result.value;
+    if (!payload) continue;
+    for (const provider of payload.providersUsed || []) {
+      if (provider) providers.add(provider);
+    }
+    if (payload.provider && payload.provider !== "multi") {
+      providers.add(payload.provider);
+    }
+    if (!Array.isArray(payload.results) || !payload.results.length) continue;
+    allResults.push(...payload.results);
+  }
+  return {
+    allResults,
+    providers: Array.from(providers),
+    executedQueries,
+  };
+}
+
 async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidence | null> {
   const autoEnabled = parseOptionalBoolean(process.env.KNEXAI_AUTO_WEB_SEARCH_ENABLED) !== false;
   const forceMultiSource = parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
   if (!autoEnabled) return null;
   if (!internetSearchService.isEnabled()) return null;
-  if (!forceMultiSource && !isVerifiableQuestionForAutoSearch(prompt)) return null;
+  const shouldSearchThisPrompt = isVerifiableQuestionForAutoSearch(prompt) || isVerificationFollowUpPrompt(prompt);
+  if (!shouldSearchThisPrompt) return null;
 
-  const queries = buildAutoSearchQueries(prompt);
-  if (!queries.length) return null;
+  const primaryQueries = buildAutoSearchQueries(prompt);
+  if (!primaryQueries.length) return null;
 
-  const allResults: Array<InternetSearchResponse["results"][number]> = [];
-  for (const query of queries) {
-    try {
-      const payload = await internetSearchService.search({ query, preferPdf: false });
-      if (!payload || !Array.isArray(payload.results) || !payload.results.length) continue;
-      allResults.push(...payload.results);
-    } catch (error) {
-      console.warn("KNEXAI_AUTO_WEB_SEARCH_QUERY_FAILED", {
-        query,
-        message: error instanceof Error ? error.message : String(error),
-      });
+  const minDistinctDomains = forceMultiSource ? 2 : 1;
+  const minProviderCoverage = forceMultiSource ? 2 : 1;
+  let aggregatedResults = await collectAutomaticWebResults(primaryQueries);
+  const shouldRecover =
+    parseOptionalBoolean(process.env.KNEXAI_AUTO_WEB_SEARCH_ENABLE_RECOVERY) !== false;
+  if (shouldRecover) {
+    const previewRows = dedupeUrls(aggregatedResults.allResults, 16);
+    const previewDomains = new Set(previewRows.map((row) => extractHostname(row.url)).filter(Boolean));
+    const needsRecovery =
+      previewRows.length < Math.max(2, minDistinctDomains) ||
+      previewDomains.size < minDistinctDomains ||
+      aggregatedResults.providers.length < minProviderCoverage;
+    if (needsRecovery) {
+      const recoveryQueries = buildAutoSearchRecoveryQueries(prompt, aggregatedResults.executedQueries);
+      if (recoveryQueries.length) {
+        console.info("KNEXAI_AUTO_WEB_SEARCH_RECOVERY", {
+          prompt,
+          reason: {
+            resultCount: previewRows.length,
+            domainCount: previewDomains.size,
+            providerCount: aggregatedResults.providers.length,
+            minDistinctDomains,
+            minProviderCoverage,
+          },
+          recoveryQueries,
+        });
+        const recoveryResults = await collectAutomaticWebResults(recoveryQueries);
+        aggregatedResults = {
+          allResults: [...aggregatedResults.allResults, ...recoveryResults.allResults],
+          providers: Array.from(new Set([...aggregatedResults.providers, ...recoveryResults.providers])),
+          executedQueries: [...aggregatedResults.executedQueries, ...recoveryResults.executedQueries],
+        };
+      }
     }
   }
+
+  const allResults = aggregatedResults.allResults;
+  const executedQueryCount = aggregatedResults.executedQueries.length;
   if (!allResults.length) {
     if (!forceMultiSource) return null;
     const missingBlock = [
       "[WEB_VERIFIED_CONTEXT]",
       `Pergunta: ${prompt.trim()}`,
-      "Consultas executadas: 0",
+      `Consultas executadas: ${executedQueryCount}`,
       "Status: nenhuma fonte web recuperada neste turno.",
       "Regra: nao responder fato verificavel por memoria; informar falha de verificacao web e solicitar nova tentativa.",
       "[/WEB_VERIFIED_CONTEXT]",
     ].join("\n");
     return {
       contextBlock: missingBlock,
-      queryCount: 0,
+      queryCount: executedQueryCount,
       resultCount: 0,
       sources: [],
+      domainCount: 0,
+      officeCandidates: [],
     };
   }
 
   const maxResults = Number.isFinite(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_MAX_RESULTS))
     ? Math.max(2, Math.min(12, Math.trunc(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_MAX_RESULTS))))
     : 8;
-  const selected = dedupeUrls(allResults, maxResults);
+  let selected = dedupeUrls(allResults, Math.max(24, maxResults * 3));
   if (!selected.length) return null;
+  const officeContextQuestion = isOfficeContextPrompt(prompt);
+  if (officeContextQuestion) {
+    const isUsQuestion = isUsOfficeQuestion(prompt);
+    const trustedSelected = selected.filter((row) => isTrustedOfficeDomain(extractHostname(row.url)));
+    const minTrustedForOffice = isUsQuestion ? 2 : 1;
+    if (trustedSelected.length >= minTrustedForOffice) {
+      const byDomain = new Map<string, InternetSearchResponse["results"][number]>();
+      const diversified: InternetSearchResponse["results"][number][] = [];
+      for (const row of trustedSelected) {
+        const domain = extractHostname(row.url);
+        if (!domain || byDomain.has(domain)) continue;
+        byDomain.set(domain, row);
+        diversified.push(row);
+      }
+      const remainder = trustedSelected.filter((row) => !diversified.includes(row));
+      selected = [...diversified, ...remainder];
+    } else if (forceMultiSource && isUsQuestion) {
+      const trustedInsufficientBlock = [
+        "[WEB_VERIFIED_CONTEXT]",
+        `Pergunta: ${prompt.trim()}`,
+        `Consultas executadas: ${executedQueryCount}`,
+        "Status: fontes de autoridade insuficientes para confirmar cargo atual.",
+        "Regra: nao responder fato verificavel por memoria; solicitar nova tentativa de verificacao.",
+        "[/WEB_VERIFIED_CONTEXT]",
+      ].join("\n");
+      return {
+        contextBlock: trustedInsufficientBlock,
+        queryCount: executedQueryCount,
+        resultCount: 0,
+        sources: selected.map((row) => `${row.url || ""}`.trim()).filter(Boolean),
+        domainCount: 0,
+        officeCandidates: [],
+      };
+    }
+  }
+  if (officeContextQuestion) {
+    const scopeTokens = extractOfficeScopeTokens(prompt);
+    const scopedPreview = selected.slice(0, 8).map((row) => {
+      const haystack = normalizeForVerification(`${row.title || ""} ${row.snippet || ""} ${row.url || ""}`);
+      const matchedTokens = scopeTokens.filter((token) => {
+        const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const pattern = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`);
+        return pattern.test(haystack);
+      });
+      return {
+        url: row.url,
+        matchedTokens,
+      };
+    });
+    console.info("KNEXAI_OFFICE_SCOPE_FILTER", {
+      prompt,
+      scopeTokens,
+      preview: scopedPreview,
+    });
+    const scopeFiltered = selected.filter((row) => rowMatchesOfficeScope(row, scopeTokens));
+    selected = scopeFiltered;
+  }
+  if (!selected.length && officeContextQuestion) {
+    const scopedInsufficientBlock = [
+      "[WEB_VERIFIED_CONTEXT]",
+      `Pergunta: ${prompt.trim()}`,
+      `Consultas executadas: ${executedQueryCount}`,
+      "Status: resultados sem aderencia ao escopo geogrÃƒÂ¡fico/temÃƒÂ¡tico da pergunta.",
+      "Regra: nao responder fato verificavel por memoria; solicitar nova tentativa de verificacao.",
+      "[/WEB_VERIFIED_CONTEXT]",
+    ].join("\n");
+    return {
+      contextBlock: scopedInsufficientBlock,
+      queryCount: executedQueryCount,
+      resultCount: 0,
+      sources: [],
+      domainCount: 0,
+      officeCandidates: [],
+    };
+  }
+  selected = selected.slice(0, maxResults);
+  const selectedDomains = Array.from(new Set(selected.map((row) => extractHostname(row.url)).filter(Boolean)));
+  const hasTrustedAuthority = selected.some((row) => isTrustedOfficeDomain(extractHostname(row.url)));
+  let officeCandidates = extractOfficeCandidates(prompt, selected);
+  if (!officeCandidates.length && officeContextQuestion) {
+    const recovered = await recoverOfficeCandidatesFromWikipedia(selected);
+    if (recovered.length) {
+      officeCandidates = recovered;
+    }
+  }
+  officeCandidates = collapseOfficeCandidatesByConsensus(officeCandidates, selected);
+  if (!officeCandidates.length && officeContextQuestion) {
+    console.info("KNEXAI_OFFICE_CANDIDATE_EMPTY_SAMPLE", {
+      prompt,
+      samples: selected.slice(0, 5).map((row) => ({
+        title: `${row.title || ""}`.slice(0, 180),
+        snippet: `${row.snippet || ""}`.slice(0, 220),
+        url: row.url,
+      })),
+    });
+  }
+  if (selectedDomains.length < minDistinctDomains) {
+    if (officeContextQuestion && hasTrustedAuthority) {
+      const lines: string[] = [];
+      lines.push("[WEB_VERIFIED_CONTEXT]");
+      lines.push(`Pergunta: ${prompt.trim()}`);
+      lines.push(`Consultas executadas: ${executedQueryCount}`);
+      lines.push(
+        `Status: cobertura parcial (${selectedDomains.length}/${minDistinctDomains} dominios), com ao menos uma fonte de autoridade.`,
+      );
+      selected.forEach((row, index) => {
+        const title = `${row.title || `Fonte ${index + 1}`}`.trim();
+        const snippet = `${row.snippet || ""}`.trim();
+        lines.push(`${index + 1}. ${title}`);
+        lines.push(`URL: ${row.url}`);
+        if (snippet) lines.push(`Trecho: ${snippet}`);
+      });
+      lines.push("[/WEB_VERIFIED_CONTEXT]");
+      return {
+        contextBlock: lines.join("\n"),
+        queryCount: executedQueryCount,
+        resultCount: selected.length,
+        sources: selected.map((row) => `${row.url || ""}`.trim()).filter(Boolean),
+        domainCount: selectedDomains.length,
+        officeCandidates,
+      };
+    }
+    const insufficientBlock = [
+      "[WEB_VERIFIED_CONTEXT]",
+      `Pergunta: ${prompt.trim()}`,
+      `Consultas executadas: ${executedQueryCount}`,
+      `Status: fontes insuficientes para validacao multifonte (${selectedDomains.length}/${minDistinctDomains} dominios distintos).`,
+      "Regra: nao responder fato verificavel por memoria; solicitar nova tentativa de verificacao.",
+      "[/WEB_VERIFIED_CONTEXT]",
+    ].join("\n");
+    return {
+      contextBlock: insufficientBlock,
+      queryCount: executedQueryCount,
+      resultCount: 0,
+      sources: selected.map((row) => `${row.url || ""}`.trim()).filter(Boolean),
+      domainCount: selectedDomains.length,
+      officeCandidates: [],
+    };
+  }
 
   const lines: string[] = [];
   lines.push("[WEB_VERIFIED_CONTEXT]");
   lines.push(`Pergunta: ${prompt.trim()}`);
-  lines.push(`Consultas executadas: ${queries.length}`);
+  lines.push(`Consultas executadas: ${executedQueryCount}`);
   selected.forEach((row, index) => {
     const title = `${row.title || `Fonte ${index + 1}`}`.trim();
     const snippet = `${row.snippet || ""}`.trim();
@@ -384,9 +1276,11 @@ async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidenc
 
   return {
     contextBlock: lines.join("\n"),
-    queryCount: queries.length,
+    queryCount: executedQueryCount,
     resultCount: selected.length,
     sources: selected.map((row) => `${row.url || ""}`.trim()).filter(Boolean),
+    domainCount: selectedDomains.length,
+    officeCandidates,
   };
 }
 
@@ -725,8 +1619,14 @@ function buildEngineCompositeError(attempts: Array<EngineAttempt<unknown>>) {
 function stripConversationRoleArtifacts(text: string) {
   let output = `${text || ""}`.trim();
   if (!output) return "";
-  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant|resposta|answer)\s*[:：-]\s*/i, "");
-  const markerIndex = output.search(/\b(?:usuario|user|assistente|assistant)\s*[:：]/i);
+  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant|resposta|answer)\s*[:ÃƒÂ¯Ã‚Â¼Ã…Â¡-]\s*/i, "");
+  output = output.replace(/\[(?:end(?:\s+of)?\s+(?:response|answer)|fim da resposta|fim da mensagem)\]/gi, " ");
+  output = output.replace(/\[\s*\/?end(?:_of)?_response\s*\]/gi, " ");
+  output = output.replace(/\[\s*no response intended[^\]\n]*\]?/gi, " ");
+  output = output.replace(/\bno response intended(?: beyond this greeting)?\.?/gi, " ");
+  output = output.replace(/<\|eot_id\|>/gi, " ");
+  output = output.replace(/<\/?end(?:_of)?_response>/gi, " ");
+  const markerIndex = output.search(/\b(?:usuario|user|assistente|assistant)\s*[:ÃƒÂ¯Ã‚Â¼Ã…Â¡]/i);
   if (markerIndex >= 0) {
     output = output.slice(0, markerIndex).trim();
   }
@@ -762,6 +1662,24 @@ function normalizeHistory(value: unknown): ChatHistoryItem[] {
   }
   // Mantem uma janela maior para preservar continuidade semantica entre turnos.
   return items.slice(-16);
+}
+
+function filterHistoryForVerifiable(history: ChatHistoryItem[]) {
+  if (!history.length) return [];
+  const keepAssistantCited =
+    parseOptionalBoolean(process.env.KNEXAI_KEEP_ASSISTANT_HISTORY_FOR_VERIFIABLE) !== false;
+  const kept: ChatHistoryItem[] = [];
+  for (const item of history.slice(-16)) {
+    if (item.role === "user") {
+      kept.push(item);
+      continue;
+    }
+    if (!keepAssistantCited) continue;
+    if (/(?:fontes?:|sources?:|fuentes?:|\[WEB_VERIFIED_CONTEXT\]|titular atual verificado|verified current office holder)/i.test(item.content)) {
+      kept.push(item);
+    }
+  }
+  return kept.slice(-10);
 }
 
 function parseOptionalBooleanFromBody(value: unknown) {
@@ -959,11 +1877,11 @@ function isMicroSocialPrompt(prompt: string): boolean {
   if (words.length > 8 || normalized.length > 60) return false;
 
   const microSocialPatterns = [
-    /^(oi|ola|ol[a�]|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
+    /^(oi|ola|ol[aÃƒÂ¯Ã‚Â¿Ã‚Â½]|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
     /^(bom dia|boa tarde|boa noite)$/i,
     /^(blz|beleza|tudo bem|td bem|como vai|como vc esta|como voce esta|how are you|que tal)$/i,
     /^(nada por agora|nada agora|de boa|tranquilo|ok|okay|ok obrigado|obrigado|obg|valeu)$/i,
-    /^(ate logo|at[e�] logo|ate mais|at[e�] mais|tchau|falou|ate breve|at[e�] breve|bye)$/i,
+    /^(ate logo|at[eÃƒÂ¯Ã‚Â¿Ã‚Â½] logo|ate mais|at[eÃƒÂ¯Ã‚Â¿Ã‚Â½] mais|tchau|falou|ate breve|at[eÃƒÂ¯Ã‚Â¿Ã‚Â½] breve|bye)$/i,
   ];
 
   return microSocialPatterns.some((pattern) => pattern.test(compact));
@@ -980,10 +1898,10 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
   const charCount = normalized.length;
 
   const directIntentPatterns = [
-    /\b(sin[oô]nimo|sinonimo|sin[oô]nimos|sinonimos|ant[oô]nimo|antonimo|ant[oô]nimos|antonimos)\b/i,
-    /\b(traduz|traduza|tradu[cç][aã]o|translation)\b/i,
-    /\b(defina|defini[cç][aã]o|o que significa|significa)\b/i,
-    /\b(corrija|corre[cç][aã]o|ortografia|gram[áa]tica)\b/i,
+    /\b(sin[oÃƒÆ’Ã‚Â´]nimo|sinonimo|sin[oÃƒÆ’Ã‚Â´]nimos|sinonimos|ant[oÃƒÆ’Ã‚Â´]nimo|antonimo|ant[oÃƒÆ’Ã‚Â´]nimos|antonimos)\b/i,
+    /\b(traduz|traduza|tradu[cÃƒÆ’Ã‚Â§][aÃƒÆ’Ã‚Â£]o|translation)\b/i,
+    /\b(defina|defini[cÃƒÆ’Ã‚Â§][aÃƒÆ’Ã‚Â£]o|o que significa|significa)\b/i,
+    /\b(corrija|corre[cÃƒÆ’Ã‚Â§][aÃƒÆ’Ã‚Â£]o|ortografia|gram[ÃƒÆ’Ã‚Â¡a]tica)\b/i,
     /\b(responda em uma frase|responda curto|resuma em uma frase|bem curto)\b/i,
   ];
   const directIntent = directIntentPatterns.some((pattern) => pattern.test(normalized));
@@ -998,7 +1916,7 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
     "passo a passo",
     "arquitetura",
     "estrategia",
-    "estratégia",
+    "estratÃƒÆ’Ã‚Â©gia",
     "plano",
     "trade-off",
     "vantagens e desvantagens",
@@ -1855,26 +2773,56 @@ export async function POST(req: NextRequest) {
     const requestedStreamMode = parseStreamModeFromBody(body?.streamMode);
     const acceptHeader = `${req.headers.get("accept") || ""}`.toLowerCase();
     const streamMode = requestedStreamMode || (acceptHeader.includes("text/event-stream") ? "sse" : "plain");
+    const normalizedHistory = normalizeHistory(history);
+    const verificationTargetPrompt = resolveVerificationTargetPrompt(safePrompt, normalizedHistory);
 
     const hasDocumentScope =
       Boolean(documentId) ||
       Boolean(documentIds?.length) ||
       Boolean(composerAttachmentIds?.length) ||
       composerBound === true;
-    const forceRagForVerifiable = true;
-    const verifiableQuestion = isVerifiableQuestionForAutoSearch(safePrompt);
-    const forceRag =
-      parseOptionalBooleanFromBody(body?.forceRag) === true ||
-      hasDocumentScope ||
-      (forceRagForVerifiable && verifiableQuestion);
+    const forceWebMultiSourceDefault = parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
+    const forceWebMultiSourceFromBody = parseOptionalBooleanFromBody(
+      body?.forceWebMultiSource ?? body?.forceWebVerification ?? body?.forceWebSearch,
+    );
+    const forceWebMultiSourceSetting =
+      typeof forceWebMultiSourceFromBody === "boolean" ? forceWebMultiSourceFromBody : forceWebMultiSourceDefault;
+    const forceRagForVerifiable = parseOptionalBoolean(process.env.KNEXAI_FORCE_RAG_FOR_VERIFIABLE) === true;
+    const forceDirectForVerifiableDefault = parseOptionalBoolean(process.env.KNEXAI_FORCE_DIRECT_FOR_VERIFIABLE) === true;
+    const forceDirectForVerifiableFromBody = parseOptionalBooleanFromBody(
+      body?.forceDirectForVerifiable ?? body?.forceDirectVerificationEngine,
+    );
+    const forceDirectForVerifiable =
+      typeof forceDirectForVerifiableFromBody === "boolean"
+        ? forceDirectForVerifiableFromBody
+        : forceDirectForVerifiableDefault;
+    const requestedForceRag = parseOptionalBooleanFromBody(body?.forceRag) === true;
+    const cascade = resolveVerificationCascadePlan({
+      prompt: verificationTargetPrompt,
+      hasDocumentScope,
+      requestedForceRag,
+      forceWebMultiSource: forceWebMultiSourceSetting,
+      forceRagForVerifiable,
+      forceDirectForVerifiable,
+    });
+    const forceWebMultiSource = cascade.forceWebMultiSource;
+    const verifiableQuestion = cascade.verifiableQuestion;
+    const forceRag = cascade.forceRag;
+    const shouldForceFullRagMode = cascade.shouldForceFullRagMode;
+    const shouldRequireWebBeforeRag = cascade.shouldRequireWebBeforeRag;
+    const filteredHistoryForVerifiable: ChatHistoryItem[] =
+      parseOptionalBoolean(process.env.KNEXAI_FILTER_ASSISTANT_HISTORY_FOR_VERIFIABLE) !== false
+        ? filterHistoryForVerifiable(normalizedHistory)
+        : normalizedHistory;
+    logVerificationCascadeStage("classify", cascade, { hasDocumentScope, requestedForceRag });
 
-    if (!forceRag && isCurrentDatePrompt(safePrompt)) {
+    if (!forceRag && !forceWebMultiSource && isCurrentDatePrompt(safePrompt)) {
       return new Response(createChunkedTextStream(buildCurrentDateAnswer()), {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
-    if (!forceRag && isMicroSocialPrompt(safePrompt)) {
+    if (!forceRag && !forceWebMultiSource && isMicroSocialPrompt(safePrompt)) {
       return new Response(createChunkedTextStream(buildMicroSocialAnswer(safePrompt)), {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -1895,26 +2843,93 @@ export async function POST(req: NextRequest) {
       (typeof body?.user_key === "string" && body.user_key.trim()) ||
       "chat-session";
 
-    const normalizedHistory = normalizeHistory(history);
+    let autoWebEvidenceForForcedRag: AutoWebEvidence | null = null;
     if (forceRag) {
-      const ragEngineMode = verifiableQuestion ? "anm" : anmEngineModeFromBody || engineMode.mode;
+      if (shouldRequireWebBeforeRag) {
+        logVerificationCascadeStage("search:start", cascade, { routeMode: "force_rag" });
+        autoWebEvidenceForForcedRag = await buildAutomaticWebEvidence(verificationTargetPrompt).catch((error) => {
+          console.warn("KNEXAI_AUTO_WEB_SEARCH_FAILED", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
+        const hasWebEvidence = Boolean(autoWebEvidenceForForcedRag && autoWebEvidenceForForcedRag.resultCount > 0);
+        logVerificationCascadeStage("search:evidence", cascade, {
+          routeMode: "force_rag",
+          hasWebEvidence,
+          resultCount: autoWebEvidenceForForcedRag?.resultCount || 0,
+          domainCount: autoWebEvidenceForForcedRag?.domainCount || 0,
+          queryCount: autoWebEvidenceForForcedRag?.queryCount || 0,
+        });
+        if (!hasWebEvidence) {
+          const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+          return new Response(createChunkedTextStream(fallbackText), {
+            status: 200,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
+        }
+        if (forceWebMultiSource && isCurrentOfficeQuestion(verificationTargetPrompt)) {
+          const officeCandidates = autoWebEvidenceForForcedRag?.officeCandidates || [];
+          if (officeCandidates.length === 1) {
+            const directAnswer = buildDeterministicOfficeAnswer(
+              localeHintFromBody,
+              officeCandidates[0],
+              autoWebEvidenceForForcedRag?.sources || [],
+            );
+            return new Response(createChunkedTextStream(directAnswer), {
+              status: 200,
+              headers: { "Content-Type": "text/plain; charset=utf-8" },
+            });
+          }
+          const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+          return new Response(createChunkedTextStream(fallbackText), {
+            status: 200,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
+        }
+        console.info("KNEXAI_AUTO_WEB_SEARCH_CONTEXT", {
+          verificationPrompt: verificationTargetPrompt,
+          queryCount: autoWebEvidenceForForcedRag?.queryCount || 0,
+          resultCount: autoWebEvidenceForForcedRag?.resultCount || 0,
+          domainCount: autoWebEvidenceForForcedRag?.domainCount || 0,
+          sources: autoWebEvidenceForForcedRag?.sources || [],
+          officeCandidates: autoWebEvidenceForForcedRag?.officeCandidates || [],
+          routePolicy: "force_rag_with_preverified_web",
+        });
+      }
+
+      console.info("KNEXAI_ROUTE_RAG_POLICY", {
+        forceRag,
+        requestedForceRag,
+        verifiableQuestion,
+        verificationTargetPrompt,
+        hasDocumentScope,
+        forceWebMultiSource,
+        shouldForceFullRagMode,
+        shouldRequireWebBeforeRag,
+      });
+
+      const ragEngineMode = shouldForceFullRagMode ? "anm" : anmEngineModeFromBody || engineMode.mode;
       const ragAnmBaseUrl = anmBaseUrlFromBody || engineMode.anmBaseUrl;
       const ragAnmTimeoutMs = anmTimeoutMsFromBody || engineMode.anmTimeoutMs;
       const ragAnmSoftTimeoutMs = anmSoftTimeoutMsFromBody || engineMode.anmSoftTimeoutMs;
-      const forceWebMultiSource = parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
       const ragAnmFallbackToDirect =
-        forceWebMultiSource && verifiableQuestion
+        shouldRequireWebBeforeRag
           ? false
           : typeof anmFallbackToDirectFromBody === "boolean"
             ? anmFallbackToDirectFromBody
             : engineMode.fallbackToDirect;
+      const ragMessage =
+        autoWebEvidenceForForcedRag?.contextBlock?.trim()
+          ? `${safePrompt}\n\n${autoWebEvidenceForForcedRag.contextBlock}`
+          : safePrompt;
       const run = await assistantOrchestrator.run({
         requestId: typeof body?.requestId === "string" ? body.requestId : undefined,
         conversationKey: conversationKeyFromBody,
         mode: "chat",
         stream: streamRequested,
-        message: safePrompt,
-        conversation: normalizedHistory,
+        message: ragMessage,
+        conversation: forceWebMultiSource && verifiableQuestion ? filteredHistoryForVerifiable : normalizedHistory,
         attachments: buildAttachmentsFromComposer(composerAttachmentIds, documentIds),
         ragInput: {
           pipelineVersion,
@@ -1926,6 +2941,7 @@ export async function POST(req: NextRequest) {
           documentIds,
           sourceType: sourceType || undefined,
           retrievalEmbeddingModel: retrievalEmbeddingModel || undefined,
+          pipelineModeOverride: shouldForceFullRagMode ? "full" : undefined,
           preferredResponseLanguageId,
           maxResponseTokens,
           temperature,
@@ -1978,7 +2994,7 @@ export async function POST(req: NextRequest) {
       state: conversationState,
       complexity: classifyPromptComplexity(safePrompt),
     };
-    const autoWebEvidence = await buildAutomaticWebEvidence(safePrompt).catch((error) => {
+    const autoWebEvidence = await buildAutomaticWebEvidence(verificationTargetPrompt).catch((error) => {
       console.warn("KNEXAI_AUTO_WEB_SEARCH_FAILED", {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -1987,13 +3003,22 @@ export async function POST(req: NextRequest) {
     const autoWebContextBlock = autoWebEvidence?.contextBlock?.trim() || "";
     if (autoWebEvidence) {
       console.info("KNEXAI_AUTO_WEB_SEARCH_CONTEXT", {
+        verificationPrompt: verificationTargetPrompt,
         queryCount: autoWebEvidence.queryCount,
         resultCount: autoWebEvidence.resultCount,
+        domainCount: autoWebEvidence.domainCount,
         sources: autoWebEvidence.sources,
+        officeCandidates: autoWebEvidence.officeCandidates,
       });
     }
-    const forceWebMultiSource = parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
     const hasWebEvidence = Boolean(autoWebEvidence && autoWebEvidence.resultCount > 0);
+    logVerificationCascadeStage("search:evidence", cascade, {
+      routeMode: "direct_or_anm",
+      hasWebEvidence,
+      resultCount: autoWebEvidence?.resultCount || 0,
+      domainCount: autoWebEvidence?.domainCount || 0,
+      queryCount: autoWebEvidence?.queryCount || 0,
+    });
     if (!forceRag && forceWebMultiSource && verifiableQuestion && !hasWebEvidence) {
       const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
       return new Response(createChunkedTextStream(fallbackText), {
@@ -2001,16 +3026,40 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
+    if (!forceRag && forceWebMultiSource && isCurrentOfficeQuestion(verificationTargetPrompt)) {
+      const officeCandidates = autoWebEvidence?.officeCandidates || [];
+      if (officeCandidates.length === 1) {
+        const directAnswer = buildDeterministicOfficeAnswer(localeHintFromBody, officeCandidates[0], autoWebEvidence?.sources || []);
+        return new Response(createChunkedTextStream(directAnswer), {
+          status: 200,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+      }
+      const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+      return new Response(createChunkedTextStream(fallbackText), {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    const webVerificationPolicyBlock =
+      forceWebMultiSource && verifiableQuestion && hasWebEvidence
+        ? buildWebVerificationResponsePolicy(localeHintFromBody)
+        : "";
 
     const clientSharedIdentityRuntime =
       normalizeRecord(body?.sharedIdentityRuntime) || normalizeRecord(body?.shared_identity_runtime);
     const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
     const promptForAnm = injectConversationStatePrompt(
-      autoWebContextBlock ? `${safePrompt}\n\n${autoWebContextBlock}` : safePrompt,
+      [safePrompt, autoWebContextBlock, webVerificationPolicyBlock].filter(Boolean).join("\n\n"),
       conversationStateBlock,
     );
     const promptForDirect = safePrompt;
-    const directContextBlock = [conversationStateBlock.trim(), identitySharedMemory.promptBlock.trim(), autoWebContextBlock]
+    const directContextBlock = [
+      conversationStateBlock.trim(),
+      identitySharedMemory.promptBlock.trim(),
+      autoWebContextBlock,
+      webVerificationPolicyBlock,
+    ]
       .filter(Boolean)
       .join("\n\n");
     const sharedIdentityRuntimePayload = clientSharedIdentityRuntime
@@ -2020,12 +3069,13 @@ export async function POST(req: NextRequest) {
         }
       : null;
 
-    const safeHistory = sanitizeHistoryForModel(ensurePrompt(normalizedHistory, promptForDirect));
+    const modelHistoryBase = forceWebMultiSource && verifiableQuestion ? filteredHistoryForVerifiable : normalizedHistory;
+    const safeHistory = sanitizeHistoryForModel(ensurePrompt(modelHistoryBase, promptForDirect));
     const effectiveHistory = optimizeHistoryForLatency(
       resolveEffectiveHistory(safeHistory, promptForDirect),
       promptForDirect,
     );
-    const safeAnmHistory = sanitizeHistoryForModel(ensurePrompt(normalizedHistory, promptForDirect));
+    const safeAnmHistory = sanitizeHistoryForModel(ensurePrompt(modelHistoryBase, promptForDirect));
     const anmEffectiveHistory = optimizeHistoryForLatency(
       resolveEffectiveHistory(safeAnmHistory, promptForDirect),
       promptForDirect,
@@ -2036,19 +3086,27 @@ export async function POST(req: NextRequest) {
       localeHint: localeHintFromBody,
       conversationKey: conversationKeyFromBody,
       userKey: userKeyFromBody,
-    };
+      };
+    const forceDirectForVerifiableQuestion = cascade.forceDirectWithoutDocumentScope;
+    const preferredEngineMode: EngineModeConfig = forceDirectForVerifiableQuestion
+      ? { ...engineMode, mode: "direct" }
+      : engineMode;
+    logVerificationCascadeStage("engine:gate", cascade, {
+      selectedEngineMode: preferredEngineMode.mode,
+      configuredEngineMode: engineMode.mode,
+    });
     const anmResolution =
-      engineMode.mode === "anm"
+      preferredEngineMode.mode === "anm"
         ? await resolveReachableAnmBaseUrl({
-            configuredBaseUrl: engineMode.anmBaseUrl,
-            timeoutMs: Math.min(2_000, engineMode.anmSoftTimeoutMs),
+            configuredBaseUrl: preferredEngineMode.anmBaseUrl,
+            timeoutMs: Math.min(2_000, preferredEngineMode.anmSoftTimeoutMs),
             healthPath: "/healthz",
           })
         : null;
     const effectiveEngineMode =
-      anmResolution && engineMode.mode === "anm"
-        ? { ...engineMode, anmBaseUrl: anmResolution.baseUrl }
-        : engineMode;
+      anmResolution && preferredEngineMode.mode === "anm"
+        ? { ...preferredEngineMode, anmBaseUrl: anmResolution.baseUrl }
+        : preferredEngineMode;
 
     if (effectiveEngineMode.mode === "anm") {
       if (effectiveEngineMode.fallbackToDirect) {
@@ -2262,6 +3320,8 @@ export async function POST(req: NextRequest) {
     return safeBackendError(500, "INTERNAL_ERROR", "Erro interno ao processar a requisicao.");
   }
 }
+
+
 
 
 
