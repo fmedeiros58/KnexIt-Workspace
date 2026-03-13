@@ -64,5 +64,80 @@ describe("RagInternetSearchService redundancy", () => {
     expect(fetchedQueries.some((query) => query === "governador do acre")).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("decodes Bing RSS tracking links and returns canonical target URL", async () => {
+    const canonicalUrl = "https://www.whitehouse.gov/administration/";
+    const encodedTarget = `a1${Buffer.from(canonicalUrl, "utf8").toString("base64")}`;
+    const rssPayload = `<?xml version="1.0" encoding="utf-8"?>
+      <rss version="2.0">
+        <channel>
+          <item>
+            <title>Official source</title>
+            <link>https://www.bing.com/ck/a?!&amp;&amp;p=test&amp;u=${encodeURIComponent(encodedTarget)}&amp;ntb=1</link>
+            <description>Current office holder details.</description>
+          </item>
+        </channel>
+      </rss>`;
+
+    const fetchMock = jest.fn(async () =>
+      new Response(rssPayload, {
+        status: 200,
+        headers: { "Content-Type": "application/rss+xml" },
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const service = new RagInternetSearchService({
+      ...process.env,
+      RAG_WEB_SEARCH_ENABLED: "1",
+      RAG_WEB_SEARCH_PROVIDERS: "bing_html",
+      RAG_WEB_SEARCH_MAX_RESULTS: "1",
+      RAG_WEB_SEARCH_CACHE_TTL_MS: "0",
+    });
+
+    const response = await service.search({
+      query: "current president united states whitehouse",
+      preferPdf: false,
+    });
+
+    expect(response).not.toBeNull();
+    expect(response?.results[0]?.url).toBe(canonicalUrl);
+    expect(response?.results[0]?.url).not.toContain("bing.com/ck/a");
+  });
+
+  it("filters low-signal lexical domains when high-signal sources exist", async () => {
+    const fetchMock = jest.fn(async () =>
+      new Response(
+        `<html><body>
+          <a class="result__a" href="https://www.dicio.com.br/presidente/">Significado de presidente</a>
+          <div class="result__snippet">Dicionario.</div>
+          <a class="result__a" href="https://www.whitehouse.gov/administration/">The Administration</a>
+          <div class="result__snippet">Official source.</div>
+        </body></html>`,
+        {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        },
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const service = new RagInternetSearchService({
+      ...process.env,
+      RAG_WEB_SEARCH_ENABLED: "1",
+      RAG_WEB_SEARCH_PROVIDERS: "duckduckgo_html",
+      RAG_WEB_SEARCH_MAX_RESULTS: "2",
+      RAG_WEB_SEARCH_CACHE_TTL_MS: "0",
+    });
+
+    const response = await service.search({
+      query: "presidente dos estados unidos atual",
+      preferPdf: false,
+    });
+
+    expect(response).not.toBeNull();
+    expect(response?.results.some((row) => row.url.includes("whitehouse.gov"))).toBe(true);
+    expect(response?.results.some((row) => row.url.includes("dicio.com.br"))).toBe(false);
+  });
 });
 

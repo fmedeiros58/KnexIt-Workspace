@@ -270,10 +270,6 @@ function buildCurrentDateAnswer() {
   return `Hoje e ${current.weekday}, ${current.date}. (Fuso: ${current.timeZone})`;
 }
 
-function buildVerificationDateStamp() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function buildWebVerificationUnavailableAnswer(localeHint: string) {
   const normalized = `${localeHint || ""}`.trim().toLowerCase();
   if (normalized.startsWith("en")) {
@@ -291,9 +287,8 @@ function buildWebVerificationResponsePolicy(localeHint: string) {
     return [
       "[WEB_VERIFIED_POLICY]",
       "Answer only with facts supported by WEB_VERIFIED_CONTEXT.",
+      "Use natural language and avoid template-like labels.",
       "Start with one direct sentence answering the question.",
-      "Include 'Confidence: high|medium|low' based on evidence consistency.",
-      `Include 'Verified at: ${buildVerificationDateStamp()}' in the final answer.`,
       "At the end, include 'Sources:' with at least 2 distinct URLs used.",
       "If sources conflict, explicitly state uncertainty.",
       "Do not infer unstated historical facts (e.g., predecessors) unless explicitly present in sources.",
@@ -304,9 +299,8 @@ function buildWebVerificationResponsePolicy(localeHint: string) {
     return [
       "[WEB_VERIFIED_POLICY]",
       "Responde solo con hechos respaldados por WEB_VERIFIED_CONTEXT.",
+      "Usa lenguaje natural y evita etiquetas de plantilla.",
       "Comienza con una frase directa que responda a la pregunta.",
-      "Incluye 'Confianza: alta|media|baja' segun consistencia de evidencia.",
-      `Incluye 'Verificado en: ${buildVerificationDateStamp()}' en la respuesta final.`,
       "Al final, incluye 'Fuentes:' con al menos 2 URL distintas utilizadas.",
       "Si hay conflicto entre fuentes, declara la incertidumbre de forma explicita.",
       "No infieras hechos historicos no citados (por ejemplo, predecesores) sin fuente explicita.",
@@ -316,9 +310,8 @@ function buildWebVerificationResponsePolicy(localeHint: string) {
   return [
     "[WEB_VERIFIED_POLICY]",
     "Responda apenas com fatos sustentados pelo bloco WEB_VERIFIED_CONTEXT.",
+    "Use linguagem natural e evite rotulos de template.",
     "Comece com 1 frase objetiva respondendo diretamente a pergunta.",
-    "Inclua 'Confianca: alta|media|baixa' conforme consistencia das evidencias.",
-    `Inclua 'Verificado em: ${buildVerificationDateStamp()}' na resposta final.`,
     "Ao final, inclua 'Fontes:' com pelo menos 2 URLs distintas usadas.",
     "Se houver conflito entre as fontes, declare a incerteza explicitamente.",
     "Nao infira fatos historicos nao citados (ex.: antecessores) sem fonte explicita.",
@@ -328,7 +321,6 @@ function buildWebVerificationResponsePolicy(localeHint: string) {
 
 function buildDeterministicOfficeAnswer(localeHint: string, candidate: string, sources: string[]) {
   const normalized = `${localeHint || ""}`.trim().toLowerCase();
-  const verifiedAt = buildVerificationDateStamp();
   const sourceList = sources.slice(0, 2).filter(Boolean);
   const sourceSuffix =
     sourceList.length > 0
@@ -339,12 +331,12 @@ function buildDeterministicOfficeAnswer(localeHint: string, candidate: string, s
           : ` Fontes: ${sourceList.join(" | ")}`
       : "";
   if (normalized.startsWith("en")) {
-    return `${candidate}. Confidence: high. Verified at: ${verifiedAt}.${sourceSuffix}`;
+    return `Current office holder: ${candidate}.${sourceSuffix}`;
   }
   if (normalized.startsWith("es")) {
-    return `${candidate}. Confianza: alta. Verificado en: ${verifiedAt}.${sourceSuffix}`;
+    return `Titular actual: ${candidate}.${sourceSuffix}`;
   }
-  return `${candidate}. Confianca: alta. Verificado em: ${verifiedAt}.${sourceSuffix}`;
+  return `Titular atual verificado: ${candidate}.${sourceSuffix}`;
 }
 
 function normalizeForVerification(value: string) {
@@ -518,6 +510,18 @@ function extractHostname(url: string) {
   } catch {
     return "";
   }
+}
+
+function isLowSignalDomain(hostname: string) {
+  const host = `${hostname || ""}`.trim().toLowerCase();
+  if (!host) return false;
+  return (
+    host.includes("dicio.com.br") ||
+    host.includes("sinonimos.com.br") ||
+    host.includes("dicionario.priberam.org") ||
+    host.includes("dicionario.info") ||
+    host.includes("portuguesaletra.com")
+  );
 }
 
 function dedupeUrls(results: Array<InternetSearchResponse["results"][number]>, maxItems: number) {
@@ -842,12 +846,56 @@ function extractOfficeCandidates(prompt: string, rows: Array<InternetSearchRespo
   return names;
 }
 
+function hasMeaningfulSearchScopeForAutoSearch(value: string) {
+  const normalized = normalizeForVerification(value);
+  if (!normalized) return false;
+  if (
+    /\b(presidente|prefeito|governador|ministro|reitor|ceo|rector|chancellor|usa|eua|united states|estados unidos|brasil|brazil|acre)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  const stopwords = new Set([
+    "a",
+    "as",
+    "atual",
+    "current",
+    "da",
+    "das",
+    "de",
+    "do",
+    "dos",
+    "e",
+    "eh",
+    "is",
+    "me",
+    "nome",
+    "o",
+    "of",
+    "os",
+    "qual",
+    "que",
+    "quem",
+    "saber",
+    "the",
+  ]);
+  const tokens = normalized
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopwords.has(token));
+  return tokens.length >= 2;
+}
+
 function stripAutoSearchPreamble(prompt: string) {
   let value = `${prompt || ""}`.trim().replace(/\s+/g, " ");
   if (!value) return "";
   const patterns = [
     /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
     /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?d(?:e|\u00EA)\s+o\s+nome\s+(?:do|da|de)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?d(?:e|\u00EA)\s+o\s+nome\s+(?:do|da|de)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+saber\s+(?:o\s+nome\s+)?(?:do|da|de)\s+/i,
     /^(?:por favor[,:\s-]*)?(?:voce|vc)\s+pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
     /^(?:por favor[,:\s-]*)?pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
     /^(?:por favor[,:\s-]*)?me\s+(?:diga|informe|responda)\s+/i,
@@ -861,7 +909,9 @@ function stripAutoSearchPreamble(prompt: string) {
   for (const pattern of patterns) {
     value = value.replace(pattern, "");
   }
-  return value.trim();
+  const stripped = value.trim();
+  if (!stripped) return "";
+  return hasMeaningfulSearchScopeForAutoSearch(stripped) ? stripped : `${prompt || ""}`.trim();
 }
 
 function normalizePromptWhitespace(value: string) {
@@ -1139,6 +1189,10 @@ async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidenc
     : 8;
   let selected = dedupeUrls(allResults, Math.max(24, maxResults * 3));
   if (!selected.length) return null;
+  const highSignalSelected = selected.filter((row) => !isLowSignalDomain(extractHostname(row.url)));
+  if (highSignalSelected.length) {
+    selected = highSignalSelected;
+  }
   const officeContextQuestion = isOfficeContextPrompt(prompt);
   if (officeContextQuestion) {
     const isUsQuestion = isUsOfficeQuestion(prompt);
@@ -2928,7 +2982,8 @@ export async function POST(req: NextRequest) {
         }
         if (forceWebMultiSource && isCurrentOfficeQuestion(verificationTargetPrompt)) {
           const officeCandidates = autoWebEvidenceForForcedRag?.officeCandidates || [];
-          if (officeCandidates.length === 1) {
+          const domainCount = autoWebEvidenceForForcedRag?.domainCount || 0;
+          if (officeCandidates.length === 1 && domainCount >= 2) {
             const directAnswer = buildDeterministicOfficeAnswer(
               localeHintFromBody,
               officeCandidates[0],
@@ -3086,7 +3141,8 @@ export async function POST(req: NextRequest) {
     }
     if (!forceRag && forceWebMultiSource && isCurrentOfficeQuestion(verificationTargetPrompt)) {
       const officeCandidates = autoWebEvidence?.officeCandidates || [];
-      if (officeCandidates.length === 1) {
+      const domainCount = autoWebEvidence?.domainCount || 0;
+      if (officeCandidates.length === 1 && domainCount >= 2) {
         const directAnswer = buildDeterministicOfficeAnswer(localeHintFromBody, officeCandidates[0], autoWebEvidence?.sources || []);
         return new Response(createChunkedTextStream(directAnswer), {
           status: 200,

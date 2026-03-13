@@ -289,6 +289,30 @@ function stripTrailingAnswerWrapper(text: string) {
   return output;
 }
 
+function stripMantraArtifacts(text: string) {
+  let output = `${text || ""}`;
+  if (!output.trim()) return "";
+  output = output.replace(/\s*\[(?:end of response|fim da resposta)\]\s*$/i, "");
+  output = output
+    .split(/\r?\n/)
+    .filter((line) => {
+      const normalized = normalizeFold(line);
+      if (!normalized) return true;
+      if (/^(confianca|confidence|confianza)\s*:/i.test(normalized)) return false;
+      if (/^(verificado em|verified at|verificado en)\s*:/i.test(normalized)) return false;
+      if (
+        /^(respondo com naturalidade|respondo como uma pessoa util|i respond naturally|i respond as a helpful professional)\b/i.test(
+          normalized,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .join("\n");
+  return output.trim();
+}
+
 function sanitizeChatArtifacts(text: string, userMessage: string) {
   let output = `${text || ""}`;
   if (!output.trim()) return "";
@@ -297,6 +321,7 @@ function sanitizeChatArtifacts(text: string, userMessage: string) {
   output = stripQuestionAnswerEnvelope(output);
   output = stripAnswerLabelPrefix(output);
   output = stripTrailingAnswerWrapper(output);
+  output = stripMantraArtifacts(output);
   output = stripLeadingGreetingForVerifiableQuestion(output, userMessage);
   output = trimOuterParentheses(output);
   output = output.replace(/^\s*[-–—:：]\s*/, "");
