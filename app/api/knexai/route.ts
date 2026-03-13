@@ -9,6 +9,7 @@ import { createRagInternetSearchService, type InternetSearchResponse } from "@/c
 import { RagPipelineError } from "@/core/rag/rag-errors";
 import { toSseStream } from "@/core/rag/streaming-response";
 import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
+import { runPipelineRootBridge } from "../../../ai-system-anm-rag-qis/src/00-myelinated-pipeline-core/pipeline-root-bridge";
 import {
   buildConversationStateSummaryBlock,
   injectConversationStatePrompt,
@@ -100,6 +101,11 @@ type EngineHealthProbeResult = {
   baseUrl?: string;
   attemptedBaseUrls?: string[];
 };
+type DescendingPipelineConfig = {
+  enabled: boolean;
+  strict: boolean;
+  allowVerifiable: boolean;
+};
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1";
 const DEFAULT_MODEL = "mistral-awq";
@@ -154,6 +160,14 @@ function parseOptionalBoolean(value: string | undefined | null): boolean | undef
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return undefined;
+}
+
+function readDescendingPipelineConfig(): DescendingPipelineConfig {
+  return {
+    enabled: true,
+    strict: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_STRICT) !== false,
+    allowVerifiable: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ALLOW_VERIFIABLE) !== false,
+  };
 }
 
 function parseBaseUrlList(value: string) {
@@ -1776,6 +1790,10 @@ function normalizeHistory(value: unknown): ChatHistoryItem[] {
   return items.slice(-16);
 }
 
+function toDescendingRecentTurns(history: ChatHistoryItem[]) {
+  return history.slice(-12).map((item) => ({ role: item.role, content: item.content }));
+}
+
 function filterHistoryForVerifiable(history: ChatHistoryItem[]) {
   if (!history.length) return [];
   const keepAssistantCited =
@@ -2818,6 +2836,7 @@ async function toClientTextStreamResponse(
 export async function GET() {
   const config = readLlmConfig();
   const engineMode = readEngineModeConfig();
+  const descendingPipeline = readDescendingPipelineConfig();
   const anmResolution =
     engineMode.mode === "anm"
       ? await resolveReachableAnmBaseUrl({
@@ -2845,6 +2864,7 @@ export async function GET() {
       modelFallbacks: config.modelFallbacks,
       contextWindow: config.contextWindow,
       maxTokens: config.maxTokens,
+      descendingPipeline,
     },
     { status: 200 },
   );
@@ -2853,6 +2873,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const config = readLlmConfig();
   const engineMode = readEngineModeConfig();
+  const descendingPipelineDefaults = readDescendingPipelineConfig();
 
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -2928,18 +2949,6 @@ export async function POST(req: NextRequest) {
         : normalizedHistory;
     logVerificationCascadeStage("classify", cascade, { hasDocumentScope, requestedForceRag });
 
-    if (!forceRag && !forceWebMultiSource && isCurrentDatePrompt(safePrompt)) {
-      return new Response(createChunkedTextStream(buildCurrentDateAnswer()), {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    }
-    if (!forceRag && !forceWebMultiSource && isMicroSocialPrompt(safePrompt)) {
-      return new Response(createChunkedTextStream(buildMicroSocialAnswer(safePrompt)), {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    }
     const localeHintFromBody =
       (typeof body?.localeHint === "string" && body.localeHint.trim()) ||
       (typeof body?.locale === "string" && body.locale.trim()) ||
@@ -2954,6 +2963,82 @@ export async function POST(req: NextRequest) {
       (typeof body?.userKey === "string" && body.userKey.trim()) ||
       (typeof body?.user_key === "string" && body.user_key.trim()) ||
       "chat-session";
+    const descendingStrictFromBody = parseOptionalBooleanFromBody(
+      body?.descendingPipelineStrict ?? body?.strictDescendingPipeline,
+    );
+    const legacyFallbackFromBody = parseOptionalBooleanFromBody(
+      body?.legacyFallbackEnabled ?? body?.allowLegacyFallback,
+    );
+    const descendingStrict =
+      typeof descendingStrictFromBody === "boolean" ? descendingStrictFromBody : descendingPipelineDefaults.strict;
+    const legacyFallbackEnabled =
+      typeof legacyFallbackFromBody === "boolean"
+        ? legacyFallbackFromBody
+        : parseOptionalBoolean(process.env.KNEXAI_LEGACY_FALLBACK_ENABLED) === true;
+    const descendingInput = {
+      rawMessage: safePrompt,
+      sessionId: conversationKeyFromBody,
+      turnId:
+        (typeof body?.requestId === "string" && body.requestId.trim()) ||
+        `turn-${Date.now()}`,
+      recentTurns: toDescendingRecentTurns(
+        forceWebMultiSource && verifiableQuestion ? filteredHistoryForVerifiable : normalizedHistory,
+      ),
+    };
+
+    try {
+      const run = await runPipelineRootBridge(descendingInput);
+      const sanitized = stripConversationRoleArtifacts(run.responseText || "");
+      const outputText = sanitized || run.responseText || "";
+      if (!outputText) {
+        throw new Error("empty_descending_pipeline_output");
+      }
+      console.info("KNEXAI_DESCENDING_PIPELINE_OK", {
+        route: run.route,
+        traceEvents: run.state.trace.length,
+        confidenceFinal: run.state.confidenceScores.final,
+        strict: descendingStrict,
+        usedAsFinalResponse: true,
+      });
+
+      if (streamRequested) {
+        const textStream = createChunkedTextStream(outputText);
+        const responseStream = streamMode === "sse" ? toSseStream(textStream) : textStream;
+        return new Response(responseStream, {
+          status: 200,
+          headers: {
+            "Content-Type": streamMode === "sse" ? "text/event-stream; charset=utf-8" : "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-KnexAI-Pipeline": "descending",
+            "X-KnexAI-Route": run.route,
+          },
+        });
+      }
+
+      return new Response(createChunkedTextStream(outputText), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "X-KnexAI-Pipeline": "descending",
+          "X-KnexAI-Route": run.route,
+        },
+      });
+    } catch (error) {
+      console.warn("KNEXAI_DESCENDING_PIPELINE_FAILED", {
+        message: error instanceof Error ? error.message : String(error),
+        strict: descendingStrict,
+        legacyFallbackEnabled,
+      });
+      if (descendingStrict || !legacyFallbackEnabled) {
+        throw new LlmRouteError(
+          503,
+          "DESCENDING_PIPELINE_UNAVAILABLE",
+          "Pipeline descendente indisponivel para este turno.",
+        );
+      }
+    }
 
     let autoWebEvidenceForForcedRag: AutoWebEvidence | null = null;
     if (forceRag) {

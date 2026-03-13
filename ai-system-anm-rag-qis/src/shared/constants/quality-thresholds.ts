@@ -1,0 +1,6 @@
+﻿export const QUALITY_THRESHOLDS = {
+  MIN_COHERENCE: 0.65,
+  MIN_RELEVANCE: 0.6,
+  MIN_EPISTEMIC: 0.55,
+  ACCEPT_SCORE: 0.7,
+} as const;
