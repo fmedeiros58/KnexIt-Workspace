@@ -1,4 +1,4 @@
-import { enforceStructure } from "../../src/10-response-structure-engine/structure-enforcer";
+import { enforceStructure } from "../../src/15-response-structure-engine/structure-enforcer";
 
 function shouldRemoveInternalAndDeduplicate() {
   const output = enforceStructure(

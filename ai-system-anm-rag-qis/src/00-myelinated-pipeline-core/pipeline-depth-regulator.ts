@@ -3,12 +3,12 @@
 export function regulatePipelineDepth(route: PipelineRoute) {
   switch (route) {
     case "quantum-state":
-      return 14;
+      return 20;
     case "inferential":
-      return 12;
+      return 18;
     case "reflective":
-      return 10;
+      return 16;
     default:
-      return 9;
+      return 14;
   }
 }

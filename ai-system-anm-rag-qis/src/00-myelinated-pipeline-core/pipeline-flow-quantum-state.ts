@@ -1,7 +1,12 @@
-﻿import type { PipelineRoute } from "../shared/enums/pipeline-enums";
+/**
+ * Responsabilidade do arquivo:
+ * - Encapsular execucao da rota quantum-state.
+ * - Registrar selectedRoute antes de delegar ao descending flow.
+ */
 import type { ProcessingState } from "../bridges/contracts/processing-state";
-import { runInferentialFlow } from "./pipeline-flow-inferential";
+import { runDescendingFlow } from "./pipeline-flow-descending";
 
-export async function runQuantumStateFlow(state: ProcessingState, route: PipelineRoute) {
-  return runInferentialFlow(state, route);
+export async function runQuantumStateFlow(state: ProcessingState) {
+  state.executionPlan.selectedRoute = "quantum-state";
+  return runDescendingFlow(state, "quantum-state");
 }

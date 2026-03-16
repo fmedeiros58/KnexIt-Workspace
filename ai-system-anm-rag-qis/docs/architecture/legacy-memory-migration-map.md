@@ -14,9 +14,9 @@ Run the new descending ANM pipeline as the primary response path and keep `anm_b
 
 ## Memory Taxonomy Migration
 Old `anm_backend/memory` domains are mapped to `ai-system-anm-rag-qis` in:
-- `src/04-memory-and-plasticity-layer/memory-core/legacy-memory-signals.ts`
-- `src/04-memory-and-plasticity-layer/memory-core/legacy-memory-projection.ts`
-- `src/04-memory-and-plasticity-layer/memory-core/legacy-memory-runtime-registry.ts`
+- `src/06-memory-and-plasticity-layer/memory-core/legacy-memory-signals.ts`
+- `src/06-memory-and-plasticity-layer/memory-core/legacy-memory-projection.ts`
+- `src/06-memory-and-plasticity-layer/memory-core/legacy-memory-runtime-registry.ts`
 
 Mapped domains:
 - Global/domainal: `procedural`, `perceptual`, `metacognitive`, `prospective`, `social`, `value`, `attention`, `regulatory`

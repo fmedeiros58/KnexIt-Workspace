@@ -2,7 +2,12 @@ import { generationConfig } from "./generation-config";
 import { modelConfig } from "./model-config";
 
 export interface VllmClient {
-  generate: (prompt: string) => Promise<string>;
+  generate: (
+    prompt: string,
+    options?: {
+      timeoutMs?: number;
+    },
+  ) => Promise<string>;
 }
 
 interface ChatCompletionChoice {
@@ -26,9 +31,10 @@ export function createVllmClient(): VllmClient {
   const endpoint = buildChatCompletionUrl(modelConfig.baseUrl);
 
   return {
-    async generate(prompt: string) {
+    async generate(prompt: string, options = {}) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), Math.max(500, modelConfig.timeoutMs));
+      const timeoutMs = Math.max(500, options.timeoutMs ?? modelConfig.timeoutMs);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         const response = await fetch(endpoint, {

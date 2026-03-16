@@ -47,4 +47,9 @@ export interface ExecutionPlan {
   steps: string[];
   selectedRoute: PipelineRoute;
   maxDepth: number;
+  validationProfile?: "light" | "standard" | "strict";
+  pruningMode?: "aggressive" | "moderate" | "minimal";
+  timeoutMs?: number;
+  retryMaxAttempts?: number;
+  fallbackStrategy?: string;
 }

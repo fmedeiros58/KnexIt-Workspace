@@ -1,7 +1,5 @@
-export function polishFinalText(text: string): string {
-  return text
-    .replace(/\s+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
+﻿/**
+ * Compatibility bridge for legacy path 10-response-structure-engine.
+ * Re-exports canonical module from 15-response-structure-engine.
+ */
+export * from "../15-response-structure-engine/final-text-polisher";

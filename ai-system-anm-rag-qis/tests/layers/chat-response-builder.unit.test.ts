@@ -3,7 +3,7 @@ import { createInitialProcessingState } from "../../src/bridges/contracts/proces
 import {
   buildConversationalFallback,
   isEchoLike,
-} from "../../src/09-reasoning-and-generation-layer/draft-generation-core/chat-response-builder";
+} from "../../src/14-reasoning-and-generation-layer/draft-generation-core/chat-response-builder";
 
 function createChatState(message: string): ProcessingState {
   const state = createInitialProcessingState(message);
@@ -69,9 +69,40 @@ function shouldDetectEcho() {
   }
 }
 
+function shouldNotFallbackForVerifiableQuestionOnNonMinimumRoute() {
+  const state = createChatState("qual o nome do governador do acre?");
+  state.executionPlan.selectedRoute = "quantum-state";
+  const response = buildConversationalFallback(state);
+  if (response !== null) {
+    throw new Error("verifiable question on non-minimum route should not use conversational fallback");
+  }
+}
+
+function shouldNotFallbackForResearchRequestEvenOnMinimumRoute() {
+  const state = createChatState(
+    "vc pode buscar um artigo sobre alostase em adolescentes em vulnerabilidade social?",
+  );
+  state.executionPlan.selectedRoute = "minimum";
+  const response = buildConversationalFallback(state);
+  if (response !== null) {
+    throw new Error("research request should bypass conversational fallback");
+  }
+}
+
+function shouldHandleRedoCommandWithTargetPrompt() {
+  const state = createChatState("entao faca");
+  const response = buildConversationalFallback(state);
+  if (!response || !/posso refazer agora/i.test(response)) {
+    throw new Error("redo command should trigger explicit re-search guidance");
+  }
+}
+
 shouldHandleGreeting();
 shouldHandlePreferredName();
 shouldAskForNameWhenUserOffersName();
 shouldAskForNameWhenUserUsesPodeForm();
 shouldRecallKnownNameFromHistory();
 shouldDetectEcho();
+shouldNotFallbackForVerifiableQuestionOnNonMinimumRoute();
+shouldNotFallbackForResearchRequestEvenOnMinimumRoute();
+shouldHandleRedoCommandWithTargetPrompt();
