@@ -1,4 +1,4 @@
-import type { EvidenceItem, PipelineContext } from "@/core/assistant/pipeline/pipeline-context";
+﻿import type { EvidenceItem, PipelineContext } from "@/core/assistant/pipeline/pipeline-context";
 import { createQueryEmbeddingClient, type QueryEmbeddingClient } from "@/core/rag/embedding-client";
 import { createDocumentFullTextService, type DocumentFullTextService } from "@/core/rag/document-fulltext-service";
 import { createRagInternetSearchService, type InternetSearchResponse, type RagInternetSearchService } from "@/core/rag/internet-search-service";
@@ -115,12 +115,56 @@ function isForceMultiSourceWebSearchEnabled() {
   return parseOptionalBoolean(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH) !== false;
 }
 
+function hasMeaningfulSearchScopeForAutoSearch(value: string) {
+  const normalized = normalizeForVerification(value);
+  if (!normalized) return false;
+  if (
+    /\b(presidente|prefeito|governador|ministro|reitor|ceo|rector|chancellor|usa|eua|united states|estados unidos|brasil|brazil|acre)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  const stopwords = new Set([
+    "a",
+    "as",
+    "atual",
+    "current",
+    "da",
+    "das",
+    "de",
+    "do",
+    "dos",
+    "e",
+    "eh",
+    "is",
+    "me",
+    "nome",
+    "o",
+    "of",
+    "os",
+    "qual",
+    "que",
+    "quem",
+    "saber",
+    "the",
+  ]);
+  const tokens = normalized
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopwords.has(token));
+  return tokens.length >= 2;
+}
+
 function stripAutoSearchPreamble(prompt: string) {
   let value = `${prompt || ""}`.trim().replace(/\s+/g, " ");
   if (!value) return "";
   const patterns = [
     /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
     /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?d(?:e|ê)\s+o\s+nome\s+(?:do|da|de)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?d(?:e|ê)\s+o\s+nome\s+(?:do|da|de)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+saber\s+(?:o\s+nome\s+)?(?:do|da|de)\s+/i,
     /^(?:por favor[,:\s-]*)?(?:voce|vc)\s+pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
     /^(?:por favor[,:\s-]*)?pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
     /^(?:por favor[,:\s-]*)?me\s+(?:diga|informe|responda)\s+/i,
@@ -131,7 +175,9 @@ function stripAutoSearchPreamble(prompt: string) {
   for (const pattern of patterns) {
     value = value.replace(pattern, "");
   }
-  return value.trim();
+  const stripped = value.trim();
+  if (!stripped) return "";
+  return hasMeaningfulSearchScopeForAutoSearch(stripped) ? stripped : `${prompt || ""}`.trim();
 }
 
 function buildAutoSearchQueries(prompt: string) {
@@ -195,6 +241,23 @@ function dedupeUrls(results: Array<InternetSearchResponse["results"][number]>, m
     if (unique.length >= maxItems) break;
   }
   return unique;
+}
+
+function isLowSignalDomain(url: string) {
+  let hostname = "";
+  try {
+    hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return false;
+  }
+  if (!hostname) return false;
+  return (
+    hostname.includes("dicio.com.br") ||
+    hostname.includes("sinonimos.com.br") ||
+    hostname.includes("dicionario.priberam.org") ||
+    hostname.includes("dicionario.info") ||
+    hostname.includes("portuguesaletra.com")
+  );
 }
 
 export class RetrieverAdapter {
@@ -296,7 +359,11 @@ export class RetrieverAdapter {
     const maxResults = Number.isFinite(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_MAX_RESULTS))
       ? Math.max(2, Math.min(12, Math.trunc(Number(process.env.KNEXAI_AUTO_WEB_SEARCH_MAX_RESULTS))))
       : 6;
-    const selected = dedupeUrls(allResults, maxResults);
+    let selected = dedupeUrls(allResults, maxResults);
+    const highSignalSelected = selected.filter((row) => !isLowSignalDomain(`${row.url || ""}`));
+    if (highSignalSelected.length) {
+      selected = highSignalSelected;
+    }
     if (!selected.length) {
       if (!forceMultiSource) return [];
       return [
@@ -397,3 +464,4 @@ export class RetrieverAdapter {
     }
   }
 }
+

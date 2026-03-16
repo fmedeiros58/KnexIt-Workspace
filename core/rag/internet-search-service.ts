@@ -1,4 +1,4 @@
-type InternetSearchResultItem = {
+﻿type InternetSearchResultItem = {
   title: string;
   url: string;
   snippet: string;
@@ -53,11 +53,67 @@ function normalizeWhitespace(value: string) {
   return `${value || ""}`.replace(/\s+/g, " ").trim();
 }
 
+const SEARCH_PREAMBLE_STOPWORDS = new Set([
+  "a",
+  "as",
+  "atual",
+  "current",
+  "d",
+  "da",
+  "das",
+  "de",
+  "do",
+  "dos",
+  "e",
+  "eh",
+  "is",
+  "me",
+  "nome",
+  "o",
+  "of",
+  "os",
+  "por",
+  "pra",
+  "qual",
+  "que",
+  "quem",
+  "saber",
+  "the",
+]);
+
+function normalizeFold(value: string) {
+  return normalizeWhitespace(`${value || ""}`)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function hasMeaningfulSearchScope(value: string) {
+  const normalized = normalizeFold(value);
+  if (!normalized) return false;
+  if (
+    /\b(presidente|prefeito|governador|ministro|reitor|ceo|rector|chancellor|usa|eua|united states|estados unidos|brasil|brazil|acre)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  const tokens = normalized
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !SEARCH_PREAMBLE_STOPWORDS.has(token));
+  return tokens.length >= 2;
+}
+
 function stripQuestionPreamble(value: string) {
   let output = normalizeWhitespace(value);
   if (!output) return "";
   const patterns = [
     /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?(?:diga|informe|responda)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:voce|vc)\s+(?:me\s+)?d(?:e|ê)\s+o\s+nome\s+(?:do|da|de)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+que\s+(?:me\s+)?d(?:e|ê)\s+o\s+nome\s+(?:do|da|de)\s+/i,
+    /^(?:por favor[,:\s-]*)?(?:preciso|quero|gostaria)\s+saber\s+(?:o\s+nome\s+)?(?:do|da|de)\s+/i,
     /^(?:por favor[,:\s-]*)?(?:voce|vc)\s+pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
     /^(?:por favor[,:\s-]*)?pode\s+(?:me\s+)?(?:dizer|informar|responder)\s+/i,
     /^(?:por favor[,:\s-]*)?me\s+(?:diga|informe|responda)\s+/i,
@@ -68,9 +124,10 @@ function stripQuestionPreamble(value: string) {
   for (const pattern of patterns) {
     output = output.replace(pattern, "");
   }
-  return normalizeWhitespace(output);
+  const stripped = normalizeWhitespace(output);
+  if (!stripped) return "";
+  return hasMeaningfulSearchScope(stripped) ? stripped : normalizeWhitespace(value);
 }
-
 function stripSearchOperators(value: string) {
   return normalizeWhitespace(
     `${value || ""}`
@@ -140,7 +197,7 @@ function buildRankingTokens(query: string) {
   return Array.from(
     new Set(
       normalized
-        .split(/[^a-z0-9à-ÿ]+/g)
+        .split(/[^a-z0-9Ã -Ã¿]+/g)
         .map((token) => token.trim())
         .filter((token) => token.length >= 3 && !SEARCH_TOKEN_STOPWORDS.has(token)),
     ),
@@ -157,6 +214,7 @@ function scoreResultForQuery(result: InternetSearchResultItem, queryTokens: stri
   if (url.includes("wikipedia.org/wiki/")) score += 2;
   if (/\b(titular atual|incumbente|incumbent|desde)\b/i.test(result.snippet || "")) score += 4;
   if (url.includes(".gov") || url.includes(".gov.br")) score += 3;
+  if (isLowSignalDomain(url)) score -= 5;
   if (result.isPdf) score += 1;
   return score;
 }
@@ -222,6 +280,23 @@ function stripHtmlTags(value: string) {
 
 function normalizeUrl(value: string) {
   return `${value || ""}`.trim();
+}
+
+function isLowSignalDomain(url: string) {
+  let hostname = "";
+  try {
+    hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return false;
+  }
+  if (!hostname) return false;
+  return (
+    hostname.includes("dicio.com.br") ||
+    hostname.includes("sinonimos.com.br") ||
+    hostname.includes("dicionario.priberam.org") ||
+    hostname.includes("dicionario.info") ||
+    hostname.includes("portuguesaletra.com")
+  );
 }
 
 function decodeBase64Url(value: string) {
@@ -371,9 +446,8 @@ function parseBingRss(xml: string, maxResults: number) {
   while ((itemMatch = itemRegex.exec(xml)) && results.length < maxResults) {
     const item = itemMatch[0] || "";
     const title = normalizeWhitespace(stripHtmlTags((item.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "").trim()));
-    const url = normalizeUrl(
-      decodeHtmlEntities((item.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || "").trim()),
-    );
+    const rawUrl = normalizeUrl(decodeHtmlEntities((item.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || "").trim()));
+    const url = extractBingTargetUrl(rawUrl) || rawUrl;
     const snippet = normalizeWhitespace(
       stripHtmlTags((item.match(/<description>([\s\S]*?)<\/description>/i)?.[1] || "").trim()),
     );
@@ -830,7 +904,9 @@ export class RagInternetSearchService {
             scoreResultForQuery(right, rankingTokens) - scoreResultForQuery(left, rankingTokens),
         )
       : rankedByQuery;
-    const limited = ranked.slice(0, this.config.maxResults);
+    const highSignalRanked = ranked.filter((row) => !isLowSignalDomain(row.url));
+    const effectiveRanked = highSignalRanked.length ? highSignalRanked : ranked;
+    const limited = effectiveRanked.slice(0, this.config.maxResults);
     const provider: InternetSearchResponse["provider"] =
       providersUsed.size > 1
         ? "multi"
@@ -851,3 +927,5 @@ export class RagInternetSearchService {
 export function createRagInternetSearchService(rawEnv: NodeJS.ProcessEnv = process.env) {
   return new RagInternetSearchService(rawEnv);
 }
+
+

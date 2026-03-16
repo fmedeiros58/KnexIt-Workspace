@@ -276,4 +276,30 @@ describe("PostprocessStage", () => {
     expect(rendered).toContain("Nao consegui validar esse fato em fontes web neste turno");
     expect(rendered).not.toContain("inside KnexIT");
   });
+
+  it("remove artefatos de mantra factual e marcador de fim", async () => {
+    const ctx = makeContext(
+      [
+        "Titular atual verificado: Donald Trump.",
+        "Confianca: alta.",
+        "Verificado em: 2026-03-12.",
+        "[end of response]",
+      ].join("\n"),
+    );
+    ctx.userMessage = "quem e o presidente dos estados unidos atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.81,
+        text: "[WEB] White House | URL: https://www.whitehouse.gov/",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Titular atual verificado: Donald Trump.");
+    expect(ctx.finalAnswer || "").not.toContain("Confianca:");
+    expect(ctx.finalAnswer || "").not.toContain("Verificado em:");
+    expect(ctx.finalAnswer || "").not.toContain("[end of response]");
+  });
 });

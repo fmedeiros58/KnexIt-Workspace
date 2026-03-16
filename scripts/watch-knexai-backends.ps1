@@ -4,6 +4,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$legacyAnmFlagRaw = "${env:KNEXAI_WATCHDOG_LEGACY_ANM_ENABLED}".Trim().ToLowerInvariant()
+$watchLegacyAnm = @("1", "true", "yes", "on") -contains $legacyAnmFlagRaw
 
 function Join-ScriptPath([string]$scriptName) {
   return Join-Path $PSScriptRoot $scriptName
@@ -35,6 +37,10 @@ function Start-DetachedPowerShellScript([string]$scriptPath) {
 }
 
 function Ensure-Anm {
+  if (-not $watchLegacyAnm) {
+    return $true
+  }
+
   $healthy = Test-Health "http://127.0.0.1:8100/healthz"
   if ($healthy) { return $true }
 
@@ -66,7 +72,11 @@ if ($IntervalSeconds -lt 5) {
   $IntervalSeconds = 5
 }
 
-Write-Output "[watchdog] Monitorando ANM (8100) e vLLM (8000). Intervalo=${IntervalSeconds}s."
+if ($watchLegacyAnm) {
+  Write-Output "[watchdog] Monitorando ANM legado (8100) e vLLM (8000). Intervalo=${IntervalSeconds}s."
+} else {
+  Write-Output "[watchdog] Monitorando apenas vLLM (8000). ANM legado desativado por padrao. Intervalo=${IntervalSeconds}s."
+}
 
 do {
   $vllmOk = Ensure-Vllm
