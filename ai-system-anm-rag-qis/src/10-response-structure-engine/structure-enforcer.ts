@@ -1,14 +1,5 @@
-import { segmentText } from "./segmenter";
-import { semanticDeduper } from "./semantic-deduper";
-import { fragmentMerger } from "./fragment-merger";
-import { discourseRebuilder } from "./discourse-rebuilder";
-
-export function enforceStructure(text: string): string {
-  if (!text.trim()) return "";
-
-  let segments = segmentText(text);
-  segments = semanticDeduper(segments);
-  segments = fragmentMerger(segments);
-
-  return discourseRebuilder(segments);
-}
+﻿/**
+ * Compatibility bridge for legacy path 10-response-structure-engine.
+ * Re-exports the canonical structure enforcer in 15-response-structure-engine.
+ */
+export * from "../15-response-structure-engine/structure-enforcer";

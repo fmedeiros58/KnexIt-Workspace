@@ -18,9 +18,16 @@ function matchAny(text: string, patterns: RegExp[]) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
+function normalize(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 export function intentDetector(input: IntentDetectorInput): IntentDetectorOutput {
   const text = `${input.text || ""}`.trim();
-  const normalized = text.toLowerCase();
+  const normalized = normalize(text);
   const signals: string[] = [];
 
   let intent = "chat";
@@ -34,11 +41,13 @@ export function intentDetector(input: IntentDetectorInput): IntentDetectorOutput
     intent = "writing";
     confidence = 0.88;
     signals.push("writing_keyword");
-  } else if (matchAny(normalized, [/\b(analise|analyze|compare|tradeoff|prós|pros|contras|infer)\b/i])) {
+  } else if (matchAny(normalized, [/\b(analise|analyze|compare|tradeoff|pros|contras|infer)\b/i])) {
     intent = "analysis";
     confidence = 0.84;
     signals.push("analysis_keyword");
-  } else if (matchAny(normalized, [/\b(pesquise|research|fontes|sources|cite)\b/i])) {
+  } else if (
+    matchAny(normalized, [/\b(pesquise|pesquisa|buscar|busque|busca|procurar|procure|research|fontes?|sources?|cite|artigo|paper|estudo|literatura|referencias?|scholar|scielo|pubmed)\b/i])
+  ) {
     intent = "research";
     confidence = 0.83;
     signals.push("research_keyword");

@@ -1,8 +1,15 @@
+/**
+ * Responsabilidade do arquivo:
+ * - Normalizar texto bruto de entrada para forma processavel.
+ * - Isolar a ultima fala util do usuario para evitar contaminacao por logs/artefatos.
+ * - Entregar hint de idioma e sinais de qualidade para o input-layer.
+ */
 import { encodingNormalizer } from "./encoding-normalizer";
 import { textCleaner } from "./text-cleaner";
 import { inputCanonicalizer } from "./input-canonicalizer";
 import { whitespaceNormalizer } from "./whitespace-normalizer";
 import { languageDetector } from "./language-detector";
+import { extractLatestUserUtterance } from "../../shared/utils/conversation-signals";
 
 export interface InputNormalizerInput {
   rawText: string;
@@ -23,6 +30,7 @@ export interface InputNormalizerOutput {
 
 export function inputNormalizer(input: InputNormalizerInput): InputNormalizerOutput {
   const original = `${input.rawText || ""}`;
+  const focused = extractLatestUserUtterance(original) || original;
   const encoding = encodingNormalizer({ text: original });
   const cleaned = textCleaner({ text: encoding.text });
   const canonical = inputCanonicalizer({ text: cleaned.text });
@@ -30,7 +38,12 @@ export function inputNormalizer(input: InputNormalizerInput): InputNormalizerOut
     text: canonical.text,
     preserveLineBreaks: input.preserveLineBreaks,
   });
-  const language = languageDetector({ text: whitespace.text });
+  const focusedWhitespace = whitespaceNormalizer({
+    text: focused,
+    preserveLineBreaks: false,
+  });
+  const normalizedText = focusedWhitespace.text || whitespace.text;
+  const language = languageDetector({ text: normalizedText });
 
   const issues: string[] = [];
   if (cleaned.removedControlChars > 0) issues.push("control_chars_removed");
@@ -42,17 +55,18 @@ export function inputNormalizer(input: InputNormalizerInput): InputNormalizerOut
     : 0.05;
 
   return {
-    normalizedText: whitespace.text,
+    normalizedText,
     languageHint: language.language,
     removedChars: cleaned.removedControlChars,
     issues,
-    ok: whitespace.text.length > 0,
+    ok: normalizedText.length > 0,
     component: "input-normalizer",
     score: Number(qualityScore.toFixed(4)),
-    detail: whitespace.text,
+    detail: normalizedText,
     context: {
       originalLength: original.length,
-      normalizedLength: whitespace.text.length,
+      normalizedLength: normalizedText.length,
+      focusedLength: focused.length,
       languageHint: language.language,
       encodingNoise: encoding.hadEncodingNoise,
     },

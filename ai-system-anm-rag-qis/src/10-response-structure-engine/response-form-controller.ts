@@ -1,7 +1,5 @@
-export function controlResponseForm(text: string, options: { includeHeading?: boolean; heading?: string } = {}): string {
-  const body = text.trim();
-  if (!body) return "";
-  if (!options.includeHeading) return body;
-  const heading = (options.heading || "Resposta").trim();
-  return `${heading}:\n${body}`;
-}
+﻿/**
+ * Compatibility bridge for legacy path 10-response-structure-engine.
+ * Re-exports canonical module from 15-response-structure-engine.
+ */
+export * from "../15-response-structure-engine/response-form-controller";
