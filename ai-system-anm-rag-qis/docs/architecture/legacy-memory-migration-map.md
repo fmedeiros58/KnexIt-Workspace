@@ -5,7 +5,7 @@ Run the new descending ANM pipeline as the primary response path and keep `anm_b
 
 ## Route Policy
 - Primary path: `runPipelineRootBridge` in `app/api/knexai/route.ts`.
-- Legacy path: direct/ANM backend logic only when descending pipeline fails and `KNEXAI_LEGACY_FALLBACK_ENABLED=1`.
+- Legacy path: direct/ANM backend logic only when descending pipeline fails and `KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK=1`.
 
 ## Watchdog Policy
 - `scripts/watch-knexai-backends.ps1` now monitors only `vLLM` by default.
@@ -42,5 +42,5 @@ These are persisted into `ProcessingState.memorySnapshot`:
 ## Gradual Cleanup Recommendation
 1. Legacy Python memory backend was removed from repository after migration to ANM runtime memory modules.
 2. Keep legacy fallback disabled by default (only enable when strictly needed):
-   - `KNEXAI_LEGACY_FALLBACK_ENABLED=1`
+   - `KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK=1`
 3. Remove remaining legacy runtime scripts after sustained stability.

@@ -108,8 +108,8 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
 }
 
 function readProxyConfig() {
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
+  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const timeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, timeoutMs };
 }
@@ -319,7 +319,7 @@ function fallbackIdentityResponse(method: string, segments: string[], body?: Arr
           quality: null,
           faces: [],
           metadata: {
-            fallback_reason: "anm_backend_unreachable",
+            fallback_reason: "anm_api_unreachable",
             should_capture: false,
             faces_count: 0,
           },

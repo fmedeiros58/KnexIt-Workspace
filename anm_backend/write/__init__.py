@@ -1,2 +1,0 @@
-"""Write workspace domain package."""
-

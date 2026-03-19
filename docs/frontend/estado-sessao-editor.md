@@ -52,7 +52,7 @@ Implementado em `knexai/web/page.tsx` como `writeSession: WriteEditorSessionStat
 
 ## Reproducao em outro ambiente
 
-1. Configure `ANM_BACKEND_BASE_URL` no Next.
+1. Configure `ANM_API_BASE_URL` no Next.
 2. Suba backend com rotas `/write/*` habilitadas.
 3. Suba frontend Next.
 4. Abra a tela do KnexAI.

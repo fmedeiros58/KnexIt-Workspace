@@ -1465,8 +1465,8 @@ function readLlmConfig(): LlmConfig {
 function readEngineModeConfig(): EngineModeConfig {
   const modeRaw = pickFirstNonEmpty(process.env.KNEXAI_ENGINE_MODE, "direct").toLowerCase();
   const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedAnmTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
+  const parsedAnmTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedAnmTimeout) ? Math.max(3_000, Math.round(parsedAnmTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   const parsedAnmSoftTimeout = Number(process.env.KNEXAI_ANM_SOFT_TIMEOUT_MS || DEFAULT_ANM_SOFT_TIMEOUT_MS);
   const anmSoftTimeoutMs = Number.isFinite(parsedAnmSoftTimeout)
@@ -2850,7 +2850,7 @@ export async function GET() {
     {
       ok: true,
       endpoint: "/api/knexai",
-      provider: engineMode.mode === "anm" ? "anm-backend" : "openai-compatible",
+      provider: engineMode.mode === "anm" ? "anm-api" : "openai-compatible",
       engineMode: engineMode.mode,
       anmBaseUrl: anmResolution?.baseUrl || engineMode.anmBaseUrl,
       anmConfiguredBaseUrl: engineMode.anmBaseUrl,
@@ -2966,15 +2966,16 @@ export async function POST(req: NextRequest) {
     const descendingStrictFromBody = parseOptionalBooleanFromBody(
       body?.descendingPipelineStrict ?? body?.strictDescendingPipeline,
     );
-    const legacyFallbackFromBody = parseOptionalBooleanFromBody(
-      body?.legacyFallbackEnabled ?? body?.allowLegacyFallback,
+    const directFallbackFromBody = parseOptionalBooleanFromBody(
+      body?.directFallbackEnabled ?? body?.allowDirectFallback ?? body?.legacyFallbackEnabled ?? body?.allowLegacyFallback,
     );
     const descendingStrict =
       typeof descendingStrictFromBody === "boolean" ? descendingStrictFromBody : descendingPipelineDefaults.strict;
-    const legacyFallbackEnabled =
-      typeof legacyFallbackFromBody === "boolean"
-        ? legacyFallbackFromBody
-        : parseOptionalBoolean(process.env.KNEXAI_LEGACY_FALLBACK_ENABLED) === true;
+    const allowDirectFallbackAfterDescendingFailure =
+      typeof directFallbackFromBody === "boolean"
+        ? directFallbackFromBody
+        : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK) !== false;
+    let forceDirectAfterDescendingFailure = false;
     const descendingInput = {
       rawMessage: safePrompt,
       sessionId: conversationKeyFromBody,
@@ -3029,15 +3030,16 @@ export async function POST(req: NextRequest) {
       console.warn("KNEXAI_DESCENDING_PIPELINE_FAILED", {
         message: error instanceof Error ? error.message : String(error),
         strict: descendingStrict,
-        legacyFallbackEnabled,
+        allowDirectFallbackAfterDescendingFailure,
       });
-      if (descendingStrict || !legacyFallbackEnabled) {
+      if (descendingStrict && !allowDirectFallbackAfterDescendingFailure) {
         throw new LlmRouteError(
           503,
           "DESCENDING_PIPELINE_UNAVAILABLE",
           "Pipeline descendente indisponivel para este turno.",
         );
       }
+      forceDirectAfterDescendingFailure = true;
     }
 
     let autoWebEvidenceForForcedRag: AutoWebEvidence | null = null;
@@ -3107,7 +3109,12 @@ export async function POST(req: NextRequest) {
         shouldRequireWebBeforeRag,
       });
 
-      const ragEngineMode = shouldForceFullRagMode ? "anm" : anmEngineModeFromBody || engineMode.mode;
+      const ragEngineMode =
+        forceDirectAfterDescendingFailure
+          ? "direct"
+          : shouldForceFullRagMode
+            ? "anm"
+            : anmEngineModeFromBody || engineMode.mode;
       const ragAnmBaseUrl = anmBaseUrlFromBody || engineMode.anmBaseUrl;
       const ragAnmTimeoutMs = anmTimeoutMsFromBody || engineMode.anmTimeoutMs;
       const ragAnmSoftTimeoutMs = anmSoftTimeoutMsFromBody || engineMode.anmSoftTimeoutMs;
@@ -3287,12 +3294,15 @@ export async function POST(req: NextRequest) {
       userKey: userKeyFromBody,
       };
     const forceDirectForVerifiableQuestion = cascade.forceDirectWithoutDocumentScope;
-    const preferredEngineMode: EngineModeConfig = forceDirectForVerifiableQuestion
-      ? { ...engineMode, mode: "direct" }
+    const forceDirectEngineMode =
+      forceDirectForVerifiableQuestion || forceDirectAfterDescendingFailure;
+    const preferredEngineMode: EngineModeConfig = forceDirectEngineMode
+      ? { ...engineMode, mode: "direct", fallbackToDirect: true }
       : engineMode;
     logVerificationCascadeStage("engine:gate", cascade, {
       selectedEngineMode: preferredEngineMode.mode,
       configuredEngineMode: engineMode.mode,
+      forceDirectAfterDescendingFailure,
     });
     const anmResolution =
       preferredEngineMode.mode === "anm"

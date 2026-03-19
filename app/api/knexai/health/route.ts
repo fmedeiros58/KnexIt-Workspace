@@ -120,8 +120,8 @@ function readLlmConfig() {
 function readEngineModeConfig() {
   const modeRaw = pickFirstNonEmpty(process.env.KNEXAI_ENGINE_MODE, "direct").toLowerCase();
   const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
+  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, parsedTimeout) : DEFAULT_ANM_TIMEOUT_MS;
   const fallbackRaw = pickFirstNonEmpty(process.env.KNEXAI_ANM_FALLBACK_TO_DIRECT, "1").toLowerCase();
   const fallbackToDirect = !["0", "false", "no", "off"].includes(fallbackRaw);

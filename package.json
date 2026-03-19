@@ -18,8 +18,6 @@
     "db:types:doctor": "node scripts/doctor-supabase-types.mjs",
     "start": "next start -H localhost -p 3000",
     "lint": "next lint",
-    "serve:anm": "powershell -ExecutionPolicy Bypass -File scripts/serve-anm-wsl.ps1",
-    "setup:identity:py": "powershell -ExecutionPolicy Bypass -File scripts/setup-identity-runtime-env.ps1",
     "serve:next:wsl": "powershell -ExecutionPolicy Bypass -File scripts/serve-next-wsl.ps1",
     "serve:embeddings:cpu": "powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-wsl.ps1",
     "serve:embeddings:cpu:restart": "powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-restart.ps1",

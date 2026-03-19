@@ -2,7 +2,7 @@
 
 Camada de IA nativa do ecossistema KnexIT (Leticia + modelo Mistral/vLLM). Inclui:
 - `/knexai`: UI Next.js com chat em streaming.
-- `/api/knexai`: endpoint de chat com engine real e provider configuravel (`direct` ou `anm`).
+- `/api/knexai`: endpoint de chat com engine real (pipeline descendente + vLLM).
 - `lib/knexai/spec.ts`: prompt base da Leticia.
 
 ## Estrutura
@@ -52,14 +52,11 @@ PUBLIC_API_KEY=troque-por-uma-chave-forte
 
 # Provider do endpoint /api/knexai
 KNEXAI_ENGINE_MODE=direct
-ANM_BACKEND_BASE_URL=http://127.0.0.1:8100
-ANM_BACKEND_TIMEOUT_MS=45000
-KNEXAI_ANM_FALLBACK_TO_DIRECT=1
 ```
 
 ## UI (Next.js)
 - Rota app: `/knexai` (wrapper em `app/knexai/page.tsx` -> `knexai/web/page.tsx`).
-- Endpoint: `/api/knexai` (vLLM direto ou ANM backend).
+- Endpoint: `/api/knexai` (pipeline descendente + vLLM).
 - Endpoints RAG (MVP): `/api/query` e `/api/chat`.
 - UI de ingestao de documentos: `/knexai/ingest` (atalho: `/ingest`).
 - Endpoints publicos (proxy/HTTPS): `/query`, `/chat`, `/health`, `/ready`, `/v1/chat/completions`.
@@ -94,7 +91,6 @@ Notas de arquitetura:
 Padroes de path (consolidacao):
 - `MIGRATIONS_PATH` e `KNEXAI_MIGRATION_FILE` controlam o fluxo da migration unificada.
 - `NVME_BASE_PATH` pode servir como base opcional para paths relativos.
-- `ANM_WSL_WORKSPACE_DIR` remove necessidade de hardcode no `npm run serve:anm` em Windows/WSL.
 
 ## Servidor opcional (stub)
 ```bash

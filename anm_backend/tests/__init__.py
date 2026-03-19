@@ -1,2 +1,0 @@
-"""ANM backend tests."""
-

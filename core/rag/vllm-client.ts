@@ -908,10 +908,10 @@ export class VllmInternalClient {
       };
     }
 
-    const baseUrl = normalizeUrl(`${input.anmBaseUrl || process.env.ANM_BACKEND_BASE_URL || DEFAULT_ANM_BASE_URL}`.trim());
+    const baseUrl = normalizeUrl(`${input.anmBaseUrl || process.env.ANM_API_BASE_URL || DEFAULT_ANM_BASE_URL}`.trim());
     const timeoutMs = clampPositiveInt(
       input.anmTimeoutMs,
-      clampPositiveInt(process.env.ANM_BACKEND_TIMEOUT_MS, DEFAULT_ANM_TIMEOUT_MS, 3_000, 300_000),
+      clampPositiveInt(process.env.ANM_API_TIMEOUT_MS, DEFAULT_ANM_TIMEOUT_MS, 3_000, 300_000),
       2_000,
       300_000,
     );
@@ -932,7 +932,7 @@ export class VllmInternalClient {
 
   private resolveAnmCandidates(baseUrl: string) {
     const primary = normalizeUrl(baseUrl);
-    const fallbackEnv = parseBaseUrlList(process.env.ANM_BACKEND_BASE_URL_FALLBACKS || "");
+    const fallbackEnv = parseBaseUrlList(process.env.ANM_API_BASE_URL_FALLBACKS || "");
     const seedUrls = [primary, ...fallbackEnv];
     const unique: string[] = [];
     const seen = new Set<string>();

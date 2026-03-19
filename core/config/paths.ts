@@ -10,7 +10,7 @@ const DEFAULTS = {
   embeddingsBasePath: "models",
   tempWorkdirPath: ".tmp",
   exportsBasePath: "data/exports",
-  anmCheckpointDir: "anm_backend/data/checkpoints",
+  anmCheckpointDir: "data/checkpoints",
 } as const;
 
 function pickFirstNonEmpty(...values: Array<string | undefined | null>) {

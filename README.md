@@ -20,16 +20,14 @@ Template com Next.js 14 + Tailwind + Supabase para autenticaÃ§Ã£o (senha, OT
    - `npm run serve:vllm:wsl` (vLLM na porta 8000, com guard rails de estabilidade)
    - `npm run serve:vllm:wsl:restart` (reinicia vLLM e limpa processo preso na porta)
    - `npm run serve:embeddings:cpu` (embeddings OpenAI-compatible em CPU na porta 8001)
-   - `npm run serve:anm` (ANM backend na porta 8100, opcional quando `KNEXAI_ENGINE_MODE=anm`)
 
 ## Scripts principais
 
 - `npm run dev`: sobe o workspace (app em 3000 + portal em 3003).
-- `npm run serve:anm`: sobe o ANM backend (`uvicorn anm_backend.main:app`) em `127.0.0.1:8100`.
 - `npm run serve:next:wsl`: sobe o Next no WSL (mesmo host/rede do vLLM host-only), com bootstrap de Node Linux via `nvm` quando disponivel.
 - `npm run serve:vllm:wsl`: levanta o vLLM local (porta 8000) com perfil seguro (`max-num-seqs=2`, `max-model-len=4096`, `gpu-memory-utilization=0.90`).
 - `npm run serve:vllm:wsl:restart`: reinicia o vLLM forçando limpeza da porta (evita conflito/processo zumbi).
-- `npm run serve:knexai:watchdog`: monitora vLLM/ANM e aciona restart bootstrap quando alguma porta critica cai (8000/8100).
+- `npm run serve:knexai:watchdog`: monitora vLLM e aciona restart bootstrap quando a porta critica cai (8000).
 - `npm run serve:embeddings:cpu`: sobe endpoint local `/v1/embeddings` em CPU (porta 8001).
 - `npm run bench:rag:router:wsl`: roda benchmark do roteador usando `/api/chat` no proprio WSL (`127.0.0.1:<porta>`), evitando falso 5xx por rota Windows↔WSL.
 - `npm run dev:knexai`: abre automaticamente `http://localhost:3004/knexai` e inicia o Next em 3004.
@@ -52,7 +50,6 @@ Padroes de paths NVMe/NVMe2:
 - Variaveis de path em `.env`: `NVME_BASE_PATH`, `MIGRATIONS_PATH`, `KNEXAI_MIGRATION_FILE`, `VECTOR_MIGRATION_FILE`, `VECTOR_HNSW_MIGRATION_FILE`, `STORAGE_BASE_PATH`, `DOCUMENTS_BASE_PATH`, `EMBEDDINGS_BASE_PATH`, `TEMP_WORKDIR_PATH`, `EXPORTS_BASE_PATH`, `IDENTITY_MIGRATIONS_POLICY`, `ANM_CHECKPOINT_RETENTION_DAYS`, `EXPORTS_RETENTION_DAYS`.
 - Variaveis do banco vetorial: `VECTOR_DATABASE_URL`, `VECTOR_DB_HOST`, `VECTOR_DB_PORT`, `VECTOR_DB_NAME`, `VECTOR_DB_USER`, `VECTOR_DB_PASSWORD`, `VECTOR_DB_SSL`, `EMBEDDING_DIMENSION`, `VECTOR_DISTANCE_STRATEGY`, `VECTOR_SEARCH_TOP_K_DEFAULT`, `VECTOR_SEARCH_TOP_K_MAX`.
 - Variaveis de ingestao RAG: `RAG_RAW_DOCUMENTS_PATH`, `RAG_EXTRACTED_TEXT_PATH`, `RAG_ADMIN_BULK_BASE_PATH`, `RAG_MAX_FILE_SIZE_BYTES`, `RAG_CHUNK_SIZE_CHARS`, `RAG_CHUNK_OVERLAP_CHARS`, `RAG_MAX_CHUNKS_PER_DOC`, `RAG_INGEST_ADMIN_TOKEN`.
-- `npm run serve:anm` aceita override de workspace WSL via `ANM_WSL_WORKSPACE_DIR` (sem hardcode de caminho absoluto).
 - Para evitar processos "invisiveis" (rodando em outro usuario/distro WSL), fixe tambem:
   - `ANM_WSL_DISTRO`, `ANM_WSL_USER`
   - `VLLM_WSL_DISTRO`, `VLLM_WSL_USER`
@@ -96,7 +93,6 @@ Para testar cada produto basta abrir o URL correspondente depois que o `npm run 
 
 - O endpoint `/api/knexai` nao usa mais modo mock.
 - Para responder no chat, rode `npm run serve:vllm:wsl`.
-- Se `KNEXAI_ENGINE_MODE=anm`, rode tambem `npm run serve:anm`.
 
 ## Login local
 
@@ -165,15 +161,6 @@ Nunca commite o `.env.local` e nunca cole a chave no codigo.
 - Caminho fÃ­sico do modelo (disco): `LOCAL_LLM_MODEL=models/CModelosMistral-7B-Instruct-v0.2-AWQ` (ou caminho absoluto do seu host).
 - Nome lÃ³gico no payload OpenAI-compatible: `LLM_MODEL_NAME=mistral-awq`
 - Deixe no `.env.local`: `LOCAL_LLM_BASE_URL=http://127.0.0.1:8000/v1`, `LLM_BASE_URL=http://127.0.0.1:8000/v1`, `LLM_API_KEY=token-local`.
-
-## ANM backend (encapsulamento opcional)
-
-- Suba com `npm run serve:anm` (FastAPI/uvicorn em `127.0.0.1:8100`).
-- Ative no KnexAI com:
-  - `KNEXAI_ENGINE_MODE=anm`
-  - `ANM_BACKEND_BASE_URL=http://127.0.0.1:8100`
-  - `ANM_BACKEND_TIMEOUT_MS=45000`
-  - `KNEXAI_ANM_FALLBACK_TO_DIRECT=1` (fallback para modo direto se ANM falhar)
 
 ## Ingestao RAG (v1)
 

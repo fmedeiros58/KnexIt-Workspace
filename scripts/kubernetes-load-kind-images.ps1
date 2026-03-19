@@ -1,21 +1,27 @@
 param(
   [string]$ClusterName = "knexit-local",
   [string]$WebImage = "knexit-web:local",
-  [string]$AnmImage = "anm-backend:local"
+  [switch]$SkipWeb
 )
 
 $ErrorActionPreference = "Stop"
 
-$kindPath = Get-Command kind -ErrorAction SilentlyContinue
-if (-not $kindPath) {
-  $kindPath = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA "Microsoft\\WinGet\\Packages\\Kubernetes.kind*") -Filter "kind.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+function Resolve-KindBinary {
+  $cmd = Get-Command kind -ErrorAction SilentlyContinue
+  if ($cmd -and $cmd.Source) { return $cmd.Source }
+  if ($cmd -and $cmd.Path) { return $cmd.Path }
+
+  $localPath = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA "Microsoft\\WinGet\\Packages\\Kubernetes.kind*") -Filter "kind.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($localPath -and $localPath.FullName) { return $localPath.FullName }
+
+  throw "kind nao encontrado"
 }
-if (-not $kindPath) { throw "kind nao encontrado" }
 
-& $kindPath.Source load docker-image $WebImage --name $ClusterName
-if ($LASTEXITCODE -ne 0) { throw "falha ao carregar imagem web no kind" }
+$kindExe = Resolve-KindBinary
 
-& $kindPath.Source load docker-image $AnmImage --name $ClusterName
-if ($LASTEXITCODE -ne 0) { throw "falha ao carregar imagem anm no kind" }
+if (-not $SkipWeb) {
+  & $kindExe load docker-image $WebImage --name $ClusterName
+  if ($LASTEXITCODE -ne 0) { throw "falha ao carregar imagem web no kind" }
+}
 
 Write-Host "[ok] imagens carregadas no cluster kind-$ClusterName"

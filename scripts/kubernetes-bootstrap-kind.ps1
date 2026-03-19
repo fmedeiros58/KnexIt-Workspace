@@ -42,10 +42,13 @@ if (-not $kubectlPath) {
 }
 
 if ([string]::IsNullOrWhiteSpace($KustomizePath)) {
-  if ($Profile -eq "selfhost") {
-    $KustomizePath = "deploy/kubernetes-selfhost"
-  } else {
-    $KustomizePath = "deploy/kubernetes"
+  switch ($Profile) {
+    "selfhost" {
+      $KustomizePath = "deploy/kubernetes-selfhost"
+    }
+    default {
+      $KustomizePath = "deploy/kubernetes"
+    }
   }
 }
 
@@ -63,6 +66,5 @@ if ($clusters -notcontains $ClusterName) {
 Invoke-Checked $kubectlPath @("config", "use-context", "kind-$ClusterName")
 Invoke-Checked $kubectlPath @("apply", "-k", $KustomizePath)
 Invoke-Checked $kubectlPath @("-n", "knexit", "rollout", "status", "deploy/vllm", "--timeout=900s")
-Invoke-Checked $kubectlPath @("-n", "knexit", "rollout", "status", "deploy/anm-backend", "--timeout=300s")
 Invoke-Checked $kubectlPath @("-n", "knexit", "rollout", "status", "deploy/knexit-web", "--timeout=300s")
 Invoke-Checked $kubectlPath @("-n", "knexit", "get", "pods", "-o", "wide")

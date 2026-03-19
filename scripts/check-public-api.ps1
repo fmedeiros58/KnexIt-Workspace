@@ -70,7 +70,7 @@ if ([string]::IsNullOrWhiteSpace($resolvedBaseUrl)) {
 $resolvedBaseUrl = Normalize-BaseUrl $resolvedBaseUrl
 $resolvedAnmBaseUrl = Pick-FirstNonEmpty @(
   $AnmBaseUrl,
-  $env:ANM_BACKEND_BASE_URL,
+  $env:ANM_API_BASE_URL,
   "$resolvedBaseUrl/anm"
 )
 $resolvedAnmBaseUrl = Normalize-BaseUrl $resolvedAnmBaseUrl
@@ -96,7 +96,7 @@ if ($readyStatus -ne 200 -and $readyStatus -ne 503) {
 
 if (-not $SkipAnmCheck) {
   if ([string]::IsNullOrWhiteSpace($resolvedAnmBaseUrl)) {
-    throw "ANM base URL nao definida. Use -AnmBaseUrl ou ANM_BACKEND_BASE_URL."
+    throw "ANM base URL nao definida. Use -AnmBaseUrl ou ANM_API_BASE_URL."
   }
   $anmHealth = Invoke-WebRequest -UseBasicParsing -Method GET -Uri "$resolvedAnmBaseUrl/healthz" -TimeoutSec $TimeoutSec
   Write-Host "ANM /healthz -> $($anmHealth.StatusCode) [$resolvedAnmBaseUrl]"
