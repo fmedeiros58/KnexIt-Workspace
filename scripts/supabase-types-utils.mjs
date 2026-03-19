@@ -70,11 +70,23 @@ function extractProjectRef(value) {
 
 export function resolveProjectRef(supabaseUrl, explicitProjectRef) {
   const explicit = extractProjectRef(explicitProjectRef);
+  const inferred = extractProjectRef(supabaseUrl);
+
+  if (explicit && inferred && explicit !== inferred) {
+    throw new Error(
+      [
+        "Supabase project ref mismatch detected.",
+        `NEXT_PUBLIC_SUPABASE_URL ref: ${inferred}`,
+        `Explicit ref (SUPABASE_PROJECT_ID/REF): ${explicit}`,
+        "Keep a single source of truth. Prefer NEXT_PUBLIC_SUPABASE_URL in CI.",
+      ].join("\n"),
+    );
+  }
+
   if (explicit) {
     return explicit;
   }
 
-  const inferred = extractProjectRef(supabaseUrl);
   if (inferred) {
     return inferred;
   }
@@ -99,6 +111,11 @@ export function generateSupabaseTypes({ projectRef, accessToken }) {
 
   if (!normalizedProjectRef) throw new Error("Supabase project ref is required.");
   if (!normalizedAccessToken) throw new Error("SUPABASE_ACCESS_TOKEN is required.");
+  if (!/^sbp_[a-z0-9]+$/i.test(normalizedAccessToken)) {
+    throw new Error(
+      "SUPABASE_ACCESS_TOKEN format is invalid. Expected a Supabase Personal Access Token (prefix: sbp_).",
+    );
+  }
   const command = getSupabaseGenCommand(normalizedProjectRef);
 
   try {
