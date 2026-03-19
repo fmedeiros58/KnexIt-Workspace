@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: knexit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "8000"
+        - "--model"
+        - "$(VLLM_MODEL)"
+        - "--served-model-name"
+        - "$(ANM_MODEL_NAME)"
+        - "--max-model-len"
+        - "$(VLLM_MAX_MODEL_LEN)"
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: knexit-runtime-config
+        - secretRef:
+            name: knexit-runtime-secrets
+        readinessProbe:
+          httpGet:
+            path: /v1/models
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 20
+        livenessProbe:
+          httpGet:
+            path: /v1/models
+            port: http
+          initialDelaySeconds: 120
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+        startupProbe:
+          httpGet:
+            path: /v1/models
+            port: http
+          failureThreshold: 60
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: "2"
+            memory: "8Gi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "6"
+            memory: "24Gi"
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - name: vllm-models
+          mountPath: /models
+      volumes:
+      - name: vllm-models
+        hostPath:
+          path: /srv/vllm-models
+          type: Directory

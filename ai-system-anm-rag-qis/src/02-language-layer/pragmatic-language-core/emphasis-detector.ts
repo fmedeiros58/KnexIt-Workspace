@@ -5,6 +5,8 @@
  * - Expor marcadores usados no calculo para auditoria.
  */
 import { clamp01 } from "../utils/normalization-utils";
+import { pragmaticNormalizer } from "./pragmatic-normalizer";
+import { EMPHASIS_FAMILIES } from "./pragmatic-pattern-library";
 
 export interface EmphasisDetectorInput {
   text: string;
@@ -16,21 +18,30 @@ export interface EmphasisDetectorResult {
 }
 
 export function emphasisDetector(input: EmphasisDetectorInput): EmphasisDetectorResult {
-  const text = `${input.text || ""}`;
-  const lowered = text.toLowerCase();
+  const normalized = pragmaticNormalizer({ text: input.text });
+  const text = normalized.compactText;
   const markers: string[] = [];
 
-  const capsTokens = (text.match(/\b[A-Z]{3,}\b/g) || []).length;
-  const repeatedPunctuation = (text.match(/[!?]{2,}/g) || []).length;
-  const intensifiers = (lowered.match(/\b(muito|extremamente|super|realmente|demais|urgentemente)\b/g) || []).length;
+  const capsTokens = (normalized.originalText.match(/\b[A-Z]{3,}\b/g) || []).length;
+  const repeatedPunctuation = (normalized.originalText.match(/[!?]{2,}/g) || []).length;
+
+  const intensifierFamilies = EMPHASIS_FAMILIES.flatMap((family) =>
+    family.patterns
+      .filter((pattern) => pattern.test(text))
+      .map(() => family.name),
+  );
 
   if (capsTokens > 0) markers.push("caps");
   if (repeatedPunctuation > 0) markers.push("repeated_punctuation");
-  if (intensifiers > 0) markers.push("intensifiers");
+  if (intensifierFamilies.length > 0) markers.push(...intensifierFamilies);
 
   return {
-    strength: clamp01(0.08 + capsTokens * 0.18 + repeatedPunctuation * 0.15 + intensifiers * 0.12),
-    markers,
+    strength: clamp01(
+      0.08 +
+      capsTokens * 0.18 +
+      repeatedPunctuation * 0.15 +
+      intensifierFamilies.length * 0.12,
+    ),
+    markers: [...new Set(markers)],
   };
 }
-

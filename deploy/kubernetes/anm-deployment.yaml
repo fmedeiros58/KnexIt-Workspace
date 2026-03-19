@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anm-backend
+  namespace: knexit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anm-backend
+  template:
+    metadata:
+      labels:
+        app: anm-backend
+    spec:
+      containers:
+      - name: anm-backend
+        image: anm-backend:local
+        imagePullPolicy: IfNotPresent
+        command: ["uvicorn", "anm_backend.main:app", "--host", "0.0.0.0", "--port", "8100"]
+        ports:
+        - containerPort: 8100
+          name: http
+        envFrom:
+        - configMapRef:
+            name: knexit-runtime-config
+        - secretRef:
+            name: knexit-runtime-secrets
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 40
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          failureThreshold: 30
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "300m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+

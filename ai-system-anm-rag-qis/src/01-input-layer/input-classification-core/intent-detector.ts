@@ -1,3 +1,5 @@
+import { textNormalizationService } from "../../shared/text-processing/text-normalization.service";
+
 export interface IntentDetectorInput {
   text: string;
   language?: string;
@@ -18,48 +20,56 @@ function matchAny(text: string, patterns: RegExp[]) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
-function normalize(value: string) {
-  return `${value || ""}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+function matchAnyInTexts(texts: string[], patterns: RegExp[]) {
+  return texts.some((text) => matchAny(text, patterns));
 }
 
 export function intentDetector(input: IntentDetectorInput): IntentDetectorOutput {
   const text = `${input.text || ""}`.trim();
-  const normalized = normalize(text);
+  const canonicalIntent = textNormalizationService.canonical(text, "intent");
+  const variantCandidates = textNormalizationService.variants(text, "intent", {
+    maxVariants: 4,
+    maxInputLength: 180,
+  });
+  const normalizedVariants = variantCandidates.map((candidate) =>
+    textNormalizationService.canonical(candidate, "intent"),
+  );
+  const normalizedTexts = [...new Set([canonicalIntent, ...normalizedVariants])];
   const signals: string[] = [];
 
   let intent = "chat";
   let confidence = 0.52;
 
-  if (matchAny(normalized, [/\b(resuma|resumir|sumarize|summarize|tl;dr)\b/i])) {
+  if (matchAnyInTexts(normalizedTexts, [/\b(resuma|resumir|sumarize|summarize|tl;dr)\b/i])) {
     intent = "summary";
     confidence = 0.86;
     signals.push("summary_keyword");
-  } else if (matchAny(normalized, [/\b(escreva|redija|write|draft|compose)\b/i])) {
+  } else if (matchAnyInTexts(normalizedTexts, [/\b(escreva|redija|write|draft|compose)\b/i])) {
     intent = "writing";
     confidence = 0.88;
     signals.push("writing_keyword");
-  } else if (matchAny(normalized, [/\b(analise|analyze|compare|tradeoff|pros|contras|infer)\b/i])) {
+  } else if (matchAnyInTexts(normalizedTexts, [/\b(analise|analyze|compare|tradeoff|pros|contras|infer)\b/i])) {
     intent = "analysis";
     confidence = 0.84;
     signals.push("analysis_keyword");
   } else if (
-    matchAny(normalized, [/\b(pesquise|pesquisa|buscar|busque|busca|procurar|procure|research|fontes?|sources?|cite|artigo|paper|estudo|literatura|referencias?|scholar|scielo|pubmed)\b/i])
+    matchAnyInTexts(normalizedTexts, [/\b(pesquise|pesquisa|buscar|busque|busca|procurar|procure|research|fontes?|sources?|cite|artigo|paper|estudo|literatura|referencias?|scholar|scielo|pubmed)\b/i])
   ) {
     intent = "research";
     confidence = 0.83;
     signals.push("research_keyword");
-  } else if (matchAny(normalized, [/\b(ensine|explique|teach|tutorial|step by step|passo a passo)\b/i])) {
+  } else if (matchAnyInTexts(normalizedTexts, [/\b(ensine|explique|teach|tutorial|step by step|passo a passo)\b/i])) {
     intent = "teaching";
     confidence = 0.8;
     signals.push("teaching_keyword");
-  } else if (matchAny(normalized, [/\b(api|typescript|node|python|sql|docker|kubernetes|debug|bug)\b/i])) {
+  } else if (matchAnyInTexts(normalizedTexts, [/\b(api|typescript|node|python|sql|docker|kubernetes|debug|bug)\b/i])) {
     intent = "technical";
     confidence = 0.79;
     signals.push("technical_keyword");
-  } else if (/\?$/.test(normalized) || matchAny(normalized, [/^\s*(quem|qual|como|por que|porque|what|who|why|how|when)\b/i])) {
+  } else if (
+    /\?$/.test(canonicalIntent) ||
+    matchAnyInTexts(normalizedTexts, [/^\s*(quem|qual|como|por que|porque|what|who|why|how|when)\b/i])
+  ) {
     intent = "question";
     confidence = 0.74;
     signals.push("question_form");
@@ -81,6 +91,7 @@ export function intentDetector(input: IntentDetectorInput): IntentDetectorOutput
     context: {
       language: input.language || "unknown",
       length: text.length,
+      variantCount: normalizedTexts.length,
       signals,
     },
   };

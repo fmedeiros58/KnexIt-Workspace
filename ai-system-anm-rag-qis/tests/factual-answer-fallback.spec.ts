@@ -102,3 +102,18 @@ const presidentBrazil = buildFactualAnswerFallback({
 
 assert(Boolean(presidentBrazil), "expected factual fallback for president do brasil");
 assert(Boolean(presidentBrazil?.answer.includes("Luiz Inácio Lula da Silva")), "expected extracted Lula name");
+
+const mayor = buildFactualAnswerFallback({
+  question: "qual o nome do prefeito de rio branco?",
+  sources: [
+    {
+      title: "Prefeitura de Rio Branco",
+      url: "https://exemplo.com/rio-branco",
+      snippet: "O prefeito de Rio Branco e Tiao Bocalom.",
+      freshnessScore: 0.82,
+    },
+  ],
+});
+
+assert(Boolean(mayor), "expected factual fallback for mayor question");
+assert(Boolean(mayor?.answer.includes("Bocalom")), "expected extracted mayor name");

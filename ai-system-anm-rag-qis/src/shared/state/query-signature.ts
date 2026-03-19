@@ -1,3 +1,5 @@
+import { textNormalizationService } from "../text-processing/text-normalization.service";
+
 /**
  * Responsabilidade do arquivo:
  * - Gerar assinatura compacta e deterministica para consultas textuais.
@@ -5,10 +7,8 @@
  * - Evitar repeticao de trabalho para perguntas identicas ou quase identicas.
  */
 export function buildQuerySignature(text: string) {
-  const normalized = (text || "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  const normalized = textNormalizationService.fingerprint(text || "");
+  if (!normalized) return "qsig:0";
 
   let hash = 0;
   for (let index = 0; index < normalized.length; index += 1) {

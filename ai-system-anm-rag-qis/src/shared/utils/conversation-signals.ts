@@ -16,8 +16,22 @@ function normalize(value: string): string {
     .trim();
 }
 
+function hasReferentialFactualCue(normalized: string): boolean {
+  const hasReferentialSubject = /\b(ele|ela|dele|dela|esse|essa|isso|aquele|aquela)\b/i.test(normalized);
+  const hasOfficeCue = /\b(presidente|governador|prefeito|ceo|ministro|senador|deputado)\b/i.test(normalized);
+  const hasTemporalFactCue =
+    /\b(quando|when|em que ano|que ano|ano|mandato|eleit[oa]|reeleit[oa]|posse|tomou posse|foi eleito|foi eleita|elected|mandate)\b/i.test(
+      normalized,
+    );
+  return (hasReferentialSubject && hasTemporalFactCue) || (hasOfficeCue && hasTemporalFactCue);
+}
+
 export function normalizeConversationText(value: string): string {
   return normalize(value);
+}
+
+export function isReferentialFactualPrompt(text: string): boolean {
+  return hasReferentialFactualCue(normalize(text));
 }
 
 const INTERNAL_ARTIFACT_PATTERNS = [
@@ -178,10 +192,23 @@ export function isConversationalPrompt(text: string): boolean {
   const hasQuestion = normalized.includes("?");
   const tokens = normalized.split(" ").filter(Boolean);
   const hasTechnicalSignal = /\b(api|endpoint|typescript|javascript|python|sql|docker|kubernetes|bug|debug)\b/i.test(normalized);
-  const hasFactualSignal = /\b(presidente|governador|prefeito|ceo|capital|cotacao|price|fonte|source|latest|today|atual)\b/i.test(normalized);
+  const hasFactualSignal =
+    /\b(presidente|governador|prefeito|ceo|capital|cotacao|price|fonte|source|latest|today|atual|quando|where|when|ano|eleit[oa]|mandato|posse)\b/i.test(
+      normalized,
+    );
   const hasResearchSignal = /\b(pesquisa|pesquise|buscar|busca|busque|procure|artigo|paper|estudo|literatura|referencia|referencias|doi|scholar|scielo|pubmed)\b/i.test(normalized);
+  const hasReferentialFactualSignal = hasReferentialFactualCue(normalized);
 
-  if (!hasTechnicalSignal && !hasFactualSignal && !hasResearchSignal && hasQuestion && tokens.length <= 10) return true;
+  if (
+    !hasTechnicalSignal &&
+    !hasFactualSignal &&
+    !hasResearchSignal &&
+    !hasReferentialFactualSignal &&
+    hasQuestion &&
+    tokens.length <= 10
+  ) {
+    return true;
+  }
   return false;
 }
 

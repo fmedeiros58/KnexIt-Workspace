@@ -9,6 +9,7 @@ import { regulatePipelineDepth } from "./pipeline-depth-regulator";
 import { selectPipelineRoute } from "./pipeline-route-selector";
 import { runBranchController } from "./pipeline-branch-controller";
 import { applyLatencyBudget } from "./pipeline-latency-balancer";
+import { applyPipelineDecisionGuard } from "./pipeline-decision-guard";
 import { prunePipelineState } from "./pipeline-state-pruner";
 import { appendPipelineTrace } from "./pipeline-execution-trace";
 import { handoffPipelineDelivery } from "./pipeline-delivery-handoff";
@@ -39,17 +40,19 @@ export async function runPipelineConductor(input: PipelineBootstrapInput): Promi
 
     const initialRoute = selectPipelineRoute(state);
     state.executionPlan.selectedRoute = initialRoute;
-    state.executionPlan.maxDepth = regulatePipelineDepth(initialRoute);
+    applyPipelineDecisionGuard(state, "pre_branch");
+    const guardedRoute = state.executionPlan.selectedRoute;
+    state.executionPlan.maxDepth = regulatePipelineDepth(guardedRoute);
 
     applyLatencyBudget(state);
-    appendPipelineTrace(state, "route_selected", "orchestration", 0, initialRoute);
+    appendPipelineTrace(state, "route_selected", "orchestration", 0, guardedRoute);
 
     state.observabilityMetrics = state.observabilityMetrics || createObservabilityMetricsStore();
-    bumpRouteRun(state.observabilityMetrics, initialRoute);
+    bumpRouteRun(state.observabilityMetrics, guardedRoute);
 
-    const routedState = await runBranchController(state, initialRoute);
-    const effectiveRoute = routedState.executionPlan.selectedRoute || initialRoute;
-    if (effectiveRoute !== initialRoute) bumpRouteRun(routedState.observabilityMetrics, effectiveRoute);
+    const routedState = await runBranchController(state, guardedRoute);
+    const effectiveRoute = routedState.executionPlan.selectedRoute || guardedRoute;
+    if (effectiveRoute !== guardedRoute) bumpRouteRun(routedState.observabilityMetrics, effectiveRoute);
 
     const pruningMode = ROUTE_EXECUTION_POLICY[effectiveRoute].pruningMode;
 

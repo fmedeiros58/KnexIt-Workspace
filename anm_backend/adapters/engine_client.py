@@ -91,6 +91,26 @@ def _derive_wsl_base_url(base_url: str) -> str:
     return candidate.rstrip("/")
 
 
+def _derive_kubernetes_base_url(base_url: str) -> str:
+    if not os.getenv("KUBERNETES_SERVICE_HOST"):
+        return ""
+
+    explicit = _pick_first_non_empty(
+        os.getenv("ANM_ENGINE_K8S_BASE_URL"),
+        os.getenv("K8S_VLLM_BASE_URL"),
+    ).rstrip("/")
+    if explicit:
+        return explicit
+
+    parsed = urlparse(str(base_url or "").strip())
+    scheme = parsed.scheme or "http"
+    port = parsed.port or 8000
+    service = _pick_first_non_empty(os.getenv("ANM_ENGINE_K8S_SERVICE_NAME"), "vllm")
+    path = parsed.path or "/v1"
+    candidate = urlunparse((scheme, f"{service}:{port}", path, "", "", ""))
+    return candidate.rstrip("/")
+
+
 def _probe_models(base_url: str, api_key: str, *, timeout_seconds: float) -> bool:
     url = f"{base_url.rstrip('/')}/models"
     try:
@@ -108,6 +128,10 @@ def _resolve_best_base_url(*, base_url: str, api_key: str, timeout_seconds: floa
         return base_url
 
     candidates: list[str] = [normalized]
+    kubernetes_candidate = _derive_kubernetes_base_url(normalized)
+    if kubernetes_candidate and kubernetes_candidate not in candidates:
+        candidates.append(kubernetes_candidate)
+
     if _wsl_discovery_enabled():
         wsl_candidate = _derive_wsl_base_url(normalized)
         if wsl_candidate and wsl_candidate not in candidates:
@@ -579,3 +603,4 @@ class EngineClient:
                     "model": model,
                     "error": f"{first_error}; fallback={second_error}",
                 }
+

@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Responsabilidade do arquivo:
- * - Consolidar sinais pragmaticos em bloco unico para o LanguageState.
- * - Reaproveitar snapshot textual quando disponivel para reduzir retrabalho.
- * - Manter detectores especializados sem sobreposicao de papel.
+ * - Consolidar sinais pragmaticos em leitura unica.
+ * - Usar o resolvedor pragmatico.
+ * - Produzir payload final mais robusto para o LanguageState.
  */
 import type { TextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
 import type { PragmaticIntentType, SpeechActType } from "../types/language-signal-types";
@@ -13,6 +13,7 @@ import { implicatureSignalDetector } from "./implicature-signal-detector";
 import { indirectRequestDetector } from "./indirect-request-detector";
 import { politenessDetector } from "./politeness-detector";
 import { pragmaticIntentDetector } from "./pragmatic-intent-detector";
+import { pragmaticResolutionEngine } from "./pragmatic-resolution-engine";
 import { relationalCueDetector } from "./relational-cue-detector";
 import { speechActDetector } from "./speech-act-detector";
 
@@ -31,13 +32,15 @@ export interface PragmaticAggregationResult {
   emphasisStrength: number;
   implicatureSignals: string[];
   relationalCues: string[];
+  resolutionNotes: string[];
 }
 
-export function pragmaticAggregationEngine(input: PragmaticAggregationInput): PragmaticAggregationResult {
+export function pragmaticAggregationEngine(
+  input: PragmaticAggregationInput,
+): PragmaticAggregationResult {
   const text = input.snapshot?.normalizedText || input.text;
 
   const speech = speechActDetector({ text });
-  const intent = pragmaticIntentDetector({ text, speechAct: speech.speechAct });
   const indirectRequest = indirectRequestDetector({ text });
   const politeness = politenessDetector({ text });
   const emphasis = emphasisDetector({ text });
@@ -45,9 +48,29 @@ export function pragmaticAggregationEngine(input: PragmaticAggregationInput): Pr
   const directiveForce = directiveForceDetector({ text });
   const relational = relationalCueDetector({ text });
 
-  return {
+  const intent = pragmaticIntentDetector({
+    text,
     speechAct: speech.speechAct,
-    intent: intent.intent,
+    directiveForce: directiveForce.force,
+    indirectRequest: indirectRequest.detected,
+    relationalCues: relational.cues,
+    implicatureSignals: implicature.signals,
+  });
+
+  const resolved = pragmaticResolutionEngine({
+    speechAct: speech.speechAct,
+    directiveForce: directiveForce.force,
+    indirectRequest: indirectRequest.detected,
+    emphasisStrength: emphasis.strength,
+    implicatureSignals: implicature.signals,
+    relationalCues: relational.cues,
+    politeness: politeness.politeness,
+    currentIntent: intent.intent,
+  });
+
+  return {
+    speechAct: resolved.resolvedSpeechAct,
+    intent: resolved.resolvedIntent,
     politeness: clamp01((speech.politeness + politeness.politeness) / 2),
     register: politeness.register,
     indirectRequest: indirectRequest.detected,
@@ -55,5 +78,6 @@ export function pragmaticAggregationEngine(input: PragmaticAggregationInput): Pr
     emphasisStrength: emphasis.strength,
     implicatureSignals: implicature.signals,
     relationalCues: relational.cues,
+    resolutionNotes: resolved.notes,
   };
 }

@@ -7,10 +7,14 @@ const vllmClient = createVllmClient();
 function shouldUseLlmRuntime(state: ProcessingState): boolean {
   const runtimeFlag = `${process.env.ANM_ENABLE_LLM_RUNTIME ?? "true"}`.toLowerCase();
   if (runtimeFlag === "false" || runtimeFlag === "0" || runtimeFlag === "off") return false;
-  if (state.executionPlan.selectedRoute === "minimum") return false;
-  if (isConversationalPrompt(state.normalizedMessage)) return false;
-  if (/\b(qual|quem|nome).*\b(presidente|governador|prefeito)\b/i.test(state.normalizedMessage)) return false;
-  return Boolean(state.collapsedTruth.summary || state.retrievedEvidence.length);
+  const hasEvidence = Boolean(
+    state.collapsedTruth.summary ||
+    state.retrievedEvidence.length ||
+    state.retrievedSources.length,
+  );
+  if (!hasEvidence) return false;
+  if (state.executionPlan.selectedRoute === "minimum" && isConversationalPrompt(state.normalizedMessage)) return false;
+  return true;
 }
 
 function buildRuntimePrompt(state: ProcessingState): string {

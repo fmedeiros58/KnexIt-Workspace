@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
 const WSL_DISCOVERY_CACHE_MS = 60_000;
 const ANM_RESOLUTION_CACHE_MS = Math.max(500, Number(process.env.ANM_BASE_URL_RESOLUTION_CACHE_MS || 3_000));
+const ANM_STICKY_REACHABLE_MS = Math.max(1_000, Number(process.env.ANM_BASE_URL_STICKY_REACHABLE_MS || 120_000));
 
 type ResolutionCache = {
   key: string;
@@ -12,6 +13,7 @@ type ResolutionCache = {
 
 let wslDiscoveryCache: { key: string; checkedAt: number; urls: string[] } | null = null;
 let anmResolutionCache: ResolutionCache | null = null;
+let stickyReachableBaseUrlCache: { baseUrl: string; expiresAt: number } | null = null;
 
 export type ResolvedAnmBaseUrl = {
   baseUrl: string;
@@ -79,6 +81,27 @@ function replaceHostname(baseUrl: string, host: string) {
   }
 }
 
+function resolveKubernetesServiceBaseUrl(configuredBaseUrl: string) {
+  if (!process.env.KUBERNETES_SERVICE_HOST) return "";
+
+  const explicit = normalizeUrl(
+    pickFirstNonEmpty(
+      process.env.ANM_K8S_SERVICE_BASE_URL,
+      process.env.ANM_BACKEND_CLUSTER_BASE_URL,
+    ),
+  );
+  if (explicit) return explicit;
+
+  try {
+    const parsed = new URL(configuredBaseUrl || DEFAULT_ANM_BASE_URL);
+    const protocol = parsed.protocol || "http:";
+    const port = parsed.port || "8100";
+    return normalizeUrl(`${protocol}//anm-backend:${port}`);
+  } catch {
+    return "http://anm-backend:8100";
+  }
+}
+
 function tryDiscoverWslHostIp() {
   try {
     const output = execFileSync(
@@ -113,6 +136,12 @@ export function resolveAnmBaseUrlCandidates(configuredBaseUrl: string) {
     if (!candidate || seen.has(candidate)) continue;
     seen.add(candidate);
     result.push(candidate);
+  }
+
+  const k8sCandidate = resolveKubernetesServiceBaseUrl(configured);
+  if (k8sCandidate && !seen.has(k8sCandidate)) {
+    seen.add(k8sCandidate);
+    result.push(k8sCandidate);
   }
 
   if (!parseBooleanFlag(process.env.ANM_WSL_DISCOVERY_ENABLED, true)) {
@@ -229,6 +258,10 @@ export async function resolveReachableAnmBaseUrl(input?: {
   for (const candidate of attemptedBaseUrls) {
     const probe = await probeAnmBaseUrl(candidate, timeoutMs, healthPath);
     if (probe.ok) {
+      stickyReachableBaseUrlCache = {
+        baseUrl: candidate,
+        expiresAt: now + ANM_STICKY_REACHABLE_MS,
+      };
       const value: ResolvedAnmBaseUrl = {
         baseUrl: candidate,
         configuredBaseUrl,
@@ -245,6 +278,26 @@ export async function resolveReachableAnmBaseUrl(input?: {
     }
   }
 
+  if (
+    stickyReachableBaseUrlCache &&
+    stickyReachableBaseUrlCache.expiresAt > now &&
+    stickyReachableBaseUrlCache.baseUrl
+  ) {
+    const value: ResolvedAnmBaseUrl = {
+      baseUrl: stickyReachableBaseUrlCache.baseUrl,
+      configuredBaseUrl,
+      attemptedBaseUrls: attemptedBaseUrls.length ? attemptedBaseUrls : [configuredBaseUrl],
+      reachable: true,
+      detail: "sticky_last_reachable",
+    };
+    anmResolutionCache = {
+      key,
+      expiresAt: now + ANM_RESOLUTION_CACHE_MS,
+      value,
+    };
+    return value;
+  }
+
   const value: ResolvedAnmBaseUrl = {
     baseUrl: attemptedBaseUrls[0] || configuredBaseUrl,
     configuredBaseUrl,
@@ -259,3 +312,4 @@ export async function resolveReachableAnmBaseUrl(input?: {
   };
   return value;
 }
+

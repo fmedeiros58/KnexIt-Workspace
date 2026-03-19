@@ -7,7 +7,7 @@ import {
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const accessToken = process.env.SUPABASE_ACCESS_TOKEN || "";
-const explicitProjectRef = process.env.SUPABASE_PROJECT_ID || "";
+const explicitProjectRef = process.env.SUPABASE_PROJECT_ID || process.env.SUPABASE_PROJECT_REF || "";
 
 if (!supabaseUrl) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL.");

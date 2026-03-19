@@ -97,6 +97,18 @@ function shouldHandleRedoCommandWithTargetPrompt() {
   }
 }
 
+function shouldNotFallbackForReferentialFactualFollowUp() {
+  const state = createChatState("ele foi eleito quando?");
+  state.recentTurns = [
+    { role: "user", content: "qual o nome do presidente dos estados unidos?" },
+    { role: "assistant", content: "O presidente dos Estados Unidos e Donald Trump." },
+  ];
+  const response = buildConversationalFallback(state);
+  if (response !== null) {
+    throw new Error("referential factual follow-up should bypass conversational fallback");
+  }
+}
+
 shouldHandleGreeting();
 shouldHandlePreferredName();
 shouldAskForNameWhenUserOffersName();
@@ -106,3 +118,4 @@ shouldDetectEcho();
 shouldNotFallbackForVerifiableQuestionOnNonMinimumRoute();
 shouldNotFallbackForResearchRequestEvenOnMinimumRoute();
 shouldHandleRedoCommandWithTargetPrompt();
+shouldNotFallbackForReferentialFactualFollowUp();

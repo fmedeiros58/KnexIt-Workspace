@@ -46,17 +46,35 @@ function isDirectFactualNameQuestion(text: string): boolean {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, " ");
   return (
-    /\b(governador|presidente)\b/.test(normalized) &&
+    /\b(governador|presidente|prefeito)\b/.test(normalized) &&
     /\b(qual|quem|nome)\b/.test(normalized)
   );
+}
+
+function hasRecentCivicAnchor(state: ProcessingState): boolean {
+  return state.recentTurns
+    .slice(-6)
+    .some((turn) => /\b(presidente|governador|prefeito|mandato|eleit[oa]|posse)\b/i.test(turn.content));
+}
+
+function isDirectFactualTimelineQuestion(text: string, state: ProcessingState): boolean {
+  const normalized = `${text || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, " ");
+  const hasTimelineCue = /\b(quando|em que ano|que ano|ano|mandato|eleit[oa]|reeleit[oa]|posse)\b/.test(normalized);
+  if (!hasTimelineCue) return false;
+  if (/\b(presidente|governador|prefeito)\b/.test(normalized)) return true;
+  if (/\b(ele|ela|dele|dela|esse|essa)\b/.test(normalized) && hasRecentCivicAnchor(state)) return true;
+  return false;
 }
 
 function buildUnresolvedFactualMessage(state: ProcessingState): string {
   const sourceCount = state.retrievedSources.length;
   if (sourceCount > 0) {
-    return "Nao consegui confirmar com seguranca o nome pedido nas fontes recuperadas. Posso refazer priorizando fontes oficiais e mais recentes.";
+    return "Nao consegui confirmar com seguranca o fato pedido nas fontes recuperadas. Posso refazer priorizando fontes oficiais e mais recentes.";
   }
-  return "Nao encontrei fontes suficientes para confirmar o nome com seguranca. Posso refazer a busca web agora.";
+  return "Nao encontrei fontes suficientes para confirmar o fato com seguranca. Posso refazer a busca web agora.";
 }
 
 function buildPrompt(state: ProcessingState): string {
@@ -122,7 +140,10 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
     return handoffGenerationToStructure(state);
   }
 
-  if (isDirectFactualNameQuestion(state.normalizedMessage)) {
+  if (
+    isDirectFactualNameQuestion(state.normalizedMessage) ||
+    isDirectFactualTimelineQuestion(state.normalizedMessage, state)
+  ) {
     const unresolvedText = applyMultimodalDraftBridge(
       buildUnresolvedFactualMessage(state),
       state.inputSignals.modality,
