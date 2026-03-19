@@ -6,6 +6,7 @@
  */
 import type { PipelineRoute } from "../shared/enums/pipeline-enums";
 import type { ProcessingState } from "../bridges/contracts/processing-state";
+import { resolveActiveFamilyIds } from "../shared/families/family-runtime-resolver";
 import { buildTextAnalysisSnapshot } from "../shared/text-processing/text-analysis-snapshot";
 import { makeTraceEvent } from "../shared/utils/trace-utils";
 import { mergeConstraints, toConstraint } from "../shared/state/constraint-utils";
@@ -33,6 +34,7 @@ import { timeoutGuard } from "./execution-coordinator/timeout-guard";
 import { retryLogic } from "./execution-coordinator/retry-logic";
 import { fallbackStrategyManager } from "./execution-coordinator/fallback-strategy-manager";
 import { handoffOrchestrationToMemory } from "./orchestration-to-memory-bridge";
+import { applyPipelineDecisionGuard } from "../00-myelinated-pipeline-core/pipeline-decision-guard";
 import { isConversationalPrompt } from "../shared/utils/conversation-signals";
 
 function clamp01(value: number) {
@@ -218,12 +220,15 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   state.executionPlan.timeoutMs = timeout.timeoutMs;
   state.executionPlan.retryMaxAttempts = retry.maxAttempts;
   state.executionPlan.fallbackStrategy = fallback.primaryStrategy;
+  const guardDecision = applyPipelineDecisionGuard(state, "post_orchestration");
+  planningRoute = state.executionPlan.selectedRoute;
 
   state.activeConstraints = mergeConstraints(
     state.activeConstraints,
     [
       ...(routeElevated ? [toConstraint("route_hint", routeHint)] : []),
       ...(conversationalPrompt ? [toConstraint("route", "conversation_minimum_forced")] : []),
+      ...(guardDecision.enforced ? [toConstraint("decision_guard", "enforced_post_orchestration")] : []),
       toConstraint("fallback", fallback.primaryStrategy),
       toConstraint("retry_max_attempts", `${retry.maxAttempts}`),
       ...(needMemoryReinforcement ? [toConstraint("memory", "reinforcement_required")] : []),
@@ -237,6 +242,8 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
 
   state.timings.orchestrationTimeoutMs = timeout.timeoutMs;
   state.timings.orchestrationRetryBackoffMs = retry.backoffMs;
+  state.executionArtifacts = state.executionArtifacts || { knowledge: { cache: {}, lastQuerySignature: "", lastUsedCache: false } };
+  state.executionArtifacts.activeFamilies = resolveActiveFamilyIds(state);
 
   state.executionArtifacts.orchestration = {
     selectedMode,
@@ -251,6 +258,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     retryMaxAttempts: retry.maxAttempts,
     fallbackStrategy: fallback.primaryStrategy,
     steps: [...state.executionPlan.steps],
+    activeFamilies: [...state.executionArtifacts.activeFamilies],
   };
 
   state.trace.push(

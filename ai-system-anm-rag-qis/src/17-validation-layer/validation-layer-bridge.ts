@@ -181,6 +181,21 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
 
   state.confidenceScores.coherence = coherence;
   state.confidenceScores.final = quality.score;
+  state.executionArtifacts = state.executionArtifacts || {
+    knowledge: {
+      cache: {},
+      lastQuerySignature: "",
+      lastUsedCache: false,
+    },
+  };
+  state.executionArtifacts.validation = {
+    activeValidationFamilies: [
+      ...(profile !== "light" ? ["validation_factual"] : []),
+      "validation_policy",
+    ],
+    validationProfile: profile,
+    validationStage,
+  };
 
   state.trace.push(
     makeTraceEvent({

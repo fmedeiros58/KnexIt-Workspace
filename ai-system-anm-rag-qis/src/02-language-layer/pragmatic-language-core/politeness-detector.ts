@@ -4,7 +4,12 @@
  * - Produzir score auditavel em [0,1] para o estado pragmatico.
  * - Servir de insumo para rapport sem decidir estrategia conversacional.
  */
-import { clamp01, safeLower } from "../utils/normalization-utils";
+import { clamp01 } from "../utils/normalization-utils";
+import { pragmaticNormalizer } from "./pragmatic-normalizer";
+import {
+  LOW_POLITENESS_FAMILIES,
+  POLITENESS_FAMILIES,
+} from "./pragmatic-pattern-library";
 
 export interface PolitenessDetectorInput {
   text: string;
@@ -16,14 +21,20 @@ export interface PolitenessDetectorResult {
 }
 
 export function politenessDetector(input: PolitenessDetectorInput): PolitenessDetectorResult {
-  const text = safeLower(input.text);
-  const positive = (text.match(/\b(por favor|please|obrigado|agradeco|gentileza|cordialmente)\b/g) || []).length;
-  const negative = (text.match(/\b(agora|imediato|sem enrolar|fa(c|s)a isso)\b/g) || []).length;
-  const formal = /\b(prezado|solicito|atenciosamente|cordialmente)\b/.test(text);
+  const normalized = pragmaticNormalizer({ text: input.text });
+  const text = normalized.compactText;
 
-  const politeness = clamp01(0.44 + positive * 0.16 - negative * 0.1 + (formal ? 0.1 : 0));
+  const positiveHits = POLITENESS_FAMILIES.flatMap((family) =>
+    family.patterns.filter((pattern) => pattern.test(text)),
+  ).length;
+
+  const negative = LOW_POLITENESS_FAMILIES.flatMap((family) =>
+    family.patterns.filter((pattern) => pattern.test(text)),
+  ).length;
+  const formal = /\b(prezado|solicito|atenciosamente|cordialmente)\b/i.test(normalized.normalizedText);
+
+  const politeness = clamp01(0.44 + positiveHits * 0.16 - negative * 0.1 + (formal ? 0.1 : 0));
   const register = formal ? "formal" : politeness < 0.42 ? "informal" : "balanced";
 
   return { politeness, register };
 }
-

@@ -1,0 +1,33 @@
+# VCS
+.git
+.gitignore
+
+# Node / build outputs
+node_modules
+.next
+.next-build
+.next-dev
+*.log
+*.tmp
+
+# Python virtual envs
+.venv
+.anm-venv
+.emb-venv
+.venv-identity
+
+# IDE / OS
+.vscode
+.idea
+
+# local artifacts
+coverage
+**/__pycache__
+*.pyc
+
+# data caches
+tmp
+.cache
+models
+data
+backups

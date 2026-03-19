@@ -5,7 +5,9 @@
  * - Semear complexityProfile inicial para roteamento mais coerente.
  */
 import type { ProcessingState } from "../bridges/contracts/processing-state";
+import { resolveActiveFamilyIds } from "../shared/families/family-runtime-resolver";
 import { buildTextAnalysisSnapshot } from "../shared/text-processing/text-analysis-snapshot";
+import { textNormalizationService } from "../shared/text-processing/text-normalization.service";
 import {
   extractLatestUserUtterance,
   isConversationalPrompt,
@@ -69,10 +71,18 @@ function estimateQuickAmbiguity(snapshot: ReturnType<typeof buildTextAnalysisSna
 export function runInputPreRouteScan(state: ProcessingState): ProcessingState {
   const text = state.normalizedMessage || state.rawMessage;
   const focused = extractLatestUserUtterance(text) || text;
-  const snapshot = state.textAnalysisSnapshot ?? buildTextAnalysisSnapshot(focused);
-  const quickIntent = detectQuickIntent(focused);
-  const quickUrgency = detectQuickUrgency(focused);
-  const quickSafety = detectQuickSafety(focused);
+  const focusedIntentCanonical = textNormalizationService.canonical(focused, "intent");
+  const intentVariants = textNormalizationService.variants(focused, "intent", {
+    maxVariants: 3,
+    maxInputLength: 220,
+  });
+  const intentProbe = [focusedIntentCanonical, ...intentVariants]
+    .map((value) => textNormalizationService.canonical(value, "intent"))
+    .join(" | ");
+  const snapshot = state.textAnalysisSnapshot ?? buildTextAnalysisSnapshot(focusedIntentCanonical);
+  const quickIntent = detectQuickIntent(intentProbe);
+  const quickUrgency = detectQuickUrgency(focusedIntentCanonical);
+  const quickSafety = detectQuickSafety(focusedIntentCanonical);
   const quickComplexity = estimateQuickComplexity(snapshot);
   const quickAmbiguity = estimateQuickAmbiguity(snapshot);
 
@@ -93,6 +103,8 @@ export function runInputPreRouteScan(state: ProcessingState): ProcessingState {
 
   state.complexityProfile.score = Math.max(state.complexityProfile.score || 0, quickComplexity);
   state.complexityProfile.ambiguity = Math.max(state.complexityProfile.ambiguity || 0, quickAmbiguity);
+  state.executionArtifacts = state.executionArtifacts || { knowledge: { cache: {}, lastQuerySignature: "", lastUsedCache: false } };
+  state.executionArtifacts.activeFamilies = resolveActiveFamilyIds(state);
 
   return state;
 }

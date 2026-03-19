@@ -27,6 +27,7 @@ export function buildPipelineState(input: PipelineBootstrapInput): ProcessingSta
   };
   state.executionArtifacts = {
     ...state.executionArtifacts,
+    activeFamilies: [],
     knowledge: {
       cache: {},
       lastQuerySignature: "",
@@ -39,6 +40,7 @@ export function buildPipelineState(input: PipelineBootstrapInput): ProcessingSta
     skipReasons: {},
     fallbackStrategies: {},
     errorCategories: {},
+    familyMetrics: {},
   };
   state.executionPlan.selectedRoute = "minimum";
   state.executionPlan.mode = "chat";

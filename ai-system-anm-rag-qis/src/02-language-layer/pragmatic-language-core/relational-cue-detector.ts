@@ -1,10 +1,10 @@
 ﻿/**
  * Responsabilidade do arquivo:
- * - Detectar pistas relacionais (tratamento nominal, proximidade, manutencao de vinculo).
- * - Fornecer sinais de relacao social sem inferencia psicologica profunda.
- * - Apoiar selecao de tom no conversation-layer.
+ * - Detectar sinais relacionais e preferencias de tratamento.
+ * - Captar nomeacao, limites de estilo e calor social.
  */
-import { collectPatternMatches } from "../utils/phrase-pattern-utils";
+import { pragmaticNormalizer } from "./pragmatic-normalizer";
+import { RELATIONAL_FAMILIES } from "./pragmatic-pattern-library";
 
 export interface RelationalCueDetectorInput {
   text: string;
@@ -14,13 +14,19 @@ export interface RelationalCueDetectorResult {
   cues: string[];
 }
 
-export function relationalCueDetector(input: RelationalCueDetectorInput): RelationalCueDetectorResult {
-  const namePreference = collectPatternMatches(input.text, /\b(me chame de|call me|pode me chamar de)\b/gi);
-  const socialWarmth = collectPatternMatches(input.text, /\b(amigo|parceiro|obrigado|valeu|por gentileza)\b/gi);
-  const boundarySignals = collectPatternMatches(input.text, /\b(sem enrolar|direto ao ponto|objetivo)\b/gi);
+export function relationalCueDetector(
+  input: RelationalCueDetectorInput,
+): RelationalCueDetectorResult {
+  const normalized = pragmaticNormalizer({ text: input.text });
+  const text = normalized.compactText;
+
+  const cues = RELATIONAL_FAMILIES.flatMap((family) =>
+    family.patterns
+      .filter((pattern) => pattern.test(text))
+      .map(() => family.name),
+  );
 
   return {
-    cues: [...namePreference, ...socialWarmth, ...boundarySignals].map((value) => value.toLowerCase()).slice(0, 16),
+    cues: [...new Set(cues)].slice(0, 16),
   };
 }
-

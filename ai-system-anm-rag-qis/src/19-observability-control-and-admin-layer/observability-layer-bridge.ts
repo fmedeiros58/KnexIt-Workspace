@@ -6,7 +6,7 @@
  */
 import type { ProcessingState } from "../bridges/contracts/processing-state";
 import { makeTraceEvent } from "../shared/utils/trace-utils";
-import { createObservabilityMetricsStore } from "./observability-metrics-store";
+import { bumpFamilyMetric, createObservabilityMetricsStore } from "./observability-metrics-store";
 
 export async function runObservabilityLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
@@ -15,6 +15,10 @@ export async function runObservabilityLayer(state: ProcessingState): Promise<Pro
 
   const currentRoute = state.executionPlan.selectedRoute;
   const routeMetrics = state.observabilityMetrics.routeMetrics[currentRoute];
+  const activeFamilies = state.executionArtifacts.activeFamilies || [];
+  for (const familyId of activeFamilies) {
+    bumpFamilyMetric(state.observabilityMetrics, familyId);
+  }
   const skipReasons = Object.entries(state.observabilityMetrics.skipReasons)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -29,6 +33,7 @@ export async function runObservabilityLayer(state: ProcessingState): Promise<Pro
       topSkipReasons: skipReasons,
       fallbackStrategies: state.observabilityMetrics.fallbackStrategies,
       errorCategories: state.observabilityMetrics.errorCategories,
+      activeFamilies,
     },
   };
 
@@ -41,7 +46,7 @@ export async function runObservabilityLayer(state: ProcessingState): Promise<Pro
       detail:
         `routeRuns=${routeMetrics?.runs || 0}; succeeded=${routeMetrics?.succeeded || 0}; ` +
         `failed=${routeMetrics?.failed || 0}; fallbacks=${routeMetrics?.fallbacks || 0}; ` +
-        `topSkipReasons=${skipReasons || "none"}`,
+        `topSkipReasons=${skipReasons || "none"}; activeFamilies=${activeFamilies.length}`,
     }),
   );
 

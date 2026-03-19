@@ -14,6 +14,7 @@ import {
   isGreetingMessage,
   isNameRecallPrompt,
   isNameSharePrompt,
+  isReferentialFactualPrompt,
   isSmallTalkMessage,
   normalizeConversationText,
   toDisplayName,
@@ -28,7 +29,18 @@ function isTechnicalRequest(text: string): boolean {
 }
 
 function isVerifiableFactQuestion(text: string): boolean {
-  return /\b(presidente|governador|prefeito|ceo|capital|cotacao|dolar|populacao|atual|latest|today|source|fonte)\b/i.test(text);
+  const hasRoleCue = /\b(presidente|governador|prefeito|ceo|capital|cotacao|dolar|populacao|atual|latest|today|source|fonte)\b/i.test(text);
+  const hasTimelineCue = /\b(quando|when|em que ano|que ano|ano|eleit[oa]|mandato|posse|reeleit[oa])\b/i.test(text);
+  return hasRoleCue || hasTimelineCue || isReferentialFactualPrompt(text);
+}
+
+function hasRecentFactualAnchor(state: ProcessingState): boolean {
+  const recent = state.recentTurns
+    .slice(-6)
+    .map((turn) => normalize(turn.content))
+    .join(" ");
+  if (!recent) return false;
+  return /\b(presidente|governador|prefeito|ceo|capital|eleit[oa]|mandato|posse)\b/i.test(recent);
 }
 
 function isResearchRequest(text: string): boolean {
@@ -154,6 +166,7 @@ export function buildConversationalFallback(state: ProcessingState): string | nu
   if (!focus) return null;
   if (isTechnicalRequest(focus)) return null;
   if (isVerifiableFactQuestion(focus)) return null;
+  if (isReferentialFactualPrompt(focus) && hasRecentFactualAnchor(state)) return null;
   if (isResearchRequest(focus)) return null;
 
   const nameIntent = buildNameIntentResponse(focus);

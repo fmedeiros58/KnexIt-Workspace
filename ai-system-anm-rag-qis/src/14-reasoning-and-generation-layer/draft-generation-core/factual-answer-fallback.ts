@@ -16,13 +16,13 @@ export interface FactualAnswerFallbackResult {
   answer: string;
   citations: string[];
   confidence: number;
-  role: "governador" | "presidente";
+  role: "governador" | "presidente" | "prefeito";
   place: string;
   personName: string;
 }
 
 interface ParsedRoleQuestion {
-  role: "governador" | "presidente";
+  role: "governador" | "presidente" | "prefeito";
   placeNormalized: string;
   placeDisplay: string;
 }
@@ -120,6 +120,35 @@ function parseGovernorQuestion(question: string): ParsedRoleQuestion | null {
   };
 }
 
+function parseMayorQuestion(question: string): ParsedRoleQuestion | null {
+  const focus = getQuestionFocus(question);
+  const normalized = normalize(focus);
+  if (!/\bprefeit[oa]\b/.test(normalized)) return null;
+
+  const candidates: string[] = [];
+  const patterns = [
+    /\bqual(?:\s+e)?\s+o?\s*nome\s+do\s+prefeit[oa]\s+(?:de|do|da)\s+([\p{L}\s-]{2,})/gu,
+    /\bquem\s+e\s+o?\s*prefeit[oa]\s+(?:de|do|da)\s+([\p{L}\s-]{2,})/gu,
+    /\bprefeit[oa]\s+(?:de|do|da)\s+([\p{L}\s-]{2,})/gu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of normalized.matchAll(pattern)) {
+      const place = match[1]?.trim();
+      if (!place) continue;
+      candidates.push(place);
+    }
+  }
+
+  if (!candidates.length) return null;
+  const placeNormalized = normalizePlace(candidates[candidates.length - 1]);
+  if (!placeNormalized) return null;
+  return {
+    role: "prefeito",
+    placeNormalized,
+    placeDisplay: capitalizeWords(placeNormalized),
+  };
+}
+
 function normalizePresidentPlace(value: string): { normalized: string; display: string } {
   const place = normalizePlace(value);
   if (!place) return { normalized: "", display: "" };
@@ -161,7 +190,7 @@ function parsePresidentQuestion(question: string): ParsedRoleQuestion | null {
 }
 
 function parseRoleQuestion(question: string): ParsedRoleQuestion | null {
-  return parseGovernorQuestion(question) || parsePresidentQuestion(question);
+  return parseGovernorQuestion(question) || parseMayorQuestion(question) || parsePresidentQuestion(question);
 }
 
 function escapeRegExp(value: string): string {
@@ -268,6 +297,32 @@ function extractGovernorNameFromSnippet(placeNormalized: string, snippet: string
   return null;
 }
 
+function extractMayorNameFromSnippet(placeNormalized: string, snippet: string): string | null {
+  const rawSnippet = decodeHtmlEntities(snippet);
+  const normalizedSnippet = normalize(rawSnippet);
+  const mentionsMayor = /\bprefeit[oa]\b/.test(normalizedSnippet);
+  const mentionsPlace = normalizedSnippet.includes(placeNormalized);
+  if (!mentionsMayor || !mentionsPlace) return null;
+
+  const escapedPlace = escapeRegExp(placeNormalized).replace(/\s+/g, "\\s+");
+  const placePattern = escapedPlace;
+  const patterns = [
+    new RegExp(`prefeit[oa]\\s+(?:de|do|da)\\s+${placePattern}\\s*[,:-]\\s*([^,.;\\n]{3,90})`, "i"),
+    new RegExp(`prefeit[oa]\\s+(?:de|do|da)\\s+${placePattern}\\s+(?:e|eh|é)\\s+([^,.;\\n]{3,90})`, "i"),
+    new RegExp(`([^,.;\\n]{3,90})\\s+(?:e|eh|é)\\s+o\\s+prefeito\\s+(?:de|do|da)\\s+${placePattern}`, "i"),
+    new RegExp(`([^,.;\\n]{3,90})\\s*,\\s*o\\s+prefeito\\s+(?:de|do|da)\\s+${placePattern}`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = rawSnippet.match(pattern);
+    if (!match?.[1]) continue;
+    const candidate = cleanName(trimNameTail(match[1]));
+    if (isValidPersonName(candidate, placeNormalized, "prefeito")) return candidate;
+  }
+
+  return null;
+}
+
 function extractPresidentNameFromSnippet(placeNormalized: string, snippet: string): string | null {
   const rawSnippet = decodeHtmlEntities(snippet);
   const normalizedSnippet = normalize(rawSnippet);
@@ -311,6 +366,9 @@ function extractPersonName(parsed: ParsedRoleQuestion, snippet: string): string 
   if (parsed.role === "governador") {
     return extractGovernorNameFromSnippet(parsed.placeNormalized, snippet);
   }
+  if (parsed.role === "prefeito") {
+    return extractMayorNameFromSnippet(parsed.placeNormalized, snippet);
+  }
   return extractPresidentNameFromSnippet(parsed.placeNormalized, snippet);
 }
 
@@ -342,7 +400,9 @@ export function buildFactualAnswerFallback(input: FactualAnswerFallbackInput): F
   const answer =
     parsed.role === "governador"
       ? `O governador do ${parsed.placeDisplay} e ${personName}.${citationText}`
-      : `O presidente de ${parsed.placeDisplay} e ${personName}.${citationText}`;
+      : parsed.role === "prefeito"
+        ? `O prefeito de ${parsed.placeDisplay} e ${personName}.${citationText}`
+        : `O presidente de ${parsed.placeDisplay} e ${personName}.${citationText}`;
 
   return {
     answer,

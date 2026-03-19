@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knexit-web
+  namespace: knexit
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: knexit-web
+  template:
+    metadata:
+      labels:
+        app: knexit-web
+    spec:
+      containers:
+      - name: web
+        image: knexit-web:local
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: knexit-runtime-config
+        - secretRef:
+            name: knexit-runtime-secrets
+        readinessProbe:
+          httpGet:
+            path: /api/knexai/health
+            port: http
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /
+            port: http
+          failureThreshold: 30
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "300m"
+            memory: "768Mi"
+          limits:
+            cpu: "1500m"
+            memory: "2Gi"
+

@@ -23,6 +23,7 @@ export interface ObservabilityMetricsStore {
   skipReasons: Record<string, number>;
   fallbackStrategies: Record<string, number>;
   errorCategories: Record<string, number>;
+  familyMetrics: Record<string, number>;
 }
 
 export function createObservabilityMetricsStore(): ObservabilityMetricsStore {
@@ -32,6 +33,7 @@ export function createObservabilityMetricsStore(): ObservabilityMetricsStore {
     skipReasons: {},
     fallbackStrategies: {},
     errorCategories: {},
+    familyMetrics: {},
   };
 }
 
@@ -77,4 +79,8 @@ export function bumpFallbackStrategy(store: ObservabilityMetricsStore, strategy:
 
 export function bumpErrorCategory(store: ObservabilityMetricsStore, category: string) {
   store.errorCategories[category] = (store.errorCategories[category] || 0) + 1;
+}
+
+export function bumpFamilyMetric(store: ObservabilityMetricsStore, familyId: string) {
+  store.familyMetrics[familyId] = (store.familyMetrics[familyId] || 0) + 1;
 }

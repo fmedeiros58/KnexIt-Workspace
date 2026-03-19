@@ -49,6 +49,7 @@ export async function runInferentialLayer(state: ProcessingState): Promise<Proce
   }
 
   state.executionArtifacts.inferential = {
+    familyId: "inferential_projection",
     lowSignal,
     score: handoff.score,
     implicationsCount: inferentialMap.implications.length,

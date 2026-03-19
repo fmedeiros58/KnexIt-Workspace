@@ -128,6 +128,7 @@ export interface KnowledgeExecutionCacheEntry {
 }
 
 export interface ExecutionArtifacts {
+  activeFamilies?: string[];
   generationRuntime?: {
     provider: string;
     model: string;
@@ -156,8 +157,21 @@ export interface ExecutionArtifacts {
     retryMaxAttempts: number;
     fallbackStrategy: string;
     steps: string[];
+    activeFamilies?: string[];
+  };
+  decisionGuard?: {
+    enforced: boolean;
+    stage: "pre_branch" | "post_orchestration";
+    routeFloor: "minimum" | "reflective" | "inferential" | "quantum-state";
+    requiredSteps: string[];
+    reasonTags: string[];
+    requiresKnowledge: boolean;
+    requiresWeb: boolean;
+    followUpDependency: boolean;
+    blockedBySafety: boolean;
   };
   reflective?: {
+    familyId?: string;
     lowSignal: boolean;
     score: number;
     assumptionsCount: number;
@@ -165,6 +179,7 @@ export interface ExecutionArtifacts {
     tensionsCount: number;
   };
   inferential?: {
+    familyId?: string;
     lowSignal: boolean;
     score: number;
     implicationsCount: number;
@@ -175,6 +190,12 @@ export interface ExecutionArtifacts {
     cache: Record<string, KnowledgeExecutionCacheEntry>;
     lastQuerySignature: string;
     lastUsedCache: boolean;
+    activatedFamilies?: string[];
+  };
+  validation?: {
+    activeValidationFamilies: string[];
+    validationProfile: string;
+    validationStage: string;
   };
   validationStage?: "pre_presentation" | "final";
   errorHandling?: {
@@ -194,6 +215,7 @@ export interface ExecutionArtifacts {
     topSkipReasons: string;
     fallbackStrategies: Record<string, number>;
     errorCategories: Record<string, number>;
+    activeFamilies?: string[];
   };
 }
 
@@ -212,6 +234,7 @@ export interface ObservabilityMetrics {
   skipReasons: Record<string, number>;
   fallbackStrategies: Record<string, number>;
   errorCategories: Record<string, number>;
+  familyMetrics: Record<string, number>;
 }
 
 export interface ProcessingState {
@@ -460,6 +483,7 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       final: 0,
     },
     executionArtifacts: {
+      activeFamilies: [],
       knowledge: {
         cache: {},
         lastQuerySignature: "",
@@ -472,6 +496,7 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       skipReasons: {},
       fallbackStrategies: {},
       errorCategories: {},
+      familyMetrics: {},
     },
   };
 }

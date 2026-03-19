@@ -49,6 +49,7 @@ export async function runReflectiveLayer(state: ProcessingState): Promise<Proces
   }
 
   state.executionArtifacts.reflective = {
+    familyId: "critical_reflection",
     lowSignal,
     score: handoff.score,
     assumptionsCount: reflection.assumptions.length,

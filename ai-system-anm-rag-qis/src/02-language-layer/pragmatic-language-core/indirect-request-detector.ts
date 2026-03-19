@@ -1,10 +1,10 @@
 ﻿/**
  * Responsabilidade do arquivo:
- * - Detectar pedidos indiretos formulados como sugestao/pergunta socialmente mitigada.
- * - Sinalizar quando a forca diretiva existe sem imperativo explicito.
- * - Entregar marcadores para calibrar estilo de resposta.
+ * - Detectar pedidos indiretos de forma robusta.
+ * - Usar familias pragmaticas, nao formas literais rigidas.
  */
-import { collectPatternMatches } from "../utils/phrase-pattern-utils";
+import { pragmaticNormalizer } from "./pragmatic-normalizer";
+import { INDIRECT_REQUEST_FAMILIES } from "./pragmatic-pattern-library";
 
 export interface IndirectRequestDetectorInput {
   text: string;
@@ -15,13 +15,20 @@ export interface IndirectRequestDetectorResult {
   cues: string[];
 }
 
-const PATTERN = /\b(sera que|teria como|voce poderia|would you mind|if possible|quando puder)\b/gi;
+export function indirectRequestDetector(
+  input: IndirectRequestDetectorInput,
+): IndirectRequestDetectorResult {
+  const normalized = pragmaticNormalizer({ text: input.text });
+  const text = normalized.compactText;
 
-export function indirectRequestDetector(input: IndirectRequestDetectorInput): IndirectRequestDetectorResult {
-  const cues = collectPatternMatches(input.text, PATTERN).map((value) => value.toLowerCase());
+  const cues = INDIRECT_REQUEST_FAMILIES.flatMap((family) =>
+    family.patterns
+      .filter((pattern) => pattern.test(text))
+      .map(() => family.name),
+  );
+
   return {
     detected: cues.length > 0,
-    cues,
+    cues: [...new Set(cues)],
   };
 }
-

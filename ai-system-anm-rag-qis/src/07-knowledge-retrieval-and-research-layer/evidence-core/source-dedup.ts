@@ -4,17 +4,23 @@
  * - Reduzir redundancia antes de alinhamento e merge de evidencias.
  * - Preservar ordem de chegada para estabilidade do pipeline.
  */
+import { textNormalizationService } from "../../shared/text-processing/text-normalization.service";
+
 interface DedupCandidate {
   title?: string;
   url?: string;
   snippet?: string;
 }
 
-function normalizeKeyPart(value: string | undefined) {
+function normalizeUrlPart(value: string | undefined) {
   return (value || "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeTextKeyPart(value: string | undefined) {
+  return textNormalizationService.fingerprint(value || "");
 }
 
 export function dedupeKnowledgeCandidates<T extends DedupCandidate>(items: T[]): T[] {
@@ -23,9 +29,9 @@ export function dedupeKnowledgeCandidates<T extends DedupCandidate>(items: T[]):
 
   for (const item of items) {
     const key = [
-      normalizeKeyPart(item.url),
-      normalizeKeyPart(item.title),
-      normalizeKeyPart(item.snippet).slice(0, 120),
+      normalizeUrlPart(item.url),
+      normalizeTextKeyPart(item.title),
+      normalizeTextKeyPart(item.snippet).slice(0, 120),
     ].join("|");
 
     if (seen.has(key)) continue;
