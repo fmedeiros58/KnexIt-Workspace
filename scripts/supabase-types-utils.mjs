@@ -101,18 +101,50 @@ export function generateSupabaseTypes({ projectRef, accessToken }) {
   if (!normalizedAccessToken) throw new Error("SUPABASE_ACCESS_TOKEN is required.");
   const command = getSupabaseGenCommand(normalizedProjectRef);
 
-  return execFileSync(
-    command.bin,
-    command.args,
-    {
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-      env: {
-        ...process.env,
-        SUPABASE_ACCESS_TOKEN: normalizedAccessToken,
+  try {
+    return execFileSync(
+      command.bin,
+      command.args,
+      {
+        encoding: "utf8",
+        maxBuffer: 32 * 1024 * 1024,
+        env: {
+          ...process.env,
+          SUPABASE_ACCESS_TOKEN: normalizedAccessToken,
+        },
       },
-    },
-  );
+    );
+  } catch (error) {
+    const details = [
+      String(error?.stdout || "").trim(),
+      String(error?.stderr || "").trim(),
+      String(error?.message || "").trim(),
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    if (/unauthorized|401|forbidden|permission/i.test(details)) {
+      throw new Error(
+        [
+          `Supabase CLI returned unauthorized for project '${normalizedProjectRef}'.`,
+          "Verify SUPABASE_ACCESS_TOKEN has access to this project and is not expired.",
+          "If you use a custom project ref, set SUPABASE_PROJECT_ID or SUPABASE_PROJECT_REF correctly.",
+          details ? `CLI output:\n${details}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+
+    throw new Error(
+      [
+        `Failed to generate Supabase types for project '${normalizedProjectRef}'.`,
+        details ? `CLI output:\n${details}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
 }
 
 export function assertSupabaseTypeSanity(typesSource) {
