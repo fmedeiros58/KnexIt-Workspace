@@ -28,6 +28,7 @@ import { bumpLayerFailed, createObservabilityMetricsStore } from "../19-observab
 import { runInputLayer } from "../01-input-layer/input-layer-bridge";
 import { runLanguageLayer } from "../02-language-layer/language-layer-bridge";
 import { runConversationLayer } from "../03-conversation-layer/conversation-layer-bridge";
+import { runBehaviorAndPersonalityLayer } from "../03b-behavior-and-personality-layer/behavior-and-personality-layer-bridge";
 import { runContextLayer } from "../04-context-and-session-layer/context-layer-bridge";
 import { runOrchestrationLayer } from "../05-complexity-and-orchestration-layer/orchestration-layer-bridge";
 import { runMemoryLayer } from "../06-memory-and-plasticity-layer/memory-layer-bridge";
@@ -107,6 +108,13 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
   await runIf(policy.runInput, "input", "input", runInputLayer, "route_policy_disabled");
   await runIf(policy.runLanguage, "language", "language", runLanguageLayer, "route_policy_disabled");
   await runIf(policy.runConversation, "conversation", "conversation", runConversationLayer, "route_policy_disabled");
+  await runIf(
+    policy.runBehaviorPersonality,
+    "behavior-personality",
+    "behavior-and-personality",
+    runBehaviorAndPersonalityLayer,
+    "route_policy_disabled",
+  );
   await runIf(policy.runContext, "context", "context", runContextLayer, "route_policy_disabled");
   await runIf(policy.runOrchestration, "orchestration", "orchestration", runOrchestrationLayer, "route_policy_disabled");
   await runIf(policy.runMemory, "memory", "memory", runMemoryLayer, "route_policy_disabled");

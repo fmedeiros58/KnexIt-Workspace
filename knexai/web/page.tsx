@@ -805,10 +805,37 @@ function stripConversationRoleArtifacts(text: string) {
   return output.trim();
 }
 
+function countMojibakeArtifacts(value: string) {
+  return (value.match(/(?:Ã.|Â.|â[€™“”–—])/g) || []).length;
+}
+
+function countPortugueseAccents(value: string) {
+  return (value.match(/[áéíóúàâãêôõçÁÉÍÓÚÀÂÃÊÔÕÇ]/g) || []).length;
+}
+
+function decodeLikelyMojibake(value: string) {
+  const text = `${value || ""}`;
+  if (!text.trim()) return "";
+  if (countMojibakeArtifacts(text) === 0) return text;
+  try {
+    const bytes = Uint8Array.from(Array.from(text).map((char) => char.charCodeAt(0) & 0xff));
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    if (!decoded.trim()) return text;
+    const before = countMojibakeArtifacts(text);
+    const after = countMojibakeArtifacts(decoded);
+    const accentGain = countPortugueseAccents(decoded) - countPortugueseAccents(text);
+    if (after < before || accentGain > 0) return decoded;
+    return text;
+  } catch {
+    return text;
+  }
+}
+
 function sanitizePersistedAssistantContent(content: string) {
   let output = `${content || ""}`.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "").replace(/\u0000/g, "");
   output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant)\s*[:\-]\s*/i, "");
   output = output.replace(/^\s*["']?(?:leticia|l\.e\.t\.i\.c\.i\.a)["']?\s*[:\-]\s*/i, "");
+  output = decodeLikelyMojibake(output);
   output = stripConversationRoleArtifacts(output);
   return output.trim();
 }
@@ -861,10 +888,6 @@ function sanitizeAssistantFinalContent(content: string, prompt: string) {
 function toModelHistory(messages: LeticiaMessage[]): LeticiaMessage[] {
   return messages.filter((message, index) => {
     if (index === 0 && message.role === "assistant" && message.content === initialMessages[0]?.content) {
-      return false;
-    }
-    const metadata = normalizeMessageMetadata(message.metadata);
-    if (metadata?.rag_attachment_notice === true) {
       return false;
     }
     return message.role === "user" || message.role === "assistant";

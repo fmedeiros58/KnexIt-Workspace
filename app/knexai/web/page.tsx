@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../knexai/web/page";
+import RoutedPage from "../../../knexai/web/page";
+
+export default RoutedPage;

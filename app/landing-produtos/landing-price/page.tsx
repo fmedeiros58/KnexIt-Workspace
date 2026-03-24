@@ -1,1 +1,3 @@
-export { default } from "@/landing-produtos/landing-price/page";
+﻿import LandingPage from "../../../landing-produtos/landing-price/page";
+
+export default LandingPage;

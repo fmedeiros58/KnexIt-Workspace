@@ -1,28 +1,41 @@
-﻿export interface RichTextSerializerInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { PresentationRenderModel, SerializedPresentation } from "../presentation-contracts";
+
+export interface RichTextSerializerInput {
+  model: PresentationRenderModel;
 }
 
-export interface RichTextSerializerOutput {
-  ok: boolean;
-  component: string;
-  score: number;
-  payload: Record<string, unknown>;
+export interface RichTextSerializerOutput extends SerializedPresentation {
+  format: "rich-text";
 }
 
-export function richTextSerializer(input: RichTextSerializerInput = {}): RichTextSerializerOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
+export function richTextSerializer(input: RichTextSerializerInput): RichTextSerializerOutput {
+  const model = input.model;
+  const payload = {
+    kind: "rich-text",
+    nodes: [
+      {
+        type: "paragraph",
+        role: model.bubble.role,
+        text: model.bubble.text,
+      },
+      ...model.codeBlocks.map((block) => ({
+        type: "code",
+        language: block.language,
+        text: block.code,
+      })),
+      ...model.citations.map((citation) => ({
+        type: "citation",
+        title: citation.title,
+        url: citation.url,
+      })),
+    ],
+    confidence: model.confidence,
   };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
+
   return {
-    ok: true,
-    component: "rich-text-serializer",
-    score,
+    format: "rich-text",
+    text: JSON.stringify(payload),
+    score: Math.max(0.56, Math.min(0.98, 0.74 + model.codeBlocks.length * 0.05)),
     payload,
   };
 }

@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../knexpay/web/page";
+import RoutedPage from "../../../knexpay/web/page";
+
+export default RoutedPage;

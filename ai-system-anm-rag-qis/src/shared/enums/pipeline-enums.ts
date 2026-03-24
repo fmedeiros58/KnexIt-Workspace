@@ -5,6 +5,7 @@ export type PipelineLayerId =
   | "input"
   | "language"
   | "conversation"
+  | "behavior-personality"
   | "context"
   | "orchestration"
   | "memory"

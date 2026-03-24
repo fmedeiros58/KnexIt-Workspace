@@ -59,6 +59,22 @@ function shouldRecallKnownNameFromHistory() {
   }
 }
 
+function shouldHandleInlineNameDeclarationAndRecallInSameMessage() {
+  const state = createChatState("sou medeiros. ainda lembra do meu nome?");
+  const response = buildConversationalFallback(state);
+  if (!response || !/eu lembro sim.*seu nome e medeiros/i.test(response)) {
+    throw new Error("inline name declaration + recall should answer with remembered name");
+  }
+}
+
+function shouldAnswerPersonaInFirstPerson() {
+  const state = createChatState("quem e voce?");
+  const response = buildConversationalFallback(state);
+  if (!response || !/eu sou a leticia/i.test(response)) {
+    throw new Error("persona prompt should be answered in first person");
+  }
+}
+
 function shouldDetectEcho() {
   const echo = isEchoLike(
     "meu nome e medeiros, pode passar a me chamar de medeiros de agora em diante?",
@@ -89,6 +105,15 @@ function shouldNotFallbackForResearchRequestEvenOnMinimumRoute() {
   }
 }
 
+function shouldHandleTechnicalNormalizerCommandWithScopedClarification() {
+  const state = createChatState("verifique os normalizer");
+  state.executionPlan.selectedRoute = "minimum";
+  const response = buildConversationalFallback(state);
+  if (!response || !/verificar os normalizers/i.test(response)) {
+    throw new Error("technical normalizer command should trigger scoped technical clarification");
+  }
+}
+
 function shouldHandleRedoCommandWithTargetPrompt() {
   const state = createChatState("entao faca");
   const response = buildConversationalFallback(state);
@@ -114,8 +139,11 @@ shouldHandlePreferredName();
 shouldAskForNameWhenUserOffersName();
 shouldAskForNameWhenUserUsesPodeForm();
 shouldRecallKnownNameFromHistory();
+shouldHandleInlineNameDeclarationAndRecallInSameMessage();
+shouldAnswerPersonaInFirstPerson();
 shouldDetectEcho();
 shouldNotFallbackForVerifiableQuestionOnNonMinimumRoute();
 shouldNotFallbackForResearchRequestEvenOnMinimumRoute();
+shouldHandleTechnicalNormalizerCommandWithScopedClarification();
 shouldHandleRedoCommandWithTargetPrompt();
 shouldNotFallbackForReferentialFactualFollowUp();

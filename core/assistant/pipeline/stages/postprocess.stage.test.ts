@@ -51,23 +51,43 @@ function makeContext(answer: string): PipelineContext {
 
 describe("PostprocessStage", () => {
   it("anexa CTA de proximo passo no padrao solicitado", async () => {
+    const previous = process.env.ASSISTANT_APPEND_NEXT_STEP_CTA;
+    process.env.ASSISTANT_APPEND_NEXT_STEP_CTA = "1";
     const ctx = makeContext(
       "Este e um texto suficientemente longo para validar o pos-processamento e garantir que a resposta final mantenha coesao, profundidade e clareza em toda a argumentacao apresentada.",
     );
-    const stage = new PostprocessStage();
-    await stage.run(ctx);
-    expect(ctx.finalAnswer).toContain("Se quiser, no proximo passo eu posso");
-    expect(ctx.progress.filteredRedundancy).toBe(true);
+    try {
+      const stage = new PostprocessStage();
+      await stage.run(ctx);
+      expect(ctx.finalAnswer).toContain("Se quiser, no proximo passo eu posso");
+      expect(ctx.progress.filteredRedundancy).toBe(true);
+    } finally {
+      if (typeof previous === "string") {
+        process.env.ASSISTANT_APPEND_NEXT_STEP_CTA = previous;
+      } else {
+        delete process.env.ASSISTANT_APPEND_NEXT_STEP_CTA;
+      }
+    }
   });
 
   it("nao anexa CTA quando a restricao sem_fuga_escopo estiver ativa", async () => {
+    const previous = process.env.ASSISTANT_APPEND_NEXT_STEP_CTA;
+    process.env.ASSISTANT_APPEND_NEXT_STEP_CTA = "1";
     const ctx = makeContext(
       "Este e um texto suficientemente longo para validar o pos-processamento e garantir que a resposta final mantenha coesao, profundidade e clareza em toda a argumentacao apresentada.",
     );
     ctx.constraints = ["sem_fuga_escopo"];
-    const stage = new PostprocessStage();
-    await stage.run(ctx);
-    expect(ctx.finalAnswer).not.toContain("Se quiser, no proximo passo eu posso");
+    try {
+      const stage = new PostprocessStage();
+      await stage.run(ctx);
+      expect(ctx.finalAnswer).not.toContain("Se quiser, no proximo passo eu posso");
+    } finally {
+      if (typeof previous === "string") {
+        process.env.ASSISTANT_APPEND_NEXT_STEP_CTA = previous;
+      } else {
+        delete process.env.ASSISTANT_APPEND_NEXT_STEP_CTA;
+      }
+    }
   });
 
   it("aciona repair pass quando cobertura estrutural fica baixa", async () => {
@@ -215,6 +235,31 @@ describe("PostprocessStage", () => {
     const stage = new PostprocessStage();
     await stage.run(ctx);
     expect(ctx.finalAnswer || "").toContain("Luiz Inacio Lula da Silva");
+  });
+
+  it("bloqueia referencia autor-ano sem lastro documental ou web", async () => {
+    const ctx = makeContext(
+      "Medeiros (2025) define Responsividade Plastica Cerebral em quatro eixos e comprova eficacia em larga escala.",
+    );
+    ctx.userMessage = "faca uma resenha critica da obra de Medeiros (2025)";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain(
+      "Nao consegui validar esta referencia autor-ano com fontes ancoradas neste turno",
+    );
+    expect(ctx.finalAnswer || "").not.toContain("quatro eixos");
+  });
+
+  it("mantem resposta autor-ano quando ha escopo de documento anexado", async () => {
+    const ctx = makeContext("Com base no documento anexado, Medeiros (2025) organiza a argumentacao em tres blocos.");
+    ctx.userMessage = "faca uma resenha critica da obra de Medeiros (2025)";
+    ctx.ragInput = { documentId: 15 };
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Medeiros (2025)");
+    expect(ctx.finalAnswer || "").not.toContain(
+      "Nao consegui validar esta referencia autor-ano com fontes ancoradas neste turno",
+    );
   });
 
   it("bloqueia vazamento de diretiva/persona em pergunta verificavel", async () => {

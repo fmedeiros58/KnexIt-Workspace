@@ -1,28 +1,23 @@
-﻿export interface RestDeliveryInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { DeliveryBuildResult, SerializedPresentation } from "../presentation-contracts";
+
+export interface RestDeliveryInput {
+  serialized: SerializedPresentation;
+  citations: string[];
+  retryPolicy: DeliveryBuildResult["retryPolicy"];
 }
 
-export interface RestDeliveryOutput {
-  ok: boolean;
-  component: string;
-  score: number;
-  payload: Record<string, unknown>;
-}
-
-export function restDelivery(input: RestDeliveryInput = {}): RestDeliveryOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
-  };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
+export function restDelivery(input: RestDeliveryInput): DeliveryBuildResult {
   return {
-    ok: true,
-    component: "rest-delivery",
-    score,
-    payload,
+    channel: "rest",
+    format: input.serialized.format,
+    text: input.serialized.text,
+    payload: {
+      mode: "rest",
+      format: input.serialized.format,
+      body: input.serialized.text,
+      serializedPayload: input.serialized.payload,
+      citations: input.citations,
+    },
+    retryPolicy: input.retryPolicy,
   };
 }

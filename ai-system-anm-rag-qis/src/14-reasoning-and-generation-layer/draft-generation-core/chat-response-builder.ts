@@ -25,7 +25,7 @@ function normalize(value: string): string {
 }
 
 function isTechnicalRequest(text: string): boolean {
-  return /\b(api|endpoint|typescript|javascript|python|sql|docker|stack trace|bug|debug|migrat|pipeline)\b/i.test(text);
+  return /\b(api|endpoint|typescript|javascript|python|sql|docker|stack trace|bug|debug|migrat|pipeline|normalizer|normalizers|normalize|regex|parser)\b/i.test(text);
 }
 
 function isVerifiableFactQuestion(text: string): boolean {
@@ -57,17 +57,24 @@ function extractLatestUtterance(text: string): string {
   return focused;
 }
 
+function isPersonaIdentityPrompt(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(quem (?:e|eh) voce|quem e vc|qual (?:e|eh) seu nome|como voce se chama|voce e a leticia|voce eh a leticia|quem e a leticia|e o seu)\b/i.test(
+    normalized,
+  );
+}
+
 export function resolveConversationFocus(text: string): string {
   return extractLatestUtterance(text || "");
 }
 
 function buildGreetingResponse(normalized: string): string | null {
   if (isGreetingMessage(normalized)) {
-    return "Oi! Tudo bem? Como posso te ajudar agora?";
+    return "Oi! Eu sou a Leticia. Como posso te ajudar agora?";
   }
 
   if (isSmallTalkMessage(normalized)) {
-    return "Estou bem e pronto para ajudar. O que voce precisa agora?";
+    return "Estou bem e pronta para te ajudar. O que voce precisa agora?";
   }
 
   return null;
@@ -75,10 +82,18 @@ function buildGreetingResponse(normalized: string): string | null {
 
 function buildNameIntentResponse(text: string): string | null {
   if (isNameSharePrompt(text)) {
-    return "Claro, pode sim. Qual nome voce quer que eu use?";
+    return "Claro. Qual nome voce quer que eu use para te chamar?";
   }
 
   return null;
+}
+
+function buildTechnicalClarificationResponse(text: string): string {
+  const normalized = normalize(text);
+  if (/\b(normalizer|normalizers|normalize)\b/i.test(normalized)) {
+    return "Posso verificar os normalizers. Me envie o arquivo/trecho e o comportamento esperado vs atual.";
+  }
+  return "Posso ajudar no ajuste tecnico. Envie o trecho de codigo e o erro/comportamento atual.";
 }
 
 function tokenOverlapRatio(a: string, b: string): number {
@@ -131,22 +146,28 @@ export function buildNonEchoRecovery(state: ProcessingState): string {
   const knownName = resolveKnownName(state);
   const normalizedFocus = normalize(focus);
 
+  if (isPersonaIdentityPrompt(normalizedFocus)) {
+    return knownName
+      ? `Eu sou a Leticia. E lembro de voce, ${knownName}.`
+      : "Eu sou a Leticia. Estou aqui para te ajudar.";
+  }
+
   if (isNameRecallPrompt(normalizedFocus)) {
     return knownName
-      ? `Seu nome e ${knownName}.`
-      : 'Ainda nao tenho seu nome salvo nesta conversa. Se quiser, me diga "me chame de ...".';
+      ? `Eu lembro sim. Seu nome e ${knownName}.`
+      : 'Eu ainda nao tenho seu nome salvo nesta conversa. Se quiser, me diga "me chame de ...".';
   }
 
   if (isNameSharePrompt(normalizedFocus)) {
-    return "Claro, pode sim. Qual nome voce quer que eu use?";
+    return "Claro. Qual nome voce quer que eu use para te chamar?";
   }
 
   if (isSmallTalkMessage(normalizedFocus)) {
-    if (knownName) return `Tudo certo, ${knownName}. Como posso te ajudar agora?`;
-    return "Tudo certo. Como posso te ajudar agora?";
+    if (knownName) return `Tudo certo por aqui, ${knownName}. Como posso te ajudar agora?`;
+    return "Tudo certo por aqui. Como posso te ajudar agora?";
   }
 
-  return "Entendi. Me diga o objetivo em uma frase e eu respondo direto ao ponto.";
+  return "Entendi. Para eu te ajudar melhor, me diga o objetivo em uma frase e eu sigo com voce.";
 }
 
 export function buildConversationalFallback(state: ProcessingState): string | null {
@@ -164,36 +185,49 @@ export function buildConversationalFallback(state: ProcessingState): string | nu
 
   const focus = extractLatestUtterance(state.normalizedMessage);
   if (!focus) return null;
-  if (isTechnicalRequest(focus)) return null;
+  if (isTechnicalRequest(focus)) return buildTechnicalClarificationResponse(focus);
   if (isVerifiableFactQuestion(focus)) return null;
   if (isReferentialFactualPrompt(focus) && hasRecentFactualAnchor(state)) return null;
   if (isResearchRequest(focus)) return null;
 
+  const normalizedFocus = normalize(focus);
+  const knownName = resolveKnownName(state);
+  const preferredNameFromMessage = extractPreferredNameFromText(state.normalizedMessage);
+  const preferredNameFromFocus = extractPreferredNameFromText(focus);
+  const declaredName = preferredNameFromMessage || preferredNameFromFocus || "";
+  if (declaredName) {
+    state.userProfile = {
+      ...state.userProfile,
+      preferredName: declaredName,
+    };
+  }
+
+  const asksNameRecall = isNameRecallPrompt(normalizedFocus);
+  const resolvedName = declaredName || knownName;
+  if (asksNameRecall && resolvedName) {
+    state.userProfile = {
+      ...state.userProfile,
+      preferredName: resolvedName,
+    };
+    return `Eu lembro sim. Seu nome e ${resolvedName}.`;
+  }
+  if (asksNameRecall) {
+    return 'Eu ainda nao tenho seu nome salvo nesta conversa. Se quiser, me diga "me chame de ...".';
+  }
+
   const nameIntent = buildNameIntentResponse(focus);
   if (nameIntent) return nameIntent;
 
-  const preferredNameFromFocus = extractPreferredNameFromText(focus);
-  if (preferredNameFromFocus) {
-    state.userProfile = {
-      ...state.userProfile,
-      preferredName: preferredNameFromFocus,
-    };
-    return `Perfeito, ${preferredNameFromFocus}. Vou te chamar assim de agora em diante.`;
+  if (isPersonaIdentityPrompt(normalizedFocus)) {
+    if (knownName) return `Eu sou a Leticia. E lembro de voce, ${knownName}.`;
+    return "Eu sou a Leticia. Estou aqui para te ajudar.";
   }
 
-  const knownName = resolveKnownName(state);
-  if (knownName && isNameRecallPrompt(normalize(focus))) {
-    state.userProfile = {
-      ...state.userProfile,
-      preferredName: knownName,
-    };
-    return `Seu nome e ${knownName}.`;
-  }
-  if (!knownName && isNameRecallPrompt(normalize(focus))) {
-    return 'Ainda nao tenho seu nome salvo nesta conversa. Se quiser, me diga "me chame de ...".';
+  if (declaredName) {
+    return `Perfeito, ${declaredName}. Eu vou te chamar assim daqui pra frente.`;
   }
 
-  const greeting = buildGreetingResponse(normalize(focus));
+  const greeting = buildGreetingResponse(normalizedFocus);
   if (greeting) return greeting;
 
   if (isRedoCommand(focus)) {
@@ -202,9 +236,9 @@ export function buildConversationalFallback(state: ProcessingState): string | nu
 
   if (focus.length <= 180 || isConversationalPrompt(focus)) {
     if (knownName) {
-      return `${knownName}, me diga o objetivo em uma frase e eu respondo de forma objetiva.`;
+      return `${knownName}, eu te ajudo melhor se voce me disser o objetivo em uma frase.`;
     }
-    return "Me diga o objetivo em uma frase e eu respondo de forma objetiva.";
+    return "Eu te ajudo melhor se voce me disser o objetivo em uma frase.";
   }
 
   return null;

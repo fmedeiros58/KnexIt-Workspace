@@ -8,14 +8,32 @@ function normalizeSentence(value: string): string {
     .trim();
 }
 
+function countAccentChars(value: string): number {
+  return (value.match(/[áéíóúàâãêôõçÁÉÍÓÚÀÂÃÊÔÕÇ]/g) || []).length;
+}
+
+function mojibakeScore(value: string): number {
+  const chunks = value.match(/(?:Ã.|Â.|â[€™“”–—])/g);
+  return chunks ? chunks.length : 0;
+}
+
 function decodeLikelyMojibake(value: string): string {
-  if (!/[ÃÂâ€™â€œâ€â€“â€”]/.test(value)) return value;
+  if (mojibakeScore(value) === 0) return value;
   try {
-    const bytes = Uint8Array.from(value.split("").map((char) => char.charCodeAt(0) & 0xff));
+    const bytes = Uint8Array.from(Array.from(value).map((char) => char.charCodeAt(0) & 0xff));
     const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    const improved = (decoded.match(/[áéíóúãõâêôçÁÉÍÓÚÃÕÂÊÔÇ]/g) || []).length;
-    const original = (value.match(/[áéíóúãõâêôçÁÉÍÓÚÃÕÂÊÔÇ]/g) || []).length;
-    return improved >= original ? decoded : value;
+    const decodedMojibake = mojibakeScore(decoded);
+    const originalMojibake = mojibakeScore(value);
+    const decodedAccents = countAccentChars(decoded);
+    const originalAccents = countAccentChars(value);
+    const decodedHasReplacementChar = decoded.includes("\uFFFD");
+
+    const isBetter =
+      decodedMojibake < originalMojibake ||
+      (decodedMojibake === originalMojibake && decodedAccents > originalAccents);
+
+    if (isBetter && !decodedHasReplacementChar) return decoded;
+    return value;
   } catch {
     return value;
   }

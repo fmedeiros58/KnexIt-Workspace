@@ -20,6 +20,8 @@ export function routeRequest(state: ProcessingState): PipelineRoute {
   const safetyFlags = state.inputSignals.safetyFlags || [];
   const score = state.complexityProfile.score || state.preRouteSignals?.quickComplexity || 0;
   const ambiguity = state.complexityProfile.ambiguity || state.preRouteSignals?.quickAmbiguity || 0;
+  const tokenCount = state.textAnalysisSnapshot?.tokenCount || state.preRouteSignals?.tokenCount || 0;
+  const message = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
   const snapshot = state.textAnalysisSnapshot;
   const hasVerifiableSignal = snapshot?.hasVerifiableSignal || Boolean(state.preRouteSignals?.hasVerifiableSignal);
   const hasSafetyRestriction =
@@ -29,7 +31,12 @@ export function routeRequest(state: ProcessingState): PipelineRoute {
   if (hasSafetyRestriction) return "minimum";
   if (hasVerifiableSignal && score >= THRESHOLDS.quantumVerifiableScore) return "quantum-state";
   if (intent === "research") return "quantum-state";
-  if (intent === "analysis" || intent === "technical") return "inferential";
+  if (intent === "analysis") return "inferential";
+  if (intent === "technical") {
+    // Short technical imperatives usually need scope clarification before deep reasoning.
+    if (tokenCount <= 5 && !/\?/.test(message)) return "minimum";
+    return "inferential";
+  }
   if (ambiguity >= THRESHOLDS.inferentialAmbiguity || score >= THRESHOLDS.inferentialScore) return "inferential";
   if (score >= THRESHOLDS.reflectiveScore || urgency === "medium") return "reflective";
   return "minimum";

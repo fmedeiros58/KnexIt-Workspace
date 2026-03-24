@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../knexmail/web/page";
+import RoutedPage from "../../../knexmail/web/page";
+
+export default RoutedPage;

@@ -65,6 +65,8 @@ function resolveNextStepAction(ctx: PipelineContext, languageFamily: "pt" | "en"
 }
 
 function buildNextStepCta(ctx: PipelineContext, text: string) {
+  const ctaEnabled = parseBooleanEnv(process.env.ASSISTANT_APPEND_NEXT_STEP_CTA, false);
+  if (!ctaEnabled) return "";
   const normalized = normalize(text);
   if (!normalized || normalized.length < CTA_MIN_CHARS) return "";
   if (ctx.mode !== "chat") return "";
@@ -178,6 +180,20 @@ function isVerifiableCurrentQuestion(value: string) {
   return asksCurrentOffice || asksVerifiableData;
 }
 
+function isAuthorYearGroundingQuestion(value: string) {
+  const normalized = normalizeFold(value);
+  if (!normalized) return false;
+  const hasYear = /\b(19|20)\d{2}\b/.test(normalized);
+  if (!hasYear) return false;
+  const hasAcademicCue = /\b(dissertacao|tese|obra|artigo|paper|resenha|citacao|referencia)\b/.test(normalized);
+  if (!hasAcademicCue) return false;
+  const hasAuthorFrame =
+    /\b(segundo|conforme|de acordo com|autor|autora)\b/.test(normalized) ||
+    /\b(de|da|do)\s+[a-z][a-z.'\-\s]{1,80}\s*\((19|20)\d{2}\)/.test(normalized) ||
+    /\b[a-z][a-z.'\-\s]{1,80}\s*\((19|20)\d{2}\)/.test(normalized);
+  return hasAuthorFrame;
+}
+
 function hasScopedDocumentInput(ctx: PipelineContext) {
   if (ctx.ragInput.composerBound === true) return true;
   if (Number.isFinite(Number(ctx.ragInput.documentId)) && Number(ctx.ragInput.documentId) > 0) return true;
@@ -228,9 +244,22 @@ function buildMissingWebVerificationReply(ctx: PipelineContext) {
   return "Nao consegui validar esse fato em fontes web neste turno. Para evitar informacao desatualizada, preciso repetir a verificacao multifonte antes de confirmar.";
 }
 
+function buildMissingAuthorYearGroundingReply(ctx: PipelineContext) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    return "I could not validate this author-year reference with grounded sources in this turn. Send the source document, excerpt, or reliable link so I can answer with traceable support.";
+  }
+  return "Nao consegui validar esta referencia autor-ano com fontes ancoradas neste turno. Envie o documento, trecho ou link confiavel para eu responder com lastro verificavel.";
+}
+
 function enforceVerifiableWebGuard(ctx: PipelineContext, text: string) {
   const forceMultiSource = parseBooleanEnv(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH, true);
   if (!forceMultiSource) return text;
+  if (isAuthorYearGroundingQuestion(ctx.userMessage)) {
+    if (hasScopedDocumentInput(ctx)) return text;
+    if (hasPositiveWebEvidence(ctx)) return text;
+    return buildMissingAuthorYearGroundingReply(ctx);
+  }
   if (!isVerifiableCurrentQuestion(ctx.userMessage)) return text;
   if (hasScopedDocumentInput(ctx)) return text;
   if (hasPersonaPolicyLeak(text)) return buildMissingWebVerificationReply(ctx);
@@ -494,7 +523,10 @@ export class PostprocessStage implements Stage {
     if (ctx.stream) {
       if (ctx.mode === "chat" && ctx.finalStream) {
         const sanitizedStream = createChatStreamSanitizerStream(ctx.finalStream, ctx.userMessage);
-        if (isVerifiableCurrentQuestion(ctx.userMessage) && !hasScopedDocumentInput(ctx)) {
+        const requiresGroundingGuard =
+          (isVerifiableCurrentQuestion(ctx.userMessage) || isAuthorYearGroundingQuestion(ctx.userMessage)) &&
+          !hasScopedDocumentInput(ctx);
+        if (requiresGroundingGuard) {
           ctx.finalStream = createVerifiableGuardedChatStream(sanitizedStream, ctx);
         } else {
           ctx.finalStream = sanitizedStream;

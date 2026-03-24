@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../vioclass/web/page";
+import RoutedPage from "../../../vioclass/web/page";
+
+export default RoutedPage;

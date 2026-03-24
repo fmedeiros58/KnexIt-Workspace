@@ -1,28 +1,43 @@
-﻿export interface StreamRecoveryManagerInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { StreamChunk } from "../presentation-contracts";
+
+export interface StreamRecoveryManagerInput {
+  chunks: StreamChunk[];
+  fallbackText: string;
 }
 
 export interface StreamRecoveryManagerOutput {
   ok: boolean;
   component: string;
   score: number;
-  payload: Record<string, unknown>;
+  chunks: StreamChunk[];
+  recovered: boolean;
 }
 
-export function streamRecoveryManager(input: StreamRecoveryManagerInput = {}): StreamRecoveryManagerOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
+export function streamRecoveryManager(input: StreamRecoveryManagerInput): StreamRecoveryManagerOutput {
+  const chunks = [...(input.chunks || [])];
+  if (chunks.length > 0) {
+    return {
+      ok: true,
+      component: "stream-recovery-manager",
+      score: 0.92,
+      chunks,
+      recovered: false,
+    };
+  }
+
+  const fallbackText = `${input.fallbackText || ""}`.trim();
+  const fallbackChunk: StreamChunk = {
+    index: 0,
+    delta: fallbackText,
+    cumulativeText: fallbackText,
+    done: true,
   };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
+
   return {
     ok: true,
     component: "stream-recovery-manager",
-    score,
-    payload,
+    score: fallbackText ? 0.74 : 0.32,
+    chunks: [fallbackChunk],
+    recovered: true,
   };
 }

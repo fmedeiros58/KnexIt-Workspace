@@ -25,6 +25,18 @@ function scoreByOverlap(referenceText: string, candidateText: string) {
   return overlap / Math.max(1, ref.size);
 }
 
+function isDocumentAnchorCandidate(value: string) {
+  const normalized = normalize(value);
+  if (!normalized) return false;
+  return /\b(arquivo|documento|anexad|doc:\s*\d+|pdf|dissertacao|tese)\b/.test(normalized);
+}
+
+function isIdentityAnchorCandidate(value: string) {
+  const normalized = normalize(value);
+  if (!normalized) return false;
+  return /\b(meu nome|me chame de|pode me chamar de|sou\s+[a-z]|preferred_name|nome preferido)\b/.test(normalized);
+}
+
 export class ShortTermContextProvider {
   normalizeHistory(history: ConversationMessage[] | undefined, maxItems = 12) {
     const rows = Array.isArray(history) ? history : [];
@@ -35,25 +47,62 @@ export class ShortTermContextProvider {
   selectRelevantWindow(history: ConversationMessage[] | undefined, userMessage: string, maxItems = 8) {
     const rows = Array.isArray(history) ? history : [];
     if (!rows.length) return [];
-    if (rows.length <= maxItems) return rows;
+    const safeMaxItems = Math.max(1, Math.round(maxItems));
+    if (rows.length <= safeMaxItems) return rows;
 
-    const scored = rows.map((row, idx) => ({
-      row,
-      idx,
-      score: scoreByOverlap(userMessage, row.content),
-    }));
-    const byScore = [...scored]
-      .sort((a, b) => {
+    // Sempre preserva recencia para evitar perda de continuidade em follow-ups.
+    const recencyBudget =
+      safeMaxItems === 1 ? 1 : Math.max(2, Math.min(safeMaxItems, Math.ceil(safeMaxItems * 0.6)));
+    const recentStartIndex = Math.max(0, rows.length - recencyBudget);
+    const selected = new Set<number>();
+    for (let idx = recentStartIndex; idx < rows.length; idx += 1) {
+      selected.add(idx);
+    }
+
+    // Preserva ancora documental (arquivo/doc) quando existir fora da janela recente.
+    if (selected.size < safeMaxItems) {
+      let anchorIndex = -1;
+      for (let idx = recentStartIndex - 1; idx >= 0; idx -= 1) {
+        if (!isDocumentAnchorCandidate(rows[idx]?.content || "")) continue;
+        anchorIndex = idx;
+        break;
+      }
+      if (anchorIndex >= 0) selected.add(anchorIndex);
+    }
+
+    // Preserva ancora de identidade (nome preferido) para manter continuidade pessoal do chat.
+    if (selected.size < safeMaxItems) {
+      let identityAnchorIndex = -1;
+      for (let idx = recentStartIndex - 1; idx >= 0; idx -= 1) {
+        if (!isIdentityAnchorCandidate(rows[idx]?.content || "")) continue;
+        identityAnchorIndex = idx;
+        break;
+      }
+      if (identityAnchorIndex >= 0) selected.add(identityAnchorIndex);
+    }
+
+    if (selected.size < safeMaxItems) {
+      const candidates: Array<{ idx: number; score: number }> = [];
+      for (let idx = 0; idx < rows.length; idx += 1) {
+        if (selected.has(idx)) continue;
+        candidates.push({
+          idx,
+          score: scoreByOverlap(userMessage, rows[idx]?.content || ""),
+        });
+      }
+      candidates.sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         return b.idx - a.idx;
-      })
-      .slice(0, maxItems)
-      .sort((a, b) => a.idx - b.idx)
-      .map((entry) => entry.row);
+      });
+      for (const candidate of candidates) {
+        if (selected.size >= safeMaxItems) break;
+        selected.add(candidate.idx);
+      }
+    }
 
-    if (byScore.length >= maxItems) return byScore;
-    const lastRows = rows.slice(rows.length - maxItems);
-    const merged = [...new Set([...lastRows, ...byScore])];
-    return merged.slice(-maxItems);
+    return Array.from(selected)
+      .sort((a, b) => a - b)
+      .map((idx) => rows[idx])
+      .slice(-safeMaxItems);
   }
 }

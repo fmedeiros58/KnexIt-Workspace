@@ -16,6 +16,7 @@ import type { ReflectiveNotes } from "../../shared/types/reflective-types";
 import type { ResponseDraft } from "../../shared/types/generation-types";
 import type { TextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
 import { buildTextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
+import type { BehaviorPersonalityOutput } from "../../03b-behavior-and-personality-layer/behavior-and-personality-types";
 
 export interface InputSignals {
   intent: string;
@@ -198,6 +199,22 @@ export interface ExecutionArtifacts {
     validationStage: string;
   };
   validationStage?: "pre_presentation" | "final";
+  presentation?: {
+    channel: string;
+    format: string;
+    selectedSerializer: string;
+    adapters: string[];
+    serializers: string[];
+    streamControllers: string[];
+    streamChunkCount: number;
+    streamRecovered: boolean;
+    retryPolicy: {
+      maxAttempts: number;
+      baseBackoffMs: number;
+      jitterMs: number;
+    };
+    utf8Repaired: boolean;
+  };
   errorHandling?: {
     category: string;
     retryable: boolean;
@@ -216,6 +233,35 @@ export interface ExecutionArtifacts {
     fallbackStrategies: Record<string, number>;
     errorCategories: Record<string, number>;
     activeFamilies?: string[];
+  };
+  behavior?: {
+    targetWarmth: number;
+    targetCasualness: number;
+    targetEmpathy: number;
+    targetRestraint: number;
+    targetSocialPresence: number;
+    targetHumanizationLevel: number;
+    targetFormalityAdjustment: number;
+    proactivityLevel: number;
+    futureUtilityScore: number;
+    memoryValueScore: number;
+    socialIntrusivenessScore: number;
+    questionTimingScore: number;
+    questionFrequencyCap: number;
+    proactiveQuestionPlan: {
+      shouldAsk: boolean;
+      questionText: string | null;
+      opportunityType: string;
+      rationale: string;
+    };
+    aiIdentity?: {
+      canonicalName: string;
+      courtesyLevel: number;
+      identityQuestionDetected: boolean;
+      shouldSelfIntroduce: boolean;
+    };
+    styleNotes: string[];
+    safetyNotes: string[];
   };
 }
 
@@ -251,6 +297,7 @@ export interface ProcessingState {
   activeContext: string[];
   activeConstraints: string[];
   userProfile: Record<string, unknown>;
+  behaviorPersonalityState: BehaviorPersonalityOutput;
   proactivityMode: "low" | "medium" | "high";
   selectedMode: InteractionMode;
   complexityProfile: ComplexityProfile;
@@ -326,6 +373,63 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
     activeContext: [],
     activeConstraints: [],
     userProfile: {},
+    behaviorPersonalityState: {
+      targetWarmth: 0.38,
+      targetCasualness: 0.14,
+      targetEmpathy: 0.22,
+      targetRestraint: 0.68,
+      targetSocialPresence: 0.4,
+      targetExpressiveVariation: 0.16,
+      targetHumanizationLevel: 0.34,
+      targetFormalityAdjustment: 0.62,
+      proactivityLevel: 0,
+      futureUtilityScore: 0,
+      memoryValueScore: 0,
+      socialIntrusivenessScore: 0.8,
+      questionTimingScore: 0,
+      questionFrequencyCap: 1,
+      proactiveQuestionPlan: {
+        shouldAsk: false,
+        questionText: null,
+        opportunityType: "none",
+        rationale: "state_init",
+      },
+      aiIdentity: {
+        canonicalName: "Leticia",
+        entityDescription: "IA nativa do ecossistema KnexIT",
+        preferredSelfReference: "first_person",
+        preferredUserTreatment: "cordial-professional",
+        courtesyLevel: 0.78,
+        identityQuestionDetected: false,
+        shouldSelfIntroduce: false,
+        styleDirectives: [
+          "falar_em_primeira_pessoa",
+          "manter_cortesia_constante",
+          "nao_se_apresentar_como_assistente_generico",
+        ],
+      },
+      styleNotes: {
+        openingStrategy: "direct",
+        pacingStrategy: "concise",
+        transitionStyle: "clean",
+        microVariationCue: "Certo.",
+        guidance: [],
+      },
+      safetyNotes: [],
+      policyProfile: {
+        allowCasualness: true,
+        allowEmpathicShaping: true,
+        allowSocialWarmthBoost: true,
+        maxWarmth: 0.7,
+        maxCasualness: 0.34,
+        maxEmpathy: 0.58,
+        minRestraint: 0.46,
+        maxExpressiveVariation: 0.42,
+        sensitiveMode: false,
+        technicalStrictMode: false,
+        prohibitedPatterns: [],
+      },
+    },
     proactivityMode: "low",
     selectedMode: "chat",
     complexityProfile: {

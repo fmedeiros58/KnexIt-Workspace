@@ -40,6 +40,14 @@ import { buildTransitions } from "./response-assembly-core/transition-builder";
 import { buildConclusion } from "./response-assembly-core/conclusion-builder";
 import { handoffGenerationToStructure } from "./generation-to-structure-bridge";
 
+function isGroundedSourceUrl(url: string): boolean {
+  return /^https?:\/\//i.test(`${url || ""}`.trim());
+}
+
+function countGroundedSources(state: ProcessingState): number {
+  return state.retrievedSources.filter((source) => isGroundedSourceUrl(source.url)).length;
+}
+
 function isDirectFactualNameQuestion(text: string): boolean {
   const normalized = `${text || ""}`
     .toLowerCase()
@@ -69,12 +77,52 @@ function isDirectFactualTimelineQuestion(text: string, state: ProcessingState): 
   return false;
 }
 
+function isAuthorYearReferencePrompt(text: string): boolean {
+  const normalized = `${text || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (!normalized) return false;
+  const hasAuthorFrame =
+    /\b(segundo|conforme|de acordo com|autor|autora|presented by|according to)\b/.test(normalized) ||
+    /\b(de|da|do)\s+[a-z][a-z.'\-\s]{1,80}\s*\((19|20)\d{2}\)/.test(normalized);
+  const hasInlineAuthorYear = /\b[a-z][a-z.'\-\s]{1,80}\s*\((19|20)\d{2}\)/.test(normalized);
+  const hasYear = /\b(19|20)\d{2}\b/.test(normalized);
+  const hasAcademicSourceCue = /\b(dissertacao|tese|artigo|paper|estudo|livro|obra|resenha|citacao|referencia)\b/.test(
+    normalized,
+  );
+  return hasYear && hasAcademicSourceCue && (hasAuthorFrame || hasInlineAuthorYear);
+}
+
 function buildUnresolvedFactualMessage(state: ProcessingState): string {
   const sourceCount = state.retrievedSources.length;
   if (sourceCount > 0) {
     return "Nao consegui confirmar com seguranca o fato pedido nas fontes recuperadas. Posso refazer priorizando fontes oficiais e mais recentes.";
   }
   return "Nao encontrei fontes suficientes para confirmar o fato com seguranca. Posso refazer a busca web agora.";
+}
+
+function buildReferenceGroundingMessage(state: ProcessingState): string {
+  const groundedSourceCount = countGroundedSources(state);
+  if (groundedSourceCount > 0) {
+    return "As fontes recuperadas nao permitem confirmar com seguranca a referencia autor-ano pedida. Se voce enviar o trecho ou link da dissertacao, eu explico com base nela.";
+  }
+  return "Nao encontrei base documental para sustentar a referencia autor-ano pedida. Envie o trecho, link ou DOI da dissertacao para eu explicar com lastro.";
+}
+
+function resolveSafeSummary(state: ProcessingState): string {
+  const collapsedSummary = `${state.collapsedTruth.summary || ""}`.trim();
+  if (collapsedSummary && !isEchoLike(collapsedSummary, state.normalizedMessage)) {
+    return collapsedSummary;
+  }
+  const groundedSourceCount = countGroundedSources(state);
+  if (isAuthorYearReferencePrompt(state.normalizedMessage) && groundedSourceCount === 0) {
+    return "Nao ha base documental suficiente para uma sintese autor-ano confiavel neste turno.";
+  }
+  if (groundedSourceCount > 0) {
+    return "Ha indicios parciais nas fontes recuperadas, mas ainda sem base suficiente para uma sintese confiavel.";
+  }
+  return "Nao ha evidencias suficientes no contexto atual para uma sintese confiavel.";
 }
 
 function buildPrompt(state: ProcessingState): string {
@@ -116,6 +164,7 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
   await runGenerationMemoryBridge(state);
   await runGenerationEvidenceBridge(state);
   await runGenerationLlmBridge(state);
+  const groundedSourceCount = countGroundedSources(state);
 
   const factualFallback = buildFactualAnswerFallback({
     question: state.normalizedMessage,
@@ -165,6 +214,28 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
     return handoffGenerationToStructure(state);
   }
 
+  if (isAuthorYearReferencePrompt(state.normalizedMessage) && groundedSourceCount === 0) {
+    const unresolvedText = applyMultimodalDraftBridge(
+      buildReferenceGroundingMessage(state),
+      state.inputSignals.modality,
+    );
+    state.generationPrompt = buildPrompt(state);
+    state.draftResponse = {
+      text: unresolvedText,
+      sections: [{ title: "Resposta", content: unresolvedText }],
+    };
+    state.trace.push(
+      makeTraceEvent({
+        layer: "generation",
+        action: "reference_grounding_required",
+        route: state.executionPlan.selectedRoute,
+        latencyMs: Date.now() - startedAt,
+        detail: `author_year_reference_without_grounded_sources; totalSources=${state.retrievedSources.length}; groundedSources=${groundedSourceCount}`,
+      }),
+    );
+    return handoffGenerationToStructure(state);
+  }
+
   const conversationalFallback = buildConversationalFallback(state);
   if (conversationalFallback) {
     const chatText = applyMultimodalDraftBridge(conversationalFallback, state.inputSignals.modality);
@@ -206,8 +277,9 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
   }
 
   state.generationPrompt = buildPrompt(state);
+  const safeSummary = resolveSafeSummary(state);
   const initialDraft = buildInitialDraft({
-    summary: state.collapsedTruth.summary,
+    summary: safeSummary,
     status: state.epistemicStatus,
     confidence: state.confidenceScores.epistemic,
   });
@@ -216,8 +288,8 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
   const expanded = buildExpandedDraft(initialDraft, [reasoningBlock, ...state.inferentialMap.implications.slice(0, 3)]);
   const condensed = buildCondensedDraft(expanded);
   const alternative = buildAlternativeDraft({
-    summary: state.collapsedTruth.summary,
-    caveat: state.criticalCaveats[0] || "sem ressalva dominante",
+    summary: safeSummary,
+    caveat: state.criticalCaveats[0] || "sem ressalvas adicionais",
   });
 
   const merged = mergeDraftContent([condensed, alternative]);
@@ -225,7 +297,7 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
   const deduped = removeRedundancy(unified);
   const transitioned = buildTransitions(deduped.split(/\n{2,}/g).filter(Boolean)).join("\n\n");
   const conclusion = buildConclusion({
-    summary: state.collapsedTruth.summary || state.normalizedMessage,
+    summary: safeSummary,
     epistemicStatus: state.epistemicStatus,
   });
   let finalDraftText = applyMultimodalDraftBridge(`${transitioned}\n\n${conclusion}`, state.inputSignals.modality);
@@ -238,7 +310,7 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
   }
 
   const sections = orderSections([
-    { title: "Resposta", content: state.collapsedTruth.summary || state.normalizedMessage },
+    { title: "Resposta", content: safeSummary },
     { title: "Base inferencial", content: state.inferentialMap.implications.join(" ") || "sem implicacoes" },
     { title: "Caveats", content: state.criticalCaveats.join(" ") || "sem caveats" },
     { title: "Conclusao", content: conclusion },

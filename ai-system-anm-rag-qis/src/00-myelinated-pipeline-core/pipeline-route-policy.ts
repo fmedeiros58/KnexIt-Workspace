@@ -10,6 +10,7 @@ export interface RouteExecutionPolicy {
   runInput: true;
   runLanguage: true;
   runConversation: true;
+  runBehaviorPersonality: true;
   runContext: true;
   runOrchestration: true;
   runMemory: true;
@@ -35,6 +36,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
+    runBehaviorPersonality: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,
@@ -58,6 +60,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
+    runBehaviorPersonality: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,
@@ -81,6 +84,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
+    runBehaviorPersonality: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,
@@ -104,6 +108,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
+    runBehaviorPersonality: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,

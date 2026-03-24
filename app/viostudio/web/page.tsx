@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../viostudio/web/page";
+import RoutedPage from "../../../viostudio/web/page";
+
+export default RoutedPage;

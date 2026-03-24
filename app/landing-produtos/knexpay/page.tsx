@@ -1,1 +1,3 @@
-export { default } from "@/landing-produtos/knexpay/page";
+﻿import LandingPage from "../../../landing-produtos/knexpay/page";
+
+export default LandingPage;

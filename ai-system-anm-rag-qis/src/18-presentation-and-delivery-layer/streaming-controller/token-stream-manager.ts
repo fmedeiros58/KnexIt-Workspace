@@ -1,28 +1,21 @@
 ﻿export interface TokenStreamManagerInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+  text: string;
 }
 
 export interface TokenStreamManagerOutput {
   ok: boolean;
   component: string;
   score: number;
-  payload: Record<string, unknown>;
+  tokens: string[];
 }
 
-export function tokenStreamManager(input: TokenStreamManagerInput = {}): TokenStreamManagerOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
-  };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
+export function tokenStreamManager(input: TokenStreamManagerInput): TokenStreamManagerOutput {
+  const text = `${input.text || ""}`;
+  const tokens = text.match(/\S+\s*/g) || [];
   return {
     ok: true,
     component: "token-stream-manager",
-    score,
-    payload,
+    score: tokens.length > 0 ? 0.88 : 0.4,
+    tokens,
   };
 }

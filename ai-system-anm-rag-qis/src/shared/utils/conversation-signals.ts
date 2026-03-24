@@ -119,15 +119,16 @@ export function isNameSharePrompt(text: string): boolean {
 
 export function isNameRecallPrompt(text: string): boolean {
   const normalized = normalize(text);
-  return /\b(qual(?:\s+(?:e|eh))?\s+o?\s*meu nome|qual meu nome|como voce me chama|como vc me chama|diga meu nome)\b/i.test(normalized);
+  return /\b(qual(?:\s+(?:e|eh))?\s+o?\s*meu nome|qual meu nome|como voce me chama|como vc me chama|diga meu nome|lembra (?:do|de) meu nome|voce lembra (?:do|de) meu nome|vc lembra (?:do|de) meu nome)\b/i.test(normalized);
 }
 
 export function extractPreferredNameFromText(text: string): string | null {
   const cleaned = `${text || ""}`.trim();
   if (!cleaned) return null;
   const patterns = [
-    /(?:meu nome (?:e|eh)|my name is)\s+([A-Za-z][A-Za-z' -]{1,48})/i,
-    /(?:pode (?:passar a )?me chamar de|me chame de|chame-me de|call me)\s+([A-Za-z][A-Za-z' -]{1,48})/i,
+    /(?:meu nome (?:e|eh)|my name is)\s+([\p{L}][\p{L}' -]{1,48})/iu,
+    /(?:pode (?:passar a )?me chamar de|me chame de|chame-me de|call me)\s+([\p{L}][\p{L}' -]{1,48})/iu,
+    /(?:^|[.!?]\s*)(?:eu\s+)?sou\s+([\p{L}]{2,}(?:\s+[\p{L}]{2,}){0,2})\b/iu,
   ];
 
   for (const pattern of patterns) {
@@ -191,7 +192,10 @@ export function isConversationalPrompt(text: string): boolean {
 
   const hasQuestion = normalized.includes("?");
   const tokens = normalized.split(" ").filter(Boolean);
-  const hasTechnicalSignal = /\b(api|endpoint|typescript|javascript|python|sql|docker|kubernetes|bug|debug)\b/i.test(normalized);
+  const hasTechnicalSignal =
+    /\b(api|endpoint|typescript|javascript|python|sql|docker|kubernetes|bug|debug|normalizer|normalizers|normalize|regex|parser)\b/i.test(
+      normalized,
+    );
   const hasFactualSignal =
     /\b(presidente|governador|prefeito|ceo|capital|cotacao|price|fonte|source|latest|today|atual|quando|where|when|ano|eleit[oa]|mandato|posse)\b/i.test(
       normalized,

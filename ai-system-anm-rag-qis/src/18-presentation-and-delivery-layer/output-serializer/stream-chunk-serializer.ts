@@ -1,28 +1,49 @@
-﻿export interface StreamChunkSerializerInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { StreamChunk } from "../presentation-contracts";
+
+export interface StreamChunkSerializerInput {
+  chunks: StreamChunk[];
+  mode?: "plain" | "sse" | "websocket";
 }
 
 export interface StreamChunkSerializerOutput {
   ok: boolean;
   component: string;
   score: number;
-  payload: Record<string, unknown>;
+  text: string;
+  chunkCount: number;
 }
 
-export function streamChunkSerializer(input: StreamChunkSerializerInput = {}): StreamChunkSerializerOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
-  };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
+function toSseChunk(chunk: StreamChunk): string {
+  const payload = JSON.stringify({
+    index: chunk.index,
+    delta: chunk.delta,
+    done: chunk.done,
+  });
+  return `event: chunk\ndata: ${payload}\n\n`;
+}
+
+function toWebsocketChunk(chunk: StreamChunk): string {
+  return JSON.stringify({ type: "chunk", index: chunk.index, delta: chunk.delta, done: chunk.done });
+}
+
+export function streamChunkSerializer(input: StreamChunkSerializerInput): StreamChunkSerializerOutput {
+  const mode = input.mode || "plain";
+  const chunks = input.chunks || [];
+  const lines: string[] = [];
+
+  for (const chunk of chunks) {
+    if (mode === "sse") lines.push(toSseChunk(chunk));
+    else if (mode === "websocket") lines.push(toWebsocketChunk(chunk));
+    else lines.push(chunk.delta);
+  }
+
+  const text = mode === "plain" ? lines.join("") : lines.join("\n");
+
   return {
     ok: true,
     component: "stream-chunk-serializer",
-    score,
-    payload,
+    score: chunks.length > 0 ? 0.9 : 0.35,
+    text,
+    chunkCount: chunks.length,
   };
 }

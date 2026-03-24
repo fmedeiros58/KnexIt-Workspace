@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../violive/web/page";
+import RoutedPage from "../../../violive/web/page";
+
+export default RoutedPage;

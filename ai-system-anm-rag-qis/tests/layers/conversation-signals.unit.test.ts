@@ -1,5 +1,7 @@
 import {
   extractLatestUserUtterance,
+  extractPreferredNameFromText,
+  isNameRecallPrompt,
   isConversationalPrompt,
   isReferentialFactualPrompt,
 } from "../../src/shared/utils/conversation-signals";
@@ -17,6 +19,10 @@ assert(!isConversationalPrompt(factual), "factual civic question should not be c
 
 const greeting = "oi";
 assert(isConversationalPrompt(greeting), "greeting should remain conversational");
+
+const remembersName = "sou medeiros. ainda lembra do meu nome?";
+assert(isNameRecallPrompt(remembersName), "name-recall phrasing with 'lembra do meu nome' should be recognized");
+assert(extractPreferredNameFromText(remembersName) === "Medeiros", "name should be extracted from 'sou <nome>'");
 
 const mixed = [
   "qual o nome do presidente dos estados unidos?",

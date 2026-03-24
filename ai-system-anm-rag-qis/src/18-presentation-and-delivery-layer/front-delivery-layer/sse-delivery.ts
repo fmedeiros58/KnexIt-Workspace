@@ -1,28 +1,25 @@
-﻿export interface SseDeliveryInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { DeliveryBuildResult } from "../presentation-contracts";
+import type { StreamChunkSerializerOutput } from "../output-serializer/stream-chunk-serializer";
+
+export interface SseDeliveryInput {
+  serializedText: string;
+  stream: StreamChunkSerializerOutput;
+  retryPolicy: DeliveryBuildResult["retryPolicy"];
 }
 
-export interface SseDeliveryOutput {
-  ok: boolean;
-  component: string;
-  score: number;
-  payload: Record<string, unknown>;
-}
+export function sseDelivery(input: SseDeliveryInput): DeliveryBuildResult {
+  const streamBody = input.stream.text || `event: done\ndata: ${JSON.stringify({ done: true, text: input.serializedText })}\n\n`;
+  const text = `retry: ${input.retryPolicy.baseBackoffMs}\n${streamBody}`;
 
-export function sseDelivery(input: SseDeliveryInput = {}): SseDeliveryOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
-  };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
   return {
-    ok: true,
-    component: "sse-delivery",
-    score,
-    payload,
+    channel: "sse",
+    format: "plain-text",
+    text,
+    payload: {
+      mode: "sse",
+      streamChunkCount: input.stream.chunkCount,
+      retry: input.retryPolicy.baseBackoffMs,
+    },
+    retryPolicy: input.retryPolicy,
   };
 }

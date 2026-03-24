@@ -13,6 +13,7 @@ __pycache__/
 *.pyo
 *.pyd
 .anm-venv/
+.emb-venv/
 
 models/
 !auth/models/
