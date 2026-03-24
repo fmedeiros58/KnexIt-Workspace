@@ -262,6 +262,70 @@ describe("PostprocessStage", () => {
     );
   });
 
+  it("solicita clarificacao quando ha escopo documental sem evidencia ancorada para analise da obra", async () => {
+    const ctx = makeContext(
+      "Uma analise critica e uma avaliacao objetiva de um trabalho, considerando estrutura, coesao, clareza e originalidade.",
+    );
+    ctx.userMessage = "faca uma resenha critica desse arquivo";
+    ctx.ragInput = { composerBound: true, documentIds: [44] };
+    ctx.evidence = [
+      { source: "file", ref: "44", score: 1, text: "R60 - Dissertacao Medeiros - Final.pdf" },
+      { source: "memory", ref: "docscope:44:missing", score: 0.2, text: "Nao foi possivel recuperar trechos." },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Posso fazer essa analise, mas ainda nao tenho trechos suficientes");
+    expect(ctx.finalAnswer || "").toContain("indicar paginas/trechos prioritarios");
+  });
+
+  it("aplica a mesma clarificacao no stream quando faltar evidencia documental ancorada", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "faca uma resenha critica desse arquivo";
+    ctx.ragInput = { composerBound: true, documentIds: [44] };
+    ctx.evidence = [
+      { source: "file", ref: "44", score: 1, text: "R60 - Dissertacao Medeiros - Final.pdf" },
+      { source: "memory", ref: "docscope:44:error", score: 0.2, text: "Nao foi possivel consultar o conteudo." },
+    ];
+    ctx.finalStream = streamFromText(
+      "Uma analise critica e uma avaliacao objetiva de um trabalho. Sem contexto especifico, essa e uma analise geral.",
+    );
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toContain("Posso fazer essa analise, mas ainda nao tenho trechos suficientes");
+    expect(rendered).toContain("indicar paginas/trechos prioritarios");
+  });
+
+  it("solicita dados faltantes em pedido de texto convite com nome incompleto (caso reportado)", async () => {
+    const ctx = makeContext(
+      'Claro, aqui esta um texto convite: "Meu nome completo e [nome], tenho [idade] anos e trabalho como [profissao]."',
+    );
+    ctx.userMessage =
+      "eu quero que vc escreva u texto convite de 15 linhas para enviar para um amigo. contendo o meu nome completo, minha idade, e minha profissao. meu nome e medeiros.";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("ainda preciso de seu nome completo, sua idade, sua profissao");
+    expect(ctx.finalAnswer || "").toContain("nome do seu amigo");
+    expect(ctx.finalAnswer || "").not.toContain("[idade]");
+  });
+
+  it("aplica a mesma regra em stream para pedido de convite com dados faltantes", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage =
+      "eu quero que vc escreva u texto convite de 15 linhas para enviar para um amigo. contendo o meu nome completo, minha idade, e minha profissao. meu nome e medeiros.";
+    ctx.finalStream = streamFromText(
+      "Posso montar o convite. Meu nome completo e [nome], tenho [idade] anos e minha profissao e [profissao].",
+    );
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toContain("ainda preciso de seu nome completo, sua idade, sua profissao");
+    expect(rendered).toContain("nome do seu amigo");
+    expect(rendered).not.toContain("[idade]");
+  });
+
   it("bloqueia vazamento de diretiva/persona em pergunta verificavel", async () => {
     const ctx = makeContext(
       "I'm an assistant inside KnexIT, responding professionally and objectively. I won't reveal internal processes.",

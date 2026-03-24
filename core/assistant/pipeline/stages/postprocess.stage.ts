@@ -202,6 +202,157 @@ function hasScopedDocumentInput(ctx: PipelineContext) {
   return false;
 }
 
+function isDocumentGroundingRequest(userMessage: string) {
+  const normalized = normalizeFold(userMessage);
+  if (!normalized) return false;
+  const asksAnalyticalTask =
+    /\b(resenha|analise|analisar|resumo|sintese|critica|comente|explique|interprete|avali(e|ar)|desenvolva)\b/.test(
+      normalized,
+    ) || /\b(faca|faça)\b/.test(normalized);
+  if (!asksAnalyticalTask) return false;
+  const mentionsDocument =
+    /\b(arquivo|documento|anexo|pdf|obra|dissertacao|tese|trabalho|texto|material)\b/.test(normalized) ||
+    /\b(esse|essa|este|esta|desse|dessa|deste|em questao|em questao)\b/.test(normalized);
+  return mentionsDocument;
+}
+
+function hasGroundedDocumentEvidence(ctx: PipelineContext) {
+  const retrievalChunks = Number(ctx.ragMetadata?.retrieval?.returnedChunks || 0);
+  const selectedChunks = Number(ctx.ragMetadata?.contextPack?.selectedChunks || 0);
+  const fullDocChars = Number(ctx.ragMetadata?.fullDocumentRead?.includedChars || 0);
+  if (retrievalChunks > 0 || selectedChunks > 0 || fullDocChars > 0) return true;
+  return (ctx.evidence || []).some((row) => {
+    const ref = `${row.ref || ""}`.trim().toLowerCase();
+    const text = `${row.text || ""}`.trim();
+    if (row.source !== "rag") return false;
+    if (!/^doc:|^docscope:/.test(ref)) return false;
+    if (text.length < 80) return false;
+    if (/nao foi possivel recuperar trechos/i.test(text)) return false;
+    if (/nao foi possivel consultar o conteudo/i.test(text)) return false;
+    return true;
+  });
+}
+
+function hasDocumentClarificationSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(nao encontrei trechos suficientes do documento|nao consegui recuperar trechos|preciso de mais informacoes do arquivo)\b/.test(
+      normalized,
+    ) ||
+    /\b(voce quer que eu (resuma|leia)|quer indicar paginas|trecho prioritario)\b/.test(normalized)
+  );
+}
+
+function hasDocumentGroundedResponseSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(com base no documento|de acordo com o documento|no documento anexado|no arquivo anexado)\b/.test(normalized) ||
+    /\b(trecho(s)? do documento|trecho(s)? recuperado(s)?|obra anexada)\b/.test(normalized)
+  );
+}
+
+type IdentityField = "nome_completo" | "idade" | "profissao";
+
+function collectUserConversationText(ctx: PipelineContext) {
+  const tail = (ctx.conversation || [])
+    .filter((row) => row.role === "user")
+    .slice(-6)
+    .map((row) => `${row.content || ""}`.trim())
+    .filter(Boolean)
+    .join(" ");
+  return `${tail} ${`${ctx.userMessage || ""}`.trim()}`.trim();
+}
+
+function extractMissingIdentityFields(text: string): IdentityField[] {
+  const normalized = normalizeFold(text);
+  if (!normalized) return [];
+
+  const isInviteDraftRequest =
+    /\b(escreva|redija|crie|faca|faça|monte|produza)\b/.test(normalized) &&
+    /\b(convite|texto convite|mensagem|carta)\b/.test(normalized);
+  if (!isInviteDraftRequest) return [];
+
+  const asksFullName = /\b(nome completo)\b/.test(normalized);
+  const asksAge = /\b(minha idade|idade)\b/.test(normalized);
+  const asksProfession = /\b(minha profissao|profissao)\b/.test(normalized);
+
+  const nameMatch = normalized.match(/\bmeu nome(?: completo)? (?:e|eh)\s+([a-z][a-z\s.'-]{0,120})/i);
+  const providedNameTokens = nameMatch
+    ? nameMatch[1]
+        .trim()
+        .split(/\s+/g)
+        .filter(Boolean)
+    : [];
+  const hasFullName = providedNameTokens.length >= 2;
+
+  const hasAge =
+    /\b(?:tenho|minha idade (?:e|eh)|idade)\s*\d{1,3}\s*(?:anos?)?\b/.test(normalized) ||
+    /\b\d{1,3}\s*anos\b/.test(normalized);
+
+  const hasProfession =
+    /\b(?:sou|minha profissao (?:e|eh)|trabalho como)\s+[a-z][a-z\s-]{1,80}\b/.test(normalized) &&
+    !/\b(?:sou\s+medeiros)\b/.test(normalized);
+
+  const missing: IdentityField[] = [];
+  if (asksFullName && !hasFullName) missing.push("nome_completo");
+  if (asksAge && !hasAge) missing.push("idade");
+  if (asksProfession && !hasProfession) missing.push("profissao");
+  return missing;
+}
+
+function hasIdentityClarificationSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(para escrever|para montar|para redigir|me faltam dados|preciso de)\b/.test(normalized) &&
+    /\b(nome completo|idade|profissao)\b/.test(normalized)
+  );
+}
+
+function buildIdentityClarificationReply(ctx: PipelineContext, missing: IdentityField[]) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    const labels = missing.map((field) => {
+      if (field === "nome_completo") return "your full name";
+      if (field === "idade") return "your age";
+      return "your profession";
+    });
+    return `I can write this invitation, but I still need: ${labels.join(", ")}. If you want, also tell me your friend's name to personalize the opening.`;
+  }
+  const labels = missing.map((field) => {
+    if (field === "nome_completo") return "seu nome completo";
+    if (field === "idade") return "sua idade";
+    return "sua profissao";
+  });
+  return `Perfeito. Para eu escrever esse convite exatamente como voce pediu, ainda preciso de ${labels.join(", ")}. Se quiser, tambem me diga o nome do seu amigo para personalizar a abertura.`;
+}
+
+function enforceIdentityClarificationGuard(ctx: PipelineContext, text: string) {
+  const missing = extractMissingIdentityFields(collectUserConversationText(ctx));
+  if (!missing.length) return text;
+  if (hasIdentityClarificationSignal(text)) return text;
+  return buildIdentityClarificationReply(ctx, missing);
+}
+
+function buildMissingDocumentGroundingReply(ctx: PipelineContext) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    return "I can do this analysis, but I still do not have enough grounded excerpts from the attached file. Do you want me to read the full document now, or should I focus on specific pages/sections?";
+  }
+  return "Posso fazer essa analise, mas ainda nao tenho trechos suficientes do arquivo anexado para responder com precisao. Voce quer que eu leia o documento inteiro agora, ou prefere indicar paginas/trechos prioritarios?";
+}
+
+function enforceDocumentGroundingClarification(ctx: PipelineContext, text: string) {
+  if (!hasScopedDocumentInput(ctx)) return text;
+  if (!isDocumentGroundingRequest(ctx.userMessage)) return text;
+  if (hasDocumentGroundedResponseSignal(text)) return text;
+  if (hasGroundedDocumentEvidence(ctx)) return text;
+  if (hasDocumentClarificationSignal(text)) return text;
+  return buildMissingDocumentGroundingReply(ctx);
+}
+
 function hasPositiveWebEvidence(ctx: PipelineContext) {
   return (ctx.evidence || []).some((row) => {
     const ref = `${row.ref || ""}`.trim().toLowerCase();
@@ -422,6 +573,8 @@ function createVerifiableGuardedChatStream(stream: ReadableStream<Uint8Array>, c
         text += decoder.decode();
         let finalText = enforceChatResponseStructure(ctx, text);
         finalText = enforceVerifiableWebGuard(ctx, finalText);
+        finalText = enforceDocumentGroundingClarification(ctx, finalText);
+        finalText = enforceIdentityClarificationGuard(ctx, finalText);
         if (finalText) controller.enqueue(encoder.encode(finalText));
         controller.close();
       } catch (error) {
@@ -523,10 +676,13 @@ export class PostprocessStage implements Stage {
     if (ctx.stream) {
       if (ctx.mode === "chat" && ctx.finalStream) {
         const sanitizedStream = createChatStreamSanitizerStream(ctx.finalStream, ctx.userMessage);
-        const requiresGroundingGuard =
+        const requiresVerifiableGuard =
           (isVerifiableCurrentQuestion(ctx.userMessage) || isAuthorYearGroundingQuestion(ctx.userMessage)) &&
           !hasScopedDocumentInput(ctx);
-        if (requiresGroundingGuard) {
+        const requiresDocumentClarificationGuard =
+          hasScopedDocumentInput(ctx) && isDocumentGroundingRequest(ctx.userMessage) && !hasGroundedDocumentEvidence(ctx);
+        const requiresIdentityClarificationGuard = extractMissingIdentityFields(collectUserConversationText(ctx)).length > 0;
+        if (requiresVerifiableGuard || requiresDocumentClarificationGuard || requiresIdentityClarificationGuard) {
           ctx.finalStream = createVerifiableGuardedChatStream(sanitizedStream, ctx);
         } else {
           ctx.finalStream = sanitizedStream;
@@ -584,6 +740,8 @@ export class PostprocessStage implements Stage {
     if (ctx.mode === "chat") {
       finalText = enforceChatResponseStructure(ctx, finalText);
       finalText = enforceVerifiableWebGuard(ctx, finalText);
+      finalText = enforceDocumentGroundingClarification(ctx, finalText);
+      finalText = enforceIdentityClarificationGuard(ctx, finalText);
     }
 
     const nextStepCta = buildNextStepCta(ctx, finalText);
