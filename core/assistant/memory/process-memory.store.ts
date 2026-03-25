@@ -10,9 +10,16 @@ export class ProcessMemoryStore {
     return PROCESS_MEMORY_MAP.get(conversationKey) || null;
   }
 
-  async load(ctx: { requestId: string; mode: "chat" | "write"; userMessage: string }) {
-    const normalized = `${ctx.userMessage || ""}`.trim();
-    const key = normalized ? `conv:${ctx.mode}:${normalized.slice(0, 120)}` : `conv:${ctx.requestId}`;
+  private resolveKey(ctx: { requestId: string; mode: "chat" | "write"; conversationKey?: string }) {
+    const explicit = `${ctx.conversationKey || ""}`.trim();
+    if (explicit) {
+      return `conv:${ctx.mode}:${explicit.slice(0, 160)}`;
+    }
+    return `conv:${ctx.mode}:${ctx.requestId}`;
+  }
+
+  async load(ctx: { requestId: string; mode: "chat" | "write"; conversationKey?: string }) {
+    const key = this.resolveKey(ctx);
     const current = await this.get(key);
     if (current) return current;
     const bootstrap = {

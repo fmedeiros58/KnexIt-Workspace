@@ -47,6 +47,20 @@ def _env_int(name: str, *, default: int, low: int, high: int) -> int:
     return max(low, min(high, parsed))
 
 
+_SCENE_EVENT_LIMIT = 12
+_PERSISTENCE_THRESHOLDS_MS = (3_000, 10_000, 30_000)
+
+
+def _format_duration_ms(duration_ms: int) -> str:
+    if duration_ms < 1_000:
+        return f"{duration_ms} ms"
+    seconds = duration_ms / 1000.0
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = seconds / 60.0
+    return f"{minutes:.1f}min"
+
+
 @dataclass
 class ContinuousIdentityRuntime:
     source_manager: SourceDiscoveryManager
@@ -67,6 +81,10 @@ class ContinuousIdentityRuntime:
     _pending_observations: List[Dict[str, Any]] = field(default_factory=list, init=False, repr=False)
     _tracked_entities: Dict[str, IdentityEntity] = field(default_factory=dict, init=False, repr=False)
     _current_entity_id: Optional[str] = None
+    _scene_events: List[Dict[str, Any]] = field(default_factory=list, init=False, repr=False)
+    _presence_started_monotonic: Optional[float] = field(default=None, init=False, repr=False)
+    _current_interlocutor_started_monotonic: Optional[float] = field(default=None, init=False, repr=False)
+    _current_interlocutor_stability_level: int = field(default=0, init=False, repr=False)
     _awareness_state: Dict[str, Any] = field(
         default_factory=lambda: {
             "someone_in_frame": False,
@@ -78,6 +96,17 @@ class ContinuousIdentityRuntime:
             "self_user_present": False,
             "visual_source": None,
             "last_transition_at": None,
+            "presence_started_at": None,
+            "presence_duration_ms": 0,
+            "current_interlocutor_entity_id": None,
+            "current_interlocutor_label": None,
+            "current_interlocutor_started_at": None,
+            "current_interlocutor_duration_ms": 0,
+            "current_interlocutor_stable": False,
+            "current_interlocutor_persistence_level": 0,
+            "tracked_entities_count": 0,
+            "scene_summary": "",
+            "recent_scene_event_count": 0,
         },
         init=False,
     )
@@ -126,8 +155,7 @@ class ContinuousIdentityRuntime:
             self.runtime_enabled = False
             self.runtime_paused = False
             self.status = IdentityRuntimeStatus.DISABLED
-            self._awareness_state["someone_in_frame"] = False
-            self._awareness_state["identity_confirmed"] = False
+            self._reset_visual_state_locked(clear_current_identity=True)
             self._awareness_state["identity_conflict"] = False
         if persist:
             self._persist_runtime_config()
@@ -209,7 +237,13 @@ class ContinuousIdentityRuntime:
 
     def awareness_state(self) -> Dict[str, Any]:
         with self._lock:
+            self._refresh_visual_state_locked()
             return dict(self._awareness_state)
+
+    def recent_scene_events(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            self._refresh_visual_state_locked()
+            return [dict(item) for item in self._scene_events]
 
     def snapshot(
         self,
@@ -223,7 +257,10 @@ class ContinuousIdentityRuntime:
             runtime_paused = self.runtime_paused
             auto_start_enabled = self.auto_start_enabled
             selected_source_id = self.selected_source_id
+            self._refresh_visual_state_locked()
             awareness_state = dict(self._awareness_state)
+            visual_context = self._build_visual_context_locked()
+            recent_scene_events = [dict(item) for item in self._scene_events]
             last_error = self.last_error
         streams = self.stream_manager.list_active_streams()
         sources = self.source_manager.list_sources()
@@ -240,6 +277,8 @@ class ContinuousIdentityRuntime:
             tracked_entities=tracked,
             current_identity=current,
             awareness_state=awareness_state,
+            visual_context=visual_context,
+            recent_scene_events=recent_scene_events,
             self_model_state=dict(self_model_state or {}),
             user_pattern_state=dict(user_pattern_state or {}),
             last_error=last_error,
@@ -333,9 +372,16 @@ class ContinuousIdentityRuntime:
         face_detected = bool(observation.get("face_detected", True))
         if not face_detected:
             with self._lock:
-                self._awareness_state["someone_in_frame"] = False
-                self._awareness_state["identity_confirmed"] = False
-                self._awareness_state["known_face"] = False
+                previous_entity = self._tracked_entities.get(self._current_entity_id) if self._current_entity_id else None
+                if self._awareness_state.get("someone_in_frame"):
+                    self._append_scene_event_locked(
+                        "presence_lost",
+                        entity=previous_entity,
+                        source_id=_normalize(self._awareness_state.get("visual_source")) or None,
+                        confidence=previous_entity.confidence if previous_entity else 0.0,
+                        summary="Nenhuma pessoa em quadro no momento.",
+                    )
+                self._reset_visual_state_locked(clear_current_identity=True)
                 self._awareness_state["identity_conflict"] = False
                 if self.status not in {IdentityRuntimeStatus.PAUSED, IdentityRuntimeStatus.DISABLED}:
                     self.status = IdentityRuntimeStatus.MONITORING
@@ -359,9 +405,14 @@ class ContinuousIdentityRuntime:
         validation_pending = bool(observation.get("validation_pending", False))
         conflict = bool(observation.get("conflict", False))
         self_user_present = bool(observation.get("self_user_present", False))
+        now_iso = utc_now_iso()
+        now_mono = time.monotonic()
 
         with self._lock:
             previous_entity = self._current_entity_id
+            previous_identity_confirmed = bool(self._awareness_state.get("identity_confirmed"))
+            previous_someone_in_frame = bool(self._awareness_state.get("someone_in_frame"))
+            previous_source = _normalize(self._awareness_state.get("visual_source")) or None
             entity = self._tracked_entities.get(entity_id)
             if entity is None:
                 entity = IdentityEntity(
@@ -382,18 +433,59 @@ class ContinuousIdentityRuntime:
                 entity.source_id = source_id or entity.source_id
                 entity.voice_profile_id = speaker_id or entity.voice_profile_id
                 entity.nominal_name = nominal_name or entity.nominal_name
-                entity.last_seen_at = utc_now_iso()
+                entity.last_seen_at = now_iso
 
             self._current_entity_id = entity_id
             switched = bool(previous_entity and previous_entity != entity_id)
+            if not previous_someone_in_frame:
+                self._presence_started_monotonic = now_mono
+                self._awareness_state["presence_started_at"] = now_iso
+                self._append_scene_event_locked(
+                    "presence_started",
+                    entity=entity,
+                    source_id=source_id or self.selected_source_id,
+                    confidence=entity.confidence,
+                    summary=f"Pessoa detectada no canal {source_id or self.selected_source_id or 'desconhecido'}.",
+                )
+            if switched or self._current_interlocutor_started_monotonic is None:
+                previous_identity = self._tracked_entities.get(previous_entity) if previous_entity else None
+                self._current_interlocutor_started_monotonic = now_mono
+                self._current_interlocutor_stability_level = 0
+                self._awareness_state["current_interlocutor_started_at"] = now_iso
+                if switched:
+                    self._append_scene_event_locked(
+                        "interlocutor_switched",
+                        entity=entity,
+                        source_id=source_id or self.selected_source_id,
+                        confidence=entity.confidence,
+                        summary=f"Interlocutor mudou de {previous_identity.label if previous_identity else 'desconhecido'} para {label}.",
+                        payload={
+                            "previous_entity_id": previous_entity,
+                            "previous_label": previous_identity.label if previous_identity else None,
+                            "next_entity_id": entity_id,
+                            "next_label": label,
+                        },
+                    )
+            if previous_source and source_id and previous_source != source_id:
+                self._append_scene_event_locked(
+                    "visual_source_changed",
+                    entity=entity,
+                    source_id=source_id,
+                    confidence=entity.confidence,
+                    summary=f"Fonte visual alterada de {previous_source} para {source_id}.",
+                    payload={"previous_source_id": previous_source, "next_source_id": source_id},
+                )
             self._awareness_state["someone_in_frame"] = True
             self._awareness_state["camera_source_id"] = source_id or self.selected_source_id
             self._awareness_state["visual_source"] = source_id or self.selected_source_id
             self._awareness_state["known_face"] = True
             self._awareness_state["interlocutor_switched"] = switched
             self._awareness_state["self_user_present"] = self_user_present
-            self._awareness_state["last_transition_at"] = utc_now_iso() if switched else self._awareness_state.get("last_transition_at")
+            self._awareness_state["last_transition_at"] = now_iso if switched else self._awareness_state.get("last_transition_at")
             self._awareness_state["identity_conflict"] = conflict
+            self._awareness_state["current_interlocutor_entity_id"] = entity_id
+            self._awareness_state["current_interlocutor_label"] = label
+            self._awareness_state["tracked_entities_count"] = len(self._tracked_entities)
 
             if conflict:
                 self.status = IdentityRuntimeStatus.CONFLICT
@@ -407,6 +499,25 @@ class ContinuousIdentityRuntime:
             else:
                 self.status = IdentityRuntimeStatus.TRACKING
                 self._awareness_state["identity_confirmed"] = False
+
+            if conflict:
+                self._append_scene_event_locked(
+                    "identity_conflict",
+                    entity=entity,
+                    source_id=source_id or self.selected_source_id,
+                    confidence=entity.confidence,
+                    summary=f"Conflito de identidade detectado para {label}.",
+                )
+            elif not previous_identity_confirmed and self._awareness_state["identity_confirmed"]:
+                self._append_scene_event_locked(
+                    "identity_confirmed",
+                    entity=entity,
+                    source_id=source_id or self.selected_source_id,
+                    confidence=entity.confidence,
+                    summary=f"Identidade confirmada para {label}.",
+                )
+
+            self._refresh_visual_state_locked(now_iso=now_iso, now_mono=now_mono)
 
         self.sql_runtime_service.upsert_identity_entity(entity)
         self.sql_runtime_service.record_presence_event(
@@ -432,6 +543,7 @@ class ContinuousIdentityRuntime:
 
     def _persist_runtime_config(self) -> None:
         with self._lock:
+            self._refresh_visual_state_locked()
             payload = {
                 "runtime_key": self.runtime_key,
                 "auto_start_enabled": self.auto_start_enabled,
@@ -455,4 +567,136 @@ class ContinuousIdentityRuntime:
             trace_id=self.runtime_key,
         )
         self.sql_runtime_service.record_audit_log(event_name=event, payload=payload)
+
+    def _append_scene_event_locked(
+        self,
+        event_type: str,
+        *,
+        entity: Optional[IdentityEntity] = None,
+        source_id: Optional[str] = None,
+        confidence: float = 0.0,
+        summary: str = "",
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        event = {
+            "event_type": event_type,
+            "at": utc_now_iso(),
+            "entity_id": entity.entity_id if entity else None,
+            "label": entity.label if entity else None,
+            "source_id": source_id,
+            "confidence": round(max(0.0, min(1.0, float(confidence or 0.0))), 4),
+            "summary": summary,
+            "payload": dict(payload or {}),
+        }
+        self._scene_events = [event, *self._scene_events][: _SCENE_EVENT_LIMIT]
+        self._awareness_state["recent_scene_event_count"] = len(self._scene_events)
+
+    def _reset_visual_state_locked(self, *, clear_current_identity: bool) -> None:
+        self._presence_started_monotonic = None
+        self._current_interlocutor_started_monotonic = None
+        self._current_interlocutor_stability_level = 0
+        if clear_current_identity:
+            self._current_entity_id = None
+        self._awareness_state["someone_in_frame"] = False
+        self._awareness_state["identity_confirmed"] = False
+        self._awareness_state["known_face"] = False
+        self._awareness_state["interlocutor_switched"] = False
+        self._awareness_state["self_user_present"] = False
+        self._awareness_state["presence_started_at"] = None
+        self._awareness_state["presence_duration_ms"] = 0
+        self._awareness_state["current_interlocutor_entity_id"] = None
+        self._awareness_state["current_interlocutor_label"] = None
+        self._awareness_state["current_interlocutor_started_at"] = None
+        self._awareness_state["current_interlocutor_duration_ms"] = 0
+        self._awareness_state["current_interlocutor_stable"] = False
+        self._awareness_state["current_interlocutor_persistence_level"] = 0
+        self._awareness_state["scene_summary"] = "Nenhuma pessoa em quadro."
+        self._awareness_state["tracked_entities_count"] = len(self._tracked_entities)
+        self._awareness_state["recent_scene_event_count"] = len(self._scene_events)
+
+    def _duration_ms(self, start: Optional[float], now_mono: float) -> int:
+        if start is None:
+            return 0
+        return max(0, int((now_mono - start) * 1000))
+
+    def _refresh_visual_state_locked(self, *, now_iso: Optional[str] = None, now_mono: Optional[float] = None) -> None:
+        current_entity = self._tracked_entities.get(self._current_entity_id) if self._current_entity_id else None
+        now_iso = now_iso or utc_now_iso()
+        now_mono = now_mono if now_mono is not None else time.monotonic()
+        presence_duration_ms = self._duration_ms(self._presence_started_monotonic, now_mono)
+        interlocutor_duration_ms = self._duration_ms(self._current_interlocutor_started_monotonic, now_mono)
+
+        stability_level = 0
+        for index, threshold in enumerate(_PERSISTENCE_THRESHOLDS_MS, start=1):
+            if interlocutor_duration_ms >= threshold:
+                stability_level = index
+        if current_entity and stability_level > self._current_interlocutor_stability_level:
+            self._current_interlocutor_stability_level = stability_level
+            self._append_scene_event_locked(
+                "interlocutor_persistence",
+                entity=current_entity,
+                source_id=current_entity.source_id,
+                confidence=current_entity.confidence,
+                summary=f"{current_entity.label} permanece em quadro ha {_format_duration_ms(interlocutor_duration_ms)}.",
+                payload={
+                    "persistence_level": stability_level,
+                    "interlocutor_duration_ms": interlocutor_duration_ms,
+                },
+            )
+
+        self._awareness_state["presence_duration_ms"] = presence_duration_ms
+        self._awareness_state["current_interlocutor_duration_ms"] = interlocutor_duration_ms
+        self._awareness_state["current_interlocutor_stable"] = bool(current_entity and interlocutor_duration_ms >= _PERSISTENCE_THRESHOLDS_MS[0])
+        self._awareness_state["current_interlocutor_persistence_level"] = self._current_interlocutor_stability_level
+        self._awareness_state["tracked_entities_count"] = len(self._tracked_entities)
+        self._awareness_state["recent_scene_event_count"] = len(self._scene_events)
+        self._awareness_state["scene_summary"] = self._build_scene_summary_locked(
+            current_entity=current_entity,
+            presence_duration_ms=presence_duration_ms,
+            interlocutor_duration_ms=interlocutor_duration_ms,
+        )
+        self._awareness_state["last_visual_refresh_at"] = now_iso
+
+    def _build_scene_summary_locked(
+        self,
+        *,
+        current_entity: Optional[IdentityEntity],
+        presence_duration_ms: int,
+        interlocutor_duration_ms: int,
+    ) -> str:
+        if not self._awareness_state.get("someone_in_frame") or not current_entity:
+            return "Nenhuma pessoa em quadro."
+
+        source_id = current_entity.source_id or _normalize(self._awareness_state.get("visual_source")) or "fonte_desconhecida"
+        confirmed = bool(self._awareness_state.get("identity_confirmed"))
+        switched = bool(self._awareness_state.get("interlocutor_switched"))
+        tracked_count = len(self._tracked_entities)
+        parts = [
+            f"Interlocutor atual: {current_entity.label}",
+            f"fonte {source_id}",
+            f"presenca {_format_duration_ms(presence_duration_ms)}",
+            f"interlocucao {_format_duration_ms(interlocutor_duration_ms)}",
+            "identidade confirmada" if confirmed else "identidade em observacao",
+        ]
+        if switched:
+            parts.append("houve troca recente de interlocutor")
+        if tracked_count > 1:
+            parts.append(f"{tracked_count} entidades rastreadas")
+        return "; ".join(parts) + "."
+
+    def _build_visual_context_locked(self) -> Dict[str, Any]:
+        current_entity = self._tracked_entities.get(self._current_entity_id) if self._current_entity_id else None
+        return {
+            "scene_summary": self._awareness_state.get("scene_summary") or "",
+            "presence_duration_ms": int(self._awareness_state.get("presence_duration_ms") or 0),
+            "current_interlocutor_duration_ms": int(self._awareness_state.get("current_interlocutor_duration_ms") or 0),
+            "current_interlocutor_stable": bool(self._awareness_state.get("current_interlocutor_stable")),
+            "current_interlocutor_persistence_level": int(self._awareness_state.get("current_interlocutor_persistence_level") or 0),
+            "current_interlocutor_entity_id": self._awareness_state.get("current_interlocutor_entity_id"),
+            "current_interlocutor_label": self._awareness_state.get("current_interlocutor_label"),
+            "source_id": current_entity.source_id if current_entity else self._awareness_state.get("visual_source"),
+            "interlocutor_switched": bool(self._awareness_state.get("interlocutor_switched")),
+            "tracked_entities_count": len(self._tracked_entities),
+            "recent_scene_event_count": len(self._scene_events),
+        }
 

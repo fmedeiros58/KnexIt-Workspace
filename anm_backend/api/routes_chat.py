@@ -21,7 +21,10 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     service = request.app.state.cognitive_service
     try:
-        result = service.run_chat_turn(payload.message)
+        result = service.run_chat_turn(
+            payload.message,
+            shared_identity_runtime=payload.shared_identity_runtime or None,
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RuntimeError as error:

@@ -64,6 +64,97 @@ class PromptBuilder:
         picked = items[:max_items]
         return ", ".join(f"{self._truncate(key, 32)}={self._truncate(raw, 48)}" for key, raw in picked)
 
+    def _format_shared_identity_runtime(self, value: object) -> List[str]:
+        if not isinstance(value, dict) or not value:
+            return []
+
+        def _to_int(raw: object, fallback: int = 0) -> int:
+            try:
+                return max(0, int(raw))
+            except (TypeError, ValueError):
+                return fallback
+
+        source = self._truncate(value.get("source", "shared_sql"), 48)
+        status = self._truncate(value.get("status", "ready"), 32)
+        snapshot = value.get("server_snapshot")
+        if not isinstance(snapshot, dict):
+            snapshot = value.get("snapshot")
+        snapshot_dict = snapshot if isinstance(snapshot, dict) else {}
+        runtime = snapshot_dict.get("runtime")
+        runtime_dict = runtime if isinstance(runtime, dict) else {}
+        counts = snapshot_dict.get("counts")
+        counts_dict = counts if isinstance(counts, dict) else {}
+        tracked_entities = snapshot_dict.get("trackedEntities")
+        if not isinstance(tracked_entities, list):
+            tracked_entities = snapshot_dict.get("tracked_entities")
+        active_targets = snapshot_dict.get("activeTargets")
+        if not isinstance(active_targets, list):
+            active_targets = snapshot_dict.get("active_targets")
+        recent_matches = snapshot_dict.get("recentMatches")
+        if not isinstance(recent_matches, list):
+            recent_matches = snapshot_dict.get("recent_matches")
+
+        tracked_total = _to_int(
+            counts_dict.get("trackedEntities"),
+            len(tracked_entities) if isinstance(tracked_entities, list) else 0,
+        )
+        targets_total = _to_int(
+            counts_dict.get("activeTargets"),
+            len(active_targets) if isinstance(active_targets, list) else 0,
+        )
+        matches_total = _to_int(
+            counts_dict.get("recentMatches"),
+            len(recent_matches) if isinstance(recent_matches, list) else 0,
+        )
+        runtime_state = self._truncate(runtime_dict.get("state", "unknown"), 32)
+
+        lines: List[str] = [
+            f"- Shared identity runtime: source={source}, status={status}, state={runtime_state}",
+            f"- Shared identity counts: tracked={tracked_total}, targets={targets_total}, matches={matches_total}",
+        ]
+
+        if isinstance(tracked_entities, list) and tracked_entities:
+            first = tracked_entities[0] if isinstance(tracked_entities[0], dict) else {}
+            if isinstance(first, dict):
+                lines.append(
+                    "- Shared identity lead: "
+                    f"label={self._truncate(first.get('label') or first.get('display_label') or '-', 40)}, "
+                    f"mode={self._truncate(first.get('mode') or first.get('entity_mode') or '-', 24)}"
+                )
+        if isinstance(active_targets, list) and active_targets:
+            first_target = active_targets[0] if isinstance(active_targets[0], dict) else {}
+            if isinstance(first_target, dict):
+                lines.append(
+                    "- Shared target principal: "
+                    f"{self._truncate(first_target.get('displayName') or first_target.get('display_name') or '-', 60)}"
+                )
+        return lines
+
+    def _format_regulatory_state(self, value: object) -> str:
+        if not isinstance(value, dict) or not value:
+            return "n/a"
+        safe_keys = {
+            "stress_load": "stress_load",
+            "context_stability": "context_stability",
+            "focus_level": "focus_level",
+            "certainty": "certainty",
+            "mood": "mood",
+        }
+        parts: List[str] = []
+        for key, label in safe_keys.items():
+            raw = value.get(key)
+            if raw is None:
+                continue
+            if isinstance(raw, (int, float)):
+                parts.append(f"{label}={float(raw):.3f}")
+            else:
+                text = self._truncate(raw, 24)
+                if text:
+                    parts.append(f"{label}={text}")
+        if not parts:
+            return "n/a"
+        return ", ".join(parts)
+
     def build_messages(
         self,
         *,
@@ -105,6 +196,7 @@ class PromptBuilder:
         hot_index = dict(context.get("hot_index", {}))
         cycle_metadata = dict(context.get("cycle_metadata", {}))
         regulatory = dict(context.get("regulatory", {}))
+        shared_identity_runtime = dict(context.get("shared_identity_runtime", {}))
         selected_hypotheses = hypotheses[: self.hypothesis_limit]
         context_signal_count = len(working_items) + len(global_semantic) + len(selected_hypotheses)
         low_ram_context = context_signal_count <= 1
@@ -131,17 +223,18 @@ class PromptBuilder:
         if selected_hypotheses:
             dominant = selected_hypotheses[0]
             context_lines.append(
-                f"- Hipotese dominante ({dominant.hypothesis_id}, score={dominant.score:.3f}, coherence={dominant.stimulus_coherence:.3f}): "
+                f"- Hipotese dominante (score={dominant.score:.3f}, coherence={dominant.stimulus_coherence:.3f}): "
                 f"{self._truncate(dominant.content, 300)}"
             )
             for hypothesis in selected_hypotheses[1:]:
                 context_lines.append(
-                    f"- Hipotese alternativa ({hypothesis.hypothesis_id}, score={hypothesis.score:.3f}): "
+                    f"- Hipotese alternativa (score={hypothesis.score:.3f}): "
                     f"{self._truncate(hypothesis.content, 220)}"
                 )
         context_lines.append(f"- Suficiencia de contexto RAM: {'baixa' if low_ram_context else 'adequada'}")
         context_lines.append(f"- Readiness atual: {readiness_state}")
-        context_lines.append(f"- Estado regulatorio: {self._truncate(regulatory, 200)}")
+        context_lines.append(f"- Estado regulatorio: {self._format_regulatory_state(regulatory)}")
+        context_lines.extend(self._format_shared_identity_runtime(shared_identity_runtime))
         plan_payload = dict(response_plan or {})
         target_tokens_raw = plan_payload.get("target_tokens")
         try:

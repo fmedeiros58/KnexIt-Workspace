@@ -65,10 +65,14 @@ Passos:
    - `curl -sS https://api.knexspace.com/health`
 2. Ready:
    - `curl -sS https://api.knexspace.com/ready`
-3. Chat protegido:
+3. ANM publicado para consumo do Vercel:
+   - `curl -sS https://api.knexspace.com/anm/healthz`
+4. Chat protegido:
    - `curl -X POST https://api.knexspace.com/chat -H "x-api-key: <KEY>" -H "content-type: application/json" -d "{\"message\":\"teste\"}"`
-4. OpenAI-compatible:
+5. OpenAI-compatible:
    - `curl -X POST https://api.knexspace.com/v1/chat/completions -H "Authorization: Bearer <KEY>" -H "content-type: application/json" -d "{\"model\":\"mistral-awq\",\"messages\":[{\"role\":\"user\",\"content\":\"teste\"}],\"stream\":false}"`
+6. Smoke automatizado (PowerShell):
+   - `npm run verify:public-api`
 
 ## 7) Reload seguro
 
@@ -99,4 +103,3 @@ Passos:
 - Emitir certificado TLS.
 - Configurar firewall.
 - Provisionar arquivo de ambiente de producao com secrets reais.
-

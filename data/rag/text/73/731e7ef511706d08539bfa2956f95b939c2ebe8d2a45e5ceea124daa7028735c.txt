@@ -1,0 +1,257 @@
+CULTURA DIGITAL NO NOVO ENSINO MÉDIO COMO MICROSSISTEMA FORMATIVO: RESPONSIVIDADE PLÁSTICA CEREBRAL E AUTORREGULAÇÃO
+
+
+
+
+
+Autor: Francimar de Lima Medeiros
+
+
+
+
+
+RESUMO: 
+
+Este estudo analisa a Cultura Digital no Novo Ensino Médio como microssistema pedagógico responsivo, articulando a lente da Responsividade Plástica Cerebral às condições de implementação e aos efeitos potenciais sobre autorregulação da aprendizagem. Trata-se de pesquisa bibliográfica com síntese qualitativa de marcos normativo-curriculares, diagnósticos de infraestrutura e estudos sobre integração de tecnologias, desenho instrucional e feedback. A análise indica que a responsividade da experiência digital é condicional e depende de estabilidade mínima de acesso, mediação docente, desenho instrucional viável e devolutivas formativas que sustentem processos autorregulatórios, especialmente em contextos de vulnerabilidade. Como resultado, propõe-se uma sistematização operacional por meio da Matriz IRPD.
+
+Palavras-chave: Cultura Digital; Novo Ensino Médio; microssistema pedagógico; Responsividade Plástica Cerebral; autorregulação.
+
+
+
+1. INTRODUÇÃO E DELINEAMENTO DO PERCURSO ANALÍTICO
+
+
+
+A reconfiguração recente do Ensino Médio não representa apenas uma alteração formal na arquitetura curricular, mas uma inflexão substantiva no modo de compreender a função formativa da escola. Ao exigir a articulação entre formação geral básica e itinerários formativos ancorados em práticas vinculadas ao território, à vida social e à investigação, o novo desenho desloca o centro da experiência escolar do simples cumprimento programático de conteúdos para a construção de percursos de aprendizagem mais situados, relacionais e aplicados. Nesse contexto, a Lei nº 14.945/2024 reforça metodologias investigativas e a vinculação do ensino à vida comunitária; as Diretrizes Curriculares Nacionais do Ensino Médio consolidam a centralidade de projetos integradores, do protagonismo discente e do uso pedagógico de tecnologias; e os Parâmetros Nacionais para os itinerários de aprofundamento reiteram que a efetividade desse arranjo depende de condições objetivas de oferta, especialmente no que se refere à infraestrutura, à inclusão digital e à acessibilidade. Em conjunto, esse marco normativo redefine o horizonte da política curricular ao reposicionar a qualidade da experiência formativa efetivamente sustentada pela escola como critério decisivo de realização do próprio currículo (Brasil, 2024a, 2024b, 2025b).
+
+Entretanto, a passagem da prescrição à prática não se realiza em um vazio institucional, tampouco por simples decorrência normativa. Sua materialização é atravessada por assimetrias estruturais de conectividade, disponibilidade de equipamentos, suporte técnico e organização escolar, que incidem diretamente sobre a continuidade, a densidade e a profundidade das aprendizagens. Diagnósticos nacionais evidenciam que a instabilidade de conexão e a baixa cobertura interna restringem o uso pedagógico das tecnologias, enquanto os dados do Censo Escolar indicam que as condições materiais e organizacionais não são fatores periféricos, mas componentes constitutivos da própria realidade de implementação. 
+
+Em paralelo, a literatura mostra que a integração curricular de tecnologias não decorre de sua mera presença, mas da qualidade da mediação didática, do planejamento e da intencionalidade formativa que orientam seu uso; sem isso, tende a prevalecer uma incorporação fragmentada, episódica e pedagogicamente pouco sustentável. No âmbito específico do Novo Ensino Médio, estudos sobre a disciplina Cultura Digital apontam dificuldades de articulação com os demais componentes curriculares e forte dependência da qualidade da mediação pedagógica, ao passo que levantamentos mais amplos sobre tecnologias no Ensino Médio revelam um descompasso persistente entre a ambição normativa e a operacionalização concreta das práticas escolares. O resultado é que uma mesma prescrição curricular, embora formalmente uniforme, tende a produzir efeitos heterogêneos conforme a configuração institucional, material e relacional em que se inscreve (Comitê Gestor da Internet no Brasil, 2024a; Inep, 2025; Scherer; Brito, 2020; Testa; Lopes; Vidma, 2023; Fernandes Junior; Almeida; Almeida, 2022).
+
+É nesse intervalo entre desenho curricular e experiência efetivamente vivida que se inscreve a problemática central deste estudo: como explicar que uma mesma prescrição de Cultura Digital, orientada à investigação, à autoria e à participação, produza efeitos tão distintos sobre engajamento e autorregulação, sobretudo em contextos de vulnerabilidade? A questão, em rigor, não se limita a aferir a presença ou ausência de recursos tecnológicos, mas exige compreender como condições de oferta, formas de mediação pedagógica e modos de resposta do estudante ao ambiente escolar se articulam na produção de trajetórias de aprendizagem desiguais. Nessa direção, o objetivo geral consiste em analisar, à luz da Responsividade Plástica Cerebral, as condições e os limites que modulam a implementação da Cultura Digital no Novo Ensino Médio e seus efeitos sobre engajamento e autorregulação em contextos de vulnerabilidade. Tal percurso desdobra-se em dois movimentos analíticos complementares: de um lado, explicitar a Responsividade Plástica Cerebral e o papel da escola como microssistema modulador; de outro, examinar como as prescrições da Cultura Digital se relacionam, no plano da prática, com as condições concretas de implementação e com os efeitos potenciais que delas decorrem sobre autorregulação e engajamento (Medeiros, 2025).
+
+A contribuição do estudo é, portanto, de natureza conceitual-operacional. Mais do que descrever a normatividade recente ou reiterar diagnósticos sobre desigualdade de acesso, busca-se construir uma chave interpretativa capaz de compreender a Cultura Digital como microssistema pedagógico, isto é, como um arranjo de práticas, condições e mediações cuja responsividade pode ser analisada a partir de indicadores de sustentação pedagógica, densidade da experiência formativa e favorecimento da autorregulação. Com esse propósito, o percurso analítico organiza-se mediante critérios explícitos de seleção, extração e síntese, de modo a tornar reconstituível o encadeamento entre prescrição normativa, condições de implementação e interpretação dos efeitos educacionais sob a lente da Responsividade Plástica Cerebral. O que está em jogo, assim, não é apenas a leitura de dispositivos curriculares, mas a elaboração de um modelo analítico apto a explicar por que determinadas experiências escolares se tornam pedagogicamente assimiláveis, enquanto outras, embora formalmente equivalentes, não conseguem sustentar o mesmo potencial formativo (Medeiros, 2025).
+
+
+
+2. RESPONSIVIDADE PLÁSTICA CEREBRAL E A ESCOLA COMO MICROSSISTEMA MODULADOR
+
+
+
+Se a Cultura Digital é tomada como microssistema pedagógico no interior do Novo Ensino Médio, torna-se necessário explicitar o conceito de responsividade e seus vínculos com engajamento, autorregulação e trajetórias de aprendizagem em contextos marcados por desigualdades. A Responsividade Plástica Cerebral (RPC) é adotada aqui como eixo interpretativo precisamente por permitir ler diferenças de resposta dos estudantes não como variações arbitrárias ou “falhas individuais”, mas como efeitos emergentes de interações entre condições ambientais, vínculos, práticas escolares e processos neuropsicológicos. Este tópico, portanto, sistematiza a RPC e fundamenta a escola como microssistema modulador, oferecendo critérios analíticos para interpretar por que um mesmo desenho curricular pode resultar em experiências formativas radicalmente distintas (Medeiros, 2025).
+
+A noção geral de neuroplasticidade, embora útil para descrever a capacidade de reorganização do sistema nervoso em resposta a estímulos, tende a permanecer demasiadamente ampla quando transposta para o campo escolar, pois pouco discrimina a qualidade, a densidade e a inteligibilidade pedagógica das experiências às quais o estudante é exposto. É nesse ponto que Medeiros propõe a RPC como refinamento conceitual: a reorganização neural não seria apenas possível, mas seletiva e condicional, orientada pela qualidade das experiências efetivamente vividas, em especial nas dimensões afetivo-pedagógicas que estruturam a assimilação do cotidiano escolar. Em lugar de imaginar a aprendizagem como consequência direta da exposição a conteúdos ou práticas, a RPC desloca o foco para as condições sob as quais a experiência se torna mediável, suportável e formativa, dado que aprender depende de como o estudante interpreta, processa e integra aquilo que vive no ambiente escolar. A implicação teórica é decisiva: o currículo deixa de ser entendido como dispositivo autossuficiente e passa a ser lido como proposição cuja eficácia é modulada pela configuração concreta do microssistema em que se realiza (Medeiros, 2025).
+
+A arquitetura da RPC é multiescalar: integra níveis ambiental, biológico, psicológico, afetivo e pedagógico em interação com planos individuais, familiares, comunitários e institucionais. Nessa perspectiva, condições materiais, previsibilidade do ambiente, qualidade dos vínculos e consistência das práticas pedagógicas não aparecem como “contexto” externo à aprendizagem, mas como componentes que podem favorecer ou restringir reorganizações funcionais associadas ao desenvolvimento de competências e à persistência em tarefas cognitivamente exigentes. Essa leitura dialoga com a literatura do estresse ao evidenciar que o cérebro coordena respostas a estressores e sofre mudanças decorrentes das experiências, com implicações para atenção, autorregulação e capacidade de sustentar esforço ao longo do tempo. Com isso, trajetórias consideradas improváveis em contextos de vulnerabilidade não podem ser explicadas apenas por mérito ou déficit, mas exigem considerar como diferentes microssistemas — sobretudo familiar e escolar — amortecem ou intensificam pressões ambientais e, consequentemente, modulam a disponibilidade do estudante para engajar-se e autorregular-se diante das demandas escolares (McEwen; Gianaros, 2011; Medeiros, 2025).
+
+No Ensino Médio, essa chave interpretativa ganha relevância adicional por incidir sobre a adolescência, período caracterizado por maturação cerebral, reconfiguração de circuitos e mudanças em sistemas que sustentam comportamento, cognição e emoção. As funções executivas — incluindo controle inibitório, memória de trabalho e flexibilidade cognitiva — constituem base operacional para planejamento, monitoramento e persistência, isto é, para o conjunto de processos que viabiliza a autorregulação. A literatura também indica que condições socioeconômicas podem se associar a diferenças em desempenho neurocognitivo, com destaque para linguagem e funções executivas, sugerindo mediações ambientais e psicossociais. Assim, em contextos de desigualdade, a vulnerabilidade não atua apenas “fora” da escola: ela incide precisamente sobre as capacidades e os recursos subjetivos que o próprio desenho escolar tende a requisitar quando desloca o eixo para autonomia, autoria, gestão do tempo e protagonismo discente (Arain et al., 2013; Diamond, 2013; Hackman; Farah, 2009).
+
+Esse encadeamento sustenta a hipótese interpretativa central: se o Novo Ensino Médio intensifica práticas investigativas e de Cultura Digital baseadas em autoria e protagonismo, então as respostas dos estudantes tenderão a variar conforme condições multiescalares de sustentação, e engajamento e autorregulação devem ser compreendidos como efeitos condicionais do ambiente, não como traços fixos do indivíduo. A RPC permite explicar essa heterogeneidade sem reduzi-la a uma leitura deficitária do estudante e sem se limitar à descrição normativa do currículo, pois insere a experiência escolar em um campo de co-modulação sujeito–ambiente, no qual demandas, recursos e mediações se articulam na produção do que o estudante consegue efetivamente sustentar como aprendizagem (Medeiros, 2025; McEwen; Gianaros, 2011).
+
+Para operacionalizar essa perspectiva na análise educacional, este estudo articula dois mediadores centrais da responsividade: aprendizagem autorregulada e feedback. A autorregulação envolve planejamento, monitoramento e autorreflexão, sempre em interação com as exigências da tarefa e com as condições do contexto; por isso, não pode ser tratada como atributo isolado, mas como processo situado e dependente de suporte e estruturação. De modo complementar, o efeito do feedback é reconhecidamente heterogêneo: varia conforme forma, foco, timing e adequação ao perfil do aprendiz e à natureza da tarefa. Quando concebidos como mecanismos de ajuste contínuo da experiência, autorregulação e feedback se tornam indicadores privilegiados para observar se o microssistema escolar está produzindo condições de responsividade, isto é, se o ambiente está calibrado para transformar prescrição curricular em experiência formativa assimilável (Panadero, 2017; Wisniewski; Zierer; Hattie, 2020).
+
+Com base nesses critérios, o próximo tópico examina a Cultura Digital no Novo Ensino Médio não como “tema” ou “conjunto de ferramentas”, mas como um campo de práticas cuja eficácia depende de condições concretas de sustentação e de mediações capazes de reduzir fricções, organizar demandas e favorecer ciclos de engajamento e autorregulação. Em outras palavras, trata-se de identificar como a experiência digital pode tornar-se responsiva — ou não — a depender do microssistema escolar que a estrutura e da qualidade com que esse microssistema consegue transformar exigências curriculares em práticas efetivamente formativas (Medeiros, 2025).
+
+
+
+3. CULTURA DIGITAL NO NEM: PRESCRIÇÕES CURRICULARES, CONDIÇÕES DE IMPLEMENTAÇÃO 
+
+
+
+Sob a hipótese de que a escola opera como microssistema modulador de responsividade, a Cultura Digital no Novo Ensino Médio deve ser compreendida como experiência formativa institucionalmente produzida e não como simples introdução de ferramentas ou conteúdos tecnológicos. Isso implica deslocar o foco da presença de dispositivos para a arquitetura concreta da experiência escolar, isto é, para a coerência entre objetivos curriculares, condições de oferta, mediação pedagógica e sustentação cotidiana das práticas. Nessa chave, a pergunta decisiva não é se a Cultura Digital existe no currículo, mas sob quais condições ela se torna apropriável, assimilável e formativa para diferentes grupos de estudantes, especialmente em contextos de vulnerabilidade.
+
+No plano normativo-curricular, a Cultura Digital decorre de um marco que reposiciona a experiência escolar em direção a práticas investigativas, autoria, participação e conexão com a vida social e territorial. A Lei nº 14.945/2024 enfatiza metodologias investigativas e vínculo comunitário, enquanto a BNCC desloca a ênfase do uso de tecnologia para a participação crítica no ecossistema informacional, com agência, autoria e produção de sentidos. As DCNEM consolidam esse reposicionamento ao inscrevê-lo na organização curricular, e os documentos orientadores dos itinerários reiteram a necessidade de coerência entre desenho, organização escolar e viabilidade concreta. A Cultura Digital, portanto, opera simultaneamente como eixo transversal de linguagem e participação e como campo de práticas dependente de conectividade, dispositivos, tempo pedagógico, formação docente e mediação consistente, sem os quais tende a degradar-se em formalidade curricular (Brasil, 2018, 2024a, 2024b, 2025a, 2025b).
+
+É precisamente por isso que o núcleo do problema se desloca da prescrição para a implementação. A literatura crítica sobre o Novo Ensino Médio aponta que a flexibilização curricular pode intensificar assimetrias quando se realiza de maneira desigual entre redes e territórios, produzindo formas distintas de acesso a oportunidades formativas. Nesse cenário, Cultura Digital pode funcionar como ampliação de repertório e agência em contextos com suporte e mediação, mas também pode converter-se em dispositivo de baixa densidade pedagógica quando os requisitos materiais e organizacionais não são atendidos. Assim, compreender a Cultura Digital como microssistema pedagógico exige identificar as condições e os mecanismos que tornam essa tarefa sustentada, planejável e apropriável por estudantes em realidades heterogêneas (Costa; Silva, 2019; Silva; Krawczyk; Calçada, 2023; Lotta et al., 2021).
+
+As evidências empíricas sobre infraestrutura e conectividade indicam que a desigualdade digital é um fator estruturante do que se torna possível sustentar como prática pedagógica. Instabilidade de conexão, baixa cobertura interna e insuficiência de equipamentos limitam a continuidade e a previsibilidade das atividades, reduzindo a capacidade de organizar sequências didáticas progressivas e de consolidar hábitos de estudo mediados por recursos digitais. Além disso, o acesso domiciliar condiciona a extensão do tempo pedagógico para além da escola, o que incide diretamente sobre a possibilidade de aprofundamento, autoria e continuidade dos projetos. Em termos institucionais, esses condicionantes mostram que a inovação não se define apenas pelo desenho curricular, mas pela combinação entre recursos, suporte, tempo e organização escolar, que determina se a prática se estabiliza como rotina formativa ou se se fragmenta em episódios desconectados (Comitê Gestor da Internet no Brasil, 2024a, 2024b, 2024c; Inep, 2025).
+
+No plano pedagógico, a literatura converge em um ponto fundamental: tecnologia não produz ganhos automáticos. O efeito educacional depende do modo de integração didática e da clareza do propósito formativo. Evidências internacionais indicam que investimentos intensivos em TIC não se convertem, por si só, em melhorias de aprendizagem, e tendem a produzir resultados heterogêneos sob condições desiguais de acesso e recursos. Em outras palavras, a Cultura Digital só se realiza como experiência formativa quando a escola consegue organizar práticas com densidade pedagógica suficiente para sustentar compreensão, agência e participação, em vez de se limitar a atividades operacionais ou a tarefas de baixa complexidade intelectual (OECD, 2015; UNESCO, 2023).
+
+Essa sustentação exige, ainda, que o desenho das atividades seja viável do ponto de vista cognitivo e motivacional. No plano cognitivo, a teoria da carga cognitiva evidencia limites da memória de trabalho e a necessidade de organizar e sequenciar a informação para evitar sobrecarga, especialmente quando se combinam múltiplas linguagens, ferramentas e tarefas simultâneas. Em convergência, princípios de aprendizagem multimídia reforçam que a multimodalidade pode favorecer aprendizagem quando é cuidadosamente planejada, mas pode degradar o desempenho quando adiciona complexidade irrelevante ou dispersa a atenção. No plano motivacional, práticas digitais tendem a ser mais eficazes quando sustentam autonomia com suporte, promovem senso de competência e estabelecem vínculo pedagógico. Caso contrário, a exigência de protagonismo pode se traduzir em ansiedade, desistência ou engajamento apenas superficial. Isso é particularmente relevante em contextos de vulnerabilidade, nos quais fricções materiais e emocionais elevam o custo subjetivo de persistir em tarefas abertas, autorais e investigativas (Sweller, 1988; Sweller; Van Merrienboer; Paas, 1998; Mayer, 2009; Beluce; Oliveira; Bzuneck, 2019).
+
+Se a responsividade implica calibrar a experiência a partir da resposta do estudante, então feedback e acompanhamento pedagógico tornam-se mecanismos centrais de sustentação da Cultura Digital enquanto microssistema. O feedback formativo tende a ser mais efetivo quando é específico, oportuno e sensível à tarefa e ao aprendiz, funcionando como dispositivo de ajuste contínuo da rota de aprendizagem. Nessa direção, a incorporação de dados e de registros de aprendizagem pode ampliar a capacidade de acompanhamento, desde que esteja subordinada a objetivos pedagógicos claros e a modelos interpretáveis, evitando a ilusão de que medir equivale a ensinar. Assim, o problema não é a existência de registros e evidências, mas a capacidade institucional de convertê-los em orientação pedagógica qualificada e em ciclos de revisão que favoreçam autorregulação e persistência (Shute, 2008; Sousa et al., 2021; Banihashem et al., 2022).
+
+Dessa forma, a Cultura Digital no Novo Ensino Médio pode ser tratada como microssistema pedagógico responsivo apenas quando atende a um conjunto de exigências articuladas: alinhamento efetivo às prescrições de investigação, autoria, participação e território; sustentação por condições reais de oferta e mediação docente consistente; desenho cognitivamente viável, com organização e sequenciamento que reduzam sobrecarga; aderência motivacional e relacional que sustente autonomia com suporte, competência e vínculo; e presença de mecanismos de regulação da aprendizagem, com feedback formativo e acompanhamento capaz de transformar dados e evidências em ação pedagógica. Esse quadro consolida os parâmetros pelos quais a experiência digital pode ser analisada não como promessa abstrata, mas como prática situada, condicionada e modulada pela capacidade institucional de sustentar rotinas formativas de qualidade (Brasil, 2018, 2024a, 2024b, 2025a, 2025b; Scherer; Brito, 2020; OECD, 2015; UNESCO, 2023; Sweller, 1988; Mayer, 2009; Beluce; Oliveira; Bzuneck, 2019; Shute, 2008).
+
+
+
+4. METODOLOGIA: RASTREABILIDADE DO CORPUS E SÍNTESE ANALÍTICA ORIENTADA PELA RPC
+
+
+
+Trata-se de pesquisa bibliográfica com síntese interpretativa qualitativa, fundada em um conjunto documental previamente delimitado. O corpus reúne marcos normativo-curriculares do Novo Ensino Médio, diagnósticos e estatísticas sobre infraestrutura e uso de tecnologias, além de estudos teóricos e revisões sobre Cultura Digital e TDIC, desenho instrucional, feedback e autorregulação. A unidade de análise é a evidência textual, entendida como definições, conceitos, achados, recomendações e modelos presentes nas fontes, posteriormente interpretados à luz da Responsividade Plástica Cerebral, que funciona como chave de leitura para articular prescrição, condições de implementação e efeitos prováveis sobre engajamento e autorregulação (Brasil, 2018, 2024a, 2024b, 2025a, 2025b; Inep, 2025; Comitê Gestor da Internet no Brasil, 2024a, 2024b, 2024c; Medeiros, 2025).
+
+A rastreabilidade é assegurada por um protocolo explícito de seleção, leitura, extração e síntese, com registro dos critérios e das decisões de inclusão e exclusão. A intenção é tornar reconstituível o percurso analítico que vincula fontes, categorias e inferências, reduzindo arbitrariedade interpretativa e permitindo que o leitor identifique como se formam as passagens entre o material consultado e o argumento construído. A seleção prioriza documentos aderentes ao Ensino Médio e ao NEM, ou cuja transferibilidade seja justificável, com relevância para quatro eixos: prescrições curriculares; condições de implementação, incluindo infraestrutura, acesso, formação e organização escolar; mecanismos pedagógicos associados a engajamento e autorregulação, com destaque para desenho instrucional, carga cognitiva, multimodalidade, motivação e feedback; e evidências empíricas que contextualizem limites materiais e institucionais da oferta. Excluem-se materiais sem relação direta com o foco, sem implicações pedagógicas verificáveis ou com redundância analítica (Scherer; Brito, 2020; Mayer, 2009; Sweller, 1988; Shute, 2008; Inep, 2025; Comitê Gestor da Internet no Brasil, 2024a).
+
+A extração é conduzida por uma matriz padronizada, destinada a estabilizar o olhar analítico e a uniformizar o registro das informações relevantes. Para cada documento, registra-se tipo e escopo, definição ou emprego de Cultura Digital, condicionantes de implementação, mecanismos pedagógicos associados à organização da aprendizagem, elementos vinculados a feedback e autorregulação, e implicações para engajamento e sustentação das práticas. Essa matriz funciona como instrumento de redução de ruído, pois permite comparar fontes heterogêneas sob dimensões comuns, preservando, ao mesmo tempo, a especificidade do que cada evidência acrescenta ao problema investigado (Mayer, 2009; Sweller, 1988; Beluce; Oliveira; Bzuneck, 2019; Shute, 2008; Sousa et al., 2021).
+
+A síntese é realizada por codificação temática orientada pelo modelo multiescalar da Responsividade Plástica Cerebral. Em termos operacionais, as evidências extraídas são organizadas em dimensões analíticas coerentes com a hipótese do estudo, de modo a conectar condições ambientais e institucionais, mediações pedagógicas e formas prováveis de resposta estudantil. A RPC opera, assim, como princípio de ordenação interpretativa, permitindo que a análise não se restrinja à descrição normativa nem se reduza a explicações individualizantes, mas reconstrua o modo como a experiência escolar se torna, ou não, assimilável e sustentável. Desse processo deriva-se a proposição do Microssistema Pedagógico Responsivo Digital e da Matriz IRPD, concebida como instrumento de organização das evidências e de explicitação de padrões de sustentação da Cultura Digital em diferentes condições de oferta (Medeiros, 2025; McEwen; Gianaros, 2011; Hackman; Farah, 2009; Scherer; Brito, 2020).
+
+O rigor analítico é sustentado pela padronização da extração, pela consistência categorial e por rechecagens sucessivas das categorias à luz da RPC e dos referenciais de desenho instrucional e feedback. Essa triangulação teórico-conceitual é empregada para evitar que os achados se transformem em simples inventário de fatores, assegurando que a síntese preserve encadeamento explicativo e relevância para o objetivo do estudo. Por se tratar de pesquisa bibliográfica, não há coleta com participantes; por consequência, os resultados devem ser compreendidos como proposição analítica derivada de evidências documentais, a ser posteriormente testada e refinada em estudos aplicados em contextos escolares distintos (Medeiros, 2025; Mayer, 2009; Sweller, 1988; Shute, 2008).
+
+
+
+5. RESULTADOS E CONCLUSÕES: SÍNTESE INTEGRADA E PROPOSIÇÃO DO MICROSSISTEMA RESPONSIVO
+
+
+
+O conjunto de evidências examinadas permite sustentar uma conclusão central: no Novo Ensino Médio, “Cultura Digital” deixa de ser um adendo temático e passa a funcionar como uma forma de reorganizar a experiência escolar. Essa reorganização não se mede pelo volume de tecnologia mobilizada, mas pela capacidade de a escola converter prescrições de investigação, autoria e participação em práticas com continuidade, progressão e sentido pedagógico. O ponto decisivo, portanto, não é a pertinência da proposta em termos abstratos, mas a qualidade institucional da experiência que se consegue sustentar no cotidiano.
+
+A partir dessa chave, o problema mais relevante desloca-se do plano do “currículo prescrito” para o plano do “currículo realizado”. A mesma prescrição pode gerar trajetórias formativas muito distintas porque, na prática, a experiência se estrutura por condições de oferta, rotinas escolares, tempo pedagógico, previsibilidade de acesso e, sobretudo, mediação docente. Quando esses elementos falham, a Cultura Digital tende a se decompor em tarefas episódicas, instrumentais e desconectadas, o que produz dois efeitos recorrentes. O primeiro é a formalização vazia, isto é, a manutenção do rótulo curricular sem densidade formativa. O segundo é a intensificação de desigualdades, porque estudantes que já dispõem de recursos, tempo e repertório conseguem transformar propostas abertas em produção autoral, enquanto estudantes sob maior fricção material e organizacional recebem uma experiência mais restrita, fragmentada e com menor capacidade de aprofundamento.
+
+Nesse contexto, engajamento e autorregulação não devem ser tratados como disposições individuais prévias, e sim como resultados situados. Uma proposta curricular que exige autoria, investigação e gestão do tempo pressupõe competências de planejamento e persistência que não emergem automaticamente do estudante diante de uma tarefa aberta. Elas precisam ser produzidas e sustentadas pela organização pedagógica, por rotinas de acompanhamento e por uma arquitetura de atividades que reduza incerteza e torne o percurso inteligível. Quando a instituição não oferece essa sustentação, a exigência de protagonismo pode operar como sobrecarga e produzir respostas defensivas previsíveis, como desistência, participação mínima ou dependência excessiva do professor. Assim, o fracasso aparente do estudante frequentemente é um indicador de falha de desenho e de sustentação do microssistema escolar, e não uma prova de incapacidade individual.
+
+A análise também indica que o debate sobre tecnologia na escola perde precisão quando se resume à dicotomia presença versus ausência. O que diferencia experiências com potencial formativo não é a adoção de ferramentas em si, mas a qualidade do encadeamento didático. Em termos práticos, isso significa que a responsividade da Cultura Digital depende de pelo menos quatro operações institucionais que raramente recebem o devido peso. A primeira é a estabilização de condições mínimas de continuidade, sem as quais não há progressão nem aprofundamento. A segunda é o desenho instrucional viável, capaz de organizar informação, reduzir dispersão e tornar o percurso executável. A terceira é a sustentação motivacional e relacional, que combina autonomia com suporte, em vez de confundir autonomia com abandono. A quarta é a presença de ciclos de feedback que funcionem como mecanismo de regulação, isto é, como ajuste contínuo da rota de aprendizagem, permitindo que o estudante compreenda critérios, revise estratégias e recupere direção.
+
+É nesse ponto que se justifica a proposição do Microssistema Pedagógico Responsivo Digital como síntese conceitual e, ao mesmo tempo, como ferramenta de leitura da implementação. A ideia não é criar um novo rótulo, mas explicitar uma premissa metodológica: a Cultura Digital só se torna experiência formativa quando é tratada como arranjo de condições e práticas que precisa ser diagnosticado, calibrado e sustentado. Para operar essa leitura, a Matriz IRPD pode ser compreendida como um quadro de orientação que organiza dimensões decisivas da responsividade, permitindo identificar onde a experiência tende a se densificar e onde tende a se dissipar. Seu valor está menos em “avaliar” escolas e mais em tornar visíveis os pontos de estrangulamento que impedem que a prescrição se converta em aprendizagem, especialmente quando se exige autoria e investigação.
+
+Dessa síntese deriva uma implicação crítica: tratar Cultura Digital como política curricular sem tratá-la como política de condições e de mediação é produzir uma promessa que se realiza apenas para alguns. Uma implementação que não reconhece a desigualdade como componente estruturante do processo corre o risco de converter a inovação em mecanismo de seleção informal, no qual apenas estudantes com maior disponibilidade de recursos conseguem transformar propostas abertas em produção autoral robusta. Em contrapartida, quando o microssistema é desenhado para produzir previsibilidade, suporte e progressão, a Cultura Digital pode funcionar como ampliação real de repertório, agência e participação, inclusive sob vulnerabilidade, porque passa a operar como experiência estruturante e não como evento pedagógico ocasional.
+
+Como limitação, por se tratar de síntese bibliográfica, este trabalho não verifica em campo a potência diagnóstica e orientadora da IRPD, tampouco mensura efeitos em diferentes redes e perfis escolares. O principal desdobramento, portanto, é empírico e aplicado: testar a matriz em contextos variados, observar sua capacidade de orientar decisões pedagógicas e ajustar seus indicadores à realidade da escola. Ainda mais importante, é investigar como rotinas de acompanhamento e feedback podem ser desenhadas para sustentar autorregulação sem reduzir a proposta a procedimentos burocráticos. Em última instância, a questão que permanece não é se a Cultura Digital deve existir no currículo, mas que tipo de experiência escolar o sistema educacional é capaz de sustentar quando afirma que quer investigação, autoria e participação como núcleo formativo.
+
+
+
+
+
+REFERÊNCIAS
+
+
+
+ARAIN, Mariam; HAQUE, Maliha; JOHAL, Lina; MATHUR, Puja; NEL, Wynand; RAIS, Afsha; SANDHU, Ranbir; SHARMA, Sushil. Maturation of the adolescent brain. Neuropsychiatric Disease and Treatment, v. 9, p. 449-461, 2013. DOI: 10.2147/NDT.S39776.
+
+
+
+BANIHASHEM, Seyyed Kazem; NOROOZI, Omid; VAN GINKEL, Stan; MACFADYEN, Leah P.; BIEMANS, Harm J. A. A systematic review of the role of learning analytics in enhancing feedback practices in higher education. Educational Research Review, v. 37, art. 100489, 2022. DOI: 10.1016/j.edurev.2022.100489.
+
+
+
+BELUCE, Andrea Carvalho; OLIVEIRA, Katya Luciane de; BZUNECK, José Aloyseo. Tecnologias digitais e motivação para aprender: contribuições da teoria da autodeterminação. Psicologia para América Latina, México, n. 31, p. 53-63, jul. 2019. ISSN 1870-350X.
+
+
+
+BRASIL. Lei nº 14.945, de 31 de julho de 2024. Altera a Lei nº 9.394, de 20 de dezembro de 1996 (Lei de Diretrizes e Bases da Educação Nacional), a fim de definir diretrizes para o ensino médio, e as Leis nºs 14.818, de 16 de janeiro de 2024, e 12.711, de 29 de agosto de 2012. Brasília, DF: Presidência da República, 2024a.
+
+
+
+BRASIL. Ministério da Educação. Base Nacional Comum Curricular: educação é a base. Ensino Médio. Brasília, DF: MEC, 2018.
+
+
+
+BRASIL. Conselho Nacional de Educação. Câmara de Educação Básica. Resolução CNE/CEB nº 2, de 13 de novembro de 2024. Institui as Diretrizes Curriculares Nacionais para o Ensino Médio (DCNEM). Brasília, DF: CNE/CEB, 2024b.
+
+
+
+BRASIL. Conselho Nacional de Educação. Câmara de Educação Básica. Parecer CNE/CEB nº 7/2025. Parâmetros Nacionais para a Oferta dos Itinerários Formativos de Aprofundamento (IFAs) no Ensino Médio. Brasília, DF: CNE/CEB, 2025a.
+
+
+
+BRASIL. Conselho Nacional de Educação. Câmara de Educação Básica. Resolução CNE/CEB nº 4, de 12 de maio de 2025. Institui os Parâmetros Nacionais para a Oferta dos Itinerários Formativos de Aprofundamento (IFAs) no Ensino Médio. Brasília, DF: CNE/CEB, 2025b.
+
+
+
+COMITÊ GESTOR DA INTERNET NO BRASIL (CGI.br). Pesquisa TIC Educação 2023: resumo executivo. São Paulo: CGI.br, 2024a.
+
+
+
+COMITÊ GESTOR DA INTERNET NO BRASIL (CGI.br). TIC Educação 2023: pesquisa sobre o uso das tecnologias de informação e comunicação nas escolas brasileiras. 1. ed. São Paulo: CGI.br, 2024b. ISBN 978-65-85417-23-5.
+
+
+
+COMITÊ GESTOR DA INTERNET NO BRASIL (CGI.br). TIC Domicílios 2023: pesquisa sobre o uso das tecnologias de informação e comunicação nos domicílios brasileiros. 1. ed. São Paulo: CGI.br, 2024c. ISBN 978-65-85417-31-0.
+
+
+
+COSTA, Marilda de Oliveira; SILVA, Leonardo Almeida da. Educação e democracia: Base Nacional Comum Curricular e novo ensino médio sob a ótica de entidades acadêmicas da área educacional. Revista Brasileira de Educação, v. 24, e240047, 2019. DOI: 10.1590/S1413-24782019240047.
+
+
+
+DIAMOND, Adele. Executive functions. Annual Review of Psychology, v. 64, p. 135-168, 2013. DOI: 10.1146/annurev-psych-113011-143750.
+
+
+
+FERNANDES JUNIOR, Alvaro Martins; ALMEIDA, Fernando José de; ALMEIDA, Siderly do Carmo Dahle de. A pesquisa brasileira em Educação sobre o uso das tecnologias no Ensino Médio no início do século XXI e seu distanciamento da construção da BNCC. Ensaio: Avaliação e Políticas Públicas em Educação, Rio de Janeiro, v. 30, n. 116, p. 620-643, jul./set. 2022. DOI: 10.1590/S0104-403620220003002943.
+
+
+
+HACKMAN, Daniel A.; FARAH, Martha J. Socioeconomic status and the developing brain. Trends in Cognitive Sciences, v. 13, n. 2, p. 65-73, 2009. DOI: 10.1016/j.tics.2008.11.003.
+
+
+
+INSTITUTO NACIONAL DE ESTUDOS E PESQUISAS EDUCACIONAIS ANÍSIO TEIXEIRA (INEP). Censo Escolar da Educação Básica 2024: resumo técnico. Brasília, DF: Inep, 2025.
+
+
+
+INTERNETLAB. Tecnologias de vigilância e educação: um mapeamento das políticas de reconhecimento facial em escolas públicas brasileiras. São Paulo: InternetLab, 2023. (Diagnósticos e recomendações, n. 8).
+
+
+
+KRAWCZYK, Nora; JACOMINI, Márcia Aparecida. Ensino médio: o que está em jogo na reforma da Reforma? Revista Brasileira de Educação, v. 30, e300097, 2025. DOI: 10.1590/S1413-24782025300097.
+
+
+
+KUENZER, Acacia Zeneida. Trabalho e escola: a flexibilização do ensino médio no contexto do regime de acumulação flexível. Educação & Sociedade, Campinas, v. 38, n. 139, p. 331-354, 2017.
+
+
+
+LOTTA, Gabriela Spanghero; BAUER, Marcela; JOBIM, Rita; MERCHÁN, Catherine Rojas. Efeito de mudanças no contexto de implementação de uma política multinível: análise do caso da Reforma do Ensino Médio no Brasil. Revista de Administração Pública, Rio de Janeiro, v. 55, n. 2, p. 395-413, mar./abr. 2021. DOI: 10.1590/0034-761220190159.
+
+
+
+MAYER, Richard E. Multimedia Learning. 2. ed. Cambridge: Cambridge University Press, 2009. DOI: 10.1017/CBO9780511811678.
+
+
+
+MCEWEN, Bruce S.; GIANAROS, Peter J. Stress- and allostasis-induced brain plasticity. Annual Review of Medicine, v. 62, p. 431-445, 2011. DOI: 10.1146/annurev-med-052209-100430.
+
+
+
+MEDEIROS, Francimar de Lima. Desenvolvimento cognitivo de estudantes em situação de vulnerabilidade social: fatores ambientais, psicológicos e biológicos que modulam o desempenho acadêmico. 2025. 198 f. Dissertação (Mestrado em Educação) – Universidade Federal do Acre, Rio Branco, 2025.
+
+
+
+ORGANISATION FOR ECONOMIC CO-OPERATION AND DEVELOPMENT (OECD). Students, Computers and Learning: Making the Connection. Paris: OECD Publishing, 2015. DOI: 10.1787/9789264239555-en.
+
+
+
+PANADERO, Ernesto. A review of self-regulated learning: six models and four directions for research. Frontiers in Psychology, v. 8, art. 422, 2017. DOI: 10.3389/fpsyg.2017.00422.
+
+
+
+SCHERER, Suely; BRITO, Gláucia da Silva. Integração de tecnologias digitais ao currículo: diálogos sobre desafios e dificuldades. Educar em Revista, Curitiba, v. 36, e76252, 2020. DOI: 10.1590/0104-4060.76252.
+
+
+
+SHUTE, Valerie J. Focus on formative feedback. Review of Educational Research, v. 78, n. 1, p. 153-189, 2008. DOI: 10.3102/0034654307313795.
+
+
+
+SILVA, Monica Ribeiro da; KRAWCZYK, Nora Rut; CALÇADA, Guilherme Eduardo Camilo. Juventudes, Novo Ensino Médio e itinerários formativos: o que as redes estaduais propõem em seus currículos. Educação e Pesquisa, v. 49, e271803, 2023. DOI: 10.1590/S1678-4634202349271803por.
+
+
+
+SOUSA, Erverson B. G. de; ALEXANDRE, Bruno; FERREIRA MELLO, Rafael; PONTUAL FALCÃO, Taciana; VESIN, Boban; GAŠEVIĆ, Dragan. Applications of learning analytics in high schools: a systematic literature review. Frontiers in Artificial Intelligence, v. 4, art. 737891, 2021. DOI: 10.3389/frai.2021.737891.
+
+
+
+SWELLER, John. Cognitive load during problem solving: effects on learning. Cognitive Science, v. 12, n. 2, p. 257-285, 1988. DOI: 10.1207/s15516709cog1202_4.
+
+
+
+SWELLER, John; VAN MERRIËNBOER, Jeroen J. G.; PAAS, Fred G. W. C. Cognitive architecture and instructional design. Educational Psychology Review, v. 10, n. 3, p. 251-296, 1998. DOI: 10.1023/A:1022193728205.
+
+
+
+TAVARES, Clarice; SIMÃO, Bárbara; MARTINS, Fernanda K.; SANTOS, Blenda; ARAÚJO, Anna Martha. Tecnologias de vigilância e educação: um mapeamento das políticas de reconhecimento facial em escolas públicas brasileiras. São Paulo: InternetLab, 2023. (Diagnósticos e recomendações, n. 8).
+
+
+
+TESTA, Maurício José; LOPES, Eduarda da Silva; VIDMAR, Muryel Pyetro; PASTORIO, Dioni Paulo. Um olhar para a disciplina curricular Cultura Digital do Novo Ensino Médio: a relação das Tecnologias Digitais de Informação e Comunicação e o ensino de Física. Revista Brasileira de Ensino de Física, v. 45, e20230048, 2023. DOI: 10.1590/1806-9126-RBEF-2023-0048.
+
+
+
+UNITED NATIONS EDUCATIONAL, SCIENTIFIC AND CULTURAL ORGANIZATION (UNESCO). Global Education Monitoring Report 2023: Technology in education – A tool on whose terms? Paris: UNESCO, 2023.
+
+
+
+WISNIEWSKI, Benedikt; ZIERER, Klaus; HATTIE, John. The power of feedback revisited: a meta-analysis of educational feedback research. Frontiers in Psychology, v. 10, art. 3087, 2020. DOI: 10.3389/fpsyg.2019.03087.

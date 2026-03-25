@@ -25,9 +25,11 @@
     "serve:embeddings:cpu:restart": "powershell -ExecutionPolicy Bypass -File scripts/serve-embeddings-cpu-restart.ps1",
     "serve:vllm:wsl": "powershell -ExecutionPolicy Bypass -File scripts/serve-vllm-wsl.ps1",
     "serve:vllm:wsl:restart": "powershell -ExecutionPolicy Bypass -File scripts/serve-vllm-restart.ps1",
+    "serve:knexai:watchdog": "powershell -ExecutionPolicy Bypass -File scripts/watch-knexai-backends.ps1",
     "serve:vllm": "vllm serve models/CModelosMistral-7B-Instruct-v0.2-AWQ --host 127.0.0.1 --port 8000 --served-model-name mistral-awq --max-num-seqs 2 --max-model-len 4096 --gpu-memory-utilization 0.90",
     "email:test": "node scripts/email-test.mjs",
-    "supabase:local:start": "powershell -ExecutionPolicy Bypass -File scripts/supabase-local-start.ps1",
+    "supabase:local:start": "powershell -ExecutionPolicy Bypass -File scripts/supabase-local-start.ps1 -SkipEnvUpdate",
+    "supabase:local:start:update-env": "powershell -ExecutionPolicy Bypass -File scripts/supabase-local-start.ps1",
     "supabase:local:prep-nvme": "powershell -ExecutionPolicy Bypass -File scripts/configure-docker-nvme2.ps1",
     "supabase:local:apply-engine-template": "powershell -ExecutionPolicy Bypass -File scripts/apply-docker-engine-template.ps1",
     "supabase:local:identity:migrate": "powershell -ExecutionPolicy Bypass -File scripts/supabase-apply-identity-migrations.ps1",
@@ -39,7 +41,8 @@
     "smoke:rag:v2": "bash scripts/smoke_rag_v2",
     "rag:reindex:gaps": "node scripts/rag-reindex-gapped-docs.mjs --auto-gaps",
     "bench:rag:router": "node scripts/bench-rag-router.mjs",
-    "bench:rag:router:wsl": "powershell -ExecutionPolicy Bypass -File scripts/bench-rag-router-wsl.ps1"
+    "bench:rag:router:wsl": "powershell -ExecutionPolicy Bypass -File scripts/bench-rag-router-wsl.ps1",
+    "verify:public-api": "powershell -ExecutionPolicy Bypass -File scripts/check-public-api.ps1"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.15",
@@ -61,6 +64,7 @@
     "lru-cache": "^11.2.6",
     "lucide-react": "^0.544.0",
     "mammoth": "^1.11.0",
+    "microsoft-cognitiveservices-speech-sdk": "^1.48.0",
     "next": "14.2.33",
     "openai": "^6.25.0",
     "pdfjs-dist": "^5.4.624",
@@ -69,6 +73,7 @@
     "react-dom": "18.3.1",
     "react-icons": "^5.5.0",
     "resend": "^6.5.2",
+    "siriwave": "^2.4.0",
     "tesseract.js": "^7.0.0",
     "zod": "^4.1.13",
     "zustand": "^5.0.11"

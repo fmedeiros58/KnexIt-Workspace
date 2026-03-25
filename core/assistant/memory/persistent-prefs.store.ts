@@ -10,9 +10,16 @@ export class PersistentPrefsStore {
     return PERSISTENT_PREFS_MAP.get(subjectKey) || null;
   }
 
-  async load(ctx: { requestId: string; mode: "chat" | "write"; userMessage: string }) {
-    const normalized = `${ctx.userMessage || ""}`.trim();
-    const key = normalized ? `pref:${ctx.mode}:${normalized.slice(0, 120)}` : `pref:${ctx.requestId}`;
+  private resolveKey(ctx: { requestId: string; mode: "chat" | "write"; conversationKey?: string }) {
+    const explicit = `${ctx.conversationKey || ""}`.trim();
+    if (explicit) {
+      return `pref:${ctx.mode}:${explicit.slice(0, 160)}`;
+    }
+    return `pref:${ctx.mode}:${ctx.requestId}`;
+  }
+
+  async load(ctx: { requestId: string; mode: "chat" | "write"; conversationKey?: string }) {
+    const key = this.resolveKey(ctx);
     const current = await this.get(key);
     if (current) return current;
     const bootstrap = {

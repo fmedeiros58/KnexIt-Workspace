@@ -4,9 +4,34 @@ import type { PipelineContext } from "@/core/assistant/pipeline/pipeline-context
 import { PostprocessStage } from "@/core/assistant/pipeline/stages/postprocess.stage";
 import { TemplateRegistry } from "@/core/assistant/templates/template-registry";
 
+function streamFromText(text: string) {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    },
+  });
+}
+
+async function readStream(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) output += decoder.decode(value, { stream: true });
+  }
+  output += decoder.decode();
+  reader.releaseLock();
+  return output;
+}
+
 function makeContext(answer: string): PipelineContext {
   return {
     requestId: "req-postprocess",
+    conversationKey: "test-postprocess",
     mode: "chat",
     stream: false,
     userMessage: "Faça uma analise critica.",
@@ -110,5 +135,171 @@ describe("PostprocessStage", () => {
     const stage = new PostprocessStage(ragService);
     await stage.run(ctx);
     expect(repairCalls).toBe(0);
+  });
+
+  it("remove eco da pergunta e prefixo 'Resposta:' no modo chat", async () => {
+    const ctx = makeContext("Tudo bem?\n\n(Resposta: Sim, tudo bem.)");
+    ctx.userMessage = "Tudo bem?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer?.toLowerCase()).toContain("sim, tudo bem");
+    expect(ctx.finalAnswer).not.toMatch(/resposta\s*:/i);
+    expect(ctx.finalAnswer).not.toMatch(/^Tudo bem\?/i);
+  });
+
+  it("remove sufixo parentetico de resposta duplicada", async () => {
+    const ctx = makeContext("Sim, tudo bem. (Resposta em portugues brasileiro: Sim, tudo bem.)");
+    ctx.userMessage = "Como voce esta?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer).not.toMatch(/\(\s*resposta[^)]*\)/i);
+    expect(ctx.finalAnswer).not.toMatch(/resposta em portugues brasileiro\s*:/i);
+  });
+
+  it("sanitiza prefixo indevido tambem no stream de chat", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "Tudo bem?";
+    ctx.finalStream = streamFromText("Tudo bem?\n\n(Resposta: Sim, tudo bem.)");
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalStream).toBeDefined();
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered.toLowerCase()).toContain("sim, tudo bem");
+    expect(rendered).not.toMatch(/resposta\s*:/i);
+    expect(rendered).not.toMatch(/^Tudo bem\?/i);
+  });
+
+  it("sanitiza sufixo parentetico duplicado tambem no stream", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "Como voce esta?";
+    ctx.finalStream = streamFromText("Sim, tudo bem. (Resposta em portugues brasileiro: Sim, tudo bem.)");
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalStream).toBeDefined();
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toMatch(/^Sim, tudo bem\.?$/i);
+    expect(rendered).not.toMatch(/\(\s*resposta[^)]*\)/i);
+  });
+
+  it("remove prefixo de persona e saudacao excessiva em pergunta factual verificavel", async () => {
+    const ctx = makeContext("Leticia: Ola, usuario. Atualmente, o presidente dos Estados Unidos e Joe Biden.");
+    ctx.userMessage = "me diga quem e o presidente atual dos estados unidos";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").not.toMatch(/^leticia\s*:/i);
+    expect(ctx.finalAnswer || "").not.toMatch(/^ol[aá],?\s*usuario/i);
+  });
+
+  it("bloqueia resposta factual sem evidencia web em pergunta verificavel", async () => {
+    const ctx = makeContext("Atualmente, o presidente do Brasil e Jair Bolsonaro.");
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").not.toContain("Jair Bolsonaro");
+  });
+
+  it("mantem resposta verificavel quando ha evidencia web positiva", async () => {
+    const ctx = makeContext("Atualmente, o presidente do Brasil e Luiz Inacio Lula da Silva.");
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.81,
+        text: "[WEB] Governo Federal | URL: https://www.gov.br",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Luiz Inacio Lula da Silva");
+  });
+
+  it("bloqueia vazamento de diretiva/persona em pergunta verificavel", async () => {
+    const ctx = makeContext(
+      "I'm an assistant inside KnexIT, responding professionally and objectively. I won't reveal internal processes.",
+    );
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.72,
+        text: "[WEB] Fonte valida | URL: https://exemplo.org",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").not.toContain("inside KnexIT");
+  });
+
+  it("bloqueia vazamento de meta-resposta do assistente interno em pergunta verificavel", async () => {
+    const ctx = makeContext(
+      "Ola, sou o assistente interno da plataforma KnexIT. Nao sou Leticia e nao exponho processos internos.",
+    );
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.72,
+        text: "[WEB] Fonte valida | URL: https://exemplo.org",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").not.toContain("assistente interno");
+  });
+
+  it("bloqueia vazamento de diretiva/persona no stream para pergunta verificavel", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "quem e o presidente do brasil atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.72,
+        text: "[WEB] Fonte valida | URL: https://exemplo.org",
+      },
+    ];
+    ctx.finalStream = streamFromText(
+      "I'm an assistant inside KnexIT, responding professionally and objectively. I won't reveal internal processes.",
+    );
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(rendered).not.toContain("inside KnexIT");
+  });
+
+  it("remove artefatos de mantra factual e marcador de fim", async () => {
+    const ctx = makeContext(
+      [
+        "Titular atual verificado: Donald Trump.",
+        "Confianca: alta.",
+        "Verificado em: 2026-03-12.",
+        "[end of response]",
+      ].join("\n"),
+    );
+    ctx.userMessage = "quem e o presidente dos estados unidos atualmente?";
+    ctx.evidence = [
+      {
+        source: "rag",
+        ref: "web:1",
+        score: 0.81,
+        text: "[WEB] White House | URL: https://www.whitehouse.gov/",
+      },
+    ];
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Titular atual verificado: Donald Trump.");
+    expect(ctx.finalAnswer || "").not.toContain("Confianca:");
+    expect(ctx.finalAnswer || "").not.toContain("Verificado em:");
+    expect(ctx.finalAnswer || "").not.toContain("[end of response]");
   });
 });

@@ -7,6 +7,13 @@ export const runtime = "nodejs";
 
 const ingestV2 = new DocumentIngestV2();
 const MAX_FILE_BYTES = Number(process.env.RAG_MAX_FILE_SIZE_BYTES || 20 * 1024 * 1024);
+const ACCEPTED_PDF_MIMES = new Set([
+  "application/pdf",
+  "application/x-pdf",
+  "application/acrobat",
+  "applications/vnd.pdf",
+  "text/pdf",
+]);
 
 function normalizeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -18,6 +25,15 @@ function parseOptionalPositiveInt(value: unknown) {
   if (!Number.isFinite(parsed)) return undefined;
   const rounded = Math.trunc(parsed);
   return rounded > 0 ? rounded : undefined;
+}
+
+function looksLikePdfFilename(fileName: string) {
+  return /\.pdf$/i.test(`${fileName || ""}`.trim());
+}
+
+function hasPdfSignature(bytes: Buffer) {
+  if (!bytes || bytes.length < 5) return false;
+  return bytes.subarray(0, 5).toString("utf8") === "%PDF-";
 }
 
 export async function POST(req: NextRequest) {
@@ -47,18 +63,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const mime = normalizeString(fileEntry.type || "application/pdf") || "application/pdf";
-    if (mime !== "application/pdf") {
-      return Response.json(
-        {
-          ok: false,
-          code: "RAG_V2_INGEST_UNSUPPORTED_MIME",
-          message: "Ingestao v2 atual aceita apenas application/pdf.",
-        },
-        { status: 415 },
-      );
-    }
-
     const bytes = Buffer.from(await fileEntry.arrayBuffer());
     if (bytes.length > MAX_FILE_BYTES) {
       return Response.json(
@@ -71,10 +75,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const rawMime = (normalizeString(fileEntry.type) || "application/pdf").toLowerCase();
+    const fileName = normalizeString(fileEntry.name) || "documento.pdf";
+    const pdfDetected =
+      ACCEPTED_PDF_MIMES.has(rawMime) ||
+      looksLikePdfFilename(fileName) ||
+      hasPdfSignature(bytes);
+
+    if (!pdfDetected) {
+      return Response.json(
+        {
+          ok: false,
+          code: "RAG_V2_INGEST_UNSUPPORTED_MIME",
+          message: "Ingestao v2 aceita PDF. Reenvie com mime application/pdf ou arquivo .pdf valido.",
+        },
+        { status: 415 },
+      );
+    }
+
+    const mime = "application/pdf";
+
     const result = await ingestV2.ingestPdf({
       userId: normalizeString(form.get("userId")) || null,
       projectId: normalizeString(form.get("projectId")) || null,
-      filename: normalizeString(fileEntry.name) || "documento.pdf",
+      filename: fileName,
       mime,
       bytes,
       pipelineVersion: "v2",

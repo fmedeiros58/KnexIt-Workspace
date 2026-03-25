@@ -7,6 +7,7 @@ import { identitySupabase } from "@/lib/identitySupabaseClient";
 import type { Session, User } from "@supabase/supabase-js";
 import { getAppBaseUrl, resolvePostLoginTarget, resolveReturnTo } from "../_lib/authFlow";
 import { writeKnexchatProfileSeed } from "@/lib/knexchat/profileSeed";
+import SettingsFloatingModal, { type SettingsSectionKey } from "./SettingsFloatingModal";
 
 const supabase = identitySupabase();
 
@@ -151,6 +152,8 @@ export default function AuthHeaderAvatar() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [switchingAccountEmail, setSwitchingAccountEmail] = useState<string | null>(null);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionKey>("geral");
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -404,6 +407,23 @@ export default function AuthHeaderAvatar() {
     }
   };
 
+  const navigateFromMenu = (href: string) => {
+    setMenuOpen(false);
+    setAccountSwitcherOpen(false);
+    if (typeof window !== "undefined") {
+      window.location.assign(href);
+    } else {
+      router.push(href);
+    }
+  };
+
+  const openSettingsModal = (section: SettingsSectionKey = "geral") => {
+    setMenuOpen(false);
+    setAccountSwitcherOpen(false);
+    setSettingsInitialSection(section);
+    setSettingsModalOpen(true);
+  };
+
   const handleSwitchAccount = async (account: StoredAccount) => {
     const normalized = account.email?.trim().toLowerCase();
     if (!normalized) return;
@@ -436,19 +456,22 @@ export default function AuthHeaderAvatar() {
   const handleAddExternalAccount = async () => {
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
-    await supabase.auth.signOut();
+    setAvatar(null);
+    setIsLoggedIn(false);
+    await supabase.auth.signOut({ scope: "local" });
     router.push(buildAccessEmailHref());
   };
 
-  const handleSignOutAll = async () => {
+  const handleSignOut = async () => {
     setMenuOpen(false);
     setAccountSwitcherOpen(false);
+    setAvatar(null);
+    setIsLoggedIn(false);
     if (typeof window !== "undefined") {
-      localStorage.removeItem(ACCOUNT_SESSIONS_KEY);
-      localStorage.removeItem(RECENT_ACCOUNTS_KEY);
+      localStorage.removeItem("loginEmailHint");
     }
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     } finally {
       if (typeof window !== "undefined") {
         window.location.assign("/knexit-workspace/acesso");
@@ -459,8 +482,14 @@ export default function AuthHeaderAvatar() {
   };
 
   if (!activeAvatar) return null;
-
-  const greetingName = activeAvatar.name ? activeAvatar.name.split(" ")[0] : "amigo";
+  const profileDisplayName =
+    activeAvatar.name?.trim() ||
+    (activeAvatar.email ? formatAccountName(activeAvatar.email) : "Conta Knex");
+  const profileHandleRaw = (activeAvatar.email?.split("@")[0] ?? profileDisplayName)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  const profileHandle = `@${profileHandleRaw || "knexit"}`;
 
   return (
     <div className="relative flex items-center justify-end" ref={menuRef}>
@@ -498,14 +527,8 @@ export default function AuthHeaderAvatar() {
         className="hidden"
       />
       {menuOpen ? (
-        <div className="absolute right-0 top-full mt-3 w-[min(92vw,340px)] rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_30px_80px_-45px_rgba(15,23,42,0.6)]">
+        <div className="absolute right-0 top-full z-50 mt-3 w-[min(92vw,340px)] max-w-[calc(100vw-1rem)] rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_30px_80px_-45px_rgba(15,23,42,0.6)]">
           <div className="relative flex items-center justify-end">
-            <div className="pointer-events-none absolute left-1/2 w-full -translate-x-1/2 px-8 text-center">
-              <p className="text-xs font-semibold text-slate-700">{activeAvatar.email || "Conta"}</p>
-              {currentDomain ? (
-                <p className="text-[11px] text-slate-500">Gerenciado por {currentDomain}</p>
-              ) : null}
-            </div>
             <button
               type="button"
               onClick={() => {
@@ -519,16 +542,16 @@ export default function AuthHeaderAvatar() {
             </button>
           </div>
 
-          <div className="mt-4 flex flex-col items-center text-center">
-            <div className="relative">
+          <div className="mt-1 rounded-3xl border border-slate-200 bg-slate-50/70 p-3">
+            <div className="flex items-center gap-3 px-1">
               <div
-                className="h-20 w-20 rounded-full p-[3px]"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-[2px]"
                 style={{
                   backgroundImage:
                     "radial-gradient(circle at center, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 45%), conic-gradient(#1E6DDC 0 25%, #26C281 25% 50%, #F59E0B 50% 75%, #E02424 75% 100%)",
                 }}
               >
-                <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-semibold text-slate-700">
+                <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white text-xs font-semibold text-slate-700">
                   {activeAvatar.url ? (
                     <img
                       src={activeAvatar.url}
@@ -540,38 +563,72 @@ export default function AuthHeaderAvatar() {
                   )}
                 </div>
               </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[27px] leading-7 font-semibold text-slate-900">{profileDisplayName}</p>
+                <p className="truncate text-sm text-slate-500">{profileHandle}</p>
+              </div>
               {isLoggedIn ? (
                 <button
                   type="button"
                   onClick={handleAvatarSelect}
                   disabled={avatarUploading}
-                  className="absolute -bottom-1 -right-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white shadow transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
                   aria-label="Atualizar foto"
                 >
                   <CameraIcon />
                 </button>
               ) : null}
             </div>
-            <p className="mt-3 text-lg font-semibold text-slate-900">Ola, {greetingName}!</p>
-            {isLoggedIn ? (
-              <p className="mt-1 text-[11px] font-semibold text-emerald-600">Logado</p>
-            ) : (
-              <p className="mt-1 text-[11px] text-slate-500">Sessao inativa</p>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                if (typeof window !== "undefined") {
-                  window.location.assign("/knexit-workspace/conta");
-                } else {
-                  router.push("/knexit-workspace/conta");
-                }
-              }}
-              className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-blue-700 hover:bg-slate-50"
-            >
-              Gerenciar sua Conta Knex
-            </button>
+            <div className="mt-3 h-px bg-slate-200" />
+            <div className="mt-2 space-y-0.5">
+              <button
+                type="button"
+                onClick={() => navigateFromMenu("/knexit-workspace/precos")}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+              >
+                <MenuUpgradeIcon />
+                <span>Fazer upgrade do plano</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openSettingsModal("personalizacao")}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+              >
+                <MenuTuneIcon />
+                <span>Personalizacao</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openSettingsModal("geral")}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+              >
+                <MenuSettingsIcon />
+                <span>Configuracoes</span>
+              </button>
+              <div className="my-1 h-px bg-slate-200" />
+              <button
+                type="button"
+                onClick={() => navigateFromMenu("/lobby/recursos/faq")}
+                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+              >
+                <span className="flex items-center gap-3">
+                  <MenuHelpIcon />
+                  <span>Ajuda</span>
+                </span>
+                <MenuChevronRightIcon />
+              </button>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-800 transition hover:bg-white"
+              >
+                <ExitIcon />
+                <span>Sair</span>
+              </button>
+            </div>
+            {currentDomain ? (
+              <p className="mt-2 px-3 text-[11px] text-slate-500">Gerenciado por {currentDomain}</p>
+            ) : null}
           </div>
 
           {avatarError ? (
@@ -760,15 +817,6 @@ export default function AuthHeaderAvatar() {
                 </span>
                 <span className="text-sm font-semibold text-slate-700">Adicionar outra conta</span>
               </button>
-
-              <button
-                type="button"
-                onClick={handleSignOutAll}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-rose-600 hover:bg-rose-50/40"
-              >
-                <ExitIcon />
-                <span className="text-sm font-semibold">Sair de todas as contas</span>
-              </button>
             </div>
           </div>
 
@@ -779,6 +827,11 @@ export default function AuthHeaderAvatar() {
           </div>
         </div>
       ) : null}
+      <SettingsFloatingModal
+        open={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        initialSection={settingsInitialSection}
+      />
     </div>
   );
 }
@@ -794,6 +847,69 @@ function CameraIcon() {
         strokeLinejoin="round"
       />
       <circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function MenuUpgradeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <path
+        d="m12 4 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7L12 4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MenuTuneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9M4 12h4M12 12h8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="14" cy="7" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="8" cy="12" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="8" cy="17" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function MenuSettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <path
+        d="M12 8.2a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path
+        d="m19.4 13.2.1-2.4-2.1-.7a5.9 5.9 0 0 0-.6-1.4l1.1-1.9-1.7-1.7-1.9 1.1c-.5-.2-1-.4-1.5-.5l-.7-2.2h-2.4l-.7 2.2c-.5.1-1 .3-1.5.5L6 5.1 4.3 6.8l1.1 1.9c-.3.4-.5.9-.6 1.4l-2.1.7.1 2.4 2.1.7c.1.5.3 1 .6 1.4l-1.1 1.9L6 18.9l1.9-1.1c.5.2 1 .4 1.5.5l.7 2.2h2.4l.7-2.2c.5-.1 1-.3 1.5-.5l1.9 1.1 1.7-1.7-1.1-1.9c.3-.4.5-.9.6-1.4l2.1-.7Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MenuHelpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-700" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9.4 9.7a2.6 2.6 0 1 1 4.5 1.8c-.8.8-1.4 1.2-1.4 2.2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="12" cy="16.8" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function MenuChevronRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-500" aria-hidden="true">
+      <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

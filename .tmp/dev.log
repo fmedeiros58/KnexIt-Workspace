@@ -1,0 +1,27 @@
+
+> knexit-workspace@0.1.0 dev
+> next dev -H localhost -p 3000
+
+  ▲ Next.js 14.2.33
+  - Local:        http://localhost:3000
+  - Network:      http://[::1]:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.6s
+ ✓ Compiled /api/identity/[[...path]] in 474ms (29 modules)
+ GET /api/identity/runtime/status 200 in 1023ms
+ GET /api/identity/runtime/status 200 in 103ms
+ ○ Compiling /api/proactive-assistant/context ...
+ ✓ Compiled /api/proactive-assistant/context in 732ms (191 modules)
+ POST /api/identity/events/observation 200 in 1122ms
+ GET /api/identity/runtime/status 200 in 40ms
+ GET /api/proactive-assistant/context?prompt=oi 200 in 1216ms
+ GET /api/identity/runtime/status 200 in 31ms
+ POST /api/identity/runtime/enable 200 in 61ms
+ GET /api/identity/runtime/status 200 in 39ms
+ GET /api/proactive-assistant/context?prompt=oi 200 in 153ms
+ POST /api/identity/events/observation 200 in 38ms
+ GET /api/identity/runtime/status 200 in 34ms
+ POST /api/identity/runtime/disable 200 in 37ms
+[?25h

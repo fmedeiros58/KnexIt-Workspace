@@ -1,0 +1,25 @@
+﻿export type PipelineRoute = "minimum" | "reflective" | "inferential" | "quantum-state";
+
+export type PipelineLayerId =
+  | "pipeline"
+  | "input"
+  | "language"
+  | "conversation"
+  | "context"
+  | "orchestration"
+  | "memory"
+  | "knowledge"
+  | "quantum"
+  | "preparatory"
+  | "reflective"
+  | "inferential"
+  | "metacognitive"
+  | "epistemic-integration"
+  | "generation"
+  | "structure"
+  | "academic-normalization"
+  | "validation"
+  | "validation-final"
+  | "presentation"
+  | "observability"
+  | "feedback";

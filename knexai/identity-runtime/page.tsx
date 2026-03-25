@@ -385,6 +385,50 @@ function asNonEmptyString(value: unknown) {
   return normalized;
 }
 
+type CameraPermissionState = "granted" | "prompt" | "denied" | "unknown";
+
+async function readCameraPermissionState(): Promise<CameraPermissionState> {
+  if (typeof navigator === "undefined") return "unknown";
+  const permissionApi = (navigator as Navigator & { permissions?: Permissions }).permissions;
+  if (!permissionApi || typeof permissionApi.query !== "function") return "unknown";
+  try {
+    const status = await permissionApi.query({ name: "camera" as PermissionName });
+    if (status?.state === "granted" || status?.state === "prompt" || status?.state === "denied") {
+      return status.state;
+    }
+  } catch {
+    // Browser may not expose camera permission through Permissions API.
+  }
+  return "unknown";
+}
+
+function normalizeCameraAccessError(error: unknown, permissionState: CameraPermissionState) {
+  const errName = typeof error === "object" && error && "name" in error ? `${(error as { name?: unknown }).name || ""}` : "";
+  const rawMessage =
+    typeof error === "object" && error && "message" in error ? `${(error as { message?: unknown }).message || ""}`.trim() : "";
+  const lowered = rawMessage.toLowerCase();
+
+  if (
+    permissionState === "denied" ||
+    errName === "NotAllowedError" ||
+    lowered.includes("permission denied") ||
+    lowered.includes("permission dismissed")
+  ) {
+    return "Permissao da camera negada. Libere a camera nas configuracoes do navegador para este site e tente novamente.";
+  }
+  if (errName === "NotFoundError") {
+    return "Nenhuma camera foi detectada neste dispositivo.";
+  }
+  if (errName === "NotReadableError" || lowered.includes("could not start video source")) {
+    return "A camera parece estar em uso por outro aplicativo. Feche o app que esta usando a camera e tente novamente.";
+  }
+  if (errName === "SecurityError") {
+    return "Acesso a camera bloqueado por politica de seguranca do navegador.";
+  }
+  if (rawMessage) return rawMessage.slice(0, 280);
+  return "Falha ao conectar camera local.";
+}
+
 function sanitizeRuntimeText(value: unknown, maxLength: number) {
   const normalized = `${value ?? ""}`.trim().replace(/\s+/g, " ");
   return normalized.slice(0, maxLength);
@@ -539,6 +583,7 @@ async function fileToDataUrl(file: File) {
 export default function IdentityRuntimePage() {
   const searchParams = useSearchParams();
   const isEmbedded = searchParams.get("embedded") === "1";
+  const isStreamOnly = isEmbedded && searchParams.get("view") === "stream";
   const [payload, setPayload] = useState<IdentityPanelPayload>(INITIAL_PAYLOAD);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
@@ -613,6 +658,7 @@ export default function IdentityRuntimePage() {
   });
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const cameraStartInFlightRef = useRef(false);
   const streamAnalyzeInFlightRef = useRef(false);
   const browserFaceDetectorRef = useRef<BrowserFaceDetectorLike | null>(null);
   const browserFaceDetectorCheckedRef = useRef(false);
@@ -783,35 +829,63 @@ export default function IdentityRuntimePage() {
     setCameraState("idle");
   }, []);
 
-  const startCameraPreview = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Camera local indisponivel neste navegador.");
-      return;
-    }
-    setCameraState("starting");
-    setCameraError("");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-      const previous = localStreamRef.current;
-      if (previous) previous.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        await localVideoRef.current.play().catch(() => null);
+  const startCameraPreview = useCallback(
+    async (options?: { userInitiated?: boolean }) => {
+      if (cameraStartInFlightRef.current) return;
+      cameraStartInFlightRef.current = true;
+
+      let permissionState: CameraPermissionState = "unknown";
+      try {
+        if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+          setCameraState("idle");
+          setCameraError("Camera local indisponivel neste navegador.");
+          return;
+        }
+
+        permissionState = await readCameraPermissionState();
+        const userInitiated = options?.userInitiated === true;
+        if (!userInitiated && isStreamOnly) {
+          if (permissionState === "denied") {
+            setCameraState("idle");
+            setCameraError(normalizeCameraAccessError(null, permissionState));
+            return;
+          }
+          if (permissionState === "prompt") {
+            setCameraState("idle");
+            setCameraError("");
+            return;
+          }
+        }
+
+        setCameraState("starting");
+        setCameraError("");
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: "user",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+          const previous = localStreamRef.current;
+          if (previous) previous.getTracks().forEach((track) => track.stop());
+          localStreamRef.current = stream;
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+            await localVideoRef.current.play().catch(() => null);
+          }
+          setCameraState("streaming");
+        } catch (err) {
+          setCameraState("idle");
+          setCameraError(normalizeCameraAccessError(err, permissionState));
+        }
+      } finally {
+        cameraStartInFlightRef.current = false;
       }
-      setCameraState("streaming");
-    } catch (err) {
-      setCameraState("idle");
-      setCameraError(err instanceof Error ? err.message : "Falha ao conectar camera local.");
-    }
-  }, []);
+    },
+    [isStreamOnly],
+  );
 
   const loadPanel = useCallback(async () => {
     try {
@@ -1745,7 +1819,7 @@ export default function IdentityRuntimePage() {
   }, [cameraState]);
 
   useEffect(() => {
-    void startCameraPreview();
+    void startCameraPreview({ userInitiated: false });
   }, [startCameraPreview]);
 
   useEffect(() => {
@@ -2307,167 +2381,218 @@ export default function IdentityRuntimePage() {
   return (
     <main
       className={`min-h-screen bg-[#05070d] text-slate-100 ${
-        isEmbedded ? "h-full min-h-full p-2 sm:p-3" : "px-4 py-4 md:px-6"
+        isStreamOnly ? "h-full min-h-0 overflow-hidden p-0" : isEmbedded ? "h-full min-h-full p-2 sm:p-3" : "px-4 py-4 md:px-6"
       } [&_.bg-white]:!bg-[#0f172a] [&_.bg-white\\/95]:!bg-[#0f172a] [&_.bg-slate-50]:!bg-[#101d33] [&_.bg-slate-100]:!bg-[#17243b] [&_.border-slate-300]:!border-[#314464] [&_.border-slate-200]:!border-[#24324b] [&_.border-slate-100]:!border-[#1a2740] [&_.text-slate-900]:!text-slate-100 [&_.text-slate-800]:!text-slate-200 [&_.text-slate-700]:!text-slate-300 [&_.text-slate-600]:!text-slate-400 [&_.text-slate-500]:!text-slate-500 [&_.text-zinc-700]:!text-slate-300 [&_.text-zinc-800]:!text-slate-200 [&_.text-zinc-900]:!text-slate-100`}
     >
       {isStageMaximized ? <div className="fixed inset-0 z-[140] bg-black/70" onClick={() => setIsStageMaximized(false)} /> : null}
-      <div className="w-full">
-        <header
-          className={`m-0 rounded-none border-0 bg-[#05070d] px-3 py-2 shadow-none ${
-            isEmbedded ? "-mx-2 -mt-2 sm:-mx-3 sm:-mt-3" : "-mx-4 -mt-4 md:-mx-6"
-          }`}
-        >
-          <div className="relative flex min-h-8 items-center justify-between gap-2">
-            <div className="z-[1] flex min-w-0 items-center">
-              {!isEmbedded ? (
-                <Link
-                  href="/knexai/web"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                >
-                  <ArrowLeft size={14} />
-                  <span className="hidden sm:inline">Voltar ao chat</span>
-                </Link>
-              ) : (
-                <span aria-hidden="true" className="inline-block h-7 w-7" />
-              )}
-            </div>
-            <p className="pointer-events-none absolute inset-x-0 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Identity Runtime Layer
-            </p>
-            <div className="z-[1] ml-auto flex items-center gap-2">
-              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusInfo.className}`}>
-                {statusInfo.label}
-              </span>
-              <button
-                type="button"
-                onClick={() => void loadPanel()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                disabled={loading}
-              >
-                <RefreshCcw size={13} />
-                <span className="hidden sm:inline">Atualizar</span>
-              </button>
-            </div>
-          </div>
-          {error ? (
-            <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700">{error}</div>
-          ) : null}
-          {runtimeNotice ? (
-            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{runtimeNotice}</div>
-          ) : null}
-        </header>
-
-        <section className="grid gap-4 xl:grid-cols-3 xl:items-stretch">
-          <article
-            className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2 ${
-              isStageMaximized ? "fixed inset-2 z-[150] flex flex-col" : ""
+      <div className={isStreamOnly ? "h-full w-full overflow-hidden" : "w-full"}>
+        {!isStreamOnly ? (
+          <header
+            className={`m-0 rounded-none border-0 bg-[#05070d] px-3 py-2 shadow-none ${
+              isEmbedded ? "-mx-2 -mt-2 sm:-mx-3 sm:-mt-3" : "-mx-4 -mt-4 md:-mx-6"
             }`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                <Camera size={18} className="text-sky-500" />
-                Palco de Camera e Analise
-              </h2>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setStageLayoutMode((current) => (current === "multi" ? "single" : "multi"))}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  {stageLayoutMode === "multi" ? "Somente principal" : "Principal + miniaturas"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsStageMaximized((current) => !current)}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  {isStageMaximized ? "Restaurar palco" : "Maximizar palco"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (cameraState === "streaming") {
-                      stopCameraPreview();
-                      return;
-                    }
-                    void startCameraPreview();
-                  }}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                    cameraState === "streaming"
-                      ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                      : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                  }`}
-                >
-                  {cameraState === "streaming" ? <CirclePause size={14} /> : <CirclePlay size={14} />}
-                  {cameraState === "streaming" ? "Parar camera" : "Iniciar camera"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void startCameraPreview()}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <RefreshCcw size={14} />
-                  Reconectar
-                </button>
+            <div className="relative flex min-h-8 items-center justify-between gap-2">
+              <div className="z-[1] flex min-w-0 items-center">
+                {!isEmbedded ? (
+                  <Link
+                    href="/knexai/web"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    <ArrowLeft size={14} />
+                    <span className="hidden sm:inline">Voltar ao chat</span>
+                  </Link>
+                ) : (
+                  <span aria-hidden="true" className="inline-block h-7 w-7" />
+                )}
               </div>
-            </div>
-            <div className={`mt-3 grid gap-3 ${stageLayoutMode === "multi" ? "lg:grid-cols-[minmax(0,1fr)_230px]" : "grid-cols-1"}`}>
-              <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black">
-                <div className="absolute left-3 top-3 z-[3] rounded-md bg-black/50 px-2 py-1 text-xs text-slate-200">
-                  Principal: {primaryTile?.name || "Camera"}
-                </div>
-                <div className="relative aspect-video w-full bg-black">
-                  <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-                  {cameraState === "streaming" && streamFaceBoxes.length > 0 ? (
-                    <div className="pointer-events-none absolute inset-0 z-[2]">
-                      {streamFaceBoxes.map((faceBox, index) => {
-                        const stroke = index === 0 ? "#34d399" : index === 1 ? "#38bdf8" : index === 2 ? "#f59e0b" : "#a78bfa";
-                        const label = asNonEmptyString(faceBox.trackId) || `face-${index + 1}`;
-                        return (
-                          <div key={`${label}-${index}`}>
-                            <div
-                              className="absolute rounded-md border-2 shadow-[0_0_0_1px_rgba(5,7,13,0.65)]"
-                              style={{
-                                left: `${faceBox.left}px`,
-                                top: `${faceBox.top}px`,
-                                width: `${faceBox.width}px`,
-                                height: `${faceBox.height}px`,
-                                borderColor: stroke,
-                              }}
-                            />
-                            <div
-                              className="absolute rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                              style={{
-                                left: `${faceBox.left}px`,
-                                top: `${Math.max(0, faceBox.top - 20)}px`,
-                                backgroundColor: stroke,
-                              }}
-                            >
-                              {label} {Math.round(faceBox.confidence * 100)}%
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-                {cameraState !== "streaming" ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 text-center text-sm text-slate-200">
-                    <p>{cameraState === "starting" ? "Conectando camera local..." : "Sem sinal no palco principal."}</p>
-                    <p className="max-w-md text-xs text-slate-400">
-                      Permita acesso a camera no navegador para exibir o palco principal e os ambientes de validacao.
-                    </p>
-                  </div>
+              <p className="pointer-events-none absolute inset-x-0 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Identity Runtime Layer
+              </p>
+              <div className="z-[1] ml-auto flex items-center gap-2">
+                <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusInfo.className}`}>
+                  {statusInfo.label}
+                </span>
+                {!isEmbedded ? (
+                  <Link
+                    href="/knexai/web"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Configuracoes no chat
+                  </Link>
                 ) : null}
                 <button
                   type="button"
-                  onClick={capturePrimaryProfile}
-                  className="absolute bottom-3 left-3 z-[3] rounded-md border border-slate-200/40 bg-black/50 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-black/65"
+                  onClick={() => void loadPanel()}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  disabled={loading}
                 >
-                  Capturar perfil (Ambiente 1)
+                  <RefreshCcw size={13} />
+                  <span className="hidden sm:inline">Atualizar</span>
                 </button>
               </div>
-              {stageLayoutMode === "multi" ? (
+            </div>
+            {error ? (
+              <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700">{error}</div>
+            ) : null}
+            {runtimeNotice ? (
+              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{runtimeNotice}</div>
+            ) : null}
+          </header>
+        ) : null}
+
+        <section className={isStreamOnly ? "grid gap-4" : "grid gap-4 xl:grid-cols-3 xl:items-stretch"}>
+          <article
+            className={`${isStreamOnly ? "relative bg-transparent p-0 shadow-none" : "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2"} ${
+              isStageMaximized ? "fixed inset-2 z-[150] flex flex-col" : ""
+            }`}
+          >
+            {!isStreamOnly ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                  <Camera size={18} className="text-sky-500" />
+                  Palco de Camera e Analise
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStageLayoutMode((current) => (current === "multi" ? "single" : "multi"))}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    {stageLayoutMode === "multi" ? "Somente principal" : "Principal + miniaturas"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsStageMaximized((current) => !current)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    {isStageMaximized ? "Restaurar palco" : "Maximizar palco"}
+                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (cameraState === "streaming") {
+                          stopCameraPreview();
+                          return;
+                        }
+                        void startCameraPreview({ userInitiated: true });
+                      }}
+                      className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                        cameraState === "streaming"
+                          ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                          : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                      }`}
+                    >
+                      {cameraState === "streaming" ? <CirclePause size={14} /> : <CirclePlay size={14} />}
+                      {cameraState === "streaming" ? "Parar camera" : "Iniciar camera"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void startCameraPreview({ userInitiated: true })}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <RefreshCcw size={14} />
+                      Reconectar
+                    </button>
+                  </>
+                </div>
+              </div>
+            ) : null}
+            <div className={`${isStreamOnly ? "mt-0" : "mt-3"} grid gap-3 ${!isStreamOnly && stageLayoutMode === "multi" ? "lg:grid-cols-[minmax(0,1fr)_230px]" : "grid-cols-1"}`}>
+              <div>
+                <div
+                  className={`relative overflow-hidden border-0 bg-black outline-none ring-0 shadow-none ${isStreamOnly ? "" : "rounded-xl border border-slate-200"}`}
+                >
+                  {!isStreamOnly ? (
+                    <div className="absolute left-3 top-3 z-[3] rounded-md bg-black/50 px-2 py-1 text-xs text-slate-200">
+                      Principal: {primaryTile?.name || "Camera"}
+                    </div>
+                  ) : null}
+                  <div className="relative aspect-video w-full bg-black">
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={`block h-full w-full border-0 outline-none ring-0 shadow-none ${isStreamOnly ? "object-contain" : "object-cover"}`}
+                      style={
+                        isStreamOnly
+                          ? {
+                              width: "calc(100% + 2px)",
+                              marginLeft: "-1px",
+                            }
+                          : undefined
+                      }
+                    />
+                    {cameraState === "streaming" && streamFaceBoxes.length > 0 ? (
+                      <div className="pointer-events-none absolute inset-0 z-[2]">
+                        {streamFaceBoxes.map((faceBox, index) => {
+                          const stroke = index === 0 ? "#34d399" : index === 1 ? "#38bdf8" : index === 2 ? "#f59e0b" : "#a78bfa";
+                          const label = asNonEmptyString(faceBox.trackId) || `face-${index + 1}`;
+                          return (
+                            <div key={`${label}-${index}`}>
+                              <div
+                                className="absolute rounded-md border-2 shadow-[0_0_0_1px_rgba(5,7,13,0.65)]"
+                                style={{
+                                  left: `${faceBox.left}px`,
+                                  top: `${faceBox.top}px`,
+                                  width: `${faceBox.width}px`,
+                                  height: `${faceBox.height}px`,
+                                  borderColor: stroke,
+                                }}
+                              />
+                              <div
+                                className="absolute rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                                style={{
+                                  left: `${faceBox.left}px`,
+                                  top: `${Math.max(0, faceBox.top - 20)}px`,
+                                  backgroundColor: stroke,
+                                }}
+                              >
+                                {label} {Math.round(faceBox.confidence * 100)}%
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                  {cameraState !== "streaming" ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 text-center text-sm text-slate-200">
+                      <p>{cameraState === "starting" ? "Conectando camera local..." : "Sem sinal no palco principal."}</p>
+                      <p className="max-w-md text-xs text-slate-400">
+                        Permita acesso a camera no navegador para exibir o palco principal e os ambientes de validacao.
+                      </p>
+                      {isStreamOnly ? (
+                        <button
+                          type="button"
+                          onClick={() => void startCameraPreview({ userInitiated: true })}
+                          disabled={cameraState === "starting"}
+                          className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
+                            cameraState === "starting"
+                              ? "cursor-not-allowed border-slate-500 bg-slate-800 text-slate-300"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {cameraState === "starting" ? "Conectando..." : "Ativar camera"}
+                        </button>
+                      ) : null}
+                      {cameraError ? <p className="max-w-md text-xs text-rose-300">{cameraError}</p> : null}
+                    </div>
+                  ) : null}
+                  {!isStreamOnly ? (
+                    <button
+                      type="button"
+                      onClick={capturePrimaryProfile}
+                      className="absolute bottom-3 left-3 z-[3] rounded-md border border-slate-200/40 bg-black/50 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-black/65"
+                    >
+                      Capturar perfil (Ambiente 1)
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              {!isStreamOnly && stageLayoutMode === "multi" ? (
                 <div className="grid gap-3">
                   {([
                     { tile: thumbnailTiles[0], slot: "left" as EmbeddingCaptureSlot },
@@ -2521,7 +2646,8 @@ export default function IdentityRuntimePage() {
                 </div>
               ) : null}
             </div>
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+            {!isStreamOnly ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Rastreamento induzido</p>
@@ -2756,13 +2882,15 @@ export default function IdentityRuntimePage() {
               {autoCaptureNotice ? <p className="mt-1 text-xs text-emerald-600">{autoCaptureNotice}</p> : null}
               {autoCaptureError ? <p className="mt-1 text-xs text-rose-600">{autoCaptureError}</p> : null}
               {streamAnalyzeError ? <p className="mt-1 text-xs text-amber-600">{streamAnalyzeError}</p> : null}
-            </div>
+              </div>
+            ) : null}
             {cameraError ? (
               <div className="mt-3 rounded-lg border border-rose-300 bg-rose-100/80 px-3 py-2 text-sm text-rose-800">{cameraError}</div>
             ) : null}
           </article>
 
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:flex xl:h-full xl:min-h-[560px] xl:flex-col xl:overflow-hidden">
+          {!isStreamOnly ? (
+            <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:flex xl:h-full xl:min-h-[560px] xl:flex-col xl:overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
                 <UserRoundSearch size={18} className="text-fuchsia-600" />
@@ -2945,10 +3073,12 @@ export default function IdentityRuntimePage() {
                 {ingestError ? <p className="mt-1 text-xs text-rose-600">{ingestError}</p> : null}
               </div>
             </div>
-          </article>
+            </article>
+          ) : null}
         </section>
 
-        <section className="mt-4 grid gap-4 xl:grid-cols-2">
+        {!isStreamOnly ? (
+          <section className="mt-4 grid gap-4 xl:grid-cols-2">
           <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
@@ -3082,9 +3212,10 @@ export default function IdentityRuntimePage() {
               </table>
             </div>
           </article>
-        </section>
+          </section>
+        ) : null}
 
-        {loading ? (
+        {!isStreamOnly && loading ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">Carregando runtime...</div>
         ) : null}
       </div>

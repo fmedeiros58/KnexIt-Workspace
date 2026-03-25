@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { execFileSync } from "node:child_process";
+import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
 
 export const runtime = "nodejs";
 
@@ -119,7 +120,7 @@ function readLlmConfig() {
 function readEngineModeConfig() {
   const modeRaw = pickFirstNonEmpty(process.env.KNEXAI_ENGINE_MODE, "direct").toLowerCase();
   const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
-  const anmBaseUrl = pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL).replace(/\/+$/, "");
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
   const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, parsedTimeout) : DEFAULT_ANM_TIMEOUT_MS;
   const fallbackRaw = pickFirstNonEmpty(process.env.KNEXAI_ANM_FALLBACK_TO_DIRECT, "1").toLowerCase();
@@ -240,7 +241,12 @@ export async function GET() {
   const engineMode = readEngineModeConfig();
 
   if (engineMode.mode === "anm") {
-    const anmProbe = await probeAnm(engineMode.anmBaseUrl, engineMode.anmTimeoutMs);
+    const anmResolution = await resolveReachableAnmBaseUrl({
+      configuredBaseUrl: engineMode.anmBaseUrl,
+      timeoutMs: Math.min(2_000, engineMode.anmTimeoutMs),
+      healthPath: "/healthz",
+    });
+    const anmProbe = await probeAnm(anmResolution.baseUrl, engineMode.anmTimeoutMs);
     if (!anmProbe.ok) {
       return NextResponse.json(
         {
@@ -248,7 +254,9 @@ export async function GET() {
           provider: "anm",
           engineMode: engineMode.mode,
           anmReachable: false,
-          anmBaseUrl: engineMode.anmBaseUrl,
+          anmBaseUrl: anmResolution.baseUrl,
+          anmConfiguredBaseUrl: engineMode.anmBaseUrl,
+          anmAttemptedBaseUrls: anmResolution.attemptedBaseUrls,
           anmFallbackToDirect: engineMode.fallbackToDirect,
           status: anmProbe.status,
           elapsedMs: anmProbe.elapsedMs,
@@ -264,7 +272,9 @@ export async function GET() {
         provider: "anm",
         engineMode: engineMode.mode,
         anmReachable: true,
-        anmBaseUrl: engineMode.anmBaseUrl,
+        anmBaseUrl: anmResolution.baseUrl,
+        anmConfiguredBaseUrl: engineMode.anmBaseUrl,
+        anmAttemptedBaseUrls: anmResolution.attemptedBaseUrls,
         anmEndpoint: anmProbe.endpoint,
         anmFallbackToDirect: engineMode.fallbackToDirect,
         status: anmProbe.status,

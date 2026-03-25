@@ -18,6 +18,15 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def _as_float(value: Any, *, fallback: float = 0.0) -> float:
+    try:
+        if value is None:
+            return float(fallback)
+        return float(value)
+    except Exception:  # noqa: BLE001
+        return float(fallback)
+
+
 @dataclass
 class FaceConsensusResult:
     status: str
@@ -42,15 +51,15 @@ class FaceConsensusEngine:
     confirm_threshold: float = 0.82
 
     def evaluate(self, *, signals: Dict[str, Any]) -> FaceConsensusResult:
-        detection_conf = float(_clamp(float(signals.get("detection_conf", 0.0)), 0.0, 1.0))
-        quality_score = float(_clamp(float(signals.get("quality_score", 0.0)), 0.0, 1.0))
-        embedding_primary = float(_clamp(float(signals.get("embedding_primary", 0.0)), 0.0, 1.0))
-        embedding_secondary = float(_clamp(float(signals.get("embedding_secondary", 0.0)), 0.0, 1.0))
-        temporal_score = float(_clamp(float(signals.get("temporal_score", 0.0)), 0.0, 1.0))
-        passive_liveness = float(_clamp(float(signals.get("passive_liveness", 0.0)), 0.0, 1.0))
-        active_liveness = float(_clamp(float(signals.get("active_liveness", 0.0)), 0.0, 1.0))
-        pose_camera_coherence = float(_clamp(float(signals.get("pose_camera_coherence", 0.0)), 0.0, 1.0))
-        track_persistence = float(_clamp(float(signals.get("track_persistence", 0.0)), 0.0, 1.0))
+        detection_conf = float(_clamp(_as_float(signals.get("detection_conf", 0.0)), 0.0, 1.0))
+        quality_score = float(_clamp(_as_float(signals.get("quality_score", 0.0)), 0.0, 1.0))
+        embedding_primary = float(_clamp(_as_float(signals.get("embedding_primary", 0.0)), 0.0, 1.0))
+        embedding_secondary = float(_clamp(_as_float(signals.get("embedding_secondary", 0.0)), 0.0, 1.0))
+        temporal_score = float(_clamp(_as_float(signals.get("temporal_score", 0.0)), 0.0, 1.0))
+        passive_liveness = float(_clamp(_as_float(signals.get("passive_liveness", 0.0)), 0.0, 1.0))
+        active_liveness = float(_clamp(_as_float(signals.get("active_liveness", 0.0)), 0.0, 1.0))
+        pose_camera_coherence = float(_clamp(_as_float(signals.get("pose_camera_coherence", 0.0)), 0.0, 1.0))
+        track_persistence = float(_clamp(_as_float(signals.get("track_persistence", 0.0)), 0.0, 1.0))
 
         # If secondary embedding or active liveness are unavailable they should not dominate the score.
         has_embedding_secondary = 1.0 if signals.get("embedding_secondary") is not None else 0.0

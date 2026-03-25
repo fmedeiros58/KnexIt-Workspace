@@ -177,7 +177,7 @@ rm -f "$probe_file" 2>/dev/null || true
 
 PYTHON_BIN="$VENV_DIR/bin/python3"
 
-if ! "$PYTHON_BIN" -c "import uvicorn, fastapi, pydantic" >/dev/null 2>&1; then
+if ! "$PYTHON_BIN" -c "import uvicorn, fastapi, pydantic, azure.cognitiveservices.speech" >/dev/null 2>&1; then
   echo "Instalando dependencias do ANM no virtualenv..."
   "$PYTHON_BIN" -m pip install --upgrade pip
   "$PYTHON_BIN" -m pip install -r anm_backend/requirements.txt

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
+    shared_identity_runtime: Dict[str, Any] = Field(default_factory=dict)
 
 
 class HypothesisSummary(BaseModel):
@@ -44,6 +45,47 @@ class ChatResponse(BaseModel):
     readiness: ReadinessSummary
     regulatory_state: RegulatorySummary
     engine: Dict[str, Any]
+
+
+class LeticiaHistoryItem(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class LeticiaRespondRequest(BaseModel):
+    message: str = Field(default="", max_length=32000)
+    prompt: str = Field(default="", max_length=32000)
+    mode: str = Field(default="chat", pattern="^(chat|proactive|voice|identity_aware)$")
+    locale_hint: str = Field(default="", max_length=16)
+    conversation_key: str = Field(default="", max_length=160)
+    user_key: str = Field(default="", max_length=120)
+    history: List[LeticiaHistoryItem] = Field(default_factory=list)
+    shared_identity_runtime: Dict[str, Any] = Field(default_factory=dict)
+
+    def resolve_message(self) -> str:
+        primary = str(self.message or "").strip()
+        if primary:
+            return primary
+        return str(self.prompt or "").strip()
+
+
+class LeticiaRespondResponse(BaseModel):
+    trace_id: str
+    answer: str
+    locale: str
+    intent: str
+    mode: str
+    direct_reply: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LeticiaSynthesizeRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=32_000)
+    locale_hint: str = Field(default="", max_length=16)
+    voice_id: str = Field(default="", max_length=120)
+    rate: float = Field(default=1.0, ge=0.75, le=1.35)
+    pitch: float = Field(default=1.0, ge=0.7, le=1.35)
+    style: str = Field(default="neutral", max_length=40)
 
 
 class IdentityRuntimeControlRequest(BaseModel):
@@ -243,6 +285,8 @@ class IdentityRuntimeStatusResponse(BaseModel):
     active_streams: List[IdentityStreamView]
     tracked_entities: List[IdentityEntityView]
     current_identity: Optional[IdentityEntityView] = None
+    visual_context: Dict[str, Any] = Field(default_factory=dict)
+    recent_scene_events: List[Dict[str, Any]] = Field(default_factory=list)
     self_model_state: Dict[str, Any]
     user_pattern_state: Dict[str, Any]
     updated_at: str

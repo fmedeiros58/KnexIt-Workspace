@@ -79,7 +79,7 @@ Observacao:
   - Browser/localStorage (ex.: [knexai/web/page.tsx:84](../../knexai/web/page.tsx)).
   - Memoria processo (`Map`, `LRUCache`) (ex.: [vioread/web/services/cache.service.ts:1](../../vioread/web/services/cache.service.ts), [lib/entitlement.ts:16](../../lib/entitlement.ts)).
 - Persistencia local ANM (arquivo JSON):
-  - Checkpoints em `anm_backend/data/checkpoints` por default ([anm_backend/main.py:92](../../anm_backend/main.py), [anm_backend/memory/checkpoint_manager.py:37](../../anm_backend/memory/checkpoint_manager.py)).
+  - Checkpoints em `anm_backend/data/checkpoints` por default ([anm_backend/main.py:92](../../anm_backend/main.py)).
 
 ## 5) Mapa de diretorios/arquivos impactados pela mudanca NVMe
 

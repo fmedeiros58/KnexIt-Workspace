@@ -312,7 +312,7 @@ export class DocumentIngestionService {
         contentHashPrefix: contentHash.slice(0, 12),
         rawFilePath: toRelativeIfInsideWorkspace(rawFilePath),
       });
-      const extracted = await extractTextFromDocument({
+      let extracted = await extractTextFromDocument({
         bytes: materialized.bytes,
         fileName: materialized.fileName,
         mimeType: materialized.mimeType,
@@ -325,11 +325,27 @@ export class DocumentIngestionService {
       });
 
       if (!extracted.text.trim()) {
-        throw new DocumentIngestionError(
-          422,
-          "INGEST_EMPTY_TEXT",
-          "Nao foi possivel extrair texto util do documento informado.",
-        );
+        if (extracted.parser === "pdf") {
+          extracted = {
+            ...extracted,
+            text: [
+              `Documento PDF anexado: ${materialized.fileName}.`,
+              "Nao foi possivel extrair texto legivel automaticamente (provavel PDF escaneado/imagem).",
+              "Sugestao: enviar versao com OCR ou arquivo TXT/DOCX para analise textual completa.",
+            ].join("\n"),
+          };
+          logger.warn("RAG_INGEST_EMPTY_PDF_TEXT_FALLBACK", {
+            jobId: ingestionJobId,
+            fileName: materialized.fileName,
+            contentHashPrefix: contentHash.slice(0, 12),
+          });
+        } else {
+          throw new DocumentIngestionError(
+            422,
+            "INGEST_EMPTY_TEXT",
+            "Nao foi possivel extrair texto util do documento informado.",
+          );
+        }
       }
 
       const chunks = chunkTextDeterministic({

@@ -10,6 +10,39 @@ export type KnexAiSessionRow = {
   client_session_id: string;
 };
 
+type DbErrorLike = {
+  code?: string;
+  message?: string;
+  hint?: string | null;
+  details?: string | null;
+};
+
+export function toDbErrorLike(error: unknown): DbErrorLike {
+  if (!error || typeof error !== "object") return {};
+  const value = error as Record<string, unknown>;
+  return {
+    code: typeof value.code === "string" ? value.code : undefined,
+    message: typeof value.message === "string" ? value.message : undefined,
+    hint: typeof value.hint === "string" ? value.hint : null,
+    details: typeof value.details === "string" ? value.details : null,
+  };
+}
+
+export function isKnexAiSchemaMissingError(error: unknown): boolean {
+  const parsed = toDbErrorLike(error);
+  const code = `${parsed.code || ""}`.trim().toUpperCase();
+  const message = `${parsed.message || ""}`.toLowerCase();
+  const hint = `${parsed.hint || ""}`.toLowerCase();
+  const details = `${parsed.details || ""}`.toLowerCase();
+
+  if (code === "PGRST205" || code === "42P01") return true;
+  if (message.includes("could not find the table 'public.knexai_")) return true;
+  if (message.includes("relation \"public.knexai_") && message.includes("does not exist")) return true;
+  if (hint.includes("public.knexai_")) return true;
+  if (details.includes("public.knexai_")) return true;
+  return false;
+}
+
 export function getKnexAiStoreAdmin(): SupabaseClient<any> | null {
   if (!supabaseUrl || !serviceRoleKey) return null;
   if (storeAdmin) return storeAdmin;
