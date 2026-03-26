@@ -28,10 +28,12 @@ Template com Next.js 14 + Tailwind + Supabase para autenticaÃ§Ã£o (senha, OT
 - `npm run serve:vllm:wsl`: levanta o vLLM local (porta 8000) com perfil seguro (`max-num-seqs=2`, `max-model-len=4096`, `gpu-memory-utilization=0.90`).
 - `npm run serve:vllm:wsl:restart`: reinicia o vLLM forçando limpeza da porta (evita conflito/processo zumbi).
 - `npm run serve:knexai:watchdog`: monitora vLLM (8000), embeddings do RAG (8001) e deployment `knexit-web` no Kubernetes; aciona recuperacao automatica quando detecta degradacao.
-- `npm run serve:knexai:watchdog:install`: registra tarefa agendada do Windows para manter watchdog ativo no logon (com restart automatico em falhas) e ja inicia a execucao.
-- `npm run serve:knexai:watchdog:status`: mostra estado da tarefa agendada do watchdog.
-- `npm run serve:knexai:watchdog:uninstall`: remove tarefa agendada do watchdog (e encerra execucao atual da tarefa).
+- `npm run serve:knexai:watchdog:install`: registra a tarefa **canonica** do watchdog (ai-system + vLLM/embeddings/chat) e inicia a execucao.
+- `npm run serve:knexai:watchdog:status`: mostra estado da tarefa canonica.
+- `npm run serve:knexai:watchdog:uninstall`: remove a tarefa canonica (e encerra execucao atual).
+- `npm run serve:backends:watchdog:install|status|uninstall`: aliases explicitos para a mesma tarefa canonica.
 - `npm run serve:embeddings:cpu`: sobe endpoint local `/v1/embeddings` em CPU (porta 8001).
+- O watchdog canônico agora está no `ai-system-anm-rag-qis/scripts` (os scripts na raiz são wrappers de compatibilidade).
 - Alerta simples de restart: quando o watchdog aciona recuperacao automatica, grava log em `%LOCALAPPDATA%\\KnexIT\\watchdog-backends-alert.log` e exibe popup rapido no desktop.
 - Webhook opcional de restart: configure `KNEXIT_WATCHDOG_WEBHOOK_URL` (Discord/Slack incoming webhook) e opcionalmente `KNEXIT_WATCHDOG_WEBHOOK_PROVIDER=auto|discord|slack`. O watchdog busca essa configuracao por parametro, variavel de ambiente do sistema ou `.env.local`.
 - `npm run bench:rag:router:wsl`: roda benchmark do roteador usando `/api/chat` no proprio WSL (`127.0.0.1:<porta>`), evitando falso 5xx por rota Windows↔WSL.
@@ -163,7 +165,7 @@ Nunca commite o `.env.local` e nunca cole a chave no codigo.
 
 - Suba o servidor com `npm run serve:vllm:wsl` (usa `models/CModelosMistral-7B-Instruct-v0.2-AWQ`, publica `--served-model-name mistral-awq`, `--max-num-seqs 2`, `--max-model-len 4096` e porta 8000).
 - Para recuperacao automatica sem acao manual apos quedas/relogon, execute uma vez: `npm run serve:knexai:watchdog:install`.
-- O watchdog instalado cobre vLLM + embeddings do RAG + auto-heal do deployment web no Kubernetes (quando aplicavel).
+- A tarefa canonica instalada cobre Docker + vLLM + embeddings + ANM/chat no mesmo processo; Kubernetes fica desabilitado por padrao na instalacao canonica para reduzir ruido local.
 - Para alerta remoto de restart, adicione no `.env.local`: `KNEXIT_WATCHDOG_WEBHOOK_URL=<sua-url>` e opcional `KNEXIT_WATCHDOG_WEBHOOK_PROVIDER=auto`.
 - Configure as variÃ¡veis: `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_API_KEY`, `LOCAL_LLM_MODEL`, `LOCAL_LLM_MODEL_DEFAULT`, `EMBEDDINGS_BASE_PATH`, `LLM_MODEL_NAME`, `LLM_API_KEY`.
 - Caminho fÃ­sico do modelo (disco): `LOCAL_LLM_MODEL=models/CModelosMistral-7B-Instruct-v0.2-AWQ` (ou caminho absoluto do seu host).

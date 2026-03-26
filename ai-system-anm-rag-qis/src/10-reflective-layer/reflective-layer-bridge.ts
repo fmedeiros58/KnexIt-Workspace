@@ -10,6 +10,8 @@ import { mergeConstraints, toConstraint } from "../shared/state/constraint-utils
 import { buildCriticalReflection } from "./reflective-core/critical-reflection-engine";
 import { reflectiveHandoff } from "./reflective-output-core/reflective-handoff";
 import { handoffReflectiveToInferential } from "./reflective-to-inferential-bridge";
+import { runCommunicativeElaborationBridge } from "../bridges/communicative-elaboration.bridge";
+import { runPhilosophicalSelfModelingBridgeAdapter } from "../bridges/philosophical-self-modeling.bridge";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -17,8 +19,17 @@ function clamp01(value: number) {
 
 export async function runReflectiveLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
+  if (!state.communicativeElaborationState) {
+    await runCommunicativeElaborationBridge(state);
+  }
+  if (!state.philosophicalSelfModelState) {
+    await runPhilosophicalSelfModelingBridgeAdapter(state);
+  }
 
   const reflection = buildCriticalReflection(state);
+  const communicativeTensions = state.communicativeElaborationState?.tensions || [];
+  const communicativeRefinementPoints = state.communicativeElaborationState?.refinement.unresolvedPoints || [];
+  const philosophicalQuestions = state.philosophicalSelfModelState?.philosophicalQuestions || [];
   const regulatory = state.memorySnapshot.regulatoryState;
   const runtimeTop = state.memorySnapshot.legacyRuntimeTopModules || [];
 
@@ -40,8 +51,18 @@ export async function runReflectiveLayer(state: ProcessingState): Promise<Proces
   if (!lowSignal) {
     state.reflectiveNotes.assumptions = reflection.assumptions;
     state.reflectiveNotes.caveats = reflection.caveats;
-    state.reflectiveNotes.tensions = reflection.tensions;
+    state.reflectiveNotes.tensions = [
+      ...reflection.tensions,
+      ...communicativeTensions.map((row) => row.productiveQuestion),
+      ...philosophicalQuestions.slice(0, 2),
+    ].slice(0, 16);
     state.criticalCaveats = reflection.criticalCaveats;
+    if (communicativeRefinementPoints.length > 0) {
+      state.reflectiveNotes.assumptions = [
+        ...state.reflectiveNotes.assumptions,
+        ...communicativeRefinementPoints.map((row) => `refinement:${row}`),
+      ].slice(0, 16);
+    }
 
     state.confidenceScores.coherence = Number(
       clamp01((state.confidenceScores.coherence * 0.70) + (handoff.score * 0.30)).toFixed(4),
@@ -55,6 +76,8 @@ export async function runReflectiveLayer(state: ProcessingState): Promise<Proces
     assumptionsCount: reflection.assumptions.length,
     caveatsCount: reflection.caveats.length,
     tensionsCount: reflection.tensions.length,
+    communicativeTensionCount: communicativeTensions.length,
+    philosophicalQuestionCount: philosophicalQuestions.length,
   };
 
   state.activeConstraints = mergeConstraints(
@@ -76,6 +99,7 @@ export async function runReflectiveLayer(state: ProcessingState): Promise<Proces
       latencyMs: Date.now() - startedAt,
       detail:
         `assumptions=${reflection.assumptions.length}; caveats=${reflection.caveats.length}; tensions=${reflection.tensions.length}; ` +
+        `communicativeTensions=${communicativeTensions.length}; philosophicalQuestions=${philosophicalQuestions.length}; ` +
         `handoff=${handoff.score.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; runtimeTop=${runtimeTop.slice(0, 2).join(",")}`,
     }),
   );

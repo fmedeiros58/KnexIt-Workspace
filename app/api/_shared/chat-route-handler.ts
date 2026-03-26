@@ -9,6 +9,11 @@ import {
   sanitizePublicErrorMessage,
 } from "@/app/api/_shared/public-api";
 import { createAssistantPipelineOrchestratorService } from "@/core/assistant/pipeline/pipeline-orchestrator.service";
+import type {
+  ProgressHeaderMode,
+  ProgressHeaderStyle,
+  ProgressHeaderTarget,
+} from "@/core/assistant/progress/progress-header.mode";
 import { RagPipelineError } from "@/core/rag/rag-errors";
 import { createRagQueryService } from "@/core/rag/rag-query-service";
 import { toSseStream } from "@/core/rag/streaming-response";
@@ -29,6 +34,9 @@ export type ChatRouteHandlerConfig = {
   includeAnswerCharsInSuccessLog?: boolean;
   includeKnownErrorMessageInLog?: boolean;
   enablePipelineModeOverride?: boolean;
+  headerMode?: ProgressHeaderMode;
+  headerStyle?: ProgressHeaderStyle;
+  headerTarget?: ProgressHeaderTarget;
   logEvents: {
     request: string;
     historySanitized: string;
@@ -111,10 +119,11 @@ function parsePipelineVersion(value: unknown): "v1" | "v2" | undefined {
   return undefined;
 }
 
-function parseOptionalEngineMode(value: unknown): "direct" | "anm" | undefined {
+function parseOptionalEngineMode(value: unknown): "direct" | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "direct" || normalized === "anm") return normalized;
+  if (normalized === "direct") return "direct";
+  if (normalized === "anm") return "direct";
   return undefined;
 }
 
@@ -144,6 +153,36 @@ function parsePipelineModeOverride(value: unknown): "auto" | "lite" | "full" | u
   const normalized = value.trim().toLowerCase();
   if (normalized === "auto" || normalized === "lite" || normalized === "full") return normalized;
   return undefined;
+}
+
+function normalizeForStrictFactual(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isStrictFactualPrompt(message: string) {
+  const normalized = normalizeForStrictFactual(message);
+  if (!normalized) return false;
+  const asksOfficeCurrent =
+    /\b(presidente|prefeito|governador|ministro|reitor|ceo)\b/.test(normalized) &&
+    /\b(quem|qual|nome|atual|hoje|agora|current)\b/.test(normalized);
+  const asksVerifiableMetric =
+    /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
+      normalized,
+    );
+  return asksOfficeCurrent || asksVerifiableMetric;
+}
+
+function parseStrictFactualMode(value: string | undefined, fallback = true) {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
 }
 
 function isStrictShortResponsePrompt(prompt: string) {
@@ -320,6 +359,78 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
         hasDocumentScope,
         requestedMaxResponseTokens: maxResponseTokens,
       });
+      const strictFactualModeEnabled = parseStrictFactualMode(process.env.CHAT_STRICT_FACTUAL_MODE, true);
+      const strictFactualBypassDocumentScope = parseStrictFactualMode(
+        process.env.CHAT_STRICT_FACTUAL_BYPASS_DOCUMENT_SCOPE,
+        true,
+      );
+      const shouldUseStrictFactualProxy =
+        strictFactualModeEnabled &&
+        isStrictFactualPrompt(message) &&
+        (!hasDocumentScope || !strictFactualBypassDocumentScope);
+
+      if (!wantsStream && shouldUseStrictFactualProxy) {
+        const proxyPayload = {
+          prompt: message,
+          message,
+          history,
+          stream: false,
+          disableDescendingPipeline: true,
+          forceRag: true,
+          forceWebMultiSource: true,
+          pipeline: pipelineVersion,
+          anmEngineMode,
+          engineMode: anmEngineMode,
+          anmBaseUrl: anmBaseUrl || undefined,
+          anmTimeoutMs,
+          anmSoftTimeoutMs,
+          anmFallbackToDirect,
+          maxResponseTokens: effectiveMaxResponseTokens,
+          temperature,
+          seed,
+        };
+        const proxyResponse = await fetch(`${req.nextUrl.origin}/api/knexai`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            accept: "text/plain,application/json",
+            "x-internal-strict-factual-proxy": "1",
+          },
+          cache: "no-store",
+          body: JSON.stringify(proxyPayload),
+        });
+        if (proxyResponse.ok) {
+          const proxiedText = `${await proxyResponse.text()}`.trim();
+          if (proxiedText) {
+            logger.info(config.logEvents.success, {
+              requestId: context.requestId,
+              strictFactualProxy: true,
+              ...(config.includeAnswerCharsInSuccessLog ? { answerChars: proxiedText.length } : {}),
+            });
+            return jsonWithCors(
+              context,
+              {
+                ok: true,
+                reply: { role: "assistant", content: proxiedText },
+                metadata: {
+                  llm: {
+                    provider: "strict_factual_proxy",
+                    baseUrl: req.nextUrl.origin,
+                    model: "knexai_web_verified",
+                    runtimeMode: "full",
+                  },
+                },
+                meta: {
+                  requestId: context.requestId,
+                  strictFactualProxy: true,
+                },
+              },
+              200,
+              { methods: routeOptions.methods },
+            );
+          }
+        }
+      }
 
       if (wantsStream) {
         const run = await assistantOrchestrator.run({
@@ -351,6 +462,9 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
             anmSoftTimeoutMs,
             anmFallbackToDirect,
           },
+          headerMode: config.headerMode ?? "off",
+          headerStyle: config.headerStyle,
+          headerTarget: config.headerTarget,
         });
         const plainStream = run.stream;
         if (!plainStream) {
@@ -404,6 +518,9 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
           anmSoftTimeoutMs,
           anmFallbackToDirect,
         },
+        headerMode: config.headerMode ?? "off",
+        headerStyle: config.headerStyle,
+        headerTarget: config.headerTarget,
       });
       const content = `${run.content || ""}`.trim();
       const metadata = run.ragMetadata || null;

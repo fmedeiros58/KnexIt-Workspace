@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Responsabilidade do arquivo:
  * - Corrigir artefatos comuns de mojibake na saida textual final.
  * - Padronizar a entrega UTF-8 no ultimo estagio antes do payload.
@@ -43,6 +43,40 @@ const MOJIBAKE_REPLACEMENTS: ReadonlyArray<[string, string]> = [
   ["\u00C2", ""],
 ];
 
+const PT_DIACRITIC_REPLACEMENTS: ReadonlyArray<[RegExp, string]> = [
+  [/\bcognicao\b/g, "cognição"],
+  [/\binteracao\b/g, "interação"],
+  [/\bassistencia\b/g, "assistência"],
+  [/\btecnica\b/g, "técnica"],
+  [/\bvinculo\b/g, "vínculo"],
+  [/\bdimensao\b/g, "dimensão"],
+  [/\bformulacao\b/g, "formulação"],
+  [/\bcomposicao\b/g, "composição"],
+  [/\bdissertacao\b/g, "dissertação"],
+  [/\bdedicatoria\b/g, "dedicatória"],
+  [/\bprecisao\b/g, "precisão"],
+  [/\binvencoes\b/g, "invenções"],
+  [/\bmitologicas\b/g, "mitológicas"],
+  [/\bnao\b/g, "não"],
+  [/\binformacao\b/g, "informação"],
+  [/\bverificacao\b/g, "verificação"],
+  [/\bvoce\b/g, "você"],
+  [/\bVoce\b/g, "Você"],
+];
+
+function shouldApplyPortugueseDiacriticRepair(value: string): boolean {
+  const normalized = `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  return /\b(leticia|medeiros|language-engineered technology|cognicao|interacao|assistencia|arquitetura tecnica|vinculo humano)\b/.test(
+    normalized,
+  );
+}
+
 export function ensureUtf8Response(text: string): Utf8GuardResult {
   const original = `${text || ""}`;
   let repaired = original;
@@ -50,6 +84,12 @@ export function ensureUtf8Response(text: string): Utf8GuardResult {
   for (const [from, to] of MOJIBAKE_REPLACEMENTS) {
     if (!repaired.includes(from)) continue;
     repaired = repaired.split(from).join(to);
+  }
+  const mojibakeChanged = repaired !== original;
+  if (mojibakeChanged || shouldApplyPortugueseDiacriticRepair(repaired)) {
+    for (const [pattern, replacement] of PT_DIACRITIC_REPLACEMENTS) {
+      repaired = repaired.replace(pattern, replacement);
+    }
   }
 
   return {

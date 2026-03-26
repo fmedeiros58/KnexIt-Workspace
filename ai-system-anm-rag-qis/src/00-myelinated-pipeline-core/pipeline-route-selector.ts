@@ -53,18 +53,18 @@ function decideRoute(params: {
   safetyAction?: string;
 }): PipelineRoute {
   if (params.safetyAction === "caution") return "minimum";
-  if (params.isConversational) return "minimum";
+  if (params.isConversational) return "reflective";
   if (params.quickIntent === "research" && params.verifiable) return "quantum-state";
   if (params.quickIntent === "research") return "inferential";
   if (params.verifiable || params.priorScore >= 0.72) return "quantum-state";
   if (params.quickIntent === "analysis") return "inferential";
   if (params.quickIntent === "technical") {
-    if (params.tokenCount <= 5 && !params.hasQuestion) return "minimum";
+    if (params.tokenCount <= 5 && !params.hasQuestion) return "reflective";
     return "inferential";
   }
   if (params.priorScore >= 0.55 || params.ambiguity >= 0.52) return "inferential";
   if (params.priorScore >= 0.40 || params.ambiguity >= 0.34) return "reflective";
-  return "minimum";
+  return "reflective";
 }
 
 export function selectPipelineRoute(state: ProcessingState): PipelineRoute {

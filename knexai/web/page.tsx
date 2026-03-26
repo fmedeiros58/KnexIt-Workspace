@@ -745,6 +745,7 @@ const WRITE_PANEL_TRANSITION_MS = 320;
 const COMPOSER_INDEXING_POLL_MS = 1500;
 const COMPOSER_INDEXING_ERROR_RETRY_LIMIT = 5;
 const COMPOSER_INDEXING_TIMEOUT_MS = 240000;
+const COMPOSER_READINESS_CACHE_TTL_MS = 15000;
 
 const SIDEBAR_ACTIONS = [
   { id: "new", label: "Novo chat", icon: MessageSquarePlus },
@@ -1420,6 +1421,9 @@ export default function KnexAiPage() {
   const flushFrameRef = useRef<number | null>(null);
   const writePanelUnmountTimerRef = useRef<number | null>(null);
   const composerIngestionTasksRef = useRef(new Map<string, { cancelled: boolean }>());
+  const composerReadinessCacheRef = useRef(
+    new Map<number, { checkedAt: number; readiness: ComposerDocumentReadiness }>(),
+  );
   const superadminAutoLoadRef = useRef(false);
   const chatAutoScrollEnabledRef = useRef(true);
   const previousChatThreadIdRef = useRef<string | null>(null);
@@ -2497,6 +2501,11 @@ export default function KnexAiPage() {
   };
 
   const fetchComposerDocumentReadiness = async (documentId: number): Promise<ComposerDocumentReadiness> => {
+    const cached = composerReadinessCacheRef.current.get(documentId);
+    if (cached && Date.now() - cached.checkedAt <= COMPOSER_READINESS_CACHE_TTL_MS) {
+      return cached.readiness;
+    }
+
     const response = await fetch(`/api/documents/${documentId}?limit=1&offset=0`, { method: "GET" });
     const payload = await parseJsonResponse<DocumentLookupResponse>(response);
     if (!response.ok || !payload?.ok || !payload.document) {
@@ -2535,12 +2544,17 @@ export default function KnexAiPage() {
       hasChunkInventory &&
       (pendingChunks === 0 || pendingChunks === null) &&
       (failedChunks === 0 || failedChunks === null);
-    return {
+    const readiness: ComposerDocumentReadiness = {
       embeddingStatus,
       ragReady: Boolean(document.ragReady) || ragReadyFromCounts || ragReadyFromMetadata,
       totalChunks: effectiveTotalChunks,
       embeddedChunks: effectiveEmbeddedChunks,
     };
+    composerReadinessCacheRef.current.set(documentId, {
+      checkedAt: Date.now(),
+      readiness,
+    });
+    return readiness;
   };
 
   const resolveScopedDocumentStates = async (documentIds: number[]) => {
@@ -2557,6 +2571,34 @@ export default function KnexAiPage() {
       normalized.map(async (documentId): Promise<ScopedDocumentState> => {
         const known = writingWorksById.get(documentId);
         const title = known?.title?.trim() || `doc:${documentId}`;
+        if (known?.embeddingStatus === "failed") {
+          return {
+            documentId,
+            title,
+            embeddingStatus: "failed",
+            ragReady: false,
+          };
+        }
+        if (known?.embeddingStatus === "completed") {
+          const cached = composerReadinessCacheRef.current.get(documentId);
+          const cacheFresh = cached && Date.now() - cached.checkedAt <= COMPOSER_READINESS_CACHE_TTL_MS;
+          if (cacheFresh) {
+            return {
+              documentId,
+              title,
+              embeddingStatus: cached.readiness.embeddingStatus,
+              ragReady: cached.readiness.ragReady,
+            };
+          }
+          // Fast path: evita bloquear Enter com round-trip de readiness quando o doc ja
+          // foi marcado como completed localmente no composer.
+          return {
+            documentId,
+            title,
+            embeddingStatus: "completed",
+            ragReady: true,
+          };
+        }
         try {
           const readiness = await fetchComposerDocumentReadiness(documentId);
           return {

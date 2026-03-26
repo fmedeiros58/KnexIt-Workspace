@@ -75,6 +75,22 @@ const RESEARCH_TERMS = [
   "referência",
 ];
 
+const FACTUAL_GROUNDING_TERMS = [
+  "capital",
+  "presidente",
+  "governador",
+  "prefeito",
+  "ceo",
+  "colesterol",
+  "diabetes",
+  "sintoma",
+  "tratamento",
+  "estado",
+  "cidade",
+  "pais",
+  "paÃ­s",
+];
+
 const MULTI_STEP_TERMS = ["passo a passo", "pipeline", "workflow", "roadmap", "checklist"];
 
 const PROJECT_CONTEXT_TERMS = [
@@ -264,8 +280,12 @@ export function routeComplexity(input: ComplexityRouterInput): ComplexityDecisio
     policyOverrides.push("ASK_MIN_CONTEXT");
   }
   if (isShortFactualQuestion(text, hasQuestionMark, words, hasTaskTerm)) {
-    score -= 6;
-    reasons.push("SHORT_FACTUAL_QUESTION:-6");
+    score -= 2;
+    reasons.push("SHORT_FACTUAL_QUESTION:-2");
+    if (hasAnyTerm(text, FACTUAL_GROUNDING_TERMS)) {
+      score += 4;
+      reasons.push("FACTUAL_GROUNDING:+4");
+    }
   }
 
   const mode: ComplexityMode = score <= 0 ? "lite" : "full";

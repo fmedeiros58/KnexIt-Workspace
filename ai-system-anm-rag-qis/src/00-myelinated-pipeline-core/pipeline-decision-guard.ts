@@ -103,7 +103,7 @@ function detectSignals(state: ProcessingState) {
   const routeFloor: PipelineRoute =
     requiresKnowledge
       ? (requiresWeb ? "quantum-state" : "inferential")
-      : "minimum";
+      : "reflective";
 
   const requiredSteps = requiresKnowledge
     ? [

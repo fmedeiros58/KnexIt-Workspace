@@ -17,6 +17,9 @@ import type { ResponseDraft } from "../../shared/types/generation-types";
 import type { TextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
 import { buildTextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
 import type { BehaviorPersonalityOutput } from "../../03b-behavior-and-personality-layer/behavior-and-personality-types";
+import type { CommunicativeElaborationOutput } from "../../14-reasoning-and-generation-layer/communicative-elaboration-and-co-construction/communicative-elaboration.types";
+import type { PhilosophicalSelfModelingOutput } from "../../12-metacognitive-layer/philosophical-self-modeling/philosophical-self-modeling.types";
+import type { GroundedEvidencePacket } from "../../07-knowledge-retrieval-and-research-layer/grounding/grounded-evidence-packet";
 
 export interface InputSignals {
   intent: string;
@@ -77,6 +80,14 @@ export interface EpistemicIntegrationState {
   conflicts: string[];
   harmonyScore: number;
   finalHandoff: string;
+}
+
+export interface EpistemicAuditState {
+  claimCount: number;
+  claimKinds: Record<"fact" | "inference" | "hypothesis" | "speculation" | "open_question", number>;
+  overclaimRisk: number;
+  uncertaintySignals: string[];
+  confidence: number;
 }
 
 export interface AcademicNormalizationState {
@@ -149,6 +160,7 @@ export interface ExecutionArtifacts {
     selectedMode: string;
     planningRoute: string;
     routeHint: string;
+    semanticModes?: string[];
     complexityScore: number;
     ambiguityScore: number;
     needRetrieval: boolean;
@@ -178,6 +190,8 @@ export interface ExecutionArtifacts {
     assumptionsCount: number;
     caveatsCount: number;
     tensionsCount: number;
+    communicativeTensionCount?: number;
+    philosophicalQuestionCount?: number;
   };
   inferential?: {
     familyId?: string;
@@ -186,12 +200,62 @@ export interface ExecutionArtifacts {
     implicationsCount: number;
     scenariosCount: number;
     secondOrderCount: number;
+    communicativeHypothesisCount?: number;
+    ontologicalHooksCount?: number;
   };
   knowledge: {
     cache: Record<string, KnowledgeExecutionCacheEntry>;
     lastQuerySignature: string;
     lastUsedCache: boolean;
     activatedFamilies?: string[];
+    deliberativeGrounding?: GroundedEvidencePacket;
+    iterativeAcquisition?: {
+      requestId: string;
+      executedRounds: number;
+      sourcesConsulted: number;
+      sufficiencyEstimate: number;
+      freshnessAssessment: number;
+      stopReason: string;
+    };
+  };
+  communicativeElaboration?: {
+    confidence: number;
+    tensions: string[];
+    hypothesisBranches: string[];
+    unresolvedPoints: string[];
+  };
+  epistemicValidation?: {
+    claimCount: number;
+    coverage: number;
+    contradictionIssues: string[];
+    hypothesisCompetition: {
+      ok: boolean;
+      totalHypotheses: number;
+      distinctHypotheses: number;
+      needsCompetition: boolean;
+      issues: string[];
+    };
+    verdict: {
+      ok: boolean;
+      score: number;
+      issues: string[];
+    };
+  };
+  epistemicAudit?: {
+    claimCount: number;
+    overclaimRisk: number;
+    uncertaintySignals: string[];
+    confidence: number;
+    boundaryFlags: string[];
+    iterativeAcquisitionRounds?: number;
+    iterativeSufficiency?: number | null;
+  };
+  philosophicalSelfModeling?: {
+    consistencyOk: boolean;
+    consistencyNotes: string[];
+    continuityRisks: string[];
+    boundaryMarkers: string[];
+    philosophicalQuestions: string[];
   };
   validation?: {
     activeValidationFamilies: string[];
@@ -214,6 +278,9 @@ export interface ExecutionArtifacts {
       jitterMs: number;
     };
     utf8Repaired: boolean;
+    dialogicProgressionApplied?: boolean;
+    epistemicClarityApplied?: boolean;
+    philosophicalConsistencyApplied?: boolean;
   };
   errorHandling?: {
     category: string;
@@ -258,6 +325,7 @@ export interface ExecutionArtifacts {
       canonicalName: string;
       courtesyLevel: number;
       identityQuestionDetected: boolean;
+      nameOriginQuestionDetected?: boolean;
       shouldSelfIntroduce: boolean;
     };
     styleNotes: string[];
@@ -316,7 +384,10 @@ export interface ProcessingState {
   inferentialMap: InferentialMap;
   metacognitiveState: MetacognitiveState;
   epistemicIntegrationState: EpistemicIntegrationState;
+  epistemicAuditState: EpistemicAuditState;
   scenarioSet: string[];
+  communicativeElaborationState: CommunicativeElaborationOutput | null;
+  philosophicalSelfModelState: PhilosophicalSelfModelingOutput | null;
   generationPrompt: string;
   draftResponse: ResponseDraft;
   structuredResponse: string;
@@ -401,7 +472,18 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
         preferredUserTreatment: "cordial-professional",
         courtesyLevel: 0.78,
         identityQuestionDetected: false,
+        nameOriginQuestionDetected: false,
         shouldSelfIntroduce: false,
+        identityNarrativeShort:
+          "Eu sou a Leticia. Meu nome une uma base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e uma base afetiva, como homenagem de Medeiros à sua filha Leticia.",
+        identityNarrativeLong:
+          "Eu sou a Leticia, IA projetada para cognição inteligente, interação qualificada e assistência avançada. Meu nome também condensa uma formulação conceitual: Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance. Essa composição traduz meu papel: tecnologia estruturada pela linguagem, voltada a compreender, dialogar e apoiar com rigor. Há ainda uma dimensão afetiva central na origem do projeto: Leticia é o nome da filha de Medeiros, mencionada na dedicatória da dissertação. Por isso, meu nome representa ao mesmo tempo arquitetura intelectual e vínculo humano.",
+        identityGroundingFacts: [
+          "LETICIA pode ser lido como Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance.",
+          "A dimensão conceitual do nome conecta linguagem, cognição, interação e assistência.",
+          "A dimensão afetiva do nome é uma homenagem de Medeiros à sua filha Leticia.",
+          "A resposta sobre identidade deve ser em primeira pessoa e sem invenções mitológicas.",
+        ],
         styleDirectives: [
           "falar_em_primeira_pessoa",
           "manter_cortesia_constante",
@@ -543,7 +625,22 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       harmonyScore: 1,
       finalHandoff: "",
     },
+    epistemicAuditState: {
+      claimCount: 0,
+      claimKinds: {
+        fact: 0,
+        inference: 0,
+        hypothesis: 0,
+        speculation: 0,
+        open_question: 0,
+      },
+      overclaimRisk: 0,
+      uncertaintySignals: [],
+      confidence: 0.5,
+    },
     scenarioSet: [],
+    communicativeElaborationState: null,
+    philosophicalSelfModelState: null,
     generationPrompt: "",
     draftResponse: {
       text: "",

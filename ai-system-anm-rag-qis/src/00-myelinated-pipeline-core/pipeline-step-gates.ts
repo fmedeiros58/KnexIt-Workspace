@@ -34,6 +34,11 @@ export function shouldRunReflectiveLayer(state: ProcessingState) {
     "critical_reflection",
     "assumption_scan",
     "caveat_building",
+    "communicative_elaboration",
+    "epistemic_audit",
+    "philosophical_self_modeling",
+    "infer_implications",
+    "project_scenarios",
   );
 }
 
@@ -46,6 +51,9 @@ export function shouldRunInferentialLayer(state: ProcessingState) {
     "implication_mapping",
     "infer_implications",
     "project_scenarios",
+    "communicative_elaboration",
+    "epistemic_audit",
+    "philosophical_self_modeling",
   );
 }
 

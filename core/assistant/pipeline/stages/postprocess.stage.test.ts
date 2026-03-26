@@ -1,4 +1,4 @@
-import { createDefaultProgressSignals } from "@/core/assistant/progress/progress-signals";
+﻿import { createDefaultProgressSignals } from "@/core/assistant/progress/progress-signals";
 import { AcademicGenre } from "@/core/assistant/genre/academic-genre.types";
 import type { PipelineContext } from "@/core/assistant/pipeline/pipeline-context";
 import { PostprocessStage } from "@/core/assistant/pipeline/stages/postprocess.stage";
@@ -34,7 +34,7 @@ function makeContext(answer: string): PipelineContext {
     conversationKey: "test-postprocess",
     mode: "chat",
     stream: false,
-    userMessage: "Faça uma analise critica.",
+    userMessage: "Faça uma análise critica.",
     conversation: [],
     constraints: [],
     intent: { type: "analysis", confidence: 0.9 },
@@ -70,7 +70,7 @@ describe("PostprocessStage", () => {
     }
   });
 
-  it("nao anexa CTA quando a restricao sem_fuga_escopo estiver ativa", async () => {
+  it("Não anexa CTA quando a restricao sem_fuga_escopo estiver ativa", async () => {
     const previous = process.env.ASSISTANT_APPEND_NEXT_STEP_CTA;
     process.env.ASSISTANT_APPEND_NEXT_STEP_CTA = "1";
     const ctx = makeContext(
@@ -106,20 +106,20 @@ describe("PostprocessStage", () => {
             "## Tese/argumento central do autor",
             "A tese principal e apresentada de modo consistente.",
             "",
-            "## Analise critica",
-            "A analise relaciona evidencias, coerencia interna e limites metodologicos.",
+            "## análise critica",
+            "A análise relaciona evidencias, coerencia interna e limites metodologicos.",
             "",
             "## Contribuicoes e limitacoes",
             "A contribuicao principal e apontada junto das limitacoes observadas.",
             "",
             "## Dialogo com outras obras",
-            "Nao informado no trecho.",
+            "Não informado no trecho.",
             "",
             "## Conclusao avaliativa",
             "A avaliacao final sintetiza forcas e fragilidades com criterio.",
             "",
-            "## Referencias",
-            "Nao informado no trecho.",
+            "## referências",
+            "Não informado no trecho.",
           ].join("\n"),
           metadata: {},
         };
@@ -136,7 +136,7 @@ describe("PostprocessStage", () => {
     expect(ctx.qualityGate?.coverageScore).toBeGreaterThanOrEqual(template.rules.minCoverage);
   });
 
-  it("nao executa repair pass pesado quando runtime for lite em chat", async () => {
+  it("Não executa repair pass pesado quando runtime for lite em chat", async () => {
     let repairCalls = 0;
     const ragService = {
       query: async () => {
@@ -169,7 +169,7 @@ describe("PostprocessStage", () => {
 
   it("remove sufixo parentetico de resposta duplicada", async () => {
     const ctx = makeContext("Sim, tudo bem. (Resposta em portugues brasileiro: Sim, tudo bem.)");
-    ctx.userMessage = "Como voce esta?";
+    ctx.userMessage = "Como Você esta?";
     const stage = new PostprocessStage();
     await stage.run(ctx);
     expect(ctx.finalAnswer).not.toMatch(/\(\s*resposta[^)]*\)/i);
@@ -193,7 +193,7 @@ describe("PostprocessStage", () => {
   it("sanitiza sufixo parentetico duplicado tambem no stream", async () => {
     const ctx = makeContext("");
     ctx.stream = true;
-    ctx.userMessage = "Como voce esta?";
+    ctx.userMessage = "Como Você esta?";
     ctx.finalStream = streamFromText("Sim, tudo bem. (Resposta em portugues brasileiro: Sim, tudo bem.)");
     const stage = new PostprocessStage();
     await stage.run(ctx);
@@ -204,11 +204,11 @@ describe("PostprocessStage", () => {
   });
 
   it("remove prefixo de persona e saudacao excessiva em pergunta factual verificavel", async () => {
-    const ctx = makeContext("Leticia: Ola, usuario. Atualmente, o presidente dos Estados Unidos e Joe Biden.");
+    const ctx = makeContext("Letícia: Ola, usuario. Atualmente, o presidente dos Estados Unidos e Joe Biden.");
     ctx.userMessage = "me diga quem e o presidente atual dos estados unidos";
     const stage = new PostprocessStage();
     await stage.run(ctx);
-    expect(ctx.finalAnswer || "").not.toMatch(/^leticia\s*:/i);
+    expect(ctx.finalAnswer || "").not.toMatch(/^Letícia\s*:/i);
     expect(ctx.finalAnswer || "").not.toMatch(/^ol[aá],?\s*usuario/i);
   });
 
@@ -217,7 +217,7 @@ describe("PostprocessStage", () => {
     ctx.userMessage = "quem e o presidente do brasil atualmente?";
     const stage = new PostprocessStage();
     await stage.run(ctx);
-    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").toContain("Não consegui validar esse fato em fontes web neste turno");
     expect(ctx.finalAnswer || "").not.toContain("Jair Bolsonaro");
   });
 
@@ -237,7 +237,7 @@ describe("PostprocessStage", () => {
     expect(ctx.finalAnswer || "").toContain("Luiz Inacio Lula da Silva");
   });
 
-  it("bloqueia referencia autor-ano sem lastro documental ou web", async () => {
+  it("bloqueia referência autor-ano sem lastro documental ou web", async () => {
     const ctx = makeContext(
       "Medeiros (2025) define Responsividade Plastica Cerebral em quatro eixos e comprova eficacia em larga escala.",
     );
@@ -245,7 +245,7 @@ describe("PostprocessStage", () => {
     const stage = new PostprocessStage();
     await stage.run(ctx);
     expect(ctx.finalAnswer || "").toContain(
-      "Nao consegui validar esta referencia autor-ano com fontes ancoradas neste turno",
+      "Não consegui validar esta referência autor-ano com fontes ancoradas neste turno",
     );
     expect(ctx.finalAnswer || "").not.toContain("quatro eixos");
   });
@@ -258,24 +258,24 @@ describe("PostprocessStage", () => {
     await stage.run(ctx);
     expect(ctx.finalAnswer || "").toContain("Medeiros (2025)");
     expect(ctx.finalAnswer || "").not.toContain(
-      "Nao consegui validar esta referencia autor-ano com fontes ancoradas neste turno",
+      "Não consegui validar esta referência autor-ano com fontes ancoradas neste turno",
     );
   });
 
-  it("solicita clarificacao quando ha escopo documental sem evidencia ancorada para analise da obra", async () => {
+  it("solicita clarificacao quando ha escopo documental sem evidencia ancorada para análise da obra", async () => {
     const ctx = makeContext(
-      "Uma analise critica e uma avaliacao objetiva de um trabalho, considerando estrutura, coesao, clareza e originalidade.",
+      "Uma análise critica e uma avaliacao objetiva de um trabalho, considerando estrutura, coesao, clareza e originalidade.",
     );
     ctx.userMessage = "faca uma resenha critica desse arquivo";
     ctx.ragInput = { composerBound: true, documentIds: [44] };
     ctx.evidence = [
       { source: "file", ref: "44", score: 1, text: "R60 - Dissertacao Medeiros - Final.pdf" },
-      { source: "memory", ref: "docscope:44:missing", score: 0.2, text: "Nao foi possivel recuperar trechos." },
+      { source: "memory", ref: "docscope:44:missing", score: 0.2, text: "Não foi possivel recuperar trechos." },
     ];
     const stage = new PostprocessStage();
     await stage.run(ctx);
-    expect(ctx.finalAnswer || "").toContain("Posso fazer essa analise, mas ainda nao tenho trechos suficientes");
-    expect(ctx.finalAnswer || "").toContain("indicar paginas/trechos prioritarios");
+    expect(ctx.finalAnswer || "").toContain("Posso fazer essa análise, mas ainda não tenho trechos suficientes");
+    expect(ctx.finalAnswer || "").toContain("indicar páginas/trechos prioritários");
   });
 
   it("aplica a mesma clarificacao no stream quando faltar evidencia documental ancorada", async () => {
@@ -285,16 +285,16 @@ describe("PostprocessStage", () => {
     ctx.ragInput = { composerBound: true, documentIds: [44] };
     ctx.evidence = [
       { source: "file", ref: "44", score: 1, text: "R60 - Dissertacao Medeiros - Final.pdf" },
-      { source: "memory", ref: "docscope:44:error", score: 0.2, text: "Nao foi possivel consultar o conteudo." },
+      { source: "memory", ref: "docscope:44:error", score: 0.2, text: "Não foi possivel consultar o conteudo." },
     ];
     ctx.finalStream = streamFromText(
-      "Uma analise critica e uma avaliacao objetiva de um trabalho. Sem contexto especifico, essa e uma analise geral.",
+      "Uma análise critica e uma avaliacao objetiva de um trabalho. Sem contexto especifico, essa e uma análise geral.",
     );
     const stage = new PostprocessStage();
     await stage.run(ctx);
     const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
-    expect(rendered).toContain("Posso fazer essa analise, mas ainda nao tenho trechos suficientes");
-    expect(rendered).toContain("indicar paginas/trechos prioritarios");
+    expect(rendered).toContain("Posso fazer essa análise, mas ainda não tenho trechos suficientes");
+    expect(rendered).toContain("indicar páginas/trechos prioritários");
   });
 
   it("solicita dados faltantes em pedido de texto convite com nome incompleto (caso reportado)", async () => {
@@ -326,6 +326,218 @@ describe("PostprocessStage", () => {
     expect(rendered).not.toContain("[idade]");
   });
 
+  it("corrige resposta de identidade com construcao semantica quebrada", async () => {
+    const ctx = makeContext("Minha nome e Letícia. Pelo prazer.");
+    ctx.userMessage = "eu gostaria de saber qual o seu nome";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    expect(ctx.finalAnswer || "").toContain("Eu sou a Letícia.");
+    expect(ctx.finalAnswer || "").not.toContain("Minha nome");
+    expect(ctx.finalAnswer || "").not.toContain("Pelo prazer");
+  });
+
+  it("corrige no stream resposta de identidade com construcao semantica quebrada", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "eu gostaria de saber qual o seu nome";
+    ctx.finalStream = streamFromText("Minha nome e Letícia. Pelo prazer.");
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toContain("Eu sou a Letícia.");
+    expect(rendered).not.toContain("Minha nome");
+    expect(rendered).not.toContain("Pelo prazer");
+  });
+
+  it("remove marcador interno 'sem ressalva dominante' no texto final", async () => {
+    const ctx = makeContext("Sem ressalva dominante. O ponto principal da análise e que o argumento precisa de evidencia adicional.");
+    ctx.userMessage = "me explique o ponto principal";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = `${ctx.finalAnswer || ""}`.toLowerCase();
+    expect(final).toContain("o ponto principal");
+    expect(final).not.toContain("sem ressalva dominante");
+  });
+
+  it("remove marcador interno 'sem ressalva dominante' no stream", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "me explique o ponto principal";
+    ctx.finalStream = streamFromText(
+      "Sem ressalva dominante.\nO ponto principal da análise e que o argumento precisa de evidencia adicional.",
+    );
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = (await readStream(ctx.finalStream as ReadableStream<Uint8Array>)).toLowerCase();
+    expect(rendered).toContain("o ponto principal");
+    expect(rendered).not.toContain("sem ressalva dominante");
+  });
+
+  it("remove scaffold interno de elaboracao/epistemico quando vaza na saida", async () => {
+    const ctx = makeContext(
+      [
+        "Leitura inicial: e pq te chamam assim?.",
+        "Resposta: Evitar afirmacoes absolutas sem evidencia.",
+        "Perfil comportamental: warmth=0.10; casualness=0.20.",
+        "Sinal epistemico: baixa cobertura.",
+        "Eu me chamo Letícia por duas bases complementares.",
+      ].join("\n"),
+    );
+    ctx.userMessage = "e pq te chamam assim?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final).toContain("eu me chamo letícia");
+    expect(final).not.toContain("leitura inicial:");
+    expect(final).not.toContain("resposta: evitar");
+    expect(final).not.toContain("perfil comportamental:");
+    expect(final).not.toContain("sinal epistemico:");
+  });
+
+  it("corrige resposta sobre origem do nome com semantica fraca e invencao", async () => {
+    const ctx = makeContext(
+      "Ola, a minha nome e Letícia. Em alguns mitos, sou uma deusa protetora das aguas e da fertilidade.",
+    );
+    ctx.userMessage = "pq vc tem esse nome?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(final).toContain("homenagem");
+    expect(final).toContain("filha letícia");
+    expect(final).not.toContain("deusa");
+    expect(final).not.toContain("minha nome");
+  });
+
+  it("corrige no stream resposta sobre origem do nome com semantica fraca e invencao", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "por que Você tem esse nome?";
+    ctx.finalStream = streamFromText(
+      "Ola, a minha nome e Letícia. Em alguns mitos, sou uma deusa protetora das aguas e da fertilidade.",
+    );
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = (await readStream(ctx.finalStream as ReadableStream<Uint8Array>)).toLowerCase();
+    expect(rendered).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(rendered).toContain("homenagem");
+    expect(rendered).toContain("filha letícia");
+    expect(rendered).not.toContain("deusa");
+    expect(rendered).not.toContain("minha nome");
+  });
+
+  it("corrige familia de pergunta sobre significado de Letícia", async () => {
+    const ctx = makeContext("Letícia significa quebrar ou romper e era deusa romana.");
+    ctx.userMessage = "ma o que significa Letícia";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(final).toContain("homenagem");
+    expect(final).toContain("filha letícia");
+    expect(final).not.toContain("deusa");
+  });
+
+  it("corrige pergunta sobre quem e Medeiros no contexto identitario", async () => {
+    const ctx = makeContext("Medeiros e apenas um sobrenome de origem latina e pode ser qualquer pessoa.");
+    ctx.userMessage = "e quem e medeiros?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final).toContain("idealizador do projeto letícia");
+    expect(final).toContain("outro medeiros");
+  });
+
+  it("corrige familia de criador da IA com variante 'quem te criou'", async () => {
+    const ctx = makeContext("Medeiros e um sobrenome portugues de origem latina.");
+    ctx.userMessage = "quem te criou?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final).toContain("medeiros");
+    expect(final).toContain("idealizador do projeto letícia");
+  });
+
+  it("corrige familia coloquial de identidade da IA", async () => {
+    const ctx = makeContext("Meu nome e Assistente.");
+    ctx.userMessage = "me diz seu nome";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final.toLowerCase()).toContain("eu sou a letícia");
+    expect(final).not.toContain("assistente");
+  });
+
+  it("corrige deriva de idioma em micro-resposta de saudacao", async () => {
+    const ctx = makeContext("Tudo bem? Sim, estou aqui para ajudar. If you meant how are you, my answer is I am here to help.");
+    ctx.userMessage = "tudo bem?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final.toLowerCase()).toContain("eu sou a letícia");
+    expect(final).not.toContain("if you meant");
+    expect(final).not.toContain("my answer is");
+  });
+
+  it("reduz excesso de resposta em saudacao curta com variacao 'tudo bem com vc'", async () => {
+    const ctx = makeContext(
+      [
+        "Sim, tudo bem comigo. Eu sou Letícia, o assistente interno da plataforma KnexIT.",
+        "Meu nome combina a arquitetura tecnica Letícia, que significa Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance.",
+        "Em geral, a expressao tudo bem e usada no Brasil para indicar que nada esta errado.",
+      ].join(" "),
+    );
+    ctx.userMessage = "tudo bem com vc?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = `${ctx.finalAnswer || ""}`;
+    expect(final.toLowerCase()).toContain("eu sou a letícia");
+    expect(final.length).toBeLessThanOrEqual(120);
+    expect(final.toLowerCase()).not.toContain("language-engineered technology");
+    expect(final.toLowerCase()).not.toContain("assistente interno");
+  });
+
+  it("reduz excesso de resposta em saudacao curta com endereco direto", async () => {
+    const ctx = makeContext(
+      [
+        "Bom dia. Eu sou a Letícia e vou explicar toda a estrutura interna da plataforma em detalhes.",
+        "Meu nome combina uma sigla extensa e uma homenagem afetiva.",
+      ].join(" "),
+    );
+    ctx.userMessage = "bom dia Letícia";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = `${ctx.finalAnswer || ""}`;
+    expect(final.toLowerCase()).toContain("eu sou a letícia");
+    expect(final.length).toBeLessThanOrEqual(120);
+    expect(final.toLowerCase()).not.toContain("sigla extensa");
+  });
+
+  it("repara artefatos de mojibake no stream de chat", async () => {
+    const ctx = makeContext("");
+    ctx.stream = true;
+    ctx.userMessage = "me diga algo curto";
+    ctx.finalStream = streamFromText("OlÃ¡, vocÃª estÃ¡ bem? Posso te ajudar.");
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
+    expect(rendered).toContain("Olá, você está bem?");
+    expect(rendered).not.toContain("OlÃ¡");
+    expect(rendered).not.toContain("vocÃª");
+  });
+
+  it("corrige follow-up curto da familia de significado do nome", async () => {
+    const ctx = makeContext("Letícia significa quebrar.");
+    ctx.userMessage = "esse nome significa o que?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(final).toContain("homenagem");
+    expect(final).toContain("filha letícia");
+    expect(final).not.toContain("quebrar");
+  });
+
   it("bloqueia vazamento de diretiva/persona em pergunta verificavel", async () => {
     const ctx = makeContext(
       "I'm an assistant inside KnexIT, responding professionally and objectively. I won't reveal internal processes.",
@@ -341,13 +553,13 @@ describe("PostprocessStage", () => {
     ];
     const stage = new PostprocessStage();
     await stage.run(ctx);
-    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").toContain("Não consegui validar esse fato em fontes web neste turno");
     expect(ctx.finalAnswer || "").not.toContain("inside KnexIT");
   });
 
   it("bloqueia vazamento de meta-resposta do assistente interno em pergunta verificavel", async () => {
     const ctx = makeContext(
-      "Ola, sou o assistente interno da plataforma KnexIT. Nao sou Leticia e nao exponho processos internos.",
+      "Ola, sou o assistente interno da plataforma KnexIT. Não sou Letícia e Não exponho processos internos.",
     );
     ctx.userMessage = "quem e o presidente do brasil atualmente?";
     ctx.evidence = [
@@ -360,7 +572,7 @@ describe("PostprocessStage", () => {
     ];
     const stage = new PostprocessStage();
     await stage.run(ctx);
-    expect(ctx.finalAnswer || "").toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(ctx.finalAnswer || "").toContain("Não consegui validar esse fato em fontes web neste turno");
     expect(ctx.finalAnswer || "").not.toContain("assistente interno");
   });
 
@@ -382,7 +594,7 @@ describe("PostprocessStage", () => {
     const stage = new PostprocessStage();
     await stage.run(ctx);
     const rendered = await readStream(ctx.finalStream as ReadableStream<Uint8Array>);
-    expect(rendered).toContain("Nao consegui validar esse fato em fontes web neste turno");
+    expect(rendered).toContain("Não consegui validar esse fato em fontes web neste turno");
     expect(rendered).not.toContain("inside KnexIT");
   });
 
@@ -412,3 +624,5 @@ describe("PostprocessStage", () => {
     expect(ctx.finalAnswer || "").not.toContain("[end of response]");
   });
 });
+
+

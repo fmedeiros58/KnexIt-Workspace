@@ -57,14 +57,118 @@ function selectSerialized(
   return serialized[format] || serialized["plain-text"];
 }
 
+function shouldApplyDialogicProgression(state: ProcessingState, text: string) {
+  return (
+    Boolean(state.communicativeElaborationState) &&
+    text.length >= 80 &&
+    state.executionPlan.selectedRoute !== "minimum" &&
+    state.selectedMode !== "chat" &&
+    !state.conversationState.needsClarification
+  );
+}
+
+function shouldApplyEpistemicClarity(state: ProcessingState) {
+  return state.epistemicAuditState.claimCount > 0 && state.executionPlan.selectedRoute !== "minimum";
+}
+
+function shouldApplyPhilosophicalConsistency(state: ProcessingState) {
+  return Boolean(state.philosophicalSelfModelState) && !state.philosophicalSelfModelState?.consistencyOk;
+}
+
+function shouldForceConciseAnswer(state: ProcessingState) {
+  return /\b(curta e grossa|curto e grosso|resposta curta|apenas responda|s[oó] diga|sem explicar|sem analisar|direto ao ponto)\b/i.test(
+    `${state.normalizedMessage || state.rawMessage || ""}`,
+  );
+}
+
+function normalizeParagraph(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isBoilerplateLeadParagraph(paragraph: string) {
+  const normalized = normalizeParagraph(paragraph);
+  if (!normalized) return true;
+  return /^(considerando a pergunta|considerando a solicitacao|com base na pergunta|resposta:|leitura inicial:|em resumo,|em conclusao,)/i.test(
+    normalized,
+  );
+}
+
+function removeEchoAndBoilerplate(text: string) {
+  const paragraphs = `${text || ""}`
+    .split(/\n{2,}/g)
+    .map((row) => row.trim())
+    .filter(Boolean);
+
+  while (paragraphs.length > 1 && isBoilerplateLeadParagraph(paragraphs[0])) {
+    paragraphs.shift();
+  }
+
+  const deduped: string[] = [];
+  for (const paragraph of paragraphs) {
+    const normalized = normalizeParagraph(paragraph);
+    const previous = deduped.length ? normalizeParagraph(deduped[deduped.length - 1]) : "";
+    if (normalized && normalized === previous) continue;
+    deduped.push(paragraph);
+  }
+
+  return deduped.join("\n\n").trim();
+}
+
+function applyPresentationPolish(state: ProcessingState, text: string) {
+  let output = `${text || ""}`.trim();
+  if (!output) return "";
+
+  if (shouldApplyDialogicProgression(state, output)) {
+    const opening = state.communicativeElaborationState?.coConstructionPlan.openingMove || "";
+    if (opening && !output.toLowerCase().includes("leitura inicial")) {
+      output = `${opening}\n\n${output}`;
+    }
+  }
+
+  if (shouldApplyEpistemicClarity(state)) {
+    const uncertainty = state.epistemicAuditState.uncertaintySignals.slice(0, 2).join("; ");
+    if (uncertainty && !output.toLowerCase().includes("sinal epistemico")) {
+      output = `${output}\n\nSinal epistemico: ${uncertainty}.`;
+    }
+  }
+
+  if (shouldApplyPhilosophicalConsistency(state)) {
+    const notes = state.philosophicalSelfModelState?.consistencyNotes.slice(0, 2).join("; ") || "";
+    if (notes && !output.toLowerCase().includes("consistencia filosofica")) {
+      output = `${output}\n\nConsistencia filosofica: ${notes}.`;
+    }
+  }
+
+  let cleaned = removeEchoAndBoilerplate(output);
+  if (!cleaned || /^fontes:/i.test(cleaned)) {
+    cleaned = output;
+  }
+  cleaned = cleaned.replace(/^resposta:\s*/i, "").trim();
+
+  if (shouldForceConciseAnswer(state)) {
+    const withoutSources = cleaned.replace(/\n{1,}fontes:\s*[\s\S]*$/i, "").trim();
+    const sentences = withoutSources.split(/(?<=[.!?])\s+/g).filter(Boolean);
+    const concise = (sentences.length > 3 ? sentences.slice(0, 3).join(" ") : withoutSources).trim();
+    if (concise) return concise;
+  }
+
+  return cleaned;
+}
+
 export async function runPresentationLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
   const utf8Guard = ensureUtf8Response(state.structuredResponse);
   const channel = resolveDeliveryChannel();
+  const httpRetrievedSources = state.retrievedSources.filter((source) => isHttpUrl(source.url));
 
   const code = codeBlockAdapter({ text: utf8Guard.text });
   const bubble = chatBubbleAdapter({ text: code.cleanedText || utf8Guard.text });
-  const citations = citationAdapter({ sources: state.retrievedSources });
+  const citations = citationAdapter({ sources: httpRetrievedSources });
   const documents = documentBlockAdapter({ sources: state.retrievedSources });
   const media = mediaAdapter({
     text: utf8Guard.text,
@@ -110,7 +214,8 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
   });
 
   const finalCitations = citations.citations.filter((row) => isHttpUrl(row.url)).map((row) => row.url);
-  const finalText = `${front.delivery.text || selectedSerialized.text || bubble.bubble.text}`.trim();
+  const rawFinalText = `${front.delivery.text || selectedSerialized.text || bubble.bubble.text}`.trim();
+  const finalText = applyPresentationPolish(state, rawFinalText);
 
   state.structuredResponse = finalText;
   state.deliveryPayload = {
@@ -146,6 +251,9 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
       streamRecovered: stream.recovered,
       retryPolicy: front.retryPolicy,
       utf8Repaired: utf8Guard.repaired,
+      dialogicProgressionApplied: shouldApplyDialogicProgression(state, rawFinalText),
+      epistemicClarityApplied: shouldApplyEpistemicClarity(state),
+      philosophicalConsistencyApplied: shouldApplyPhilosophicalConsistency(state),
     },
   };
 

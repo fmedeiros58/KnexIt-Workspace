@@ -3,7 +3,7 @@ import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/
 
 export const runtime = "nodejs";
 
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 type RouteContext = {
@@ -569,3 +569,4 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 export async function DELETE(req: NextRequest, context: RouteContext) {
   return proxyIdentityRequest(req, context);
 }
+

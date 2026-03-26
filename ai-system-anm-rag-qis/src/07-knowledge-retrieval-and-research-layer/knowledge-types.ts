@@ -5,7 +5,17 @@ export interface KnowledgeCandidate {
   freshnessScore: number;
   trustScore: number;
   relevanceScore: number;
-  sourceType: "memory" | "context" | "internal" | "web" | "existing";
+  sourceType:
+    | "memory"
+    | "context"
+    | "internal"
+    | "web"
+    | "existing"
+    | "retriever"
+    | "rag"
+    | "vector"
+    | "docs"
+    | "connector";
 }
 
 export interface EvidenceBundle {

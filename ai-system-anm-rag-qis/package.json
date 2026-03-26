@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node scripts/run-tests.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "watchdog:backends": "powershell -ExecutionPolicy Bypass -File scripts/watch-knexai-backends.ps1",
+    "watchdog:backends:install": "powershell -ExecutionPolicy Bypass -File scripts/install-backends-watchdog-task.ps1 -StartNow",
+    "watchdog:backends:status": "powershell -ExecutionPolicy Bypass -File scripts/status-backends-watchdog-task.ps1",
+    "watchdog:backends:uninstall": "powershell -ExecutionPolicy Bypass -File scripts/uninstall-backends-watchdog-task.ps1 -StopRunning"
   },
   "devDependencies": {
     "tsx": "^4.20.6",

@@ -1,4 +1,5 @@
 import mammoth from "mammoth";
+import { existsSync } from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 
@@ -72,17 +73,28 @@ type OcrWorker = {
   terminate: () => Promise<void>;
 };
 
+type TesseractWorkerOptions = {
+  langPath?: string;
+  cachePath?: string;
+  logger?: (payload: unknown) => void;
+  errorHandler?: (error: unknown) => void;
+};
+
 type TesseractModule = {
-  createWorker: (language?: string) => Promise<OcrWorker>;
+  createWorker: (language?: string | string[], oem?: unknown, options?: TesseractWorkerOptions) => Promise<OcrWorker>;
 };
 
 type OcrConfig = {
   enabled: boolean;
   language: string;
   timeoutMs: number;
+  workerInitTimeoutMs: number;
+  workerTerminateTimeoutMs: number;
   minCharsPerPage: number;
   pdfMaxPages: number;
   pdfScale: number;
+  langPath?: string;
+  cachePath?: string;
 };
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -198,14 +210,71 @@ function parseFiniteNumber(value: string | undefined, fallback: number, min: num
   return Math.max(min, Math.min(max, parsed));
 }
 
+function normalizeOptionalPath(value: string | undefined) {
+  const candidate = `${value || ""}`.trim();
+  if (!candidate) return "";
+  return path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(process.cwd(), candidate);
+}
+
+function splitOcrLanguages(language: string) {
+  const parsed = `${language || ""}`
+    .split("+")
+    .map((row) => row.trim())
+    .filter(Boolean);
+  return parsed.length ? parsed : ["por"];
+}
+
+function hasAllLanguageFiles(basePath: string, languages: string[]) {
+  if (!basePath || !languages.length) return false;
+  return languages.every((language) => {
+    const trainedData = path.join(basePath, `${language}.traineddata`);
+    const trainedDataGz = path.join(basePath, `${language}.traineddata.gz`);
+    return existsSync(trainedData) || existsSync(trainedDataGz);
+  });
+}
+
+function resolveLocalOcrLanguagePath(language: string, raw: NodeJS.ProcessEnv = process.env) {
+  const explicit = normalizeOptionalPath(raw.OCR_LANG_PATH || raw.OCR_TESSDATA_PATH);
+  const candidates = Array.from(
+    new Set(
+      [
+        explicit,
+        path.resolve(process.cwd(), "tessdata"),
+        path.resolve(process.cwd(), "data", "tessdata"),
+        process.cwd(),
+        path.resolve(process.cwd(), "..", "tessdata"),
+        path.resolve(process.cwd(), ".."),
+      ].filter(Boolean),
+    ),
+  );
+  const languages = splitOcrLanguages(language);
+  for (const candidate of candidates) {
+    if (hasAllLanguageFiles(candidate, languages)) return candidate;
+  }
+  return undefined;
+}
+
+function resolveOcrCachePath(raw: NodeJS.ProcessEnv = process.env, fallbackPath?: string) {
+  const explicit = normalizeOptionalPath(raw.OCR_CACHE_PATH);
+  if (explicit) return explicit;
+  if (fallbackPath) return fallbackPath;
+  return undefined;
+}
+
 function resolveOcrConfig(raw: NodeJS.ProcessEnv = process.env): OcrConfig {
+  const language = `${raw.OCR_LANG || "por"}`.trim() || "por";
+  const langPath = resolveLocalOcrLanguagePath(language, raw);
   return {
     enabled: parseBooleanFlag(raw.OCR_AUTO_ENABLED, true),
-    language: `${raw.OCR_LANG || "por"}`.trim() || "por",
+    language,
     timeoutMs: parsePositiveInt(raw.OCR_TIMEOUT_MS, 25_000, 2_000, 240_000),
+    workerInitTimeoutMs: parsePositiveInt(raw.OCR_WORKER_INIT_TIMEOUT_MS, 15_000, 1_000, 240_000),
+    workerTerminateTimeoutMs: parsePositiveInt(raw.OCR_WORKER_TERMINATE_TIMEOUT_MS, 2_000, 250, 30_000),
     minCharsPerPage: parsePositiveInt(raw.OCR_MIN_CHARS_PER_PAGE, 64, 0, 2_000),
     pdfMaxPages: parsePositiveInt(raw.OCR_PDF_MAX_PAGES, 6, 1, 80),
     pdfScale: parseFiniteNumber(raw.OCR_PDF_SCALE, 2, 1, 4),
+    langPath,
+    cachePath: resolveOcrCachePath(raw, langPath),
   };
 }
 
@@ -484,13 +553,37 @@ async function loadTesseractModule() {
   return cachedTesseractModule;
 }
 
-async function createOcrWorker(language: string): Promise<OcrWorker> {
+async function createOcrWorker(config: OcrConfig): Promise<OcrWorker> {
   const tesseract = await loadTesseractModule();
-  return tesseract.createWorker(language);
+  const options: TesseractWorkerOptions = {};
+  if (config.langPath) options.langPath = config.langPath;
+  if (config.cachePath) options.cachePath = config.cachePath;
+  const workerPromise =
+    Object.keys(options).length > 0
+      ? tesseract.createWorker(config.language, undefined, options)
+      : tesseract.createWorker(config.language);
+  return withTimeout(
+    workerPromise,
+    config.workerInitTimeoutMs,
+    `OCR_WORKER_INIT_TIMEOUT (${config.workerInitTimeoutMs}ms)`,
+  );
+}
+
+async function terminateOcrWorker(worker: OcrWorker | null | undefined, config: OcrConfig) {
+  if (!worker) return;
+  try {
+    await withTimeout(
+      worker.terminate(),
+      config.workerTerminateTimeoutMs,
+      `OCR_WORKER_TERMINATE_TIMEOUT (${config.workerTerminateTimeoutMs}ms)`,
+    );
+  } catch {
+    // Encerramento em melhor-esforco para evitar travar o pipeline.
+  }
 }
 
 async function extractImageTextViaOcr(bytes: Buffer, config: OcrConfig) {
-  const worker = await createOcrWorker(config.language);
+  const worker = await createOcrWorker(config);
   try {
     const recognized = await withTimeout(
       worker.recognize(bytes),
@@ -499,7 +592,7 @@ async function extractImageTextViaOcr(bytes: Buffer, config: OcrConfig) {
     );
     return normalizeExtractedText(recognized?.data?.text || "");
   } finally {
-    await worker.terminate().catch(() => null);
+    await terminateOcrWorker(worker, config);
   }
 }
 
@@ -545,7 +638,7 @@ async function extractPdfOcrPages(
 
   const pdfjs = await loadPdfJsModule();
   const { createCanvas } = await loadCanvasModule();
-  const worker = await createOcrWorker(config.language);
+  const worker = await createOcrWorker(config);
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(bytes),
     disableWorker: true,
@@ -586,7 +679,7 @@ async function extractPdfOcrPages(
     }
     return extractedByPage;
   } finally {
-    await worker.terminate().catch(() => null);
+    await terminateOcrWorker(worker, config);
     await document.destroy().catch(() => null);
   }
 }

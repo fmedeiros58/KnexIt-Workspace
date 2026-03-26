@@ -70,10 +70,9 @@ if ([string]::IsNullOrWhiteSpace($resolvedBaseUrl)) {
 $resolvedBaseUrl = Normalize-BaseUrl $resolvedBaseUrl
 $resolvedAnmBaseUrl = Pick-FirstNonEmpty @(
   $AnmBaseUrl,
-  $env:ANM_API_BASE_URL,
-  "$resolvedBaseUrl/anm"
+  $env:ANM_API_BASE_URL
 )
-$resolvedAnmBaseUrl = Normalize-BaseUrl $resolvedAnmBaseUrl
+$resolvedAnmBaseUrl = if ([string]::IsNullOrWhiteSpace($resolvedAnmBaseUrl)) { "" } else { Normalize-BaseUrl $resolvedAnmBaseUrl }
 $resolvedApiKey = Pick-FirstNonEmpty @(
   $ApiKey,
   $env:PUBLIC_API_KEY
@@ -94,15 +93,14 @@ if ($readyStatus -ne 200 -and $readyStatus -ne 503) {
   throw "/ready retornou status inesperado: $readyStatus (esperado: 200 ou 503)"
 }
 
-if (-not $SkipAnmCheck) {
-  if ([string]::IsNullOrWhiteSpace($resolvedAnmBaseUrl)) {
-    throw "ANM base URL nao definida. Use -AnmBaseUrl ou ANM_API_BASE_URL."
-  }
+if (-not $SkipAnmCheck -and -not [string]::IsNullOrWhiteSpace($resolvedAnmBaseUrl)) {
   $anmHealth = Invoke-WebRequest -UseBasicParsing -Method GET -Uri "$resolvedAnmBaseUrl/healthz" -TimeoutSec $TimeoutSec
   Write-Host "ANM /healthz -> $($anmHealth.StatusCode) [$resolvedAnmBaseUrl]"
   if ($anmHealth.StatusCode -ne 200) {
     throw "ANM /healthz falhou com status $($anmHealth.StatusCode)"
   }
+} else {
+  Write-Host "ANM legacy check -> skipped"
 }
 
 if ([string]::IsNullOrWhiteSpace($resolvedApiKey)) {

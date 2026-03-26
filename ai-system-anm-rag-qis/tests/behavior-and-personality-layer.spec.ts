@@ -289,6 +289,81 @@ function scenarioAiIdentityConsistency(): void {
   assert(composed.aiIdentity.courtesyLevel >= 0.7, "identity profile should keep polite baseline");
 }
 
+function scenarioAiNameOriginGrounding(): void {
+  const { aiIdentity } = runStack(
+    createInput({
+      interactionType: "follow_up",
+      taskType: "general",
+      formalityNeed: 0.5,
+      contextualSignals: {
+        normalizedMessage: "pq vc tem esse nome?",
+        activeTopic: "identidade",
+        needsClarification: false,
+        continuityScore: 0.6,
+        rapportScore: 0.6,
+        detectedConfusion: 0.1,
+        recentOpenings: ["Oi."],
+      },
+    }),
+  );
+  assert(aiIdentity.nameOriginQuestionDetected, "identity regulator should detect name-origin question");
+  assert(
+    aiIdentity.identityNarrativeShort.includes("Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance"),
+    "identity narrative should include LETICIA conceptual expansion",
+  );
+  assert(
+    aiIdentity.identityGroundingFacts.some((fact) => /homenagem.+medeiros.+filha leticia/i.test(fact)),
+    "identity grounding facts should include affective tribute context",
+  );
+}
+
+function scenarioAiNameMeaningGrounding(): void {
+  const { aiIdentity } = runStack(
+    createInput({
+      interactionType: "follow_up",
+      taskType: "general",
+      formalityNeed: 0.48,
+      contextualSignals: {
+        normalizedMessage: "ma o que significa leticia",
+        activeTopic: "identidade",
+        needsClarification: false,
+        continuityScore: 0.64,
+        rapportScore: 0.61,
+        detectedConfusion: 0.14,
+        recentOpenings: ["Entendi."],
+      },
+    }),
+  );
+  assert(aiIdentity.nameOriginQuestionDetected, "identity regulator should detect meaning-name family");
+  assert(
+    aiIdentity.styleDirectives.some((item) => /origem_e_significado/.test(item)),
+    "identity directives should include origin/meaning family behavior",
+  );
+}
+
+function scenarioAiCreatorFamilyGrounding(): void {
+  const { aiIdentity } = runStack(
+    createInput({
+      interactionType: "follow_up",
+      taskType: "general",
+      formalityNeed: 0.52,
+      contextualSignals: {
+        normalizedMessage: "quem te criou?",
+        activeTopic: "identidade",
+        needsClarification: false,
+        continuityScore: 0.58,
+        rapportScore: 0.57,
+        detectedConfusion: 0.12,
+        recentOpenings: ["Oi."],
+      },
+    }),
+  );
+  assert(
+    aiIdentity.styleDirectives.some((item) => /quem_e_medeiros_no_contexto_do_projeto_leticia/i.test(item)),
+    "identity directives should include creator-context grounding family",
+  );
+}
+
 scenarioObjectiveTechnical();
 scenarioFrustratedPractical();
 scenarioInformalSimple();
@@ -298,3 +373,10 @@ scenarioProactiveQuestionEnabled();
 scenarioProactiveBlockedSensitive();
 scenarioProactiveBlockedByFrequency();
 scenarioAiIdentityConsistency();
+scenarioAiNameOriginGrounding();
+scenarioAiNameMeaningGrounding();
+scenarioAiCreatorFamilyGrounding();
+
+test("bootstrap assertions executed", () => {
+  expect(true).toBe(true);
+});

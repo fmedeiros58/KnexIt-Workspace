@@ -68,4 +68,48 @@ describe("extractTextFromDocument", () => {
       else process.env.OCR_AUTO_ENABLED = prev;
     }
   });
+
+  it("nao bloqueia ingestao quando OCR de imagem demora e retorna fallback controlado", async () => {
+    const prevEnabled = process.env.OCR_AUTO_ENABLED;
+    const prevTimeout = process.env.OCR_TIMEOUT_MS;
+    const prevWorkerInitTimeout = process.env.OCR_WORKER_INIT_TIMEOUT_MS;
+    const prevWorkerTerminateTimeout = process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS;
+
+    process.env.OCR_AUTO_ENABLED = "1";
+    process.env.OCR_TIMEOUT_MS = "2500";
+    process.env.OCR_WORKER_INIT_TIMEOUT_MS = "2500";
+    process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS = "1000";
+
+    try {
+      const { createCanvas } = await import("@napi-rs/canvas");
+      const canvas = createCanvas(420, 120);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, 420, 120);
+      ctx.fillStyle = "#111111";
+      ctx.font = "28px Arial";
+      ctx.fillText("OCR smoke", 20, 68);
+      const pngBytes = canvas.toBuffer("image/png");
+      const startedAt = Date.now();
+      const result = await extractTextFromDocument({
+        bytes: pngBytes,
+        fileName: "tiny.png",
+        mimeType: "image/png",
+      });
+      const elapsedMs = Date.now() - startedAt;
+
+      expect(elapsedMs).toBeLessThan(12_000);
+      expect(result.parser).toBe("utf8");
+      expect(["ocr_fallback", "placeholder"]).toContain(result.textQuality);
+    } finally {
+      if (typeof prevEnabled === "undefined") delete process.env.OCR_AUTO_ENABLED;
+      else process.env.OCR_AUTO_ENABLED = prevEnabled;
+      if (typeof prevTimeout === "undefined") delete process.env.OCR_TIMEOUT_MS;
+      else process.env.OCR_TIMEOUT_MS = prevTimeout;
+      if (typeof prevWorkerInitTimeout === "undefined") delete process.env.OCR_WORKER_INIT_TIMEOUT_MS;
+      else process.env.OCR_WORKER_INIT_TIMEOUT_MS = prevWorkerInitTimeout;
+      if (typeof prevWorkerTerminateTimeout === "undefined") delete process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS;
+      else process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS = prevWorkerTerminateTimeout;
+    }
+  });
 });

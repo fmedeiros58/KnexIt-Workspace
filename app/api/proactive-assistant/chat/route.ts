@@ -18,7 +18,7 @@ type AnmChatResult = {
 type PromptComplexity = "micro" | "direct" | "short" | "medium" | "complex";
 type SupportedLocale = "pt-BR" | "en-US" | "es-ES";
 
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
@@ -263,7 +263,7 @@ async function requestLeticiaAnmChat(input: {
   }
 }
 
-async function requestLegacyAnmChat(input: {
+async function requestFallbackAnmChat(input: {
   anmBaseUrl: string;
   anmTimeoutMs: number;
   prompt: string;
@@ -382,29 +382,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const legacy = await requestLegacyAnmChat({
+    const fallback = await requestFallbackAnmChat({
       anmBaseUrl: resolvedAnmBaseUrl,
       anmTimeoutMs,
       prompt,
       sharedIdentityRuntime,
     });
-    if (!legacy.ok) {
+    if (!fallback.ok) {
       return Response.json(
         {
           ok: false,
           code: "PROACTIVE_UPSTREAM_ERROR",
-          message: legacy.detail || `Falha ao consultar o motor proativo (HTTP ${legacy.status}).`,
+          message: fallback.detail || `Falha ao consultar o motor proativo (HTTP ${fallback.status}).`,
         },
-        { status: legacy.status >= 500 ? 502 : legacy.status },
+        { status: fallback.status >= 500 ? 502 : fallback.status },
       );
     }
-    const answer = enforceResponseStructure(legacy.answer.answer, {
+    const answer = enforceResponseStructure(fallback.answer.answer, {
       state: conversationState,
       complexity,
     });
     const headers: Record<string, string> = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
-    if (legacy.answer.traceId) headers["x-knexai-trace-id"] = legacy.answer.traceId;
-    return new Response(createChunkedTextStream(answer || legacy.answer.answer), { status: 200, headers });
+    if (fallback.answer.traceId) headers["x-knexai-trace-id"] = fallback.answer.traceId;
+    return new Response(createChunkedTextStream(answer || fallback.answer.answer), { status: 200, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Assistente proativo indisponivel no momento.";
     const attempted = attemptedAnmBaseUrls.length ? attemptedAnmBaseUrls.join(", ") : "n/a";
@@ -419,3 +419,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

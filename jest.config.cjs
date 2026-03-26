@@ -2,8 +2,8 @@
 module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
-  roots: ["<rootDir>/core"],
-  testMatch: ["**/*.test.ts"],
+  roots: ["<rootDir>/core", "<rootDir>/ai-system-anm-rag-qis"],
+  testMatch: ["**/*.test.ts", "**/*.spec.ts"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
     "^franc-min$": "<rootDir>/core/assistant/language/__mocks__/franc-min.ts",

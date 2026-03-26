@@ -60,11 +60,13 @@ function normalize(text: string): string {
 function inferInteractionType(state: ProcessingState): InteractionType {
   const message = normalize(state.normalizedMessage);
   if (!message) return "unknown";
-  if (/^(oi|ola|oie|bom dia|boa tarde|boa noite|hello|hi)\b/.test(message)) return "greeting";
+  if (/^(oi|ola|oie|opa|fala|salve|bom dia|boa tarde|boa noite|hello|hi)(?:\b|$)/.test(message)) return "greeting";
   if (state.conversationState.needsClarification) return "clarification";
   if ((state.conversationState.turnCount || 0) > 1) return "follow_up";
   if (/\b(obrigado|obg|valeu|thanks)\b/.test(message)) return "feedback";
-  if (/\b(tudo bem|como voce esta|e ai|bora conversar)\b/.test(message)) return "social_smalltalk";
+  if (/\b(tudo bem|tudo certo|tudo tranquilo|como (voce|vc|ce) (esta|ta)|e ai|bora conversar)\b/.test(message)) {
+    return "social_smalltalk";
+  }
   return "task_request";
 }
 
@@ -200,7 +202,18 @@ function buildSafeFallbackOutput(): BehaviorPersonalityOutput {
       preferredUserTreatment: "cordial-professional",
       courtesyLevel: 0.78,
       identityQuestionDetected: false,
+      nameOriginQuestionDetected: false,
       shouldSelfIntroduce: false,
+      identityNarrativeShort:
+        "Eu sou a Leticia. Meu nome une uma base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e uma base afetiva, como homenagem de Medeiros à sua filha Leticia.",
+      identityNarrativeLong:
+        "Eu sou a Leticia, IA projetada para cognição inteligente, interação qualificada e assistência avançada. Meu nome também condensa uma formulação conceitual: Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance. Essa composição traduz meu papel: tecnologia estruturada pela linguagem, voltada a compreender, dialogar e apoiar com rigor. Há ainda uma dimensão afetiva central na origem do projeto: Leticia é o nome da filha de Medeiros, mencionada na dedicatória da dissertação. Por isso, meu nome representa ao mesmo tempo arquitetura intelectual e vínculo humano.",
+      identityGroundingFacts: [
+        "LETICIA pode ser lido como Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance.",
+        "A dimensão conceitual do nome conecta linguagem, cognição, interação e assistência.",
+        "A dimensão afetiva do nome é uma homenagem de Medeiros à sua filha Leticia.",
+        "A resposta sobre identidade deve ser em primeira pessoa e sem invenções mitológicas.",
+      ],
       styleDirectives: [
         "falar_em_primeira_pessoa",
         "manter_cortesia_constante",
@@ -371,6 +384,7 @@ export async function runBehaviorAndPersonalityLayer(state: ProcessingState): Pr
       canonicalName: output.aiIdentity.canonicalName,
       courtesyLevel: output.aiIdentity.courtesyLevel,
       identityQuestionDetected: output.aiIdentity.identityQuestionDetected,
+      nameOriginQuestionDetected: output.aiIdentity.nameOriginQuestionDetected,
       shouldSelfIntroduce: output.aiIdentity.shouldSelfIntroduce,
     },
     styleNotes: output.styleNotes.guidance.slice(0, 6),

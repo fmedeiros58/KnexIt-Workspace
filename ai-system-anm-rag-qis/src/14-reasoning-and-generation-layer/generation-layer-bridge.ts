@@ -20,6 +20,7 @@ import { buildAbductiveSupportPath } from "./reasoning-core/abductive-support-pa
 import { selectReasoningPath } from "./reasoning-core/compare-and-select-path";
 import { buildSynthesisPath } from "./reasoning-core/synthesis-path";
 import { runSelfCheckPath } from "./reasoning-core/self-check-path";
+import { runReasoningToIterativeAcquisitionBridge } from "./reasoning-core/reasoning-to-iterative-acquisition-bridge";
 import { buildInitialDraft } from "./draft-generation-core/initial-draft";
 import { buildExpandedDraft } from "./draft-generation-core/expanded-draft";
 import { buildCondensedDraft } from "./draft-generation-core/condensed-draft";
@@ -39,6 +40,13 @@ import { orderSections } from "./response-assembly-core/section-ordering";
 import { buildTransitions } from "./response-assembly-core/transition-builder";
 import { buildConclusion } from "./response-assembly-core/conclusion-builder";
 import { handoffGenerationToStructure } from "./generation-to-structure-bridge";
+import { runCommunicativeElaborationBridge } from "../bridges/communicative-elaboration.bridge";
+import {
+  isAssistantCreatorPrompt,
+  isAssistantIdentityPrompt,
+  isAssistantNameOriginPrompt,
+  isConversationalPrompt,
+} from "../shared/utils/conversation-signals";
 
 function isGroundedSourceUrl(url: string): boolean {
   return /^https?:\/\//i.test(`${url || ""}`.trim());
@@ -126,6 +134,16 @@ function resolveSafeSummary(state: ProcessingState): string {
 }
 
 function buildPrompt(state: ProcessingState): string {
+  const communicativeInjection = state.communicativeElaborationState
+    ? [
+        "Communicative elaboration (co-construction):",
+        `- Idea seed: ${state.communicativeElaborationState.ideaSeed.coreClaim}`,
+        `- Tensions: ${state.communicativeElaborationState.tensions.map((row) => `${row.poleA} x ${row.poleB}`).join("; ") || "none"}`,
+        `- Hypothesis branches: ${state.communicativeElaborationState.hypothesisBranches.map((row) => row.claim).join(" | ") || "none"}`,
+        `- Refinement unresolved points: ${state.communicativeElaborationState.refinement.unresolvedPoints.join(", ") || "none"}`,
+      ].join("\n")
+    : "";
+
   return [
     buildSystemPrompt(),
     buildTaskPrompt(state),
@@ -136,6 +154,7 @@ function buildPrompt(state: ProcessingState): string {
     buildReflectionInjection(state),
     buildInferenceInjection(state),
     buildStyleConstraints(state),
+    communicativeInjection,
   ].join("\n");
 }
 
@@ -163,14 +182,18 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
 
   await runGenerationMemoryBridge(state);
   await runGenerationEvidenceBridge(state);
+  const reasoningAugmentedEvidence = await runReasoningToIterativeAcquisitionBridge(state);
   await runGenerationLlmBridge(state);
+  await runCommunicativeElaborationBridge(state);
   const groundedSourceCount = countGroundedSources(state);
+  const llmDraft = state.executionArtifacts.generationRuntime?.llmDraft || "";
+  const llmDraftAvailable = llmDraft.trim().length > 0;
 
   const factualFallback = buildFactualAnswerFallback({
     question: state.normalizedMessage,
     sources: state.retrievedSources,
   });
-  if (factualFallback) {
+  if (factualFallback && !llmDraftAvailable) {
     const factualText = applyMultimodalDraftBridge(factualFallback.answer, state.inputSignals.modality);
     state.generationPrompt = buildPrompt(state);
     state.draftResponse = {
@@ -183,15 +206,20 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
         action: "factual_fallback_generated",
         route: state.executionPlan.selectedRoute,
         latencyMs: Date.now() - startedAt,
-        detail: `role=${factualFallback.role}; place=${factualFallback.place}; confidence=${factualFallback.confidence.toFixed(2)}`,
+        detail:
+          `role=${factualFallback.role}; place=${factualFallback.place}; confidence=${factualFallback.confidence.toFixed(2)}; ` +
+          `iterativeAugmentation=${reasoningAugmentedEvidence ? "true" : "false"}`,
       }),
     );
     return handoffGenerationToStructure(state);
   }
 
   if (
-    isDirectFactualNameQuestion(state.normalizedMessage) ||
-    isDirectFactualTimelineQuestion(state.normalizedMessage, state)
+    !llmDraftAvailable &&
+    (
+      isDirectFactualNameQuestion(state.normalizedMessage) ||
+      isDirectFactualTimelineQuestion(state.normalizedMessage, state)
+    )
   ) {
     const unresolvedText = applyMultimodalDraftBridge(
       buildUnresolvedFactualMessage(state),
@@ -214,7 +242,7 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
     return handoffGenerationToStructure(state);
   }
 
-  if (isAuthorYearReferencePrompt(state.normalizedMessage) && groundedSourceCount === 0) {
+  if (!llmDraftAvailable && isAuthorYearReferencePrompt(state.normalizedMessage) && groundedSourceCount === 0) {
     const unresolvedText = applyMultimodalDraftBridge(
       buildReferenceGroundingMessage(state),
       state.inputSignals.modality,
@@ -236,27 +264,65 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
     return handoffGenerationToStructure(state);
   }
 
-  const conversationalFallback = buildConversationalFallback(state);
-  if (conversationalFallback) {
-    const chatText = applyMultimodalDraftBridge(conversationalFallback, state.inputSignals.modality);
-    state.generationPrompt = buildPrompt(state);
-    state.draftResponse = {
-      text: chatText,
-      sections: [{ title: "Resposta", content: chatText }],
-    };
-    state.trace.push(
-      makeTraceEvent({
-        layer: "generation",
-        action: "chat_fallback_generated",
-        route: state.executionPlan.selectedRoute,
-        latencyMs: Date.now() - startedAt,
-        detail: "mode=chat-fallback",
-      }),
-    );
-    return handoffGenerationToStructure(state);
+  const focusForFallbackPriority = resolveConversationFocus(state.normalizedMessage);
+  const shouldPrioritizeConversationalFallback =
+    state.behaviorPersonalityState?.aiIdentity.identityQuestionDetected === true ||
+    state.behaviorPersonalityState?.aiIdentity.nameOriginQuestionDetected === true ||
+    isAssistantIdentityPrompt(focusForFallbackPriority) ||
+    isAssistantNameOriginPrompt(focusForFallbackPriority) ||
+    isAssistantCreatorPrompt(focusForFallbackPriority);
+
+  if (shouldPrioritizeConversationalFallback && !llmDraftAvailable) {
+    const priorityFallback = buildConversationalFallback(state);
+    if (priorityFallback) {
+      const chatText = applyMultimodalDraftBridge(priorityFallback, state.inputSignals.modality);
+      state.generationPrompt = buildPrompt(state);
+      state.draftResponse = {
+        text: chatText,
+        sections: [{ title: "Resposta", content: chatText }],
+      };
+      state.trace.push(
+        makeTraceEvent({
+          layer: "generation",
+          action: "chat_fallback_priority_generated",
+          route: state.executionPlan.selectedRoute,
+          latencyMs: Date.now() - startedAt,
+          detail: "mode=chat-fallback-priority; reason=identity_cue",
+        }),
+      );
+      return handoffGenerationToStructure(state);
+    }
   }
 
-  const llmDraft = state.executionArtifacts.generationRuntime?.llmDraft || "";
+  const shouldPrioritizeClarificationFallback =
+    state.selectedMode === "chat" &&
+    state.conversationState.needsClarification &&
+    (
+      isConversationalPrompt(state.normalizedMessage) ||
+      state.normalizedMessage.trim().split(/\s+/g).filter(Boolean).length <= 8
+    );
+  if (shouldPrioritizeClarificationFallback) {
+    const clarificationFallback = buildConversationalFallback(state);
+    if (clarificationFallback) {
+      const chatText = applyMultimodalDraftBridge(clarificationFallback, state.inputSignals.modality);
+      state.generationPrompt = buildPrompt(state);
+      state.draftResponse = {
+        text: chatText,
+        sections: [{ title: "Resposta", content: chatText }],
+      };
+      state.trace.push(
+        makeTraceEvent({
+          layer: "generation",
+          action: "chat_clarification_fallback_generated",
+          route: state.executionPlan.selectedRoute,
+          latencyMs: Date.now() - startedAt,
+          detail: "mode=chat-fallback-priority; reason=conversation_clarification",
+        }),
+      );
+      return handoffGenerationToStructure(state);
+    }
+  }
+
   if (llmDraft) {
     const llmText = applyMultimodalDraftBridge(llmDraft, state.inputSignals.modality);
     state.generationPrompt = buildPrompt(state);
@@ -271,6 +337,26 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
         route: state.executionPlan.selectedRoute,
         latencyMs: Date.now() - startedAt,
         detail: `chars=${llmDraft.length}`,
+      }),
+    );
+    return handoffGenerationToStructure(state);
+  }
+
+  const conversationalFallback = buildConversationalFallback(state);
+  if (conversationalFallback) {
+    const chatText = applyMultimodalDraftBridge(conversationalFallback, state.inputSignals.modality);
+    state.generationPrompt = buildPrompt(state);
+    state.draftResponse = {
+      text: chatText,
+      sections: [{ title: "Resposta", content: chatText }],
+    };
+    state.trace.push(
+      makeTraceEvent({
+        layer: "generation",
+        action: "chat_fallback_generated",
+        route: state.executionPlan.selectedRoute,
+        latencyMs: Date.now() - startedAt,
+        detail: `mode=chat-fallback; iterativeAugmentation=${reasoningAugmentedEvidence ? "true" : "false"}`,
       }),
     );
     return handoffGenerationToStructure(state);

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const WSL_DISCOVERY_CACHE_MS = 60_000;
 const ANM_RESOLUTION_CACHE_MS = Math.max(500, Number(process.env.ANM_BASE_URL_RESOLUTION_CACHE_MS || 3_000));
 const ANM_STICKY_REACHABLE_MS = Math.max(1_000, Number(process.env.ANM_BASE_URL_STICKY_REACHABLE_MS || 120_000));
@@ -313,4 +313,5 @@ export async function resolveReachableAnmBaseUrl(input?: {
   };
   return value;
 }
+
 

@@ -1,0 +1,270 @@
+{
+  "startedAt": "2026-03-26T18:50:40.737Z",
+  "finishedAt": "2026-03-26T18:58:29.255Z",
+  "target": {
+    "chatUrl": "http://localhost:3000/api/chat",
+    "metricsUrl": "http://localhost:3000/api/chat/router-metrics"
+  },
+  "iterations": 1,
+  "cases": [
+    {
+      "id": "micro_oi",
+      "message": "oi"
+    },
+    {
+      "id": "ack_ok",
+      "message": "ok"
+    },
+    {
+      "id": "short_question",
+      "message": "qual a capital do brasil?"
+    },
+    {
+      "id": "direct_request",
+      "message": "resuma em 1 paragrafo o conceito de cache"
+    },
+    {
+      "id": "complex_plan",
+      "message": "analise esse fluxo e crie um plano passo a passo com checklist"
+    },
+    {
+      "id": "code_patch",
+      "message": "implemente um patch no endpoint para tratar timeout e retries"
+    },
+    {
+      "id": "error_log",
+      "message": "analise este erro de timeout ECONNREFUSED e diga causa provavel"
+    }
+  ],
+  "phases": [
+    {
+      "id": "before_full",
+      "pipelineMode": "full"
+    },
+    {
+      "id": "after_auto",
+      "pipelineMode": "auto"
+    }
+  ],
+  "summary": [
+    {
+      "phase": "before_full",
+      "requests": 7,
+      "success": 1,
+      "errorRatePct": 85.71,
+      "latencyMs": {
+        "p50": 1887,
+        "p95": 1887,
+        "avg": 1887
+      },
+      "router": {
+        "total": 10,
+        "lite": 0,
+        "full": 10,
+        "fullNearLite": 1,
+        "fullPct": 100,
+        "litePct": 0,
+        "fullNearLitePct": 10
+      },
+      "errorHistogram": {
+        "TIMEOUT": 6
+      }
+    },
+    {
+      "phase": "after_auto",
+      "requests": 7,
+      "success": 1,
+      "errorRatePct": 85.71,
+      "latencyMs": {
+        "p50": 1868,
+        "p95": 1868,
+        "avg": 1868
+      },
+      "router": {
+        "total": 8,
+        "lite": 2,
+        "full": 6,
+        "fullNearLite": 0,
+        "fullPct": 75,
+        "litePct": 25,
+        "fullNearLitePct": 0
+      },
+      "errorHistogram": {
+        "TIMEOUT": 2,
+        "HTTP_5XX": 4
+      }
+    }
+  ],
+  "rows": [
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 1887,
+      "errorClass": null,
+      "error": null,
+      "chars": 49,
+      "preview": "Oi! Eu sou a Letícia. Como posso te ajudar agora?"
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 60007,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 60010,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 60005,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 60004,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 60009,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "before_full",
+      "pipelineMode": "full",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 60013,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "micro_oi",
+      "iteration": 1,
+      "ok": true,
+      "status": 200,
+      "totalMs": 1868,
+      "errorClass": null,
+      "error": null,
+      "chars": 49,
+      "preview": "Oi! Eu sou a Letícia. Como posso te ajudar agora?"
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "ack_ok",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 36920,
+      "errorClass": "TIMEOUT",
+      "error": "Timeout ao consultar o vLLM interno. Endpoints tentados: http://127.0.0.1:8000/v1, http://localhost:8000/v1, http://172.21.6.210:8000/v1.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "short_question",
+      "iteration": 1,
+      "ok": false,
+      "status": 503,
+      "totalMs": 2012,
+      "errorClass": "HTTP_5XX",
+      "error": "vLLM indisponivel. Endpoints tentados: http://localhost:8000/v1, http://127.0.0.1:8000/v1, http://172.21.6.210:8000/v1.",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "direct_request",
+      "iteration": 1,
+      "ok": false,
+      "status": 503,
+      "totalMs": 1748,
+      "errorClass": "HTTP_5XX",
+      "error": "vLLM temporariamente indisponivel (circuit breaker aberto por 14s).",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "complex_plan",
+      "iteration": 1,
+      "ok": false,
+      "status": 503,
+      "totalMs": 2393,
+      "errorClass": "HTTP_5XX",
+      "error": "vLLM temporariamente indisponivel (circuit breaker aberto por 11s).",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "code_patch",
+      "iteration": 1,
+      "ok": false,
+      "status": 503,
+      "totalMs": 1482,
+      "errorClass": "HTTP_5XX",
+      "error": "vLLM temporariamente indisponivel (circuit breaker aberto por 10s).",
+      "chars": 0
+    },
+    {
+      "phase": "after_auto",
+      "pipelineMode": "auto",
+      "caseId": "error_log",
+      "iteration": 1,
+      "ok": false,
+      "status": 504,
+      "totalMs": 60006,
+      "errorClass": "TIMEOUT",
+      "error": "TIMEOUT",
+      "chars": 0
+    }
+  ]
+}

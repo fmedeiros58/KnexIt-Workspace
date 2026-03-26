@@ -1,6 +1,6 @@
 /**
  * Responsabilidade do arquivo:
- * - Garantir roteamento tecnico curto para rota minima (clarificacao).
+ * - Garantir roteamento tecnico curto para rota reflexiva (sem bypass profundo).
  * - Manter roteamento inferencial para questoes tecnicas com contexto suficiente.
  */
 import { routeRequest } from "../src/05-complexity-and-orchestration-layer/request-router";
@@ -13,7 +13,7 @@ function assert(condition: boolean, message: string): void {
 const shortTechnical = createInitialProcessingState("verifique os normalizer");
 shortTechnical.inputSignals.intent = "technical";
 shortTechnical.preRouteSignals.quickIntent = "technical";
-assert(routeRequest(shortTechnical) === "minimum", "short technical imperative should use minimum route");
+assert(routeRequest(shortTechnical) === "reflective", "short technical imperative should use reflective route");
 
 const detailedTechnical = createInitialProcessingState("como corrigir erro de normalizer no parser de entrada?");
 detailedTechnical.inputSignals.intent = "technical";

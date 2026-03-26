@@ -65,7 +65,7 @@ const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 524]
 const DEFAULT_MIN_BUDGET_PER_CALL = 384;
 const DEFAULT_LLM_CONTEXT_WINDOW_TOKENS = 8192;
 const DEFAULT_LOCKED_MAX_TOKENS_PER_CALL = 16384;
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 type LlmEndpointAttempt = {
@@ -897,36 +897,13 @@ export class VllmInternalClient {
   }
 
   private resolveAnmRuntimeConfig(input: RagLlmRequest): AnmRuntimeConfig {
-    const requestedMode = input.anmEngineMode === "anm" ? "anm" : "direct";
-    if (requestedMode !== "anm") {
-      return {
-        enabled: false,
-        baseUrl: "",
-        timeoutMs: 0,
-        softTimeoutMs: 0,
-        fallbackToDirect: true,
-      };
-    }
-
-    const baseUrl = normalizeUrl(`${input.anmBaseUrl || process.env.ANM_API_BASE_URL || DEFAULT_ANM_BASE_URL}`.trim());
-    const timeoutMs = clampPositiveInt(
-      input.anmTimeoutMs,
-      clampPositiveInt(process.env.ANM_API_TIMEOUT_MS, DEFAULT_ANM_TIMEOUT_MS, 3_000, 300_000),
-      2_000,
-      300_000,
-    );
-    const softTimeoutMs = clampPositiveInt(input.anmSoftTimeoutMs, Math.min(2_000, timeoutMs), 200, timeoutMs);
-    const fallbackToDirect =
-      typeof input.anmFallbackToDirect === "boolean"
-        ? input.anmFallbackToDirect
-        : parseBooleanFlag(process.env.KNEXAI_ANM_FALLBACK_TO_DIRECT, true);
-
+    // Runtime atual: direct-only. Modo ANM legado sempre desativado.
     return {
-      enabled: Boolean(baseUrl),
-      baseUrl,
-      timeoutMs,
-      softTimeoutMs,
-      fallbackToDirect,
+      enabled: false,
+      baseUrl: "",
+      timeoutMs: 0,
+      softTimeoutMs: 0,
+      fallbackToDirect: true,
     };
   }
 
@@ -1078,7 +1055,7 @@ export class VllmInternalClient {
         );
       }
 
-      const legacyResponse = await fetch(
+      const fallbackResponse = await fetch(
         `${resolvedBaseUrl}/chat`,
         this.withDispatcher({
           method: "POST",
@@ -1091,15 +1068,15 @@ export class VllmInternalClient {
         }),
       );
 
-      if (!legacyResponse.ok) {
-        const detail = (await legacyResponse.text().catch(() => "")).trim().slice(0, 240);
+      if (!fallbackResponse.ok) {
+        const detail = (await fallbackResponse.text().catch(() => "")).trim().slice(0, 240);
         throw new RagPipelineError(
-          legacyResponse.status >= 500 ? 503 : 502,
+          fallbackResponse.status >= 500 ? 503 : 502,
           "RAG_ANM_UPSTREAM_ERROR",
-          `ANM respondeu com erro HTTP ${legacyResponse.status}${detail ? `: ${detail}` : "."}`,
+          `ANM respondeu com erro HTTP ${fallbackResponse.status}${detail ? `: ${detail}` : "."}`,
         );
       }
-      const payload = await legacyResponse.json().catch(() => null);
+      const payload = await fallbackResponse.json().catch(() => null);
       const resolved = extractAnmAnswer(payload);
       if (!resolved.answer) {
         throw new RagPipelineError(502, "RAG_ANM_EMPTY_RESPONSE", "ANM nao retornou resposta textual.");
@@ -2568,4 +2545,5 @@ export class VllmInternalClient {
 export function createVllmInternalClient(rawEnv = process.env) {
   return new VllmInternalClient(loadRagLlmConfig(rawEnv));
 }
+
 

@@ -1,6 +1,6 @@
 /**
  * Responsabilidade do arquivo:
- * - Garantir que comandos tecnicos curtos nao sejam escalados indevidamente.
+ * - Garantir que comandos tecnicos curtos subam no minimo para rota reflexiva.
  * - Preservar escalonamento inferencial em pergunta tecnica detalhada.
  */
 import { runInputPreRouteScan } from "../src/01-input-layer/input-pre-route-scan";
@@ -12,7 +12,7 @@ function assert(condition: boolean, message: string): void {
 }
 
 const shortTechnical = runInputPreRouteScan(createInitialProcessingState("verifique os normalizer"));
-assert(selectPipelineRoute(shortTechnical) === "minimum", "short technical imperative should route to minimum");
+assert(selectPipelineRoute(shortTechnical) === "reflective", "short technical imperative should route to reflective");
 
 const detailedTechnical = runInputPreRouteScan(
   createInitialProcessingState("como corrigir erro de normalizer no parser de entrada?"),

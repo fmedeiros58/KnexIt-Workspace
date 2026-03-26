@@ -117,7 +117,11 @@ export interface AiIdentityProfile {
   preferredUserTreatment: "cordial" | "cordial-professional";
   courtesyLevel: number; // 0..1
   identityQuestionDetected: boolean;
+  nameOriginQuestionDetected: boolean;
   shouldSelfIntroduce: boolean;
+  identityNarrativeShort: string;
+  identityNarrativeLong: string;
+  identityGroundingFacts: string[];
   styleDirectives: string[];
 }
 

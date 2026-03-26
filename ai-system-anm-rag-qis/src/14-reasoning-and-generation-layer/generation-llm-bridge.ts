@@ -4,27 +4,50 @@ import { isConversationalPrompt } from "../shared/utils/conversation-signals";
 
 const vllmClient = createVllmClient();
 
+function readBooleanEnv(name: string, fallback: boolean): boolean {
+  const normalized = `${process.env[name] ?? ""}`.trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
 function shouldUseLlmRuntime(state: ProcessingState): boolean {
-  const runtimeFlag = `${process.env.ANM_ENABLE_LLM_RUNTIME ?? "true"}`.toLowerCase();
-  if (runtimeFlag === "false" || runtimeFlag === "0" || runtimeFlag === "off") return false;
-  const hasEvidence = Boolean(
-    state.collapsedTruth.summary ||
-    state.retrievedEvidence.length ||
-    state.retrievedSources.length,
-  );
+  if (!readBooleanEnv("ANM_ENABLE_LLM_RUNTIME", true)) return false;
+  const alwaysOn = readBooleanEnv("ANM_LLM_BRIDGE_ALWAYS_ON", true);
+  if (alwaysOn) return true;
+
+  const hasEvidence = Boolean(state.collapsedTruth.summary || state.retrievedEvidence.length || state.retrievedSources.length);
   if (!hasEvidence) return false;
   if (state.executionPlan.selectedRoute === "minimum" && isConversationalPrompt(state.normalizedMessage)) return false;
   return true;
 }
 
 function buildRuntimePrompt(state: ProcessingState): string {
+  const normalizedMessage = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  if (isConversationalPrompt(normalizedMessage)) {
+    return [
+      "Voce e Leticia, assistente virtual em portugues brasileiro.",
+      "Responda em primeira pessoa, com tom cordial, natural e direto.",
+      "Nao mencione pipeline, memoria interna, modulos, evidencias tecnicas ou telemetria.",
+      "Se a mensagem for saudacao, cumprimente e convide o usuario a dizer o que precisa.",
+      "Se perguntarem seu nome, responda apenas que seu nome e Leticia.",
+      `Mensagem do usuario: ${normalizedMessage}`,
+    ].join("\n");
+  }
+
   const evidence = state.retrievedEvidence.slice(0, 4).map((item) => `- ${item}`);
   const sourceHints = state.retrievedSources.slice(0, 3).map((item) => `- ${item.title}: ${item.url}`);
+  const recentTurns = state.recentTurns
+    .slice(-4)
+    .map((turn) => `- ${turn.role}: ${turn.content}`)
+    .join("\n");
   return [
     "Voce e um assistente de alto rigor factual.",
-    "Responda em portugues brasileiro, de forma objetiva e limpa, em no maximo 5 frases.",
-    "Se houver incerteza, explicite com clareza.",
-    `Pergunta: ${state.normalizedMessage}`,
+    "Responda em portugues brasileiro, com linguagem natural, clara e util.",
+    "Se houver incerteza, explicite com clareza. Nao invente fatos.",
+    `Pergunta: ${normalizedMessage}`,
+    recentTurns ? `Contexto recente:\n${recentTurns}` : "Contexto recente: indisponivel",
     evidence.length ? "Evidencias:\n" + evidence.join("\n") : "Evidencias: indisponiveis",
     sourceHints.length ? "Fontes:\n" + sourceHints.join("\n") : "Fontes: indisponiveis",
   ].join("\n");
@@ -55,7 +78,7 @@ export async function runGenerationLlmBridge(state: ProcessingState): Promise<Pr
 
   if (!state.executionArtifacts.generationRuntime.enabled) return state;
 
-  const runtimeTimeout = Math.max(700, Number(process.env.ANM_LLM_BRIDGE_TIMEOUT_MS || 1200));
+  const runtimeTimeout = Math.max(1_200, Number(process.env.ANM_LLM_BRIDGE_TIMEOUT_MS || 9000));
   const prompt = buildRuntimePrompt(state);
   const llmDraft = sanitizeRuntimeDraft(await vllmClient.generate(prompt, { timeoutMs: runtimeTimeout }));
   if (!llmDraft) return state;

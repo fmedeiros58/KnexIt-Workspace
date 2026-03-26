@@ -3,7 +3,7 @@ import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/
 
 export const runtime = "nodejs";
 
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 type SynthesizeRequestBody = {
@@ -176,3 +176,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
