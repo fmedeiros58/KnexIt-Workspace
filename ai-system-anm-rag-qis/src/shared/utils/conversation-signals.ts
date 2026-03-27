@@ -16,6 +16,62 @@ function normalize(value: string): string {
     .trim();
 }
 
+function matchesAnyPattern(value: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(value));
+}
+
+const GREETING_PATTERNS: RegExp[] = [
+  /^(oi+|ola+|oie+|oii+|opa|fala|salve|saudacoes|e ai|eae|hey|hello|hi|yo)(?: leticia)?\??$/,
+  /^(bom dia|boa tarde|boa noite)(?: leticia)?\??$/,
+  /^(boa trde|boa tardee|boa tardee)(?: leticia)?\??$/,
+];
+
+const SMALL_TALK_PATTERNS: RegExp[] = [
+  /^(tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo)(?: leticia)?\??$/,
+  /^(como (?:vc|voce|ce) (?:esta|ta)|como vai|que tal)(?: leticia)?\??$/,
+  /^(beleza|blz|de boa|tranquilo|suave)(?: leticia)?\??$/,
+  /^(?:oi+|ola+|opa|fala|salve|saudacoes)\s+(?:tudo bem(?: com (?:vc|voce|ce))?|como vai|que tal)(?: leticia)?\??$/,
+];
+
+const NAME_SHARE_PATTERNS: RegExp[] = [
+  /\b(posso (?:te )?(?:dizer|falar) meu nome|quer saber meu nome)\b/i,
+  /\b(pode (?:te )?(?:dizer|falar) meu nome)\b/i,
+  /\b(vou te dizer meu nome|te digo meu nome|deixa eu te dizer meu nome)\b/i,
+];
+
+const NAME_RECALL_PATTERNS: RegExp[] = [
+  /\b(qual(?:\s+(?:e|eh))?\s+o?\s*meu nome|qual meu nome|como voce me chama|como vc me chama)\b/i,
+  /\b(diga meu nome|lembra (?:do|de) meu nome|voce lembra (?:do|de) meu nome|vc lembra (?:do|de) meu nome)\b/i,
+  /\b(lembra meu nome|como eu me chamo|qual nome voce tem salvo pra mim)\b/i,
+];
+
+const ASSISTANT_IDENTITY_PATTERNS: RegExp[] = [
+  /\b(qual(?:\s+(?:e|eh))?\s+(?:o\s+)?(?:seu|teu)\s+nome|qual(?:\s+(?:e|eh))?\s+nome\s+da\s+ia)\b/i,
+  /\b(me diga (?:o\s+)?seu nome|me diz (?:o\s+)?seu nome|diga (?:o\s+)?seu nome)\b/i,
+  /\b(como (?:voce|vc|ce) se chama|quem (?:e|eh) (?:voce|vc|ce)|voce (?:e|eh) a leticia|vc (?:e|eh) a leticia)\b/i,
+  /\b(como posso te chamar|posso te chamar de leticia|e o seu)\b/i,
+];
+
+const ASSISTANT_NAME_ORIGIN_PATTERNS: RegExp[] = [
+  /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+(?:tem|usa)\s+(esse\s+)?nome)\b/i,
+  /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+leticia)\b/i,
+  /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/i,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome)\b/i,
+  /\b(o que significa leticia|qual o significado(?: do nome)?(?: de)? leticia|leticia significa o que|o que quer dizer leticia)\b/i,
+  /\b(qual(?:\s+(?:e|eh))?\s+o\s+conceito\s+(?:de|da)\s+leticia|conceito\s+de\s+leticia)\b/i,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+definicao\s+(?:de|da)\s+leticia|definicao\s+de\s+leticia)\b/i,
+  /\b(base\s+conceitual\s+do\s+nome\s+leticia|de\s+onde\s+surgiu\s+(?:o\s+nome\s+)?leticia|de\s+onde\s+surgiu\s+esse\s+nome)\b/i,
+  /\b(como\s+surgiu\s+(?:o\s+nome\s+)?leticia|qual\s+a\s+historia\s+do\s+nome\s+leticia)\b/i,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+ideia\s+por\s+tras\s+do\s+nome\s+leticia|conceito\s+por\s+tras\s+do\s+nome\s+leticia)\b/i,
+  /\b(defina\s+leticia|como\s+se\s+define\s+leticia|qual\s+a\s+definicao\s+do\s+nome\s+leticia)\b/i,
+];
+
+const ASSISTANT_CREATOR_PATTERNS: RegExp[] = [
+  /\b(quem (?:e|eh) (?:o\s+)?medeiros|quem e esse medeiros)\b/i,
+  /\b(quem te criou|quem criou voce|quem e seu criador|quem desenvolveu voce)\b/i,
+  /\b(quem idealizou (?:voce|o projeto)|quem te batizou)\b/i,
+];
+
 function hasReferentialFactualCue(normalized: string): boolean {
   const hasReferentialSubject = /\b(ele|ela|dele|dela|esse|essa|isso|aquele|aquela)\b/i.test(normalized);
   const hasOfficeCue = /\b(presidente|governador|prefeito|ceo|ministro|senador|deputado)\b/i.test(normalized);
@@ -101,33 +157,46 @@ export function toDisplayName(value: string): string {
 
 export function isGreetingMessage(text: string): boolean {
   const normalized = normalize(text);
-  return /^(oi+|ola+|ol|\w*hello\w*|hi|hey|e ai|eae)\??$/.test(normalized);
+  return matchesAnyPattern(normalized, GREETING_PATTERNS);
 }
 
 export function isSmallTalkMessage(text: string): boolean {
   const normalized = normalize(text);
-  return (
-    isGreetingMessage(normalized) ||
-    /^(tudo bem\??|como vc esta\??|como voce esta\??|como vai\??|beleza\??)$/.test(normalized)
-  );
+  return isGreetingMessage(normalized) || matchesAnyPattern(normalized, SMALL_TALK_PATTERNS);
 }
 
 export function isNameSharePrompt(text: string): boolean {
   const normalized = normalize(text);
-  return /\b(posso te dizer meu nome|pode te dizer meu nome|posso falar meu nome|quer saber meu nome)\b/i.test(normalized);
+  return matchesAnyPattern(normalized, NAME_SHARE_PATTERNS);
 }
 
 export function isNameRecallPrompt(text: string): boolean {
   const normalized = normalize(text);
-  return /\b(qual(?:\s+(?:e|eh))?\s+o?\s*meu nome|qual meu nome|como voce me chama|como vc me chama|diga meu nome)\b/i.test(normalized);
+  return matchesAnyPattern(normalized, NAME_RECALL_PATTERNS);
+}
+
+export function isAssistantIdentityPrompt(text: string): boolean {
+  const normalized = normalize(text);
+  return matchesAnyPattern(normalized, ASSISTANT_IDENTITY_PATTERNS);
+}
+
+export function isAssistantNameOriginPrompt(text: string): boolean {
+  const normalized = normalize(text);
+  return matchesAnyPattern(normalized, ASSISTANT_NAME_ORIGIN_PATTERNS);
+}
+
+export function isAssistantCreatorPrompt(text: string): boolean {
+  const normalized = normalize(text);
+  return matchesAnyPattern(normalized, ASSISTANT_CREATOR_PATTERNS);
 }
 
 export function extractPreferredNameFromText(text: string): string | null {
   const cleaned = `${text || ""}`.trim();
   if (!cleaned) return null;
   const patterns = [
-    /(?:meu nome (?:e|eh)|my name is)\s+([A-Za-z][A-Za-z' -]{1,48})/i,
-    /(?:pode (?:passar a )?me chamar de|me chame de|chame-me de|call me)\s+([A-Za-z][A-Za-z' -]{1,48})/i,
+    /(?:meu nome (?:e|eh)|my name is)\s+([\p{L}][\p{L}' -]{1,48})/iu,
+    /(?:pode (?:passar a )?me chamar de|me chame de|chame-me de|call me)\s+([\p{L}][\p{L}' -]{1,48})/iu,
+    /(?:^|[.!?]\s*)(?:eu\s+)?sou\s+([\p{L}]{2,}(?:\s+[\p{L}]{2,}){0,2})\b/iu,
   ];
 
   for (const pattern of patterns) {
@@ -179,25 +248,40 @@ export function extractPreferredNameFromIdentityMemory(state: ProcessingState): 
 export function isConversationalPrompt(text: string): boolean {
   const normalized = normalize(text);
   if (!normalized) return false;
+  const tokens = normalized.split(" ").filter(Boolean);
 
   if (
     isSmallTalkMessage(normalized) ||
     isNameSharePrompt(normalized) ||
     isNameRecallPrompt(normalized) ||
+    isAssistantIdentityPrompt(normalized) ||
+    isAssistantNameOriginPrompt(normalized) ||
+    isAssistantCreatorPrompt(normalized) ||
     extractPreferredNameFromText(normalized)
   ) {
     return true;
   }
 
   const hasQuestion = normalized.includes("?");
-  const tokens = normalized.split(" ").filter(Boolean);
-  const hasTechnicalSignal = /\b(api|endpoint|typescript|javascript|python|sql|docker|kubernetes|bug|debug)\b/i.test(normalized);
+  const hasTechnicalSignal =
+    /\b(api|endpoint|typescript|javascript|python|sql|docker|kubernetes|bug|debug|normalizer|normalizers|normalize|regex|parser)\b/i.test(
+      normalized,
+    );
   const hasFactualSignal =
     /\b(presidente|governador|prefeito|ceo|capital|cotacao|price|fonte|source|latest|today|atual|quando|where|when|ano|eleit[oa]|mandato|posse)\b/i.test(
       normalized,
     );
   const hasResearchSignal = /\b(pesquisa|pesquise|buscar|busca|busque|procure|artigo|paper|estudo|literatura|referencia|referencias|doi|scholar|scielo|pubmed)\b/i.test(normalized);
   const hasReferentialFactualSignal = hasReferentialFactualCue(normalized);
+
+  const hasLooseGreetingSignal =
+    tokens.length <= 3 &&
+    (/^(boa|bom)\b/.test(normalized) || /^oi+\b|^ola+\b|^opa\b|^fala\b|^salve\b|^saudac/.test(normalized)) &&
+    !hasTechnicalSignal &&
+    !hasFactualSignal &&
+    !hasResearchSignal &&
+    !hasReferentialFactualSignal;
+  if (hasLooseGreetingSignal) return true;
 
   if (
     !hasTechnicalSignal &&

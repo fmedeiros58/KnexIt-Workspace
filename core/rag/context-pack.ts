@@ -36,6 +36,32 @@ function sanitizeText(value: string) {
   return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
 }
 
+function normalizeFold(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isInternalArtifactHit(hit: VectorTopKResult) {
+  const sourcePath = normalizeFold(hit.sourcePath || "");
+  const title = normalizeFold(hit.title || "");
+  const text = normalizeFold(hit.text || "");
+  if (sourcePath.includes("internal://rules")) return true;
+  if (sourcePath.includes("internal-rules")) return true;
+  if (title.includes("internal-rules")) return true;
+  if (
+    /\b(priorizar explicitude de incerteza quando aplicavel|evitar afirmacoes absolutas sem evidencia)\b/.test(text)
+  ) {
+    return true;
+  }
+  if (/\blegacy module\s*=|\blegacy-module\s*=|\bruntimescore\s*=/.test(text)) return true;
+  if (/\b(perfil comportamental|sinal epistemic[oa]|consistencia filosofica)\b/.test(text)) return true;
+  return false;
+}
+
 function stableSortHits(hits: VectorTopKResult[]) {
   return [...hits].sort((a, b) => {
     if (a.distance !== b.distance) return a.distance - b.distance;
@@ -73,7 +99,8 @@ function buildChunkBlock(chunk: ContextPackChunk) {
 export function assembleContextPack(input: ContextPackInput): ContextPack {
   const maxChars = Math.max(256, Math.trunc(input.maxChars));
   const maxChunks = Math.max(1, Math.trunc(input.maxChunks));
-  const sorted = stableSortHits(input.hits);
+  const sortedAll = stableSortHits(input.hits);
+  const sorted = sortedAll.filter((hit) => !isInternalArtifactHit(hit));
 
   let usedChars = 0;
   const blocks: string[] = [];
@@ -91,15 +118,14 @@ export function assembleContextPack(input: ContextPackInput): ContextPack {
     usedChars += separatorLength + block.length;
   }
 
-  const omittedChunks = Math.max(0, sorted.length - chunks.length);
+  const omittedChunks = Math.max(0, sortedAll.length - chunks.length);
   return {
     text: blocks.join("\n\n"),
     chunks,
-    totalCandidateChunks: sorted.length,
+    totalCandidateChunks: sortedAll.length,
     omittedChunks,
     usedChars,
     maxChars,
     truncated: omittedChunks > 0,
   };
 }
-

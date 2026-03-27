@@ -27,7 +27,7 @@ function detectQuickIntent(text: string) {
   if (/\b(escreva|reescreva|redija|melhore o texto|writing|rewrite|write)\b/i.test(normalized)) return "writing";
   if (/\b(pesquise|pesquisa|buscar|busque|busca|procure|procurar|artigo|paper|estudo|literatura|referencia|referencias|scholar|scielo|pubmed|latest|atual|fonte|source|cite|research)\b/i.test(normalized)) return "research";
   if (/\b(compare|analise|analysis)\b/i.test(normalized)) return "analysis";
-  if (/\b(codigo|typescript|javascript|python|erro|bug|refator|implemente|technical)\b/i.test(normalized)) return "technical";
+  if (/\b(codigo|typescript|javascript|python|erro|bug|refator|implemente|technical|normalizer|normalizers|normalize|regex|parser)\b/i.test(normalized)) return "technical";
   return "chat";
 }
 

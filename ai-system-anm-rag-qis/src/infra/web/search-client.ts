@@ -15,6 +15,30 @@ export interface SearchResult {
   publishedAt?: string;
 }
 
+export type SearchFailureKind =
+  | "timeout"
+  | "network_error"
+  | "http_error"
+  | "parse_error"
+  | "empty_result"
+  | "unsupported"
+  | "unknown_error";
+
+export interface SearchDiagnostic {
+  provider: string;
+  ok: boolean;
+  durationMs: number;
+  statusCode?: number;
+  resultCount: number;
+  failureKind?: SearchFailureKind;
+  message?: string;
+}
+
+export interface SearchDetailedResponse {
+  results: SearchResult[];
+  diagnostics: SearchDiagnostic[];
+}
+
 export interface SearchClient {
   search: (
     query: string,
@@ -23,6 +47,13 @@ export interface SearchClient {
       providers?: string[];
     },
   ) => Promise<SearchResult[]>;
+  searchDetailed: (
+    query: string,
+    options?: {
+      maxResults?: number;
+      providers?: string[];
+    },
+  ) => Promise<SearchDetailedResponse>;
 }
 
 const fetchClient = createFetchClient();
@@ -160,13 +191,72 @@ async function searchWikipediaApi(query: string, limit: number): Promise<SearchR
 }
 
 async function runProvider(provider: string, query: string, limit: number): Promise<SearchResult[]> {
+  if (provider === "duckduckgo_html") return searchDuckDuckGoHtml(query, limit);
+  if (provider === "bing_html") return searchBingHtml(query, limit);
+  if (provider === "wikipedia_api") return searchWikipediaApi(query, limit);
+  return [];
+}
+
+function classifyFailure(error: unknown): SearchFailureKind {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    if (message.includes("abort") || message.includes("timeout")) return "timeout";
+    if (message.includes("http")) return "http_error";
+    if (message.includes("parse") || message.includes("json")) return "parse_error";
+    return "network_error";
+  }
+  return "unknown_error";
+}
+
+async function runProviderDetailed(provider: string, query: string, limit: number): Promise<SearchDetailedResponse> {
+  const startedAt = Date.now();
+  const supported = provider === "duckduckgo_html" || provider === "bing_html" || provider === "wikipedia_api";
+  if (!supported) {
+    return {
+      results: [],
+      diagnostics: [
+        {
+          provider,
+          ok: false,
+          durationMs: Date.now() - startedAt,
+          resultCount: 0,
+          failureKind: "unsupported",
+          message: `Unsupported provider: ${provider}`,
+        },
+      ],
+    };
+  }
+
   try {
-    if (provider === "duckduckgo_html") return await searchDuckDuckGoHtml(query, limit);
-    if (provider === "bing_html") return await searchBingHtml(query, limit);
-    if (provider === "wikipedia_api") return await searchWikipediaApi(query, limit);
-    return [];
-  } catch {
-    return [];
+    const rows = await runProvider(provider, query, limit);
+    return {
+      results: rows,
+      diagnostics: [
+        {
+          provider,
+          ok: rows.length > 0,
+          durationMs: Date.now() - startedAt,
+          resultCount: rows.length,
+          ...(rows.length
+            ? { message: `${provider} returned ${rows.length} results` }
+            : { failureKind: "empty_result" as const, message: `${provider} returned zero results` }),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      results: [],
+      diagnostics: [
+        {
+          provider,
+          ok: false,
+          durationMs: Date.now() - startedAt,
+          resultCount: 0,
+          failureKind: classifyFailure(error),
+          message: error instanceof Error ? error.message : `${error}`,
+        },
+      ],
+    };
   }
 }
 
@@ -192,8 +282,17 @@ function dedupeResults(results: SearchResult[], max: number): SearchResult[] {
 export function createSearchClient(): SearchClient {
   return {
     async search(query, options = {}) {
+      const detailed = await this.searchDetailed(query, options);
+      return detailed.results;
+    },
+    async searchDetailed(query, options = {}) {
       const normalized = `${query || ""}`.trim();
-      if (!normalized) return [];
+      if (!normalized) {
+        return {
+          results: [],
+          diagnostics: [],
+        };
+      }
 
       const providers = (options.providers?.length ? options.providers : webConfig.providers)
         .map((provider) => provider.trim().toLowerCase())
@@ -201,8 +300,15 @@ export function createSearchClient(): SearchClient {
       const maxResults = Math.max(1, options.maxResults ?? webConfig.maxResults);
       const perProviderLimit = Math.max(2, Math.ceil(maxResults / Math.max(1, providers.length)) + 1);
 
-      const all = await Promise.all(providers.map((provider) => runProvider(provider, normalized, perProviderLimit)));
-      return dedupeResults(all.flat(), maxResults);
+      const all = await Promise.all(
+        providers.map((provider) => runProviderDetailed(provider, normalized, perProviderLimit)),
+      );
+      const mergedResults = dedupeResults(all.flatMap((item) => item.results), maxResults);
+      const diagnostics = all.flatMap((item) => item.diagnostics);
+      return {
+        results: mergedResults,
+        diagnostics,
+      };
     },
   };
 }

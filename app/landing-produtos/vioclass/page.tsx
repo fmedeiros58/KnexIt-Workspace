@@ -1,1 +1,3 @@
-export { default } from "@/landing-produtos/vioclass/page";
+﻿import LandingPage from "../../../landing-produtos/vioclass/page";
+
+export default LandingPage;

@@ -1,2 +1,0 @@
-"""ANM service layer package."""
-

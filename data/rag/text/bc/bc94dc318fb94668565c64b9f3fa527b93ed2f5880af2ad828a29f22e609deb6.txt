@@ -1,0 +1,3 @@
+Documento de healthcheck do pipeline.
+Token de validacao: PIPELINE-1774384197344.
+Este token deve ser recuperado pela resposta do chat.

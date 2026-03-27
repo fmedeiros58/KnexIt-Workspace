@@ -15,7 +15,7 @@ Escopo: Etapa 5 (base de alternancia de modo no frontend)
 - O modo Chat continua sendo a experiencia padrao da tela.
 - Ao alternar para Escrever, o frontend abre o workspace de escrita no mesmo ambiente visual.
 - O workspace de escrita consome o dominio `/write/*` via proxy interno:
-  - `app/api/write/[[...path]]/route.ts` -> encaminha para `ANM_BACKEND_BASE_URL/write/*`.
+  - `app/api/write/[[...path]]/route.ts` -> encaminha para `ANM_API_BASE_URL/write/*`.
 
 ## Como o toggle funciona
 

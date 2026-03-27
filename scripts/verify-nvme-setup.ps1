@@ -227,7 +227,7 @@ $embeddingsBasePath = if ($env:EMBEDDINGS_BASE_PATH) { $env:EMBEDDINGS_BASE_PATH
 $localLlmModelDefault = if ($env:LOCAL_LLM_MODEL_DEFAULT) { $env:LOCAL_LLM_MODEL_DEFAULT } else { "$embeddingsBasePath/CModelosMistral-7B-Instruct-v0.2-AWQ" }
 $tempWorkdirPath = if ($env:TEMP_WORKDIR_PATH) { $env:TEMP_WORKDIR_PATH } else { ".tmp" }
 $exportsBasePath = if ($env:EXPORTS_BASE_PATH) { $env:EXPORTS_BASE_PATH } else { "data/exports" }
-$anmCheckpointDir = if ($env:ANM_CHECKPOINT_DIR) { $env:ANM_CHECKPOINT_DIR } else { "anm_backend/data/checkpoints" }
+$anmCheckpointDir = if ($env:ANM_CHECKPOINT_DIR) { $env:ANM_CHECKPOINT_DIR } else { "data/checkpoints" }
 $ragRawDocumentsPath = if ($env:RAG_RAW_DOCUMENTS_PATH) { $env:RAG_RAW_DOCUMENTS_PATH } else { "$storageBasePath/rag/raw" }
 $ragExtractedTextPath = if ($env:RAG_EXTRACTED_TEXT_PATH) { $env:RAG_EXTRACTED_TEXT_PATH } else { "$storageBasePath/rag/text" }
 $ragAdminBulkBasePath = if ($env:RAG_ADMIN_BULK_BASE_PATH) { $env:RAG_ADMIN_BULK_BASE_PATH } else { "$storageBasePath/rag/bulk" }
@@ -257,7 +257,7 @@ Write-Output "[INFO] IDENTITY_MIGRATIONS_POLICY=$identityMigrationsPolicy"
 Write-Output "[INFO] ANM_CHECKPOINT_RETENTION_DAYS=$anmCheckpointRetentionDays"
 Write-Output "[INFO] EXPORTS_RETENTION_DAYS=$exportsRetentionDays"
 
-$posixCandidates = @($env:NVME_BASE_PATH, $knexAiMigrationFile, $anmCheckpointDir, $dockerDataRoot, $env:ANM_WSL_WORKSPACE_DIR)
+$posixCandidates = @($env:NVME_BASE_PATH, $knexAiMigrationFile, $anmCheckpointDir, $dockerDataRoot)
 $hasPosixPath = $false
 foreach ($candidate in $posixCandidates) {
   if (Is-PosixPath $candidate) {

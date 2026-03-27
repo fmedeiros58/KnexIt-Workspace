@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 const DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1";
 const DEFAULT_MODEL = "mistral-awq";
 const DEFAULT_TIMEOUT_MS = 8_000;
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 8_000;
 const WSL_DISCOVERY_CACHE_MS = 60_000;
 
@@ -94,8 +94,8 @@ function resolveLogicalModelName() {
   const explicit = pickFirstNonEmpty(process.env.LLM_MODEL_NAME);
   if (explicit) return explicit;
 
-  const legacy = pickFirstNonEmpty(process.env.VLLM_MODEL);
-  if (legacy && !legacy.includes("/") && !legacy.includes("\\")) return legacy;
+  const compatModel = pickFirstNonEmpty(process.env.VLLM_MODEL);
+  if (compatModel && !compatModel.includes("/") && !compatModel.includes("\\")) return compatModel;
 
   return DEFAULT_MODEL;
 }
@@ -118,10 +118,16 @@ function readLlmConfig() {
 }
 
 function readEngineModeConfig() {
-  const modeRaw = pickFirstNonEmpty(process.env.KNEXAI_ENGINE_MODE, "direct").toLowerCase();
+  const modeRaw = pickFirstNonEmpty(
+    process.env.KNEXAI_ENGINE_MODE,
+    process.env.ANM_ENGINE_MODE,
+    "direct",
+  )
+    .trim()
+    .toLowerCase();
   const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
+  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, parsedTimeout) : DEFAULT_ANM_TIMEOUT_MS;
   const fallbackRaw = pickFirstNonEmpty(process.env.KNEXAI_ANM_FALLBACK_TO_DIRECT, "1").toLowerCase();
   const fallbackToDirect = !["0", "false", "no", "off"].includes(fallbackRaw);
@@ -368,3 +374,4 @@ export async function GET() {
     { status: first.status === 504 ? 504 : 503 },
   );
 }
+

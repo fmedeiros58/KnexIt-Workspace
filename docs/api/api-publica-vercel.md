@@ -92,7 +92,7 @@ Endpoints de diagnostico (`/health` e `/ready`) retornam metadados de request pa
 
 ## 6.1) Pre-condicao critica para Vercel
 
-Se o backend Next/API estiver rodando no Vercel, o valor de `ANM_BACKEND_BASE_URL` precisa ser
+Se o backend Next/API estiver rodando no Vercel, o valor de `ANM_API_BASE_URL` precisa ser
 **publicamente acessivel pela internet**.
 
 Exemplos validos:
@@ -114,7 +114,7 @@ Resumo:
 2. Proxy (Nginx/Caddy) ativo em `80/443` com TLS valido.
 3. Backend interno acessivel pelo proxy (`127.0.0.1:3000`).
 4. Rota do ANM publicada no proxy (ex.: `https://api.knexspace.com/anm/*` -> `127.0.0.1:8100/*`).
-5. `ANM_BACKEND_BASE_URL` no Vercel apontando para URL publica final (ex.: `https://api.knexspace.com/anm`).
+5. `ANM_API_BASE_URL` no Vercel apontando para URL publica final (ex.: `https://api.knexspace.com/anm`).
 6. CORS/API key configurados conforme este documento.
 
 ## 7) Formatos de request/response (resumo)

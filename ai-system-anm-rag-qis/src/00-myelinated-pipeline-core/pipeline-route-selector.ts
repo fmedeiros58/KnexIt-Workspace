@@ -47,18 +47,24 @@ function decideRoute(params: {
   ambiguity: number;
   priorScore: number;
   verifiable: boolean;
+  tokenCount: number;
+  hasQuestion: boolean;
   quickIntent?: string;
   safetyAction?: string;
 }): PipelineRoute {
   if (params.safetyAction === "caution") return "minimum";
-  if (params.isConversational) return "minimum";
+  if (params.isConversational) return "reflective";
   if (params.quickIntent === "research" && params.verifiable) return "quantum-state";
   if (params.quickIntent === "research") return "inferential";
   if (params.verifiable || params.priorScore >= 0.72) return "quantum-state";
-  if (params.quickIntent === "analysis" || params.quickIntent === "technical") return "inferential";
+  if (params.quickIntent === "analysis") return "inferential";
+  if (params.quickIntent === "technical") {
+    if (params.tokenCount <= 5 && !params.hasQuestion) return "reflective";
+    return "inferential";
+  }
   if (params.priorScore >= 0.55 || params.ambiguity >= 0.52) return "inferential";
   if (params.priorScore >= 0.40 || params.ambiguity >= 0.34) return "reflective";
-  return "minimum";
+  return "reflective";
 }
 
 export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
@@ -103,6 +109,8 @@ export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
     ambiguity: finalAmbiguity,
     priorScore: score,
     verifiable,
+    tokenCount: snapshot.tokenCount,
+    hasQuestion: snapshot.questionCount > 0,
     quickIntent: preRoute?.quickIntent,
     safetyAction: preRoute?.safetyAction,
   });

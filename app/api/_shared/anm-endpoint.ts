@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const WSL_DISCOVERY_CACHE_MS = 60_000;
 const ANM_RESOLUTION_CACHE_MS = Math.max(500, Number(process.env.ANM_BASE_URL_RESOLUTION_CACHE_MS || 3_000));
 const ANM_STICKY_REACHABLE_MS = Math.max(1_000, Number(process.env.ANM_BASE_URL_STICKY_REACHABLE_MS || 120_000));
@@ -86,20 +86,13 @@ function resolveKubernetesServiceBaseUrl(configuredBaseUrl: string) {
 
   const explicit = normalizeUrl(
     pickFirstNonEmpty(
-      process.env.ANM_K8S_SERVICE_BASE_URL,
-      process.env.ANM_BACKEND_CLUSTER_BASE_URL,
+      process.env.ANM_K8S_API_BASE_URL,
+      process.env.ANM_CLUSTER_API_BASE_URL,
     ),
   );
   if (explicit) return explicit;
 
-  try {
-    const parsed = new URL(configuredBaseUrl || DEFAULT_ANM_BASE_URL);
-    const protocol = parsed.protocol || "http:";
-    const port = parsed.port || "8100";
-    return normalizeUrl(`${protocol}//anm-backend:${port}`);
-  } catch {
-    return "http://anm-backend:8100";
-  }
+  return normalizeUrl(configuredBaseUrl || DEFAULT_ANM_BASE_URL);
 }
 
 function tryDiscoverWslHostIp() {
@@ -120,13 +113,21 @@ function tryDiscoverWslHostIp() {
 }
 
 export function readConfiguredAnmBaseUrl(defaultBaseUrl = DEFAULT_ANM_BASE_URL) {
-  return normalizeUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, defaultBaseUrl));
+  return normalizeUrl(
+    pickFirstNonEmpty(
+      process.env.ANM_API_BASE_URL,
+      defaultBaseUrl,
+    ),
+  );
 }
 
 export function resolveAnmBaseUrlCandidates(configuredBaseUrl: string) {
   const configured = normalizeUrl(configuredBaseUrl || DEFAULT_ANM_BASE_URL);
   const fallbackBaseUrls = parseBaseUrlList(
-    pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL_FALLBACKS, ""),
+    pickFirstNonEmpty(
+      process.env.ANM_API_BASE_URL_FALLBACKS,
+      "",
+    ),
   ).filter((item) => item !== configured);
 
   const seedUrls = [configured, ...fallbackBaseUrls].filter(Boolean);
@@ -312,4 +313,5 @@ export async function resolveReachableAnmBaseUrl(input?: {
   };
   return value;
 }
+
 

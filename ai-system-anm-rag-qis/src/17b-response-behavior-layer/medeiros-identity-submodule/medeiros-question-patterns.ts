@@ -1,0 +1,83 @@
+export function normalizeMedeirosText(value: string): string {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchesAnyPattern(value: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(value));
+}
+
+export const MEDEIROS_CREATOR_PATTERNS: RegExp[] = [
+  /\b(quem e esse medeiros)\b/,
+  /\b(quem e o medeiros)\b/,
+  /\b(quem e medeiros)\b/,
+  /\b(quem criou a leticia)\b/,
+  /\b(quem idealizou a leticia)\b/,
+  /\b(quem e o fundador da leticia)\b/,
+  /\b(francimar de lima medeiros)\b/,
+  /\b(medeiros[, ]+f\.?\s*l\.?)\b/,
+];
+
+export const MEDEIROS_IDENTITY_PATTERNS: RegExp[] = [
+  /\b(qual a identidade de medeiros)\b/,
+  /\b(como medeiros influencia a leticia)\b/,
+  /\b(qual a origem epistemologica da leticia)\b/,
+  /\b(por que medeiros e central para a leticia)\b/,
+];
+
+export const MEDEIROS_FOUNDER_INFLUENCE_PATTERNS: RegExp[] = [
+  /\b(influencia de medeiros)\b/,
+  /\b(fundador epistemologico)\b/,
+  /\b(origem epistemologica)\b/,
+  /\b(eixo epistemologico)\b/,
+  /\b(base teorica da leticia)\b/,
+];
+
+export const MEDEIROS_FORMATION_PATTERNS: RegExp[] = [
+  /\b(qual a formacao de medeiros)\b/,
+  /\b(o que medeiros estudou)\b/,
+  /\b(medeiros e formado em que)\b/,
+  /\b(qual a area de formacao de medeiros)\b/,
+  /\b(medeiros estudou letras)\b/,
+  /\b(medeiros estudou medicina)\b/,
+  /\b(medeiros e mestre em que)\b/,
+];
+
+export const MEDEIROS_PROFESSIONAL_PATTERNS: RegExp[] = [
+  /\b(no que medeiros trabalha)\b/,
+  /\b(qual a atuacao profissional de medeiros)\b/,
+  /\b(medeiros trabalha onde)\b/,
+  /\b(medeiros atua no niead)\b/,
+  /\b(medeiros e professor)\b/,
+  /\b(medeiros da aula de que)\b/,
+  /\b(medeiros atuou no ensino superior)\b/,
+];
+
+export function isMedeirosCreatorQuestion(message: string): boolean {
+  const normalized = normalizeMedeirosText(message);
+  return matchesAnyPattern(normalized, MEDEIROS_CREATOR_PATTERNS);
+}
+
+export function isMedeirosIdentityQuestion(message: string): boolean {
+  const normalized = normalizeMedeirosText(message);
+  return matchesAnyPattern(normalized, MEDEIROS_IDENTITY_PATTERNS);
+}
+
+export function isMedeirosFounderInfluenceQuestion(message: string): boolean {
+  const normalized = normalizeMedeirosText(message);
+  return matchesAnyPattern(normalized, MEDEIROS_FOUNDER_INFLUENCE_PATTERNS);
+}
+
+export function isMedeirosFormationQuestion(message: string): boolean {
+  const normalized = normalizeMedeirosText(message);
+  return matchesAnyPattern(normalized, MEDEIROS_FORMATION_PATTERNS);
+}
+
+export function isMedeirosProfessionalQuestion(message: string): boolean {
+  const normalized = normalizeMedeirosText(message);
+  return matchesAnyPattern(normalized, MEDEIROS_PROFESSIONAL_PATTERNS);
+}

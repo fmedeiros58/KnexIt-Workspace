@@ -102,7 +102,7 @@ Observacao:
 | `IDENTITY_SUPABASE_SERVICE_ROLE_KEY` | [.env.example:10](../../.env.example), [lib/identitySupabaseAdmin.ts:10](../../lib/identitySupabaseAdmin.ts) | Chave admin projeto identidade |
 | `LOCAL_LLM_MODEL` | [.env.example:23](../../.env.example), [app/api/knexai/route.ts:126](../../app/api/knexai/route.ts), [anm_backend/adapters/engine_client.py:46](../../anm_backend/adapters/engine_client.py) | Caminho do modelo local (path de disco) |
 | `LOCAL_LLM_BASE_URL` / `LLM_BASE_URL` / `VLLM_BASE_URL` | [.env.example:21](../../.env.example), [.env.example:25](../../.env.example), [.env.example:33](../../.env.example) | Endpoints do motor LLM |
-| `ANM_BACKEND_BASE_URL` | [.env.example:59](../../.env.example), [app/api/knexai/route.ts:173](../../app/api/knexai/route.ts) | Endpoint do backend ANM |
+| `ANM_API_BASE_URL` | [.env.example:59](../../.env.example), [app/api/knexai/route.ts:173](../../app/api/knexai/route.ts) | Endpoint do backend ANM |
 | `DATABASE_URL` | [core/database/client.ts:9](../../core/database/client.ts) | URL de banco do modulo core |
 | `NEXT_DIST_DIR` | [next.config.mjs:2](../../next.config.mjs) | Path de build output Next |
 | `ANM_VENV_DIR` | [scripts/serve-anm.sh:12](../../scripts/serve-anm.sh) | Path do virtualenv ANM |

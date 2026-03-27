@@ -3,7 +3,7 @@ import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/
 
 export const runtime = "nodejs";
 
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 type SynthesizeRequestBody = {
@@ -26,8 +26,8 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
 }
 
 function readAnmConfig() {
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
+  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(4_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, anmTimeoutMs };
 }
@@ -176,3 +176,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

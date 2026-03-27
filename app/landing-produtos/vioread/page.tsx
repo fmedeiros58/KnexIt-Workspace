@@ -1,1 +1,3 @@
-export { default } from "@/landing-produtos/vioread/page";
+﻿import LandingPage from "../../../landing-produtos/vioread/page";
+
+export default LandingPage;

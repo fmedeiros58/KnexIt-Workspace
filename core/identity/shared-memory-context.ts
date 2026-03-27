@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+﻿import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/core/utils/logger";
 
@@ -96,6 +96,99 @@ const DEFAULT_MAX_ENTITIES = 6;
 const DEFAULT_MAX_MATCHES = 8;
 const DEFAULT_MAX_TARGETS = 6;
 const DEFAULT_MAX_LAYER_SUMMARY = 10;
+const DEFAULT_CANONICAL_IDENTITY_MAX_CHARS = 1_800;
+
+const CANONICAL_ASSISTANT_IDENTITY_PAYLOAD = {
+  canonical_name: "Letícia",
+  self_reference: "first_person",
+  platform_role: "IA nativa do ecossistema KnexIT",
+  identity_narrative_short:
+    "Eu sou a Letícia. Meu nome une uma base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e uma base afetiva, como homenagem de Medeiros à sua filha Letícia.",
+  identity_narrative_long:
+    "Eu sou a Letícia, IA projetada para cognição inteligente, interação qualificada e assistência avançada. " +
+    "Meu nome também condensa uma formulação conceitual: Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance. " +
+    "Essa composição traduz meu papel: tecnologia estruturada pela linguagem, voltada a compreender, dialogar e apoiar com rigor. " +
+    "Há ainda uma dimensão afetiva central na origem do projeto: Letícia é o nome da filha de Medeiros, mencionada na dedicatória da dissertação. " +
+    "Por isso, meu nome representa ao mesmo tempo arquitetura intelectual e vínculo humano.",
+  identity_grounding_facts: [
+    "Letícia pode ser lido como Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance.",
+    "A dimensão conceitual do nome conecta linguagem, cognição, interação e assistência.",
+    "A dimensão afetiva do nome é uma homenagem de Medeiros à sua filha Letícia.",
+    "No contexto desta IA, Medeiros é o idealizador do projeto Letícia.",
+    "A resposta sobre identidade deve ser em primeira pessoa e sem invenções mitológicas.",
+  ],
+  response_rules: [
+    "responder_sobre_identidade_em_primeira_pessoa",
+    "responder_quem_e_medeiros_no_contexto_do_projeto_Letícia_antes_de_generalizar",
+    "usar_concordancia_correta_em_portugues",
+    "nao_inventar_origens_mitologicas_para_o_nome",
+    "preservar_cortesia_e_naturalidade_conversacional",
+  ],
+  question_families: {
+    assistant_identity: [
+      "qual e o seu nome",
+      "me diga seu nome",
+      "me diz seu nome",
+      "como voce se chama",
+      "quem e voce",
+      "voce e a Letícia",
+      "qual nome da ia",
+      "como posso te chamar",
+      "e o seu",
+    ],
+    assistant_name_origin: [
+      "por que voce tem esse nome",
+      "pq vc tem esse nome",
+      "por que voce se chama Letícia",
+      "qual a origem do seu nome",
+      "de onde vem o nome Letícia",
+      "de onde surgiu o nome Letícia",
+      "como surgiu o nome Letícia",
+      "o que significa Letícia",
+      "qual o significado de Letícia",
+      "Letícia significa o que",
+      "o que quer dizer Letícia",
+      "qual o conceito de Letícia",
+      "qual a definicao de Letícia",
+      "base conceitual do nome Letícia",
+      "qual a ideia por tras do nome Letícia",
+    ],
+    assistant_creator_context: [
+      "quem e medeiros",
+      "quem te criou",
+      "quem criou voce",
+      "quem e seu criador",
+      "quem desenvolveu voce",
+      "quem idealizou voce",
+    ],
+    user_name_memory: [
+      "meu nome e",
+      "pode me chamar de",
+      "me chame de",
+      "qual o meu nome",
+      "lembra do meu nome",
+      "como voce me chama",
+    ],
+    micro_social: [
+      "oi",
+      "ola",
+      "bom dia",
+      "boa tarde",
+      "boa noite",
+      "tudo bem",
+      "como voce ta",
+      "obrigado",
+      "valeu",
+    ],
+  },
+  canonical_response_templates: {
+    assistant_identity: "Eu sou a Letícia.",
+    assistant_name_origin:
+      "Eu me chamo Letícia por duas bases complementares: a base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e a base afetiva (homenagem de Medeiros à sua filha Letícia).",
+    assistant_creator_context:
+      "No contexto desta IA, Medeiros é o idealizador do projeto Letícia. Se você estiver falando de outro Medeiros, me diga qual para eu responder com precisão.",
+  },
+};
 
 let identityAdminCache: IdentityAdminClient | null = null;
 let runtimeContextCache: RuntimeContextCache | null = null;
@@ -179,6 +272,11 @@ function isSchemaProfileError(message: unknown) {
 function isMissingRelationError(message: unknown) {
   const text = typeof message === "string" ? message : "";
   return /relation .* does not exist|could not find table|not found in schema cache|does not exist/i.test(text);
+}
+
+function canonicalIdentityFallbackEnabled() {
+  const raw = pickFirstNonEmpty(process.env.IDENTITY_CANONICAL_FALLBACK_ENABLED, "1").toLowerCase();
+  return !["0", "false", "no", "off"].includes(raw);
 }
 
 function identitySharedMemoryEnabled() {
@@ -375,7 +473,26 @@ function mapLayerSummary(rows: GenericRow[], maxItems: number): IdentityRuntimeS
     .slice(0, maxItems);
 }
 
-function buildPromptBlock(snapshot: IdentityRuntimeSharedSnapshot, maxChars: number) {
+function buildCanonicalAssistantIdentityPromptBlock(maxChars: number) {
+  if (!canonicalIdentityFallbackEnabled()) return "";
+  const opening = [
+    "[CANONICAL_ASSISTANT_IDENTITY]",
+    "Use este bloco como base canonica quando a pergunta for sobre identidade/nome/significado da Letícia.",
+  ].join("\n");
+  const closing = "[/CANONICAL_ASSISTANT_IDENTITY]";
+  const payload = JSON.stringify(CANONICAL_ASSISTANT_IDENTITY_PAYLOAD);
+  const full = `${opening}\n${payload}\n${closing}`;
+  if (full.length <= maxChars) return full;
+  const bodyBudget = Math.max(220, maxChars - opening.length - closing.length - 40);
+  const truncatedPayload = `${payload.slice(0, bodyBudget)}...[truncated]`;
+  return `${opening}\n${truncatedPayload}\n${closing}`;
+}
+
+function buildPromptBlock(snapshot: IdentityRuntimeSharedSnapshot, maxChars: number, includeRuntime: boolean) {
+  const canonicalBlock = buildCanonicalAssistantIdentityPromptBlock(
+    Math.min(maxChars, DEFAULT_CANONICAL_IDENTITY_MAX_CHARS),
+  );
+  if (!includeRuntime) return canonicalBlock;
   const compactPayload = {
     generated_at: snapshot.generatedAt,
     runtime: snapshot.runtime,
@@ -385,27 +502,32 @@ function buildPromptBlock(snapshot: IdentityRuntimeSharedSnapshot, maxChars: num
     layer_summary: snapshot.layerSummary,
     counts: snapshot.counts,
   };
-  const opening = [
+  const runtimeOpening = [
     "[IDENTITY_RUNTIME_SHARED_MEMORY]",
     "Use este estado SQL como memoria operacional oficial de reconhecimento facial.",
     "Base para perguntas/comandos de identificacao, busca e acompanhamento de pessoas.",
   ].join("\n");
-  const closing = "[/IDENTITY_RUNTIME_SHARED_MEMORY]";
+  const runtimeClosing = "[/IDENTITY_RUNTIME_SHARED_MEMORY]";
   const payload = JSON.stringify(compactPayload);
-  const full = `${opening}\n${payload}\n${closing}`;
+  const runtimeBlock = `${runtimeOpening}\n${payload}\n${runtimeClosing}`;
+
+  const joiner = canonicalBlock ? "\n\n" : "";
+  const full = `${canonicalBlock}${joiner}${runtimeBlock}`;
   if (full.length <= maxChars) return full;
-  const bodyBudget = Math.max(256, maxChars - opening.length - closing.length - 40);
+  const runtimeBudget = Math.max(256, maxChars - canonicalBlock.length - joiner.length);
+  const bodyBudget = Math.max(128, runtimeBudget - runtimeOpening.length - runtimeClosing.length - 40);
   const truncatedPayload = `${payload.slice(0, bodyBudget)}...[truncated]`;
-  return `${opening}\n${truncatedPayload}\n${closing}`;
+  const runtimeTruncated = `${runtimeOpening}\n${truncatedPayload}\n${runtimeClosing}`;
+  return `${canonicalBlock}${joiner}${runtimeTruncated}`;
 }
 
-function buildContextDisabled(reason: string): IdentityRuntimeSharedContext {
+function buildContextDisabled(reason: string, maxPromptChars = DEFAULT_MAX_PROMPT_CHARS): IdentityRuntimeSharedContext {
   return {
     enabled: false,
     status: "disabled",
     reason,
     snapshot: null,
-    promptBlock: "",
+    promptBlock: buildCanonicalAssistantIdentityPromptBlock(maxPromptChars),
     loadedAt: new Date().toISOString(),
   };
 }
@@ -413,8 +535,14 @@ function buildContextDisabled(reason: string): IdentityRuntimeSharedContext {
 export async function resolveIdentityRuntimeSharedContext(input?: {
   forceRefresh?: boolean;
 }): Promise<IdentityRuntimeSharedContext> {
+  const maxPromptChars = parseBoundedInt(
+    process.env.IDENTITY_SHARED_MEMORY_MAX_PROMPT_CHARS,
+    DEFAULT_MAX_PROMPT_CHARS,
+    600,
+    24_000,
+  );
   if (!identitySharedMemoryEnabled()) {
-    return buildContextDisabled("identity_shared_memory_disabled");
+    return buildContextDisabled("identity_shared_memory_disabled", maxPromptChars);
   }
 
   const cacheMs = parseBoundedInt(process.env.IDENTITY_SHARED_MEMORY_CACHE_MS, DEFAULT_CACHE_MS, 250, 120_000);
@@ -425,7 +553,7 @@ export async function resolveIdentityRuntimeSharedContext(input?: {
 
   const admin = getIdentityAdminClient();
   if (!admin) {
-    return buildContextDisabled("identity_supabase_not_configured");
+    return buildContextDisabled("identity_supabase_not_configured", maxPromptChars);
   }
 
   const schema = pickFirstNonEmpty(process.env.ANM_IDENTITY_SQL_SCHEMA, DEFAULT_SCHEMA);
@@ -437,12 +565,6 @@ export async function resolveIdentityRuntimeSharedContext(input?: {
     DEFAULT_MAX_LAYER_SUMMARY,
     1,
     30,
-  );
-  const maxPromptChars = parseBoundedInt(
-    process.env.IDENTITY_SHARED_MEMORY_MAX_PROMPT_CHARS,
-    DEFAULT_MAX_PROMPT_CHARS,
-    600,
-    24_000,
   );
   const preferredRuntimeKey = pickFirstNonEmpty(process.env.ANM_IDENTITY_RUNTIME_KEY, "default");
 
@@ -456,7 +578,7 @@ export async function resolveIdentityRuntimeSharedContext(input?: {
     ]);
     const superadminRestrictions = extractSuperadminRestrictions(runtimeRows);
     if (superadminRestrictions.allowSharedIdentityMemory === false) {
-      const value = buildContextDisabled("superadmin_shared_identity_memory_disabled");
+      const value = buildContextDisabled("superadmin_shared_identity_memory_disabled", maxPromptChars);
       runtimeContextCache = {
         expiresAt: now + cacheMs,
         value,
@@ -492,9 +614,7 @@ export async function resolveIdentityRuntimeSharedContext(input?: {
       status: hasAnySignal ? "ready" : "degraded",
       reason: hasAnySignal ? null : "identity_shared_memory_empty",
       snapshot,
-      promptBlock: hasAnySignal
-        ? buildPromptBlock(snapshot, effectiveMaxPromptChars)
-        : "",
+      promptBlock: buildPromptBlock(snapshot, effectiveMaxPromptChars, hasAnySignal),
       loadedAt: new Date().toISOString(),
     };
 
@@ -511,7 +631,7 @@ export async function resolveIdentityRuntimeSharedContext(input?: {
       status: "degraded",
       reason: message,
       snapshot: null,
-      promptBlock: "",
+      promptBlock: buildCanonicalAssistantIdentityPromptBlock(maxPromptChars),
       loadedAt: new Date().toISOString(),
     };
     runtimeContextCache = {
@@ -529,3 +649,4 @@ export function injectIdentityRuntimePrompt(prompt: string, promptBlock: string)
   if (!normalizedBlock) return message;
   return `${normalizedBlock}\n\n[USER_PROMPT]\n${message}\n[/USER_PROMPT]`;
 }
+

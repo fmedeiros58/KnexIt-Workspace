@@ -56,14 +56,15 @@ describe("routeComplexity", () => {
     expect(decision.score).toBeLessThanOrEqual(0);
   });
 
-  it("trata pergunta factual curta como LITE", () => {
+  it("trata pergunta factual curta com grounding como FULL", () => {
     const decision = routeComplexity({
       text: "qual a capital do brasil?",
       hasAttachments: false,
       hasDocumentScope: false,
       hasConversationContext: false,
     });
-    expect(decision.mode).toBe("lite");
+    expect(decision.mode).toBe("full");
     expect(decision.reasons.some((reason) => reason.includes("SHORT_FACTUAL_QUESTION"))).toBe(true);
+    expect(decision.reasons.some((reason) => reason.includes("FACTUAL_GROUNDING"))).toBe(true);
   });
 });

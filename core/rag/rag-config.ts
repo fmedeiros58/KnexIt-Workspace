@@ -296,7 +296,7 @@ export function loadRagPipelineFlags(raw: NodeJS.ProcessEnv = process.env): RagP
     rerankEnabled: parseBooleanFlag(raw.RERANK_ENABLED, true),
     citationAlignmentEnabled: parseBooleanFlag(raw.CITATION_ALIGNMENT_ENABLED, true),
     writeModeEnabled: parseBooleanFlag(raw.WRITE_MODE_ENABLED, true),
-    ocrAutoEnabled: parseBooleanFlag(raw.OCR_AUTO_ENABLED, false),
+    ocrAutoEnabled: parseBooleanFlag(raw.OCR_AUTO_ENABLED, true),
     mmrEnabled: parseBooleanFlag(raw.RAG_MMR_ENABLED, true),
     retrievalRunAuditEnabled: parseBooleanFlag(raw.RAG_RETRIEVAL_RUN_AUDIT_ENABLED, true),
     generationRunAuditEnabled: parseBooleanFlag(raw.RAG_GENERATION_RUN_AUDIT_ENABLED, true),

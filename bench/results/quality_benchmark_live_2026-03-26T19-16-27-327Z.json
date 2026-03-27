@@ -1,0 +1,166 @@
+{
+  "startedAt": "2026-03-26T19:16:27.327Z",
+  "routes": {
+    "api_chat_auto": {
+      "summary": {
+        "requests": 6,
+        "success": 0,
+        "successRatePct": 0,
+        "semanticHitRatePct": 0,
+        "leakRatePct": 0,
+        "mojibakeRatePct": 0,
+        "p50ms": null,
+        "p95ms": null
+      },
+      "rows": [
+        {
+          "id": "greeting",
+          "ok": false,
+          "status": 400,
+          "ms": 69,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "{\"ok\":false,\"code\":\"RAG_MESSAGE_REQUIRED\",\"message\":\"Envie message (ou question/prompt) para executar /api/chat.\",\"details\":null}"
+        },
+        {
+          "id": "name_ai",
+          "ok": false,
+          "status": 400,
+          "ms": 25,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "{\"ok\":false,\"code\":\"RAG_MESSAGE_REQUIRED\",\"message\":\"Envie message (ou question/prompt) para executar /api/chat.\",\"details\":null}"
+        },
+        {
+          "id": "name_reason",
+          "ok": false,
+          "status": 400,
+          "ms": 22,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "{\"ok\":false,\"code\":\"RAG_MESSAGE_REQUIRED\",\"message\":\"Envie message (ou question/prompt) para executar /api/chat.\",\"details\":null}"
+        },
+        {
+          "id": "capital_br",
+          "ok": false,
+          "status": 400,
+          "ms": 21,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "{\"ok\":false,\"code\":\"RAG_MESSAGE_REQUIRED\",\"message\":\"Envie message (ou question/prompt) para executar /api/chat.\",\"details\":null}"
+        },
+        {
+          "id": "cholesterol",
+          "ok": false,
+          "status": 400,
+          "ms": 21,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "{\"ok\":false,\"code\":\"RAG_MESSAGE_REQUIRED\",\"message\":\"Envie message (ou question/prompt) para executar /api/chat.\",\"details\":null}"
+        },
+        {
+          "id": "missing_info",
+          "ok": false,
+          "status": 400,
+          "ms": 23,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "{\"ok\":false,\"code\":\"RAG_MESSAGE_REQUIRED\",\"message\":\"Envie message (ou question/prompt) para executar /api/chat.\",\"details\":null}"
+        }
+      ]
+    },
+    "api_knexai": {
+      "summary": {
+        "requests": 6,
+        "success": 6,
+        "successRatePct": 100,
+        "semanticHitRatePct": 66.67,
+        "leakRatePct": 0,
+        "mojibakeRatePct": 33.33,
+        "p50ms": 3040,
+        "p95ms": 3837
+      },
+      "rows": [
+        {
+          "id": "greeting",
+          "ok": true,
+          "status": 200,
+          "ms": 185,
+          "error": null,
+          "hit": true,
+          "leak": false,
+          "mojibake": true,
+          "preview": "Oi. Como posso te ajudar agora?"
+        },
+        {
+          "id": "name_ai",
+          "ok": true,
+          "status": 200,
+          "ms": 2773,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "Eu sou a Letícia."
+        },
+        {
+          "id": "name_reason",
+          "ok": true,
+          "status": 200,
+          "ms": 3191,
+          "error": null,
+          "hit": true,
+          "leak": false,
+          "mojibake": false,
+          "preview": "Eu me chamo Letícia por duas bases complementares: a base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e a base afetiva (homenagem de Medeiros à sua filha Letícia). No"
+        },
+        {
+          "id": "capital_br",
+          "ok": true,
+          "status": 200,
+          "ms": 3040,
+          "error": null,
+          "hit": false,
+          "leak": false,
+          "mojibake": false,
+          "preview": "A capital do Brasil é Brasília. Explicação: 1. Identificar a pergunta: A pergunta é sobre a capital do Brasil.\n2. Buscar informação relevante: A capital do Brasil é Brasília.\n3. Gerar resposta: \"A capital do Brasil é Bra"
+        },
+        {
+          "id": "cholesterol",
+          "ok": true,
+          "status": 200,
+          "ms": 3837,
+          "error": null,
+          "hit": true,
+          "leak": false,
+          "mojibake": false,
+          "preview": "Colesterol alto é um estado de elevada concentração de colesterol no sangue. É um fator de risco importante para o desenvolvimento de doenças cardiovasculars, especialmente aterosclerose. A Organização Mundial de Saúde r"
+        },
+        {
+          "id": "missing_info",
+          "ok": true,
+          "status": 200,
+          "ms": 5250,
+          "error": null,
+          "hit": true,
+          "leak": false,
+          "mojibake": true,
+          "preview": "Você gostaria de enviar um convite com \"Medeiros\" como nome completo, incluindo idade e profissão? Eu posso te ajudar assim: \"Você é cordialmente convidado a participar do evento XYZ. O Sr(a) Medeiros, com [idade], [prof"
+        }
+      ]
+    }
+  },
+  "finishedAt": "2026-03-26T19:16:45.786Z"
+}

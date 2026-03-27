@@ -14,6 +14,7 @@ import { controlResponseForm } from "./response-form-controller";
 import { polishFinalText } from "./final-text-polisher";
 import { filterInternalArtifacts } from "./internal-artifact-filter";
 import { handoffStructureToAcademicNormalization } from "./structure-to-academic-normalization-bridge";
+import { isConversationalPrompt } from "../shared/utils/conversation-signals";
 
 function sanitizeFallbackText(value: string): string {
   return `${value || ""}`
@@ -50,13 +51,15 @@ function buildStructureFallback(state: ProcessingState, preferredText: string): 
 
 export async function runStructureLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
+  const sourcePrompt = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  const conversationalPrompt = isConversationalPrompt(sourcePrompt);
   const artifactFilter = filterInternalArtifacts(state.draftResponse.text);
   const structured = enforceStructure(artifactFilter.text || state.draftResponse.text);
   const styled = normalizeStyle(structured);
   const readable = optimizeReadability(styled);
   const analyzed = analyzeStructure(readable);
   const shaped = controlResponseForm(readable, {
-    includeHeading: analyzed.sentenceCount > 2 && !analyzed.hasList,
+    includeHeading: analyzed.sentenceCount > 2 && !analyzed.hasList && !conversationalPrompt,
     heading: "Resposta",
   });
 

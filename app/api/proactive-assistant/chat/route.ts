@@ -18,7 +18,7 @@ type AnmChatResult = {
 type PromptComplexity = "micro" | "direct" | "short" | "medium" | "complex";
 type SupportedLocale = "pt-BR" | "en-US" | "es-ES";
 
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
@@ -30,8 +30,8 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
 }
 
 function readAnmConfig() {
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
+  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(3_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, anmTimeoutMs };
 }
@@ -70,7 +70,7 @@ function isMicroSocialPrompt(prompt: string): boolean {
   if (words.length > 8 || normalized.length > 60) return false;
 
   const microSocialPatterns = [
-    /^(oi|ola|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
+    /^(oi|ola|oie|oii|e ai|eae|opa|saudacoes|hey|hello|hi)$/i,
     /^(bom dia|boa tarde|boa noite)$/i,
     /^(blz|beleza|tudo bem|td bem|como vai|como vc esta|como voce esta|how are you|que tal)$/i,
     /^(nada por agora|nada agora|de boa|tranquilo|ok|okay|ok obrigado|obrigado|obg|valeu)$/i,
@@ -98,7 +98,13 @@ function buildMicroSocialAnswer(prompt: string) {
     .trim();
   const locale = resolveMicroSocialLocale(prompt);
 
-  if (/^(como vc esta|como voce esta|como vai|how are you|tudo bem|td bem|que tal)$/.test(compact)) {
+  if (/^saudacoes$/.test(compact)) {
+    if (locale === "en-US") return "Greetings. How can I help you right now?";
+    if (locale === "es-ES") return "Saludos. Como puedo ayudarte ahora?";
+    return "Saudações. Como posso te ajudar agora?";
+  }
+
+  if (/^(?:(?:oi|ola|opa|fala|salve|saudacoes)\s+)?(como vc esta|como voce esta|como vai|how are you|tudo bem|td bem|que tal)$/.test(compact)) {
     if (locale === "en-US") return "I am doing well and ready to help. What do you want to do next?";
     if (locale === "es-ES") return "Estoy bien y lista para ayudar. Que quieres hacer ahora?";
     return "Estou bem e pronta para ajudar. O que voce quer fazer agora?";
@@ -263,7 +269,7 @@ async function requestLeticiaAnmChat(input: {
   }
 }
 
-async function requestLegacyAnmChat(input: {
+async function requestFallbackAnmChat(input: {
   anmBaseUrl: string;
   anmTimeoutMs: number;
   prompt: string;
@@ -382,29 +388,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const legacy = await requestLegacyAnmChat({
+    const fallback = await requestFallbackAnmChat({
       anmBaseUrl: resolvedAnmBaseUrl,
       anmTimeoutMs,
       prompt,
       sharedIdentityRuntime,
     });
-    if (!legacy.ok) {
+    if (!fallback.ok) {
       return Response.json(
         {
           ok: false,
           code: "PROACTIVE_UPSTREAM_ERROR",
-          message: legacy.detail || `Falha ao consultar o motor proativo (HTTP ${legacy.status}).`,
+          message: fallback.detail || `Falha ao consultar o motor proativo (HTTP ${fallback.status}).`,
         },
-        { status: legacy.status >= 500 ? 502 : legacy.status },
+        { status: fallback.status >= 500 ? 502 : fallback.status },
       );
     }
-    const answer = enforceResponseStructure(legacy.answer.answer, {
+    const answer = enforceResponseStructure(fallback.answer.answer, {
       state: conversationState,
       complexity,
     });
     const headers: Record<string, string> = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
-    if (legacy.answer.traceId) headers["x-knexai-trace-id"] = legacy.answer.traceId;
-    return new Response(createChunkedTextStream(answer || legacy.answer.answer), { status: 200, headers });
+    if (fallback.answer.traceId) headers["x-knexai-trace-id"] = fallback.answer.traceId;
+    return new Response(createChunkedTextStream(answer || fallback.answer.answer), { status: 200, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Assistente proativo indisponivel no momento.";
     const attempted = attemptedAnmBaseUrls.length ? attemptedAnmBaseUrls.join(", ") : "n/a";
@@ -419,3 +425,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

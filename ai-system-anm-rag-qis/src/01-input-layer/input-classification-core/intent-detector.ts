@@ -62,7 +62,7 @@ export function intentDetector(input: IntentDetectorInput): IntentDetectorOutput
     intent = "teaching";
     confidence = 0.8;
     signals.push("teaching_keyword");
-  } else if (matchAnyInTexts(normalizedTexts, [/\b(api|typescript|node|python|sql|docker|kubernetes|debug|bug)\b/i])) {
+  } else if (matchAnyInTexts(normalizedTexts, [/\b(api|typescript|node|python|sql|docker|kubernetes|debug|bug|normalizer|normalizers|normalize|regex|parser)\b/i])) {
     intent = "technical";
     confidence = 0.79;
     signals.push("technical_keyword");

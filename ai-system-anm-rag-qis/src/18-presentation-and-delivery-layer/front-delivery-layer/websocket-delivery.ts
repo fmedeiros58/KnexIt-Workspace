@@ -1,28 +1,24 @@
-﻿export interface WebsocketDeliveryInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { DeliveryBuildResult } from "../presentation-contracts";
+import type { StreamChunkSerializerOutput } from "../output-serializer/stream-chunk-serializer";
+
+export interface WebsocketDeliveryInput {
+  serializedText: string;
+  stream: StreamChunkSerializerOutput;
+  retryPolicy: DeliveryBuildResult["retryPolicy"];
 }
 
-export interface WebsocketDeliveryOutput {
-  ok: boolean;
-  component: string;
-  score: number;
-  payload: Record<string, unknown>;
-}
+export function websocketDelivery(input: WebsocketDeliveryInput): DeliveryBuildResult {
+  const text = input.stream.text || JSON.stringify({ type: "message", text: input.serializedText, done: true });
 
-export function websocketDelivery(input: WebsocketDeliveryInput = {}): WebsocketDeliveryOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
-  };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
   return {
-    ok: true,
-    component: "websocket-delivery",
-    score,
-    payload,
+    channel: "websocket",
+    format: "json-block",
+    text,
+    payload: {
+      mode: "websocket",
+      streamChunkCount: input.stream.chunkCount,
+      retryPolicy: input.retryPolicy,
+    },
+    retryPolicy: input.retryPolicy,
   };
 }

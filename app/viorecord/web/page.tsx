@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../viorecord/web/page";
+import RoutedPage from "../../../viorecord/web/page";
+
+export default RoutedPage;

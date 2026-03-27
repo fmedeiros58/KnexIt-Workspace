@@ -1,4 +1,4 @@
-import { RagQueryService } from "@/core/rag/rag-query-service";
+﻿import { RagQueryService } from "@/core/rag/rag-query-service";
 import type { InternetSearchResponse } from "@/core/rag/internet-search-service";
 import type { RagGenerationConfig, RagPipelineFlags, RagResilienceConfig } from "@/core/rag/rag-config";
 import { RagPipelineError } from "@/core/rag/rag-errors";
@@ -14,6 +14,15 @@ function createTestService(input?: {
     original_filename?: string | null;
   }>;
 }) {
+  const embeddingClient = {
+    getConfig: () => ({ expectedDimension: 768 }),
+    embedQuery: jest.fn(async () => ({
+      vector: Array.from({ length: 768 }, (_, index) => ((index % 13) + 1) / 100),
+      model: "test-embedding",
+      dimension: 768,
+      elapsedMs: 1,
+    })),
+  };
   const llmClient = {
     getConfig: () => ({ baseUrl: "http://127.0.0.1:8000/v1" }),
     completeWithContext: jest.fn(async () => ({
@@ -76,7 +85,7 @@ function createTestService(input?: {
   };
 
   const service = new RagQueryService(
-    {} as any,
+    embeddingClient as any,
     {} as any,
     llmClient as any,
     {} as any,
@@ -116,8 +125,180 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "oi" });
     expect(result.answer.toLowerCase()).toContain("oi");
+    expect(result.answer.toLowerCase()).toContain("letícia");
+    expect(result.answer.toLowerCase()).toContain("como posso te ajudar");
     expect(result.metadata.llm.model).toContain("local_intent");
     expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("responde pergunta de identidade da IA sem chamar LLM", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({ question: "eu gostaria de saber qual o seu nome" });
+    expect(result.answer.toLowerCase()).toContain("eu sou a letícia");
+    expect(result.answer.toLowerCase()).not.toContain("pode me chamar de letícia");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("responde pergunta sobre origem do nome da IA sem chamar LLM", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({ question: "pq vc tem esse nome?" });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(answer).toContain("homenagem");
+    expect(answer).toContain("filha letícia");
+    expect(answer).not.toContain("deusa");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("responde familia de significado do nome em variacao coloquial", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({ question: "ma o que significa Letícia" });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(answer).toContain("homenagem");
+    expect(answer).toContain("filha letícia");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("responde follow-up de significado por familia com apoio do historico", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({
+      question: "mas e esse nome significa o que?",
+      history: [
+        { role: "user", content: "qual o seu nome?" },
+        { role: "assistant", content: "Eu sou a Letícia." },
+      ],
+    });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(answer).toContain("homenagem");
+    expect(answer).toContain("filha letícia");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("responde variacao 'pq te chamam assim' sem chamar LLM", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({ question: "e pq te chamam assim?" });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(answer).toContain("homenagem");
+    expect(answer).toContain("filha letícia");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("responde quem e Medeiros no contexto identitario sem chamar LLM", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({
+      question: "e quem e medeiros?",
+      history: [
+        { role: "user", content: "pq vc tem esse nome?" },
+        { role: "assistant", content: "Eu me chamo Letícia por duas bases complementares." },
+      ],
+    });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("idealizador do projeto letícia");
+    expect(answer).toContain("outro medeiros");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("responde follow-up de aprofundamento sobre Medeiros sem desviar para outro topico", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({
+      question: "estava me referindo a esse mesmo. vc pode me dar mais informações desse medeiros?",
+      history: [
+        { role: "user", content: "e quem e medeiros?" },
+        { role: "assistant", content: "No contexto desta IA, Medeiros e o idealizador do projeto Leticia." },
+      ],
+    });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("idealizador do projeto letícia");
+    expect(answer).not.toContain("medidor");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("pede clarificacao quando follow-up identitario vem ambiguo", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({
+      question: "isso mesmo, pode falar mais?",
+      history: [
+        { role: "user", content: "qual o seu nome?" },
+        { role: "assistant", content: "Eu sou a Leticia." },
+      ],
+    });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("você quer mais detalhes sobre medeiros");
+    expect(answer).toContain("significado do nome letícia");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("nao captura identidade quando follow-up inclui mudanca de topico factual", async () => {
+    const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
+    process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+    try {
+      const { service, llmClient } = createTestService();
+      const result = await service.query({
+        question: "isso mesmo, mas qual a capital do brasil?",
+        history: [
+          { role: "user", content: "e quem e medeiros?" },
+          { role: "assistant", content: "No contexto desta IA, Medeiros e o idealizador do projeto Leticia." },
+        ],
+      });
+      expect(result.answer).toBe("llm");
+      expect(result.metadata.llm.model).toBe("mistral-awq");
+      expect(llmClient.completeWithContext).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousForceMode === undefined) delete process.env.RAG_PIPELINE_FORCE_MODE;
+      else process.env.RAG_PIPELINE_FORCE_MODE = previousForceMode;
+    }
+  });
+
+  it("nao ativa fast-path de identidade para pergunta factual mesmo com historico identitario", async () => {
+    const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
+    process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+    try {
+      const { service, llmClient } = createTestService();
+      const result = await service.query({
+        question: "qual a capital do brasil?",
+        history: [
+          { role: "user", content: "qual o seu nome?" },
+          { role: "assistant", content: "Eu sou a Letícia." },
+        ],
+      });
+      expect(result.answer).toBe("llm");
+      expect(result.metadata.llm.model).toBe("mistral-awq");
+      expect(llmClient.completeWithContext).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousForceMode === undefined) delete process.env.RAG_PIPELINE_FORCE_MODE;
+      else process.env.RAG_PIPELINE_FORCE_MODE = previousForceMode;
+    }
+  });
+
+  it("usa somente o trecho final do USER_INPUT para classificar local-intent", async () => {
+    const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
+    process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+    try {
+      const { service, llmClient } = createTestService();
+      const result = await service.query({
+        question:
+          "Contexto: Eu sou a Letícia. Meu nome tem significado.\n[USER_INPUT]: qual a capital do brasil?",
+        routingHint:
+          "Contexto: Eu sou a Letícia. Meu nome tem significado.\n[USER_INPUT]: qual a capital do brasil?",
+      });
+      expect(result.answer).toBe("llm");
+      expect(result.metadata.llm.model).toBe("mistral-awq");
+      expect(llmClient.completeWithContext).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousForceMode === undefined) delete process.env.RAG_PIPELINE_FORCE_MODE;
+      else process.env.RAG_PIPELINE_FORCE_MODE = previousForceMode;
+    }
   });
 
   it("pede termo de busca quando comando vem sem consulta", async () => {
@@ -138,7 +319,7 @@ describe("RagQueryService local intent replies", () => {
           {
             title: "Heliocentric Theory",
             url: "https://example.org/heliocentric.pdf",
-            snippet: "Documento de referencia",
+            snippet: "Documento de referência",
             isPdf: true,
           },
         ],
@@ -156,11 +337,72 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const stream = await service.queryStream({ question: "boa tarde" });
     const text = await readStream(stream);
-    expect(text.toLowerCase()).toContain("pronto para ajudar");
+    expect(text.toLowerCase()).toContain("boa tarde");
+    expect(text.toLowerCase()).toContain("letícia");
     expect(llmClient.streamWithContext).not.toHaveBeenCalled();
   });
 
-  it("pede clarificacao quando referencia singular e ha multiplos documentos no escopo", async () => {
+  it("responde small-talk curto sem chamar LLM", async () => {
+    const { service, llmClient } = createTestService();
+    const result = await service.query({ question: "tudo bem com vc?" });
+    const answer = result.answer.toLowerCase();
+    expect(answer).toContain("tudo certo por aqui");
+    expect(answer).toContain("como posso te ajudar agora");
+    expect(result.metadata.llm.model).toContain("local_intent");
+    expect(llmClient.completeWithContext).not.toHaveBeenCalled();
+  });
+
+  it("funciona no stream local para pergunta de identidade da IA", async () => {
+    const { service, llmClient } = createTestService();
+    const stream = await service.queryStream({ question: "qual o seu nome?" });
+    const text = await readStream(stream);
+    expect(text.toLowerCase()).toContain("eu sou a letícia");
+    expect(llmClient.streamWithContext).not.toHaveBeenCalled();
+  });
+
+  it("funciona no stream local para pergunta sobre origem do nome da IA", async () => {
+    const { service, llmClient } = createTestService();
+    const stream = await service.queryStream({ question: "por que Você tem esse nome?" });
+    const text = (await readStream(stream)).toLowerCase();
+    expect(text).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(text).toContain("homenagem");
+    expect(text).toContain("filha letícia");
+    expect(text).not.toContain("deusa");
+    expect(llmClient.streamWithContext).not.toHaveBeenCalled();
+  });
+
+  it("funciona no stream para familia de significado do nome com apoio do historico", async () => {
+    const { service, llmClient } = createTestService();
+    const stream = await service.queryStream({
+      question: "esse nome significa o que?",
+      history: [
+        { role: "user", content: "qual o seu nome?" },
+        { role: "assistant", content: "Eu sou a Letícia." },
+      ],
+    });
+    const text = (await readStream(stream)).toLowerCase();
+    expect(text).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(text).toContain("homenagem");
+    expect(text).toContain("filha letícia");
+    expect(llmClient.streamWithContext).not.toHaveBeenCalled();
+  });
+
+  it("funciona no stream para quem e Medeiros no contexto identitario", async () => {
+    const { service, llmClient } = createTestService();
+    const stream = await service.queryStream({
+      question: "quem e medeiros?",
+      history: [
+        { role: "user", content: "qual o seu nome?" },
+        { role: "assistant", content: "Eu sou a Letícia." },
+      ],
+    });
+    const text = (await readStream(stream)).toLowerCase();
+    expect(text).toContain("idealizador do projeto letícia");
+    expect(text).toContain("outro medeiros");
+    expect(llmClient.streamWithContext).not.toHaveBeenCalled();
+  });
+
+  it("pede clarificacao quando referência singular e ha multiplos documentos no escopo", async () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({
       question: "quero um resumo dessa obra",
@@ -181,7 +423,7 @@ describe("RagQueryService local intent replies", () => {
         throw new RagPipelineError(
           422,
           "RAG_DOCUMENT_SCOPE_EMPTY_CONTEXT",
-          "Nao encontrei trechos suficientes do documento em escopo para gerar resposta confiavel.",
+          "Não encontrei trechos suficientes do documento em escopo para gerar resposta confiável.",
         );
       });
       (service as any).orchestratorV2 = {
@@ -194,7 +436,7 @@ describe("RagQueryService local intent replies", () => {
       });
 
       expect(orchestratorQuery).toHaveBeenCalledTimes(1);
-      expect(result.answer.toLowerCase()).toContain("voce quer que eu resuma o arquivo inteiro");
+      expect(result.answer.toLowerCase()).toContain("você quer que eu resuma o arquivo inteiro");
       expect(result.metadata.llm.model).toContain("local_intent");
       expect(llmClient.completeWithContext).not.toHaveBeenCalled();
     } finally {
@@ -303,7 +545,7 @@ describe("RagQueryService local intent replies", () => {
       };
 
       await service.query({
-        question: "analise detalhadamente a arquitetura do sistema e proponha melhorias estruturais de alto impacto",
+        question: "análise detalhadamente a arquitetura do sistema e proponha melhorias estruturais de alto impacto",
         maxResponseTokens: 5000,
       });
 
@@ -456,7 +698,7 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [11, 22],
         history: [
           { role: "user", content: "Quero um resumo dessa obra." },
-          { role: "assistant", content: "Voce pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
           { role: "user", content: "a dissertacao" },
         ],
       });
@@ -480,7 +722,7 @@ describe("RagQueryService local intent replies", () => {
         vectorRows: [
           {
             id: 71,
-            title: "R42 - The flipped classroom - meta analise",
+            title: "R42 - The flipped classroom - meta análise",
             source_path: "uploads/r42-flipped-classroom.pdf",
             original_filename: "R42 - The flipped clasroom - meta....pdf",
           },
@@ -500,7 +742,7 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [71, 72],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Voce pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
           { role: "user", content: "a dissertacao" },
         ],
       });
@@ -514,7 +756,7 @@ describe("RagQueryService local intent replies", () => {
     }
   });
 
-  it("prioriza nova solicitacao nao vinculada e nao insiste na clarificacao anterior", async () => {
+  it("prioriza nova solicitacao Não vinculada e Não insiste na clarificacao anterior", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
     try {
@@ -522,7 +764,7 @@ describe("RagQueryService local intent replies", () => {
         vectorRows: [
           {
             id: 81,
-            title: "R42 - The flipped classroom - meta analise",
+            title: "R42 - The flipped classroom - meta análise",
             source_path: "uploads/r42-flipped-classroom.pdf",
             original_filename: "R42 - The flipped clasroom - meta....pdf",
           },
@@ -542,7 +784,7 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [81, 82],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Voce pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
         ],
       });
 
@@ -563,7 +805,7 @@ describe("RagQueryService local intent replies", () => {
         vectorRows: [
           {
             id: 85,
-            title: "R42 - The flipped classroom - meta analise",
+            title: "R42 - The flipped classroom - meta análise",
             source_path: "uploads/r42-flipped-classroom.pdf",
             original_filename: "R42 - The flipped clasroom - meta....pdf",
           },
@@ -583,7 +825,7 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [85, 86],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Voce pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
         ],
       });
 
@@ -604,7 +846,7 @@ describe("RagQueryService local intent replies", () => {
         vectorRows: [
           {
             id: 91,
-            title: "R42 - The flipped classroom - meta analise",
+            title: "R42 - The flipped classroom - meta análise",
             source_path: "uploads/r42-flipped-classroom.pdf",
             original_filename: "R42 - The flipped clasroom - meta....pdf",
           },
@@ -624,7 +866,7 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [91, 92],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Voce pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
         ],
       });
 
@@ -665,7 +907,7 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [31, 32],
         history: [
           { role: "user", content: "Quero um resumo dessa obra." },
-          { role: "assistant", content: "Voce pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
           { role: "user", content: "a dissertacao" },
         ],
       });
@@ -682,3 +924,5 @@ describe("RagQueryService local intent replies", () => {
     }
   });
 });
+
+

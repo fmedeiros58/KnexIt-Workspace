@@ -1,4 +1,4 @@
-import { OutlineGuardService } from "@/core/assistant/anti_redundancy/outline-guard.service";
+﻿import { OutlineGuardService } from "@/core/assistant/anti_redundancy/outline-guard.service";
 import { RedundancyFilterService } from "@/core/assistant/anti_redundancy/redundancy-filter.service";
 import { GenericStructureEnforcer } from "@/core/assistant/postprocess/generic-structure.enforcer";
 import type { PipelineContext } from "@/core/assistant/pipeline/pipeline-context";
@@ -7,10 +7,78 @@ import type { Stage } from "@/core/assistant/pipeline/stages/stage.interface";
 import { enforceResponseStructure } from "@/core/chat/perception/response-structure.enforcer";
 import type { ConversationPerceptionState } from "@/core/chat/perception/types";
 import type { RagQueryService } from "@/core/rag/rag-query-service";
+import { resolveIdentityFallbackForMessage } from "../../../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
 
 const CTA_MIN_CHARS = 120;
 const DEFAULT_REPAIR_PASSES = 1;
 const STREAM_PREFIX_BUFFER_MAX_CHARS = 520;
+const UTF8_MOJIBAKE_REPLACEMENTS: ReadonlyArray<[string, string]> = [
+  ["\u00C3\u00A1", "\u00E1"],
+  ["\u00C3\u00A0", "\u00E0"],
+  ["\u00C3\u00A2", "\u00E2"],
+  ["\u00C3\u00A3", "\u00E3"],
+  ["\u00C3\u00A4", "\u00E4"],
+  ["\u00C3\u00A9", "\u00E9"],
+  ["\u00C3\u00AA", "\u00EA"],
+  ["\u00C3\u00A8", "\u00E8"],
+  ["\u00C3\u00AD", "\u00ED"],
+  ["\u00C3\u00AC", "\u00EC"],
+  ["\u00C3\u00B3", "\u00F3"],
+  ["\u00C3\u00B4", "\u00F4"],
+  ["\u00C3\u00B5", "\u00F5"],
+  ["\u00C3\u00B6", "\u00F6"],
+  ["\u00C3\u00BA", "\u00FA"],
+  ["\u00C3\u00BC", "\u00FC"],
+  ["\u00C3\u00A7", "\u00E7"],
+  ["\u00C3\u0081", "\u00C1"],
+  ["\u00C3\u0089", "\u00C9"],
+  ["\u00C3\u008D", "\u00CD"],
+  ["\u00C3\u0093", "\u00D3"],
+  ["\u00C3\u009A", "\u00DA"],
+  ["\u00C3\u0087", "\u00C7"],
+  ["\u00E2\u0080\u0093", "-"],
+  ["\u00E2\u0080\u0094", "-"],
+  ["\u00E2\u0080\u0098", "'"],
+  ["\u00E2\u0080\u0099", "'"],
+  ["\u00E2\u0080\u009C", "\""],
+  ["\u00E2\u0080\u009D", "\""],
+  ["\u00E2\u0080\u00A6", "..."],
+  ["\u00C2", ""],
+];
+
+const PT_DIACRITIC_REPLACEMENTS: ReadonlyArray<[RegExp, string]> = [
+  [/\bcognicao\b/g, "cognição"],
+  [/\binteracao\b/g, "interação"],
+  [/\bassistencia\b/g, "assistência"],
+  [/\btecnica\b/g, "técnica"],
+  [/\bvinculo\b/g, "vínculo"],
+  [/\bdimensao\b/g, "dimensão"],
+  [/\bformulacao\b/g, "formulação"],
+  [/\bcomposicao\b/g, "composição"],
+  [/\bdissertacao\b/g, "dissertação"],
+  [/\bdedicatoria\b/g, "dedicatória"],
+  [/\bprecisao\b/g, "precisão"],
+  [/\binvencoes\b/g, "invenções"],
+  [/\bmitologicas\b/g, "mitológicas"],
+  [/\bnao\b/g, "não"],
+  [/\binformacao\b/g, "informação"],
+  [/\bverificacao\b/g, "verificação"],
+  [/\bvoce\b/g, "você"],
+  [/\bVoce\b/g, "Você"],
+];
+
+function shouldApplyPortugueseDiacriticRepair(value: string) {
+  const normalized = `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  return /\b(leticia|medeiros|language-engineered technology|cognicao|interacao|assistencia|arquitetura tecnica|vinculo humano)\b/.test(
+    normalized,
+  );
+}
 
 function normalize(value: string) {
   return `${value || ""}`
@@ -65,6 +133,8 @@ function resolveNextStepAction(ctx: PipelineContext, languageFamily: "pt" | "en"
 }
 
 function buildNextStepCta(ctx: PipelineContext, text: string) {
+  const ctaEnabled = parseBooleanEnv(process.env.ASSISTANT_APPEND_NEXT_STEP_CTA, false);
+  if (!ctaEnabled) return "";
   const normalized = normalize(text);
   if (!normalized || normalized.length < CTA_MIN_CHARS) return "";
   if (ctx.mode !== "chat") return "";
@@ -94,9 +164,9 @@ function buildRepairPrompt(ctx: PipelineContext, repairPrompt: string, baseText:
     ].join("\n");
   }
   return [
-    "Voce esta no modo de reparo para texto academico.",
+    "Você está no modo de reparo para texto acadêmico.",
     `Idioma alvo: ${targetLanguage}.`,
-    "Respeite o template, remova redundancias e nao invente informacoes.",
+    "Respeite o template, remova redundâncias e não invente informações.",
     repairPrompt,
     "",
     "TEXTO PARA REPARO:",
@@ -131,6 +201,25 @@ function stripQuestionAnswerEnvelope(text: string) {
   const answerMatch = text.match(/(?:resposta|answer|response)\s*[:：-]\s*/i);
   if (!answerMatch || answerMatch.index === undefined) return text;
   return text.slice(answerMatch.index + answerMatch[0].length).trimStart();
+}
+
+function stripDialogueTranscriptArtifacts(text: string) {
+  const source = `${text || ""}`.trim();
+  if (!source) return "";
+
+  // Ex.: "Usuário: ... Letícia: ... Usuário: ... Letícia: ..."
+  const transcriptPattern =
+    /\b(?:usuario|usuário|user)\s*:\s*[\s\S]*?\b(?:leticia|assistente|assistant)\s*:\s*([\s\S]*)$/i;
+  const transcriptMatch = source.match(transcriptPattern);
+  if (transcriptMatch?.[1]) {
+    return `${transcriptMatch[1]}`.trim();
+  }
+
+  // Remove prefixes repetidos de papel no começo da resposta final.
+  return source
+    .replace(/^\s*(?:usuario|usuário|user)\s*:\s*/i, "")
+    .replace(/^\s*(?:leticia|assistente|assistant)\s*:\s*/i, "")
+    .trim();
 }
 
 function stripEchoedUserMessage(text: string, userMessage: string) {
@@ -178,12 +267,192 @@ function isVerifiableCurrentQuestion(value: string) {
   return asksCurrentOffice || asksVerifiableData;
 }
 
+function repairUtf8Mojibake(value: string) {
+  let repaired = `${value || ""}`;
+  for (const [from, to] of UTF8_MOJIBAKE_REPLACEMENTS) {
+    if (!repaired.includes(from)) continue;
+    repaired = repaired.split(from).join(to);
+  }
+  const mojibakeChanged = repaired !== `${value || ""}`;
+  if (mojibakeChanged || shouldApplyPortugueseDiacriticRepair(repaired)) {
+    for (const [pattern, replacement] of PT_DIACRITIC_REPLACEMENTS) {
+      repaired = repaired.replace(pattern, replacement);
+    }
+  }
+  return repaired;
+}
+
+function isAuthorYearGroundingQuestion(value: string) {
+  const normalized = normalizeFold(value);
+  if (!normalized) return false;
+  const hasYear = /\b(19|20)\d{2}\b/.test(normalized);
+  if (!hasYear) return false;
+  const hasAcademicCue = /\b(dissertacao|tese|obra|artigo|paper|resenha|citacao|referencia)\b/.test(normalized);
+  if (!hasAcademicCue) return false;
+  const hasAuthorFrame =
+    /\b(segundo|conforme|de acordo com|autor|autora)\b/.test(normalized) ||
+    /\b(de|da|do)\s+[a-z][a-z.'\-\s]{1,80}\s*\((19|20)\d{2}\)/.test(normalized) ||
+    /\b[a-z][a-z.'\-\s]{1,80}\s*\((19|20)\d{2}\)/.test(normalized);
+  return hasAuthorFrame;
+}
+
 function hasScopedDocumentInput(ctx: PipelineContext) {
   if (ctx.ragInput.composerBound === true) return true;
   if (Number.isFinite(Number(ctx.ragInput.documentId)) && Number(ctx.ragInput.documentId) > 0) return true;
   if (Array.isArray(ctx.ragInput.documentIds) && ctx.ragInput.documentIds.some((row) => Number(row) > 0)) return true;
   if (Array.isArray(ctx.attachments) && ctx.attachments.length > 0) return true;
   return false;
+}
+
+function isDocumentGroundingRequest(userMessage: string) {
+  const normalized = normalizeFold(userMessage);
+  if (!normalized) return false;
+  const asksAnalyticalTask =
+    /\b(resenha|analise|analisar|resumo|sintese|critica|comente|explique|interprete|avali(e|ar)|desenvolva)\b/.test(
+      normalized,
+    ) || /\b(faca|faça)\b/.test(normalized);
+  if (!asksAnalyticalTask) return false;
+  const mentionsDocument =
+    /\b(arquivo|documento|anexo|pdf|obra|dissertacao|tese|trabalho|texto|material)\b/.test(normalized) ||
+    /\b(esse|essa|este|esta|desse|dessa|deste|em questao|em questao)\b/.test(normalized);
+  return mentionsDocument;
+}
+
+function hasGroundedDocumentEvidence(ctx: PipelineContext) {
+  const retrievalChunks = Number(ctx.ragMetadata?.retrieval?.returnedChunks || 0);
+  const selectedChunks = Number(ctx.ragMetadata?.contextPack?.selectedChunks || 0);
+  const fullDocChars = Number(ctx.ragMetadata?.fullDocumentRead?.includedChars || 0);
+  if (retrievalChunks > 0 || selectedChunks > 0 || fullDocChars > 0) return true;
+  return (ctx.evidence || []).some((row) => {
+    const ref = `${row.ref || ""}`.trim().toLowerCase();
+    const text = `${row.text || ""}`.trim();
+    if (row.source !== "rag") return false;
+    if (!/^doc:|^docscope:/.test(ref)) return false;
+    if (text.length < 80) return false;
+    if (/nao foi possivel recuperar trechos/i.test(text)) return false;
+    if (/nao foi possivel consultar o conteudo/i.test(text)) return false;
+    return true;
+  });
+}
+
+function hasDocumentClarificationSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(nao encontrei trechos suficientes do documento|nao consegui recuperar trechos|preciso de mais informacoes do arquivo)\b/.test(
+      normalized,
+    ) ||
+    /\b(voce quer que eu (resuma|leia)|quer indicar paginas|trecho prioritario)\b/.test(normalized)
+  );
+}
+
+function hasDocumentGroundedResponseSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(com base no documento|de acordo com o documento|no documento anexado|no arquivo anexado)\b/.test(normalized) ||
+    /\b(trecho(s)? do documento|trecho(s)? recuperado(s)?|obra anexada)\b/.test(normalized)
+  );
+}
+
+type IdentityField = "nome_completo" | "idade" | "profissao";
+
+function collectUserConversationText(ctx: PipelineContext) {
+  const tail = (ctx.conversation || [])
+    .filter((row) => row.role === "user")
+    .slice(-6)
+    .map((row) => `${row.content || ""}`.trim())
+    .filter(Boolean)
+    .join(" ");
+  return `${tail} ${`${ctx.userMessage || ""}`.trim()}`.trim();
+}
+
+function extractMissingIdentityFields(text: string): IdentityField[] {
+  const normalized = normalizeFold(text);
+  if (!normalized) return [];
+
+  const isInviteDraftRequest =
+    /\b(escreva|redija|crie|faca|faça|monte|produza)\b/.test(normalized) &&
+    /\b(convite|texto convite|mensagem|carta)\b/.test(normalized);
+  if (!isInviteDraftRequest) return [];
+
+  const asksFullName = /\b(nome completo)\b/.test(normalized);
+  const asksAge = /\b(minha idade|idade)\b/.test(normalized);
+  const asksProfession = /\b(minha profissao|profissao)\b/.test(normalized);
+
+  const nameMatch = normalized.match(/\bmeu nome(?: completo)? (?:e|eh)\s+([a-z][a-z\s.'-]{0,120})/i);
+  const providedNameTokens = nameMatch
+    ? nameMatch[1]
+        .trim()
+        .split(/\s+/g)
+        .filter(Boolean)
+    : [];
+  const hasFullName = providedNameTokens.length >= 2;
+
+  const hasAge =
+    /\b(?:tenho|minha idade (?:e|eh)|idade)\s*\d{1,3}\s*(?:anos?)?\b/.test(normalized) ||
+    /\b\d{1,3}\s*anos\b/.test(normalized);
+
+  const hasProfession =
+    /\b(?:sou|minha profissao (?:e|eh)|trabalho como)\s+[a-z][a-z\s-]{1,80}\b/.test(normalized) &&
+    !/\b(?:sou\s+medeiros)\b/.test(normalized);
+
+  const missing: IdentityField[] = [];
+  if (asksFullName && !hasFullName) missing.push("nome_completo");
+  if (asksAge && !hasAge) missing.push("idade");
+  if (asksProfession && !hasProfession) missing.push("profissao");
+  return missing;
+}
+
+function hasIdentityClarificationSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(para escrever|para montar|para redigir|me faltam dados|preciso de)\b/.test(normalized) &&
+    /\b(nome completo|idade|profissao)\b/.test(normalized)
+  );
+}
+
+function buildIdentityClarificationReply(ctx: PipelineContext, missing: IdentityField[]) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    const labels = missing.map((field) => {
+      if (field === "nome_completo") return "your full name";
+      if (field === "idade") return "your age";
+      return "your profession";
+    });
+    return `I can write this invitation, but I still need: ${labels.join(", ")}. If you want, also tell me your friend's name to personalize the opening.`;
+  }
+  const labels = missing.map((field) => {
+    if (field === "nome_completo") return "seu nome completo";
+    if (field === "idade") return "sua idade";
+    return "sua profissao";
+  });
+  return `Perfeito. Para eu escrever esse convite exatamente como voce pediu, ainda preciso de ${labels.join(", ")}. Se quiser, tambem me diga o nome do seu amigo para personalizar a abertura.`;
+}
+
+function enforceIdentityClarificationGuard(ctx: PipelineContext, text: string) {
+  const missing = extractMissingIdentityFields(collectUserConversationText(ctx));
+  if (!missing.length) return text;
+  if (hasIdentityClarificationSignal(text)) return text;
+  return buildIdentityClarificationReply(ctx, missing);
+}
+
+function buildMissingDocumentGroundingReply(ctx: PipelineContext) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    return "I can do this analysis, but I still do not have enough grounded excerpts from the attached file. Do you want me to read the full document now, or should I focus on specific pages/sections?";
+  }
+  return "Posso fazer essa análise, mas ainda não tenho trechos suficientes do arquivo anexado para responder com precisão. Você quer que eu leia o documento inteiro agora, ou prefere indicar páginas/trechos prioritários?";
+}
+
+function enforceDocumentGroundingClarification(ctx: PipelineContext, text: string) {
+  if (!hasScopedDocumentInput(ctx)) return text;
+  if (!isDocumentGroundingRequest(ctx.userMessage)) return text;
+  if (hasDocumentGroundedResponseSignal(text)) return text;
+  if (hasGroundedDocumentEvidence(ctx)) return text;
+  if (hasDocumentClarificationSignal(text)) return text;
+  return buildMissingDocumentGroundingReply(ctx);
 }
 
 function hasPositiveWebEvidence(ctx: PipelineContext) {
@@ -225,12 +494,25 @@ function buildMissingWebVerificationReply(ctx: PipelineContext) {
   if (languageFamily === "en") {
     return "I could not validate this fact with web sources in this turn. To avoid outdated information, I need to rerun multi-source verification before confirming it.";
   }
-  return "Nao consegui validar esse fato em fontes web neste turno. Para evitar informacao desatualizada, preciso repetir a verificacao multifonte antes de confirmar.";
+  return "Não consegui validar esse fato em fontes web neste turno. Para evitar informação desatualizada, preciso repetir a verificação multifonte antes de confirmar.";
+}
+
+function buildMissingAuthorYearGroundingReply(ctx: PipelineContext) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    return "I could not validate this author-year reference with grounded sources in this turn. Send the source document, excerpt, or reliable link so I can answer with traceable support.";
+  }
+  return "Não consegui validar esta referência autor-ano com fontes ancoradas neste turno. Envie o documento, trecho ou link confiável para eu responder com lastro verificável.";
 }
 
 function enforceVerifiableWebGuard(ctx: PipelineContext, text: string) {
   const forceMultiSource = parseBooleanEnv(process.env.KNEXAI_FORCE_MULTI_SOURCE_WEB_SEARCH, true);
   if (!forceMultiSource) return text;
+  if (isAuthorYearGroundingQuestion(ctx.userMessage)) {
+    if (hasScopedDocumentInput(ctx)) return text;
+    if (hasPositiveWebEvidence(ctx)) return text;
+    return buildMissingAuthorYearGroundingReply(ctx);
+  }
   if (!isVerifiableCurrentQuestion(ctx.userMessage)) return text;
   if (hasScopedDocumentInput(ctx)) return text;
   if (hasPersonaPolicyLeak(text)) return buildMissingWebVerificationReply(ctx);
@@ -292,6 +574,7 @@ function stripTrailingAnswerWrapper(text: string) {
 function stripMantraArtifacts(text: string) {
   let output = `${text || ""}`;
   if (!output.trim()) return "";
+  output = output.replace(/^[\s\S]*?traduc(?:ao|ção)\s+para o portugues\s*:\s*/i, "");
   output = output.replace(/\s*\[(?:end of response|fim da resposta)\]\s*$/i, "");
   output = output
     .split(/\r?\n/)
@@ -300,6 +583,15 @@ function stripMantraArtifacts(text: string) {
       if (!normalized) return true;
       if (/^(confianca|confidence|confianza)\s*:/i.test(normalized)) return false;
       if (/^(verificado em|verified at|verificado en)\s*:/i.test(normalized)) return false;
+      if (/^leitura inicial\s*:/i.test(normalized)) return false;
+      if (/^perfil comportamental\s*:/i.test(normalized)) return false;
+      if (/^sinal epistemic[oa]\s*:/i.test(normalized)) return false;
+      if (/^consistencia filosofica\s*:/i.test(normalized)) return false;
+      if (/^resposta\s*:\s*(evit|prioriz|explic|preserv|manter)\b/i.test(normalized)) return false;
+      if (/^(priorizar explicitude de incerteza quando aplicavel|evitar afirmacoes absolutas sem evidencia)\b/i.test(normalized)) {
+        return false;
+      }
+      if (/\blegacy-module\s*=|\bruntimescore\s*=/i.test(normalized)) return false;
       if (
         /^(respondo com naturalidade|respondo como uma pessoa util|i respond naturally|i respond as a helpful professional)\b/i.test(
           normalized,
@@ -310,23 +602,98 @@ function stripMantraArtifacts(text: string) {
       return true;
     })
     .join("\n");
+  output = output.replace(/\bA resposta foi alinhada ao escopo solicitado\.\s*/gi, "");
+  output = output.replace(/\bLeitura inicial\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(
+    /\bVou desenvolver isso com voce de forma progressiva,\s*separando o que esta mais consolidado do que ainda precisa de teste\.?/gi,
+    " ",
+  );
+  output = output.replace(/\bPerfil comportamental\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bSinal epistemic[oa]\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bConsistencia filosofica\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bResposta\s*:\s*(?:evit|prioriz|explic|preserv|manter)[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bPriorizar explicitude de incerteza quando aplicavel\.?/gi, " ");
+  output = output.replace(/\bEvitar afirmacoes absolutas sem evidencia\.?/gi, " ");
+  output = output.replace(/\blegacy-module\s*=\s*[a-z0-9_-]+[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bruntimeScore\s*=\s*[-\d.]+[^.\n]*\.?/gi, " ");
+  output = output.replace(/texto traduzido para o espanhol\s*:\s*/gi, "");
+  output = output.replace(/traduc(?:ao|ção)\s+para o portugues\s*:\s*/gi, "");
+  output = output.replace(/\bhere is the spanish text\s*:\s*/gi, "");
+  output = output.replace(/\brespuesta priorizando el contexto[\s\S]*$/i, " ");
+  output = output.replace(/\s*\[[^\]]*doc\s*\d+[^\]]*\]\s*/gi, " ");
+  output = output.replace(/\bnota\s*:\s*algumas afirmacoes nao tiveram evidencia direta nos trechos recuperados\.?/gi, " ");
+  output = output.replace(/\s{2,}/g, " ");
+  output = output.replace(/\n{3,}/g, "\n\n");
+  return output.trim();
+}
+
+function hasInternalArtifactLeak(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(priorizar explicitude de incerteza quando aplicavel|evitar afirmacoes absolutas sem evidencia)\b/.test(normalized) ||
+    /\blegacy module\s*=|\blegacy-module\s*=|\bruntimescore\s*=/.test(normalized) ||
+    /\b(perfil comportamental|sinal epistemic[oa]|consistencia filosofica)\b/.test(normalized) ||
+    /\b(texto traduzido para o espanhol|traducao para o portugues)\b/.test(normalized)
+  );
+}
+
+function buildCoherenceRecoveryReply(ctx: PipelineContext) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  if (languageFamily === "en") {
+    return "I had an internal formatting issue in this turn. Please resend your question and I will answer directly.";
+  }
+  return "Houve ruído interno na formulação desta resposta. Reenvie sua pergunta e eu respondo de forma direta.";
+}
+
+const INTERNAL_FALLBACK_LINE_PATTERNS: RegExp[] = [
+  /^sem\s+ressalva(?:s)?(?:\s+(?:dominante|adicionais?))?[\.\!\?]*$/i,
+  /^sem\s+sintese\s+disponivel[\.\!\?]*$/i,
+  /^sem\s+evidencia\s+dominante[\.\!\?]*$/i,
+  /^sem\s+hipotese\s+dominante[\.\!\?]*$/i,
+  /^sem\s+dependencia\s+latente\s+dominante[\.\!\?]*$/i,
+  /^sem\s+overclaim\s+dominante[\.\!\?]*$/i,
+  /^sem\s+pressuposto\s+dominante[\.\!\?]*$/i,
+  /^sem\s+caveat\s+dominante[\.\!\?]*$/i,
+  /^sem\s+tensoes?\s+contextuais\s+dominantes[\.\!\?]*$/i,
+];
+
+function isInternalFallbackLine(value: string) {
+  const normalized = normalizeFold(value);
+  if (!normalized) return false;
+  return INTERNAL_FALLBACK_LINE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function stripInternalFallbackMarkers(text: string) {
+  let output = `${text || ""}`.trim();
+  if (!output) return "";
+  output = output
+    .split(/\r?\n/g)
+    .filter((line) => !isInternalFallbackLine(line))
+    .join("\n");
+  output = output.replace(/\bsem\s+ressalva(?:s)?\s+dominante\b/gi, " ");
+  output = output.replace(/\bsem\s+sintese\s+disponivel\b/gi, " ");
+  output = output.replace(/\s{2,}/g, " ");
+  output = output.replace(/\n{3,}/g, "\n\n");
   return output.trim();
 }
 
 function sanitizeChatArtifacts(text: string, userMessage: string) {
-  let output = `${text || ""}`;
+  let output = repairUtf8Mojibake(`${text || ""}`);
   if (!output.trim()) return "";
+  output = stripDialogueTranscriptArtifacts(output);
   output = stripPersonaLabelPrefix(output);
   output = stripEchoedUserMessage(output, userMessage);
   output = stripQuestionAnswerEnvelope(output);
   output = stripAnswerLabelPrefix(output);
   output = stripTrailingAnswerWrapper(output);
   output = stripMantraArtifacts(output);
+  output = stripInternalFallbackMarkers(output);
   output = stripLeadingGreetingForVerifiableQuestion(output, userMessage);
   output = trimOuterParentheses(output);
   output = output.replace(/^\s*[-–—:：]\s*/, "");
   output = output.replace(/\n{3,}/g, "\n\n").trim();
-  return output;
+  return repairUtf8Mojibake(output);
 }
 
 function createChatStreamSanitizerStream(stream: ReadableStream<Uint8Array>, userMessage: string) {
@@ -392,7 +759,11 @@ function createVerifiableGuardedChatStream(stream: ReadableStream<Uint8Array>, c
         }
         text += decoder.decode();
         let finalText = enforceChatResponseStructure(ctx, text);
+        finalText = enforceConversationalSemanticGuard(ctx, finalText);
         finalText = enforceVerifiableWebGuard(ctx, finalText);
+        finalText = enforceDocumentGroundingClarification(ctx, finalText);
+        finalText = enforceIdentityClarificationGuard(ctx, finalText);
+        finalText = repairUtf8Mojibake(finalText);
         if (finalText) controller.enqueue(encoder.encode(finalText));
         controller.close();
       } catch (error) {
@@ -445,22 +816,259 @@ function toConversationPerceptionState(ctx: PipelineContext): ConversationPercep
   };
 }
 
-function isMicroSocialPrompt(value: string) {
-  const normalized = `${value || ""}`
+type MicroConversationalIntent =
+  | "greeting"
+  | "wellbeing_check"
+  | "gratitude"
+  | "assistant_identity"
+  | "assistant_name_origin"
+  | "assistant_creator";
+
+function normalizeMicroIntentText(value: string) {
+  return `${value || ""}`
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .replace(/[!?.,;:"]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function matchesMicroFamily(value: string, patterns: RegExp[]) {
+  return patterns.some((pattern) => pattern.test(value));
+}
+
+const MICRO_CREATOR_PATTERNS: RegExp[] = [
+  /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|e quem (?:e|eh)\s+medeiros|quem (?:e|eh)\s+esse\s+medeiros)\b/,
+  /\b(quem te criou|quem criou voce|quem e seu criador|quem desenvolveu voce)\b/,
+  /\b(quem idealizou (?:voce|o projeto)|quem te batizou)\b/,
+];
+
+const MICRO_NAME_ORIGIN_PATTERNS: RegExp[] = [
+  /\b((por que|porque|pq)\s+(voce|vc|ce)\s+(tem|usa)\s+(esse\s+)?nome)\b/,
+  /\b((por que|porque|pq)\s+(voce|vc|ce)\s+se\s+chama\s+leticia)\b/,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome|por que o nome leticia)\b/,
+  /\b(o que significa leticia|qual o significado(?:\s+do\s+nome)?(?:\s+de)?\s+leticia|leticia significa o que|esse nome significa o que)\b/,
+  /\b(o que quer dizer leticia|qual o sentido do nome leticia)\b/,
+  /\b(qual(?:\s+(?:e|eh))?\s+o\s+conceito\s+(?:de|da)\s+leticia|conceito\s+de\s+leticia)\b/,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+definicao\s+(?:de|da)\s+leticia|definicao\s+de\s+leticia)\b/,
+  /\b(base\s+conceitual\s+do\s+nome\s+leticia|de\s+onde\s+surgiu\s+(?:o\s+nome\s+)?leticia|de\s+onde\s+surgiu\s+esse\s+nome)\b/,
+  /\b(como\s+surgiu\s+(?:o\s+nome\s+)?leticia|qual\s+a\s+historia\s+do\s+nome\s+leticia)\b/,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+ideia\s+por\s+tras\s+do\s+nome\s+leticia|conceito\s+por\s+tras\s+do\s+nome\s+leticia)\b/,
+  /\b(defina\s+leticia|como\s+se\s+define\s+leticia|qual\s+a\s+definicao\s+do\s+nome\s+leticia)\b/,
+];
+
+const MICRO_IDENTITY_PATTERNS: RegExp[] = [
+  /\b(qual\s+(?:(?:e|eh|o)\s+)?(?:o\s+)?(?:seu|teu)\s+nome|qual\s+nome\s+da\s+ia)\b/,
+  /\b(me diga (?:o\s+)?seu nome|me diz (?:o\s+)?seu nome|diga (?:o\s+)?seu nome)\b/,
+  /\b(como (?:voce|vc|ce) se chama|quem (?:e|eh) (?:voce|vc|ce)|e o seu)\b/,
+  /\b(voce (?:e|eh) a leticia|vc (?:e|eh) a leticia|quem (?:e|eh) a leticia)\b/,
+];
+
+const MICRO_GRATITUDE_PATTERNS: RegExp[] = [
+  /^(obrigado|obrigada|obg|valeu|thanks|thank you)(\b|$)/,
+];
+
+const MICRO_WELLBEING_PATTERNS: RegExp[] = [
+  /^(como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|tudo bem(?: com (?:vc|voce|ce))?|blz|beleza|tudo certo|tudo tranquilo|como vai|que tal)(?: leticia)?$/,
+  /^(?:oi|ola|opa|fala|salve|saudacoes)\s+(?:como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|tudo bem(?: com (?:vc|voce|ce))?|como vai|que tal)(?: leticia)?$/,
+];
+
+const MICRO_GREETING_PATTERNS: RegExp[] = [
+  /^(oi|ola|oie|oii|opa|fala|salve|saudacoes|e ai|eae|hey|hello|hi)(?: leticia)?$/,
+  /^(bom dia|boa tarde|boa noite|boa trde|boa tardee|boa tard)(?: leticia)?$/,
+];
+
+function detectMicroConversationalIntent(value: string): MicroConversationalIntent | null {
+  const normalized = normalizeMicroIntentText(value);
+  if (!normalized) return null;
+  if (matchesMicroFamily(normalized, MICRO_CREATOR_PATTERNS)) {
+    return "assistant_creator";
+  }
+  if (matchesMicroFamily(normalized, MICRO_NAME_ORIGIN_PATTERNS)) {
+    return "assistant_name_origin";
+  }
+  if (matchesMicroFamily(normalized, MICRO_IDENTITY_PATTERNS)) {
+    return "assistant_identity";
+  }
+  if (matchesMicroFamily(normalized, MICRO_GRATITUDE_PATTERNS)) {
+    return "gratitude";
+  }
+  if (matchesMicroFamily(normalized, MICRO_WELLBEING_PATTERNS)) {
+    return "wellbeing_check";
+  }
+  if (matchesMicroFamily(normalized, MICRO_GREETING_PATTERNS)) {
+    return "greeting";
+  }
+  const tokens = normalized.split(" ").filter(Boolean);
+  const startsLikeGreeting =
+    /^(oi+|ola+|opa|fala|salve|saudac|bom|boa)\b/.test(normalized) ||
+    /^(boa\s+trd|boa\s+tard|boa\s+trde)\b/.test(normalized);
+  if (startsLikeGreeting && tokens.length <= 3) {
+    return "greeting";
+  }
+  return null;
+}
+
+function isMicroSocialPrompt(value: string) {
+  return detectMicroConversationalIntent(value) !== null;
+}
+
+function resolveGreetingLeadFromMessage(value: string) {
+  const normalized = normalizeMicroIntentText(value);
+  if (/\bsaudac(?:oes|oes)?\b/.test(normalized) || /^saudac/.test(normalized)) return "Saudações!";
+  if (/\bbom dia\b/.test(normalized)) return "Bom dia!";
+  if (/\bboa tarde\b/.test(normalized)) return "Boa tarde!";
+  if (/\bboa noite\b/.test(normalized)) return "Boa noite!";
+  return "Oi!";
+}
+
+function hasHighSentenceRepetition(text: string) {
+  const units = `${text || ""}`
+    .split(/[.!?]\s+/g)
+    .map((item) => normalizeFold(item))
+    .filter((item) => item.length >= 24);
+  if (units.length < 3) return false;
+  const counts = new Map<string, number>();
+  for (const unit of units) {
+    counts.set(unit, (counts.get(unit) || 0) + 1);
+    if ((counts.get(unit) || 0) >= 3) return true;
+  }
+  return false;
+}
+
+function hasConversationalSemanticAnomaly(text: string) {
+  const raw = `${text || ""}`.trim();
+  if (!raw) return true;
+  const normalized = normalizeFold(raw);
+  if (!normalized) return true;
+  if (/(?:Ã.|â€|ï¿½)/.test(raw)) return true;
+  if (/\b(?:usuario|usuário|user)\s*:/.test(normalized) && /\b(?:leticia|assistente|assistant)\s*:/.test(normalized)) {
+    return true;
+  }
+  if (/\b(minha nome|pelo prazer|sem sintese disponivel|sem ressalva dominante|sem ressalvas dominantes?)\b/.test(normalized)) return true;
+  if (hasHighSentenceRepetition(raw)) return true;
+  return false;
+}
+
+function hasUnexpectedEnglishLeak(rawText: string) {
+  const normalized = normalizeFold(rawText);
   if (!normalized) return false;
-  const patterns = [
-    /^(oi|ola|oie|oii|opa|e ai|eae|hey|hello|hi)$/i,
-    /^(bom dia|boa tarde|boa noite)$/i,
-    /^(como vc esta|como voce esta|tudo bem|blz|beleza)$/i,
-    /^(obrigado|obg|valeu|thanks|thank you)$/i,
-  ];
-  return patterns.some((pattern) => pattern.test(normalized));
+  return (
+    /\b(if you meant|my answer is|i am here to help|how are you|you are welcome|in portuguese)\b/.test(normalized) ||
+    /\b(now we can return to|before we continue)\b/.test(normalized)
+  );
+}
+
+function hasUnexpectedLanguageDrift(ctx: PipelineContext, text: string) {
+  if (resolveLanguageFamily(ctx) !== "pt") return false;
+  return hasUnexpectedEnglishLeak(text);
+}
+
+function hasNameOriginGrounding(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  const hasConceptualBase =
+    /\b(language engineered technology for intelligent cognition interaction and assistance|cognicao|interacao|assistencia)\b/.test(
+      normalized,
+    );
+  const hasAffectiveBase = /\b(homenagem|filha|medeiros|dimensao afetiva)\b/.test(normalized);
+  return hasConceptualBase && hasAffectiveBase;
+}
+
+function countMicroSentences(text: string) {
+  return `${text || ""}`
+    .split(/[.!?]\s+/g)
+    .map((item) => normalizeFold(item))
+    .filter(Boolean).length;
+}
+
+function hasUnrequestedIdentityDetailInGreeting(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return /\b(language engineered technology for intelligent cognition interaction and assistance|homenagem|filha leticia|arquitetura tecnica|dimensao afetiva)\b/.test(
+    normalized,
+  );
+}
+
+function hasMicroOveranswer(intent: MicroConversationalIntent, text: string) {
+  if (intent !== "greeting" && intent !== "gratitude" && intent !== "wellbeing_check") return false;
+  const compact = `${text || ""}`.trim();
+  if (!compact) return true;
+  return compact.length > 220 || countMicroSentences(compact) > 4 || hasUnrequestedIdentityDetailInGreeting(compact);
+}
+
+function buildCanonicalMicroConversationalReply(ctx: PipelineContext, intent: MicroConversationalIntent) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  const identityFallback = resolveIdentityFallbackForMessage(ctx.userMessage || "");
+  const isIdentityIntent =
+    intent === "assistant_identity" || intent === "assistant_name_origin" || intent === "assistant_creator";
+
+  if (languageFamily !== "en" && isIdentityIntent && identityFallback.shouldHandle) {
+    return identityFallback.shortNarrative;
+  }
+
+  if (languageFamily === "en") {
+    if (intent === "assistant_creator") {
+      return (
+        "In ai-system-anm context, Francimar de Lima Medeiros is the epistemic founder of Leticia. " +
+        "If you mean another person named Medeiros, tell me which one so I can answer accurately."
+      );
+    }
+    if (intent === "assistant_name_origin") {
+      return (
+        "My name is Leticia. In ai-system-anm, this identity combines a conceptual basis and an affective origin linked to Medeiros."
+      );
+    }
+    if (intent === "assistant_identity") return "I am Letícia.";
+    if (intent === "wellbeing_check") return "I am doing well. How can I help you now?";
+    if (intent === "gratitude") return "You are welcome. I am here to help with whatever you need next.";
+    return "Hi! I am Letícia. How can I help you now?";
+  }
+  if (intent === "assistant_creator") {
+    return (
+      "No contexto do ai-system-anm, Francimar de Lima Medeiros e o fundador epistemologico da Leticia. " +
+      "Se voce estiver falando de outro Medeiros, me diga qual para eu responder com precisao."
+    );
+  }
+  if (intent === "assistant_name_origin") {
+    return (
+      "Meu nome e Leticia. No ai-system-anm, essa identidade une base conceitual e origem afetiva ligada a Medeiros."
+    );
+  }
+  if (intent === "assistant_identity") return "Eu sou a Letícia.";
+  if (intent === "wellbeing_check") return "Tudo certo por aqui. Como posso te ajudar agora?";
+  if (intent === "gratitude") return "De nada. Eu sigo com você no que precisar.";
+  return `${resolveGreetingLeadFromMessage(ctx.userMessage)} Eu sou a Letícia. Como posso te ajudar agora?`;
+}
+
+function enforceConversationalSemanticGuard(ctx: PipelineContext, text: string) {
+  const intent = detectMicroConversationalIntent(ctx.userMessage);
+  if (!intent) return text;
+  const normalizedOutput = normalizeFold(text);
+  const mentionsLeticia = /\bleticia\b/.test(normalizedOutput);
+  const hasAnomaly = hasConversationalSemanticAnomaly(text);
+  const hasLanguageDrift = hasUnexpectedLanguageDrift(ctx, text);
+
+  if (intent === "assistant_name_origin") {
+    if (!hasAnomaly && !hasLanguageDrift && hasNameOriginGrounding(text)) return text;
+    return buildCanonicalMicroConversationalReply(ctx, intent);
+  }
+  if (intent === "assistant_identity") {
+    if (mentionsLeticia && !hasAnomaly && !hasLanguageDrift) return text;
+    return buildCanonicalMicroConversationalReply(ctx, intent);
+  }
+  if (intent === "assistant_creator") {
+    if (!hasAnomaly && !hasLanguageDrift && /\b(idealizador|criador|projeto leticia|outro medeiros)\b/.test(normalizedOutput)) {
+      return text;
+    }
+    return buildCanonicalMicroConversationalReply(ctx, intent);
+  }
+  if (hasMicroOveranswer(intent, text)) {
+    return buildCanonicalMicroConversationalReply(ctx, intent);
+  }
+  if (!hasAnomaly && !hasLanguageDrift) return text;
+  return buildCanonicalMicroConversationalReply(ctx, intent);
 }
 
 function resolveChatComplexity(ctx: PipelineContext, answer: string): "micro" | "direct" | "short" | "medium" | "complex" {
@@ -478,6 +1086,9 @@ function enforceChatResponseStructure(ctx: PipelineContext, text: string) {
   const state = toConversationPerceptionState(ctx);
   const complexity = resolveChatComplexity(ctx, sanitized || text);
   const enforced = enforceResponseStructure(sanitized || text, { state, complexity });
+  if (hasInternalArtifactLeak(text)) {
+    return enforced || sanitized || buildCoherenceRecoveryReply(ctx);
+  }
   return enforced || sanitized || text;
 }
 
@@ -494,7 +1105,19 @@ export class PostprocessStage implements Stage {
     if (ctx.stream) {
       if (ctx.mode === "chat" && ctx.finalStream) {
         const sanitizedStream = createChatStreamSanitizerStream(ctx.finalStream, ctx.userMessage);
-        if (isVerifiableCurrentQuestion(ctx.userMessage) && !hasScopedDocumentInput(ctx)) {
+        const requiresVerifiableGuard =
+          (isVerifiableCurrentQuestion(ctx.userMessage) || isAuthorYearGroundingQuestion(ctx.userMessage)) &&
+          !hasScopedDocumentInput(ctx);
+        const requiresDocumentClarificationGuard =
+          hasScopedDocumentInput(ctx) && isDocumentGroundingRequest(ctx.userMessage) && !hasGroundedDocumentEvidence(ctx);
+        const requiresIdentityClarificationGuard = extractMissingIdentityFields(collectUserConversationText(ctx)).length > 0;
+        const requiresConversationalSemanticGuard = detectMicroConversationalIntent(ctx.userMessage) !== null;
+        if (
+          requiresVerifiableGuard ||
+          requiresDocumentClarificationGuard ||
+          requiresIdentityClarificationGuard ||
+          requiresConversationalSemanticGuard
+        ) {
           ctx.finalStream = createVerifiableGuardedChatStream(sanitizedStream, ctx);
         } else {
           ctx.finalStream = sanitizedStream;
@@ -551,7 +1174,11 @@ export class PostprocessStage implements Stage {
 
     if (ctx.mode === "chat") {
       finalText = enforceChatResponseStructure(ctx, finalText);
+      finalText = enforceConversationalSemanticGuard(ctx, finalText);
       finalText = enforceVerifiableWebGuard(ctx, finalText);
+      finalText = enforceDocumentGroundingClarification(ctx, finalText);
+      finalText = enforceIdentityClarificationGuard(ctx, finalText);
+      finalText = repairUtf8Mojibake(finalText);
     }
 
     const nextStepCta = buildNextStepCta(ctx, finalText);
@@ -559,5 +1186,7 @@ export class PostprocessStage implements Stage {
     ctx.progress.filteredRedundancy = true;
   }
 }
+
+
 
 

@@ -28,6 +28,8 @@ import { scoreRelevance } from "./quality-scorer/relevance-score";
 import { decideAcceptOrRetry } from "./quality-scorer/final-accept-retry-decision";
 import { handoffValidationToPresentation } from "./validation-to-presentation-bridge";
 import { resolveValidationProfile } from "./validation-profile-resolver";
+import { runEpistemicValidationBridgeAdapter } from "../bridges/epistemic-validation.bridge";
+import { buildFounderEpistemicInfluence } from "../12b-founder-influence-layer/founder-epistemic-bridge";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -37,6 +39,22 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
   const startedAt = Date.now();
   const validationStage = state.executionArtifacts?.validationStage || "pre_presentation";
   const profile = resolveValidationProfile(state);
+  const epistemicValidation = runEpistemicValidationBridgeAdapter(state);
+  const founderEpistemicInfluence = buildFounderEpistemicInfluence();
+
+  state.executionArtifacts.founderInfluence = {
+    founderName: founderEpistemicInfluence.founderName,
+    founderRole: state.executionArtifacts.founderInfluence?.founderRole || "fundador_epistemologico_da_leticia",
+    identityWeight: state.executionArtifacts.founderInfluence?.identityWeight || 0,
+    reasoningWeight: state.executionArtifacts.founderInfluence?.reasoningWeight || 0,
+    epistemicWeight: founderEpistemicInfluence.epistemicWeight,
+    identityInfluenceDirectives: [...(state.executionArtifacts.founderInfluence?.identityInfluenceDirectives || [])],
+    reasoningInfluenceDirectives: [...(state.executionArtifacts.founderInfluence?.reasoningInfluenceDirectives || [])],
+    validationInfluenceDirectives: [...founderEpistemicInfluence.validationInfluenceDirectives],
+    existentialVectors: [...(state.executionArtifacts.founderInfluence?.existentialVectors || [])],
+    epistemicVectors: [...new Set([...(state.executionArtifacts.founderInfluence?.epistemicVectors || []), ...founderEpistemicInfluence.epistemicVectors])],
+    protectedGroundingFacts: [...new Set([...(state.executionArtifacts.founderInfluence?.protectedGroundingFacts || []), ...founderEpistemicInfluence.protectedGroundingFacts])],
+  };
 
   const privacy = runPrivacyGuard(state.structuredResponse);
   const restricted = runRestrictedContentFilter(state.structuredResponse);
@@ -100,6 +118,7 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       sourceAlignment.ok &&
       unsupported.ok &&
       traceValidation.ok &&
+      epistemicValidation.verdict.ok &&
       hallucination.risk < (profile === "strict" ? 0.55 : 0.68) &&
       memoryValidationRisk < (profile === "strict" ? 0.72 : 0.82);
 
@@ -108,6 +127,7 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       ...sourceAlignment.issues,
       ...unsupported.issues,
       ...traceValidation.issues,
+      ...epistemicValidation.verdict.issues,
       ...hallucination.issues,
       ...(memoryValidationRisk >= 0.62 ? ["memory_regulatory_high_risk"] : []),
       ...(regulatory.blockStructuralConsolidation ? ["memory_regulatory_consolidation_blocked"] : []),
@@ -119,6 +139,7 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       sourceCount: state.retrievedSources.length,
       risk: hallucination.risk,
     });
+    epistemicBase = clamp01((epistemicBase * 0.72) + (epistemicValidation.verdict.score * 0.28));
   }
 
   const baseCoherence = scoreCoherence({
@@ -197,6 +218,12 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
     validationStage,
   };
 
+  // ai-system-anm: contrato semantico congelado apos validacao.
+  state.validatedDraft = `${state.structuredResponse || state.draftResponse.text || ""}`.trim();
+  if (!state.finalResponse) {
+    state.finalResponse = state.validatedDraft;
+  }
+
   state.trace.push(
     makeTraceEvent({
       layer: "validation",
@@ -206,7 +233,8 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       detail:
         `stage=${validationStage}; profile=${profile}; factual=${state.validationReport.factual.ok}; policy=${state.validationReport.policy.ok}; ` +
         `structure=${state.validationReport.structure.ok}; decision=${quality.decision}; ` +
-        `memoryRisk=${memoryValidationRisk.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; runtimeOverclaim=${runtimeOverclaimSignal.toFixed(2)}`,
+        `memoryRisk=${memoryValidationRisk.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; runtimeOverclaim=${runtimeOverclaimSignal.toFixed(2)}; ` +
+        `epistemicBridge=${epistemicValidation.verdict.score.toFixed(2)}; coverage=${epistemicValidation.coverage.coverage.toFixed(2)}`,
     }),
   );
 

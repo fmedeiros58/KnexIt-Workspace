@@ -1,64 +1,125 @@
-import { createSearchClient } from "../../infra/web/search-client";
+import { createFederatedResearchClient } from "../../infra/research/federated-research-client";
 import type { KnowledgeCandidate } from "../knowledge-types";
-import { evaluateRecency } from "./recency-checker";
-import { evaluateSourceTrust } from "./source-trust-evaluator";
 
-const searchClient = createSearchClient();
+const federatedResearchClient = createFederatedResearchClient();
 let warmed = false;
 
-function normalize(value: string): string {
-  return `${value || ""}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+export interface WebSearchFallbackDiagnostics {
+  attempted: boolean;
+  query: string;
+  resultCount: number;
+  providersTried: string[];
+  providersSucceeded: string[];
+  providersFailed: string[];
+  providerMessages: Array<{
+    provider: string;
+    sourceType: string;
+    ok: boolean;
+    resultCount: number;
+    failureKind?: string;
+    message?: string;
+    statusCode?: number;
+    durationMs?: number;
+  }>;
 }
 
-function computeRelevance(query: string, title: string, snippet: string): number {
-  const queryTokens = new Set(normalize(query).split(" ").filter(Boolean));
-  const docTokens = new Set(normalize(`${title} ${snippet}`).split(" ").filter(Boolean));
-  if (!queryTokens.size || !docTokens.size) return 0.42;
-
-  let overlap = 0;
-  for (const token of queryTokens) {
-    if (docTokens.has(token)) overlap += 1;
-  }
-  const ratio = overlap / queryTokens.size;
-  return Math.max(0.35, Math.min(0.96, 0.35 + (ratio * 0.61)));
+function convertToKnowledgeCandidate(item: {
+  title: string;
+  url?: string;
+  snippet: string;
+  trustScore?: number;
+  freshnessScore?: number;
+  relevanceScore?: number;
+}): KnowledgeCandidate {
+  return {
+    title: item.title,
+    url: item.url || "",
+    snippet: item.snippet,
+    trustScore: item.trustScore ?? 0.5,
+    freshnessScore: item.freshnessScore ?? 0.5,
+    relevanceScore: item.relevanceScore ?? 0.5,
+    sourceType: "web",
+  };
 }
 
 export async function searchWebFallback(query: string): Promise<KnowledgeCandidate[]> {
-  const normalized = query.trim();
+  const normalized = `${query || ""}`.trim();
   if (!normalized) return [];
 
-  const results = await searchClient.search(normalized);
-  return results.map((item) => {
-    const trustScore = evaluateSourceTrust(item.url);
-    const freshnessScore = evaluateRecency({
-      updatedAt: item.publishedAt,
-      freshnessScore: item.provider === "wikipedia_api" ? 0.76 : undefined,
-      snippet: item.snippet,
-    });
-    const relevanceScore = computeRelevance(normalized, item.title, item.snippet);
-
-    return {
-      title: item.title,
-      url: item.url,
-      snippet: item.snippet,
-      freshnessScore,
-      trustScore,
-      relevanceScore,
-      sourceType: "web" as const,
-    };
+  const response = await federatedResearchClient.search(normalized, {
+    maxResults: 10,
+    includeLocal: true,
+    includeRemote: true,
   });
+
+  return response.results.map(convertToKnowledgeCandidate);
+}
+
+export async function searchWebFallbackDetailed(query: string): Promise<{
+  candidates: KnowledgeCandidate[];
+  diagnostics: WebSearchFallbackDiagnostics;
+}> {
+  const normalized = `${query || ""}`.trim();
+  if (!normalized) {
+    return {
+      candidates: [],
+      diagnostics: {
+        attempted: false,
+        query: normalized,
+        resultCount: 0,
+        providersTried: [],
+        providersSucceeded: [],
+        providersFailed: [],
+        providerMessages: [],
+      },
+    };
+  }
+
+  const response = await federatedResearchClient.search(normalized, {
+    maxResults: 12,
+    includeLocal: true,
+    includeRemote: true,
+  });
+
+  const candidates = response.results.map(convertToKnowledgeCandidate);
+  const providersTried = response.diagnostics.map((item) => item.provider);
+  const providersSucceeded = response.diagnostics.filter((item) => item.ok).map((item) => item.provider);
+  const providersFailed = response.diagnostics.filter((item) => !item.ok).map((item) => item.provider);
+
+  return {
+    candidates,
+    diagnostics: {
+      attempted: true,
+      query: normalized,
+      resultCount: candidates.length,
+      providersTried,
+      providersSucceeded,
+      providersFailed,
+      providerMessages: response.diagnostics.map((item) => ({
+        provider: item.provider,
+        sourceType: item.sourceType,
+        ok: item.ok,
+        resultCount: item.resultCount,
+        failureKind: item.failureKind,
+        message: item.message,
+        statusCode: item.statusCode,
+        durationMs: item.durationMs,
+      })),
+    },
+  };
 }
 
 export function primeWebSearchClient(seedQuery = "noticias de hoje brasil"): void {
   if (warmed) return;
   warmed = true;
-  void searchClient.search(seedQuery, { maxResults: 2 }).catch(() => {
-    // Warmup best-effort: nao deve interromper fluxo principal.
-  });
+
+  void federatedResearchClient
+    .search(seedQuery, {
+      maxResults: 4,
+      includeLocal: true,
+      includeRemote: true,
+    })
+    .catch(() => {
+      // Warmup best-effort.
+    });
 }

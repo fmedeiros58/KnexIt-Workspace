@@ -1,4 +1,6 @@
 "use client";
 
-export { default } from "../../../knexai/proactive-assistant/page";
+import RoutedPage from "../../../knexai/proactive-assistant/page";
+
+export default RoutedPage;
 

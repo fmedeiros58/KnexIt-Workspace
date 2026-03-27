@@ -6,8 +6,6 @@ resources:
 - secret-template.yaml
 - web-deployment.yaml
 - web-service.yaml
-- anm-deployment.yaml
-- anm-service.yaml
 - vllm-deployment.yaml
 - vllm-service.yaml
 - web-hpa.yaml

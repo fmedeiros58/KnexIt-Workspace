@@ -1,28 +1,40 @@
-﻿export interface ProgressiveRevealManagerInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { StreamChunk } from "../presentation-contracts";
+
+export interface ProgressiveRevealManagerInput {
+  paragraphs: string[];
 }
 
 export interface ProgressiveRevealManagerOutput {
   ok: boolean;
   component: string;
   score: number;
-  payload: Record<string, unknown>;
+  chunks: StreamChunk[];
 }
 
-export function progressiveRevealManager(input: ProgressiveRevealManagerInput = {}): ProgressiveRevealManagerOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
-  };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
+export function progressiveRevealManager(input: ProgressiveRevealManagerInput): ProgressiveRevealManagerOutput {
+  const chunks: StreamChunk[] = [];
+  let cumulativeText = "";
+
+  for (const paragraph of input.paragraphs || []) {
+    if (!paragraph) continue;
+    cumulativeText = `${cumulativeText}${cumulativeText ? "\n\n" : ""}${paragraph}`;
+    chunks.push({
+      index: chunks.length,
+      delta: `${paragraph}${paragraph.endsWith("\n") ? "" : "\n\n"}`,
+      cumulativeText,
+      done: false,
+    });
+  }
+
+  if (chunks.length > 0) {
+    chunks[chunks.length - 1].done = true;
+    chunks[chunks.length - 1].delta = chunks[chunks.length - 1].delta.replace(/\n+$/g, "");
+  }
+
   return {
     ok: true,
     component: "progressive-reveal-manager",
-    score,
-    payload,
+    score: chunks.length > 0 ? 0.9 : 0.4,
+    chunks,
   };
 }

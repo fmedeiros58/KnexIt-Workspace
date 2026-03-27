@@ -158,10 +158,15 @@ export async function runContextLayer(state: ProcessingState): Promise<Processin
   const asksNameShare = isNameSharePrompt(state.normalizedMessage);
   const conversationalPrompt = isConversationalPrompt(state.normalizedMessage);
   const identityHint = preferredName ? `Nome preferido do usuario: ${preferredName}.` : "";
+  const behaviorProfile = state.behaviorPersonalityState;
+  const behaviorHint = behaviorProfile
+    ? `Perfil comportamental: warmth=${behaviorProfile.targetWarmth.toFixed(2)}; casualness=${behaviorProfile.targetCasualness.toFixed(2)}; empathy=${behaviorProfile.targetEmpathy.toFixed(2)}; restraint=${behaviorProfile.targetRestraint.toFixed(2)}.`
+    : "";
 
   state.activeContext = [
     ...pruned.prunedContext,
     ...(identityHint ? [identityHint] : []),
+    ...(behaviorHint ? [behaviorHint] : []),
   ].slice(-12);
   state.activeConstraints = [
     ...new Set([
@@ -173,6 +178,8 @@ export async function runContextLayer(state: ProcessingState): Promise<Processin
       ...(asksNameRecall ? ["conversation_name_recall_request"] : []),
       ...(asksNameShare ? ["conversation_name_share_request"] : []),
       ...(conversationalPrompt ? ["conversation_prompt_detected"] : []),
+      ...(behaviorProfile && behaviorProfile.targetRestraint >= 0.72 ? ["behavior_high_restraint"] : []),
+      ...(behaviorProfile && behaviorProfile.targetCasualness <= 0.2 ? ["behavior_low_casualness"] : []),
       ...explicitUserConstraints.map((constraint) => `user_constraint:${constraint}`),
     ]),
   ].slice(-24);
@@ -197,6 +204,27 @@ export async function runContextLayer(state: ProcessingState): Promise<Processin
     asksNameRecall,
     asksNameShare,
     conversationalPrompt,
+    behaviorTargets: behaviorProfile
+      ? {
+          warmth: behaviorProfile.targetWarmth,
+          casualness: behaviorProfile.targetCasualness,
+          empathy: behaviorProfile.targetEmpathy,
+          restraint: behaviorProfile.targetRestraint,
+          socialPresence: behaviorProfile.targetSocialPresence,
+          expressiveVariation: behaviorProfile.targetExpressiveVariation,
+          humanization: behaviorProfile.targetHumanizationLevel,
+          formalityAdjustment: behaviorProfile.targetFormalityAdjustment,
+          proactivityLevel: behaviorProfile.proactivityLevel,
+          futureUtilityScore: behaviorProfile.futureUtilityScore,
+          memoryValueScore: behaviorProfile.memoryValueScore,
+          socialIntrusivenessScore: behaviorProfile.socialIntrusivenessScore,
+          questionTimingScore: behaviorProfile.questionTimingScore,
+          questionFrequencyCap: behaviorProfile.questionFrequencyCap,
+          proactiveQuestionPlan: behaviorProfile.proactiveQuestionPlan,
+          aiIdentity: behaviorProfile.aiIdentity,
+          styleNotes: behaviorProfile.styleNotes,
+        }
+      : null,
   };
 
   state.trace.push(

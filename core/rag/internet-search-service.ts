@@ -197,7 +197,7 @@ function buildRankingTokens(query: string) {
   return Array.from(
     new Set(
       normalized
-        .split(/[^a-z0-9Ã -Ã¿]+/g)
+        .split(/[^a-z0-9à-ÿ]+/g)
         .map((token) => token.trim())
         .filter((token) => token.length >= 3 && !SEARCH_TOKEN_STOPWORDS.has(token)),
     ),

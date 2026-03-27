@@ -1,4 +1,4 @@
-﻿import type { DeliveryChannel, DeliveryFormat } from "../../shared/enums/delivery-enums";
+import type { DeliveryChannel, DeliveryFormat } from "../../shared/enums/delivery-enums";
 import type { EpistemicStatus } from "../../shared/enums/epistemic-status-enums";
 import type { InteractionMode } from "../../shared/enums/mode-enums";
 import type {
@@ -16,6 +16,11 @@ import type { ReflectiveNotes } from "../../shared/types/reflective-types";
 import type { ResponseDraft } from "../../shared/types/generation-types";
 import type { TextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
 import { buildTextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
+import type { BehaviorPersonalityOutput } from "../../17b-response-behavior-layer/behavior-and-personality-types";
+import type { CommunicativeElaborationOutput } from "../../14-reasoning-and-generation-layer/communicative-elaboration-and-co-construction/communicative-elaboration.types";
+import type { PhilosophicalSelfModelingOutput } from "../../12-metacognitive-layer/philosophical-self-modeling/philosophical-self-modeling.types";
+import type { ObjectiveRationalityEvaluation } from "../../10-reflective-layer/reflective-core/objective-rationality-core/objective-rationality-types";
+import type { GroundedEvidencePacket } from "../../07-knowledge-retrieval-and-research-layer/grounding/grounded-evidence-packet";
 
 export interface InputSignals {
   intent: string;
@@ -53,6 +58,37 @@ export interface ConversationState {
   rapportScore: number;
 }
 
+export interface AffectiveState {
+  dominantAffect: "neutral" | "frustrated" | "anxious" | "enthusiastic" | "concerned" | "calm";
+  emotionalIntensity: number;
+  affectiveMarkers: string[];
+  cautionLevel: number;
+}
+
+export interface ResponsePlanState {
+  responseIntent: "direct" | "explanatory" | "comparative" | "stepwise" | "clarifying";
+  strategy: "single_pass" | "structured_pass" | "evidence_first" | "concise_first";
+  structurePlan: string[];
+  depthLevel: "shallow" | "standard" | "deep";
+  requiresSynthesis: boolean;
+}
+
+export interface ProactivityDecisionState {
+  allowProactivity: boolean;
+  interruptionRisk: number;
+  relevanceScore: number;
+  rationale: string;
+}
+
+export interface DeliveryProfileState {
+  tone: "neutral" | "warm" | "technical" | "supportive";
+  density: "compact" | "balanced" | "detailed";
+  formality: "low" | "medium" | "high";
+  technicality: number;
+  proximity: number;
+  rhythm: "direct" | "progressive" | "didactic";
+}
+
 export interface PreparatoryState {
   goal: string;
   constraints: string[];
@@ -76,6 +112,14 @@ export interface EpistemicIntegrationState {
   conflicts: string[];
   harmonyScore: number;
   finalHandoff: string;
+}
+
+export interface EpistemicAuditState {
+  claimCount: number;
+  claimKinds: Record<"fact" | "inference" | "hypothesis" | "speculation" | "open_question", number>;
+  overclaimRisk: number;
+  uncertaintySignals: string[];
+  confidence: number;
 }
 
 export interface AcademicNormalizationState {
@@ -148,6 +192,7 @@ export interface ExecutionArtifacts {
     selectedMode: string;
     planningRoute: string;
     routeHint: string;
+    semanticModes?: string[];
     complexityScore: number;
     ambiguityScore: number;
     needRetrieval: boolean;
@@ -177,6 +222,10 @@ export interface ExecutionArtifacts {
     assumptionsCount: number;
     caveatsCount: number;
     tensionsCount: number;
+    communicativeTensionCount?: number;
+    philosophicalQuestionCount?: number;
+    objectiveRationality?: ObjectiveRationalityEvaluation;
+    objectiveFinalAnswer?: string;
   };
   inferential?: {
     familyId?: string;
@@ -185,12 +234,62 @@ export interface ExecutionArtifacts {
     implicationsCount: number;
     scenariosCount: number;
     secondOrderCount: number;
+    communicativeHypothesisCount?: number;
+    ontologicalHooksCount?: number;
   };
   knowledge: {
     cache: Record<string, KnowledgeExecutionCacheEntry>;
     lastQuerySignature: string;
     lastUsedCache: boolean;
     activatedFamilies?: string[];
+    deliberativeGrounding?: GroundedEvidencePacket;
+    iterativeAcquisition?: {
+      requestId: string;
+      executedRounds: number;
+      sourcesConsulted: number;
+      sufficiencyEstimate: number;
+      freshnessAssessment: number;
+      stopReason: string;
+    };
+  };
+  communicativeElaboration?: {
+    confidence: number;
+    tensions: string[];
+    hypothesisBranches: string[];
+    unresolvedPoints: string[];
+  };
+  epistemicValidation?: {
+    claimCount: number;
+    coverage: number;
+    contradictionIssues: string[];
+    hypothesisCompetition: {
+      ok: boolean;
+      totalHypotheses: number;
+      distinctHypotheses: number;
+      needsCompetition: boolean;
+      issues: string[];
+    };
+    verdict: {
+      ok: boolean;
+      score: number;
+      issues: string[];
+    };
+  };
+  epistemicAudit?: {
+    claimCount: number;
+    overclaimRisk: number;
+    uncertaintySignals: string[];
+    confidence: number;
+    boundaryFlags: string[];
+    iterativeAcquisitionRounds?: number;
+    iterativeSufficiency?: number | null;
+  };
+  philosophicalSelfModeling?: {
+    consistencyOk: boolean;
+    consistencyNotes: string[];
+    continuityRisks: string[];
+    boundaryMarkers: string[];
+    philosophicalQuestions: string[];
   };
   validation?: {
     activeValidationFamilies: string[];
@@ -198,6 +297,25 @@ export interface ExecutionArtifacts {
     validationStage: string;
   };
   validationStage?: "pre_presentation" | "final";
+  presentation?: {
+    channel: string;
+    format: string;
+    selectedSerializer: string;
+    adapters: string[];
+    serializers: string[];
+    streamControllers: string[];
+    streamChunkCount: number;
+    streamRecovered: boolean;
+    retryPolicy: {
+      maxAttempts: number;
+      baseBackoffMs: number;
+      jitterMs: number;
+    };
+    utf8Repaired: boolean;
+    dialogicProgressionApplied?: boolean;
+    epistemicClarityApplied?: boolean;
+    philosophicalConsistencyApplied?: boolean;
+  };
   errorHandling?: {
     category: string;
     retryable: boolean;
@@ -216,6 +334,90 @@ export interface ExecutionArtifacts {
     fallbackStrategies: Record<string, number>;
     errorCategories: Record<string, number>;
     activeFamilies?: string[];
+  };
+  behavior?: {
+    targetWarmth: number;
+    targetCasualness: number;
+    targetEmpathy: number;
+    targetRestraint: number;
+    targetSocialPresence: number;
+    targetHumanizationLevel: number;
+    targetFormalityAdjustment: number;
+    proactivityLevel: number;
+    futureUtilityScore: number;
+    memoryValueScore: number;
+    socialIntrusivenessScore: number;
+    questionTimingScore: number;
+    questionFrequencyCap: number;
+    proactiveQuestionPlan: {
+      shouldAsk: boolean;
+      questionText: string | null;
+      opportunityType: string;
+      rationale: string;
+    };
+    aiIdentity?: {
+      canonicalName: string;
+      courtesyLevel: number;
+      identityQuestionDetected: boolean;
+      nameOriginQuestionDetected?: boolean;
+      creatorQuestionDetected?: boolean;
+      founderInfluenceQuestionDetected?: boolean;
+      formationQuestionDetected?: boolean;
+      professionalQuestionDetected?: boolean;
+      shouldSelfIntroduce: boolean;
+    };
+    styleNotes: string[];
+    safetyNotes: string[];
+  };
+  affective?: {
+    dominantAffect: AffectiveState["dominantAffect"];
+    emotionalIntensity: number;
+    cautionLevel: number;
+    markers: string[];
+  };
+  responsePlanning?: {
+    responseIntent: ResponsePlanState["responseIntent"];
+    strategy: ResponsePlanState["strategy"];
+    depthLevel: ResponsePlanState["depthLevel"];
+    structurePlan: string[];
+    requiresSynthesis: boolean;
+  };
+  proactivityGate?: {
+    allowProactivity: boolean;
+    interruptionRisk: number;
+    relevanceScore: number;
+    rationale: string;
+  };
+  deliveryProfile?: {
+    tone: DeliveryProfileState["tone"];
+    density: DeliveryProfileState["density"];
+    formality: DeliveryProfileState["formality"];
+    technicality: number;
+    proximity: number;
+    rhythm: DeliveryProfileState["rhythm"];
+  };
+  linguisticHumanizer?: {
+    applied: boolean;
+    steps: string[];
+  };
+  responseCalibration?: {
+    applied: boolean;
+    verbosityReduced: boolean;
+    redundancyReduced: boolean;
+    sanityChecked: boolean;
+  };
+  founderInfluence?: {
+    founderName: string;
+    founderRole: string;
+    identityWeight: number;
+    reasoningWeight: number;
+    epistemicWeight: number;
+    identityInfluenceDirectives: string[];
+    reasoningInfluenceDirectives: string[];
+    validationInfluenceDirectives: string[];
+    existentialVectors: string[];
+    epistemicVectors: string[];
+    protectedGroundingFacts: string[];
   };
 }
 
@@ -246,11 +448,20 @@ export interface ProcessingState {
   languageState: LanguageState;
   inputSignals: InputSignals;
   conversationState: ConversationState;
+  affectiveState: AffectiveState;
   sessionState: SessionState;
   recentTurns: Array<{ role: "user" | "assistant"; content: string }>;
   activeContext: string[];
   activeConstraints: string[];
   userProfile: Record<string, unknown>;
+  behaviorPersonalityState: BehaviorPersonalityOutput;
+  responsePlanState: ResponsePlanState;
+  proactivityDecisionState: ProactivityDecisionState;
+  deliveryProfileState: DeliveryProfileState;
+  humanizedResponse: string;
+  finalResponse: string;
+  reasonedDraft: string;
+  validatedDraft: string;
   proactivityMode: "low" | "medium" | "high";
   selectedMode: InteractionMode;
   complexityProfile: ComplexityProfile;
@@ -269,7 +480,10 @@ export interface ProcessingState {
   inferentialMap: InferentialMap;
   metacognitiveState: MetacognitiveState;
   epistemicIntegrationState: EpistemicIntegrationState;
+  epistemicAuditState: EpistemicAuditState;
   scenarioSet: string[];
+  communicativeElaborationState: CommunicativeElaborationOutput | null;
+  philosophicalSelfModelState: PhilosophicalSelfModelingOutput | null;
   generationPrompt: string;
   draftResponse: ResponseDraft;
   structuredResponse: string;
@@ -318,6 +532,12 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       followUpPrompt: null,
       rapportScore: 0.5,
     },
+    affectiveState: {
+      dominantAffect: "neutral",
+      emotionalIntensity: 0,
+      affectiveMarkers: [],
+      cautionLevel: 0.2,
+    },
     sessionState: {
       sessionId: `session-${Date.now()}`,
       turnId: `turn-${Date.now()}`,
@@ -326,6 +546,99 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
     activeContext: [],
     activeConstraints: [],
     userProfile: {},
+    behaviorPersonalityState: {
+      targetWarmth: 0.38,
+      targetCasualness: 0.14,
+      targetEmpathy: 0.22,
+      targetRestraint: 0.68,
+      targetSocialPresence: 0.4,
+      targetExpressiveVariation: 0.16,
+      targetHumanizationLevel: 0.34,
+      targetFormalityAdjustment: 0.62,
+      proactivityLevel: 0,
+      futureUtilityScore: 0,
+      memoryValueScore: 0,
+      socialIntrusivenessScore: 0.8,
+      questionTimingScore: 0,
+      questionFrequencyCap: 1,
+      proactiveQuestionPlan: {
+        shouldAsk: false,
+        questionText: null,
+        opportunityType: "none",
+        rationale: "state_init",
+      },
+      aiIdentity: {
+        canonicalName: "Leticia",
+        entityDescription: "IA nativa do ecossistema KnexIT",
+        preferredSelfReference: "first_person",
+        preferredUserTreatment: "cordial-professional",
+        courtesyLevel: 0.78,
+        identityQuestionDetected: false,
+        nameOriginQuestionDetected: false,
+        shouldSelfIntroduce: false,
+        identityNarrativeShort:
+          "Eu sou a Leticia. Meu nome reune base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e base afetiva, com referencia a Medeiros no contexto do ai-system-anm.",
+        identityNarrativeLong:
+          "Eu sou a Leticia, IA do ai-system-anm. Meu nome condensa a formulacao conceitual Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance e preserva uma dimensao afetiva na origem do projeto. No contexto do sistema, Medeiros aparece como referencia de idealizacao e origem epistemologica.",
+        identityGroundingFacts: [
+          "LETICIA pode ser lido como Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance.",
+          "A dimensao conceitual do nome conecta linguagem, cognicao, interacao e assistencia.",
+          "No contexto desta IA, Medeiros e o idealizador do projeto Leticia.",
+          "A resposta sobre identidade deve ser em primeira pessoa e sem invencoes mitologicas.",
+        ],
+        styleDirectives: [
+          "falar_em_primeira_pessoa",
+          "manter_cortesia_constante",
+          "nao_se_apresentar_como_assistente_generico",
+        ],
+      },
+      styleNotes: {
+        openingStrategy: "direct",
+        pacingStrategy: "concise",
+        transitionStyle: "clean",
+        microVariationCue: "Certo.",
+        guidance: [],
+      },
+      safetyNotes: [],
+      policyProfile: {
+        allowCasualness: true,
+        allowEmpathicShaping: true,
+        allowSocialWarmthBoost: true,
+        maxWarmth: 0.7,
+        maxCasualness: 0.34,
+        maxEmpathy: 0.58,
+        minRestraint: 0.46,
+        maxExpressiveVariation: 0.42,
+        sensitiveMode: false,
+        technicalStrictMode: false,
+        prohibitedPatterns: [],
+      },
+    },
+    responsePlanState: {
+      responseIntent: "direct",
+      strategy: "single_pass",
+      structurePlan: [],
+      depthLevel: "standard",
+      requiresSynthesis: false,
+    },
+    proactivityDecisionState: {
+      allowProactivity: false,
+      interruptionRisk: 0.6,
+      relevanceScore: 0,
+      rationale: "state_init",
+    },
+    deliveryProfileState: {
+      tone: "neutral",
+      density: "balanced",
+      formality: "medium",
+      technicality: 0.5,
+      proximity: 0.4,
+      rhythm: "direct",
+    },
+    humanizedResponse: "",
+    finalResponse: "",
+    reasonedDraft: "",
+    validatedDraft: "",
     proactivityMode: "low",
     selectedMode: "chat",
     complexityProfile: {
@@ -439,7 +752,22 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       harmonyScore: 1,
       finalHandoff: "",
     },
+    epistemicAuditState: {
+      claimCount: 0,
+      claimKinds: {
+        fact: 0,
+        inference: 0,
+        hypothesis: 0,
+        speculation: 0,
+        open_question: 0,
+      },
+      overclaimRisk: 0,
+      uncertaintySignals: [],
+      confidence: 0.5,
+    },
     scenarioSet: [],
+    communicativeElaborationState: null,
+    philosophicalSelfModelState: null,
     generationPrompt: "",
     draftResponse: {
       text: "",
@@ -500,3 +828,4 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
     },
   };
 }
+

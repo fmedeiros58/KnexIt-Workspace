@@ -54,10 +54,21 @@ function detectSignals(state: ProcessingState) {
     pre.safetyAction === "caution" ||
     state.inputSignals.safetyFlags.some((flag) => /block|malicious|harmful|prompt_injection/i.test(flag));
 
-  const hasVerifiableLexicalCue =
-    /\b(quem|qual|quais|quando|onde|what|who|when|where|presidente|governador|prefeito|ceo|capital|cotacao|indice|taxa|mandato|eleit[oa]|posse)\b/i.test(lower);
-  const hasSourceDemand =
+  const hasFactualEntityCue =
+    /\b(presidente|governador|prefeito|ceo|capital|cotacao|indice|taxa|mandato|eleit[oa]|posse|data|ano|numero|percentual|lei|norma|resolucao|preco|dose|mg|ml)\b/i.test(
+      lower,
+    );
+  const hasQuestionCue = /\b(quem|qual|quais|quando|onde|what|who|when|where)\b/i.test(lower);
+  const hasVerifiableLexicalCue = hasFactualEntityCue || (hasQuestionCue && /\?$/.test(text));
+
+  const hasGenericSourceDemand =
     /\b(fonte|fontes|source|sources|cite|citar|referencia|referencias|verifique|confirmar|confirma)\b/i.test(lower);
+  const sourceDemandLooksFactual =
+    hasFactualEntityCue ||
+    /\b(fato|factual|dado|dados|estatistica|estatisticas|noticia|noticias|paper|papers|artigo|artigos|lei|norma|resolucao|preco|cotacao|taxa|mandato)\b/i.test(
+      lower,
+    );
+  const hasSourceDemand = hasGenericSourceDemand && sourceDemandLooksFactual;
   const hasTemporalCue =
     /\b(hoje|agora|atual|latest|today|recent|recente|recentemente|nesta semana|neste mes|este mes)\b/i.test(lower);
   const hasReferentialCue = /\b(ele|ela|dele|dela|esse|essa|isso|aquele|aquela)\b/i.test(lower);
@@ -92,7 +103,7 @@ function detectSignals(state: ProcessingState) {
   const routeFloor: PipelineRoute =
     requiresKnowledge
       ? (requiresWeb ? "quantum-state" : "inferential")
-      : "minimum";
+      : "reflective";
 
   const requiredSteps = requiresKnowledge
     ? [

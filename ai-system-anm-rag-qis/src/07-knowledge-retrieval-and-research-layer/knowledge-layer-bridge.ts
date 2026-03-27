@@ -25,6 +25,8 @@ import { searchWebFallback } from "./internet-research-core/web-search-client";
 import { verifyExternalFacts } from "./internet-research-core/external-fact-verifier";
 import { buildLiveKnowledgeHints } from "./internet-research-core/live-knowledge-bridge";
 import { synthesizeWebResults } from "./internet-research-core/web-result-synthesizer";
+import { runIterativeEvidenceAcquisitionBridge } from "./iterative-evidence-acquisition-core/iterative-evidence-acquisition-bridge";
+import { runDeliberativeGroundingBridge } from "../bridges/deliberative-grounding.bridge";
 import { handoffKnowledgeToQuantum } from "./knowledge-to-quantum-bridge";
 import { isConversationalPrompt } from "../shared/utils/conversation-signals";
 
@@ -273,6 +275,94 @@ export async function runKnowledgeLayer(state: ProcessingState): Promise<Process
 
   const baseCandidates = buildCandidatesFromState(state);
   const localLimit = Math.max(4, Math.ceil(8 / Math.max(1, retrievalQueries.length)) + 1);
+
+  try {
+    const iterativeBundle = await runIterativeEvidenceAcquisitionBridge(state, {
+      query: retrievalQuery,
+      policyHint: {
+        retrievalDepth: explicitlyNeedsKnowledge ? 3 : 2,
+        enableWeb: explicitlyNeedsKnowledge || state.preRouteSignals.hasVerifiableSignal || state.preRouteSignals.hasRecencySignal,
+      },
+    });
+
+    if (iterativeBundle.rankedEvidence.length > 0) {
+      const selectedFromIterative = iterativeBundle.rankedEvidence.slice(0, 10);
+      state.retrievedSources = selectedFromIterative.map((item) => ({
+        title: item.title,
+        url: item.url,
+        snippet: item.snippet,
+        freshnessScore: item.freshnessScore,
+      }));
+
+      const contradictions = iterativeBundle.conflictCandidates.map((item) => item.conflictType);
+      const evidence = selectedFromIterative.map((item) => item.snippet);
+      const citations = collectCitations(
+        selectedFromIterative.map((item) => ({
+          title: item.title,
+          url: item.url,
+          snippet: item.snippet,
+          freshnessScore: item.freshnessScore,
+          trustScore: item.trustScore,
+          relevanceScore: item.relevanceScore,
+          sourceType: item.sourceType === "web" ? "web" : "existing",
+        })),
+      );
+
+      state.retrievedEvidence = [
+        ...evidence,
+        ...iterativeBundle.unresolvedGaps.slice(0, 2),
+      ].slice(0, 18);
+      const deliberativeGrounding = runDeliberativeGroundingBridge(state);
+      state.activeConstraints = mergeConstraints(
+        state.activeConstraints,
+        contradictions.map((item) => toConstraint("evidence", item)),
+        32,
+      );
+      state.confidenceScores.retrieval = Math.max(
+        state.confidenceScores.retrieval,
+        iterativeBundle.sufficiencyEstimate,
+      );
+
+      state.executionArtifacts.knowledge.cache[querySignature] = {
+        retrievedSources: state.retrievedSources,
+        retrievedEvidence: state.retrievedEvidence,
+        confidence: state.confidenceScores.retrieval,
+        citationsCount: citations.length,
+      };
+      state.executionArtifacts.knowledge.lastQuerySignature = querySignature;
+      state.executionArtifacts.knowledge.lastUsedCache = false;
+      state.executionArtifacts.knowledge.activatedFamilies = [
+        "knowledge_retrieval",
+        "iterative_evidence_acquisition",
+      ];
+
+      state.trace.push(
+        makeTraceEvent({
+          layer: "knowledge",
+          action: "knowledge_retrieved_iterative",
+          route: state.executionPlan.selectedRoute,
+          latencyMs: Date.now() - startedAt,
+          detail:
+            `signature=${querySignature}; sources=${selectedFromIterative.length}; rounds=${iterativeBundle.executedRounds.length}; ` +
+            `sufficiency=${iterativeBundle.sufficiencyEstimate.toFixed(3)}; stop=${iterativeBundle.stopReason}; ` +
+            `deliberative=${deliberativeGrounding.summary}`,
+        }),
+      );
+
+      return handoffKnowledgeToQuantum(state);
+    }
+  } catch (error) {
+    state.trace.push(
+      makeTraceEvent({
+        layer: "knowledge",
+        action: "iterative_acquisition_fallback",
+        route: state.executionPlan.selectedRoute,
+        latencyMs: Date.now() - startedAt,
+        detail: `reason=${error instanceof Error ? error.message : "unknown_error"}`,
+      }),
+    );
+  }
+
   const retrieved = dedupeKnowledgeCandidates(
     retrievalQueries.flatMap((variant) => runRetriever(variant, baseCandidates, localLimit)),
   );
@@ -339,6 +429,7 @@ export async function runKnowledgeLayer(state: ProcessingState): Promise<Process
   const webSummary = synthesizeWebResults(webResults);
 
   state.retrievedEvidence = [...evidence, ...webSummary, ...liveHints].slice(0, 18);
+  const deliberativeGrounding = runDeliberativeGroundingBridge(state);
   state.activeConstraints = mergeConstraints(
     state.activeConstraints,
     contradictions.map((item) => toConstraint("evidence", item)),
@@ -364,7 +455,10 @@ export async function runKnowledgeLayer(state: ProcessingState): Promise<Process
       action: "knowledge_retrieved",
       route: state.executionPlan.selectedRoute,
       latencyMs: Date.now() - startedAt,
-      detail: `signature=${querySignature}; sources=${selected.length}; citations=${citations.length}; web=${useWeb}; focusedQuery=${focusedQuery ? "true" : "false"}; variantQueries=${retrievalQueries.length}; confidence=${evidenceConfidence.toFixed(3)}`,
+      detail:
+        `signature=${querySignature}; sources=${selected.length}; citations=${citations.length}; web=${useWeb}; ` +
+        `focusedQuery=${focusedQuery ? "true" : "false"}; variantQueries=${retrievalQueries.length}; confidence=${evidenceConfidence.toFixed(3)}; ` +
+        `deliberative=${deliberativeGrounding.summary}`,
     }),
   );
 

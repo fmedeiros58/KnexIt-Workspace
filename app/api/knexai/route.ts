@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+﻿import { NextRequest } from "next/server";
 import { execFileSync } from "node:child_process";
 import { createAssistantPipelineOrchestratorService } from "@/core/assistant/pipeline/pipeline-orchestrator.service";
 import { LETICIA_SYSTEM_PROMPT } from "@/lib/knexai/spec";
@@ -10,6 +10,7 @@ import { RagPipelineError } from "@/core/rag/rag-errors";
 import { toSseStream } from "@/core/rag/streaming-response";
 import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
 import { runPipelineRootBridge } from "../../../ai-system-anm-rag-qis/src/00-myelinated-pipeline-core/pipeline-root-bridge";
+import { resolveIdentityFallbackForMessage } from "../../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
 import {
   buildConversationStateSummaryBlock,
   injectConversationStatePrompt,
@@ -103,9 +104,11 @@ type EngineHealthProbeResult = {
 };
 type DescendingPipelineConfig = {
   enabled: boolean;
+  onlyVerifiable: boolean;
   strict: boolean;
   allowVerifiable: boolean;
 };
+type AssistantIdentityIntentFamily = "identity" | "name_semantics" | "creator_identity" | null;
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1";
 const DEFAULT_MODEL = "mistral-awq";
@@ -117,7 +120,7 @@ const AVAILABLE_MODELS_CACHE_TTL_MS = 30_000;
 const ENGINE_HEALTH_CACHE_TTL_MS = Math.max(500, Number(process.env.KNEXAI_ENGINE_HEALTH_CACHE_TTL_MS || 3_000));
 const ENGINE_HEALTH_TIMEOUT_MS = Math.max(200, Number(process.env.KNEXAI_ENGINE_HEALTH_TIMEOUT_MS || 1_500));
 const WSL_DISCOVERY_CACHE_MS = 60_000;
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:8100";
+const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 const DEFAULT_ANM_SOFT_TIMEOUT_MS = 200;
 const VERIFICATION_CASCADE_VERSION = "2026-03-12.1";
@@ -164,7 +167,8 @@ function parseOptionalBoolean(value: string | undefined | null): boolean | undef
 
 function readDescendingPipelineConfig(): DescendingPipelineConfig {
   return {
-    enabled: true,
+    enabled: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ENABLED) !== false,
+    onlyVerifiable: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ONLY_VERIFIABLE) !== false,
     strict: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_STRICT) !== false,
     allowVerifiable: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ALLOW_VERIFIABLE) !== false,
   };
@@ -290,9 +294,20 @@ function buildWebVerificationUnavailableAnswer(localeHint: string) {
     return "I could not validate this fact with web sources in this turn. To avoid outdated information, I need to rerun multi-source verification before confirming it.";
   }
   if (normalized.startsWith("es")) {
-    return "No pude validar este dato con fuentes web en este turno. Para evitar informacion desactualizada, necesito repetir la verificacion multifuente antes de confirmarlo.";
+    return "No pude validar este dato con fuentes web en este turno. Para evitar información desactualizada, necesito repetir la verificación multifuente antes de confirmarlo.";
   }
-  return "Nao consegui validar esse fato em fontes web neste turno. Para evitar informacao desatualizada, preciso repetir a verificacao multifonte antes de confirmar.";
+  return "Não consegui validar esse fato em fontes web neste turno. Para evitar informação desatualizada, preciso repetir a verificação multifonte antes de confirmar.";
+}
+
+function buildReferenceGroundingRequiredAnswer(localeHint: string) {
+  const normalized = `${localeHint || ""}`.trim().toLowerCase();
+  if (normalized.startsWith("en")) {
+    return "I cannot safely write \"according to Author (Year)\" without a concrete source. Please send the reference (title, link, DOI, or excerpt) so I can ground the answer.";
+  }
+  if (normalized.startsWith("es")) {
+    return "No puedo redactar \"según Autor (Año)\" sin una fuente concreta. Envía la referencia (título, enlace, DOI o extracto) para fundamentar la respuesta.";
+  }
+  return "Não posso redigir \"segundo Autor (Ano)\" sem uma fonte concreta. Envie a referência (título, link, DOI ou trecho) para eu fundamentar a resposta.";
 }
 
 function buildWebVerificationResponsePolicy(localeHint: string) {
@@ -362,6 +377,165 @@ function normalizeForVerification(value: string) {
     .trim();
 }
 
+const BRAZIL_STATE_ALIASES = new Map<string, string>([
+  ["acre", "acre"],
+  ["alagoas", "alagoas"],
+  ["amapa", "amapa"],
+  ["amazonas", "amazonas"],
+  ["bahia", "bahia"],
+  ["ceara", "ceara"],
+  ["distrito federal", "distrito federal"],
+  ["espirito santo", "espirito santo"],
+  ["goias", "goias"],
+  ["maranhao", "maranhao"],
+  ["mato grosso", "mato grosso"],
+  ["mato grosso do sul", "mato grosso do sul"],
+  ["minas gerais", "minas gerais"],
+  ["para", "para"],
+  ["paraiba", "paraiba"],
+  ["parana", "parana"],
+  ["pernambuco", "pernambuco"],
+  ["piaui", "piaui"],
+  ["rio de janeiro", "rio de janeiro"],
+  ["rio grande do norte", "rio grande do norte"],
+  ["rio grande do sul", "rio grande do sul"],
+  ["rondonia", "rondonia"],
+  ["roraima", "roraima"],
+  ["santa catarina", "santa catarina"],
+  ["sao paulo", "sao paulo"],
+  ["sergipe", "sergipe"],
+  ["tocantins", "tocantins"],
+]);
+
+const LOCATION_STATE_HINTS = new Map<string, string>([
+  ["rio branco", "acre"],
+  ["cruzeiro do sul", "acre"],
+]);
+
+const GEO_QUERY_STOPWORDS = new Set([
+  "a",
+  "o",
+  "as",
+  "os",
+  "de",
+  "da",
+  "do",
+  "das",
+  "dos",
+  "e",
+  "em",
+  "no",
+  "na",
+  "nos",
+  "nas",
+  "esse",
+  "essa",
+  "este",
+  "esta",
+  "qual",
+  "que",
+  "estado",
+  "fica",
+  "cidade",
+  "municipio",
+  "municipio",
+]);
+
+function resolveExplicitBrazilState(value: string) {
+  const normalized = normalizeForVerification(value);
+  if (!normalized) return "";
+  for (const [alias, canonical] of BRAZIL_STATE_ALIASES.entries()) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`);
+    if (pattern.test(normalized)) return canonical;
+  }
+  return "";
+}
+
+function extractGeographicPlaceCandidate(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return "";
+
+  const officeMatch = normalized.match(
+    /\b(?:prefeito|governador|presidente|ministro|reitor)\s+(?:de|do|da)\s+(.+)$/i,
+  );
+  if (officeMatch?.[1]) {
+    return officeMatch[1]
+      .replace(/\b(?:no|na|estado|cidade|municipio)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 96);
+  }
+
+  const stateQuestionPatterns = [
+    /\b(?:esse|essa|este|esta|o|a)?\s*([a-z][a-z\s-]{2,})\s+(?:e|eh)\s+de\s+qual\s+estado\b/i,
+    /\bem\s+que\s+estado\s+fica\s+([a-z][a-z\s-]{2,})\b/i,
+    /\b([a-z][a-z\s-]{2,})\s+fica\s+em\s+qual\s+estado\b/i,
+  ];
+  for (const pattern of stateQuestionPatterns) {
+    const match = normalized.match(pattern);
+    const candidate = `${match?.[1] || ""}`
+      .replace(/\b(?:no|na|estado|cidade|municipio)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (candidate.length >= 3) return candidate.slice(0, 96);
+  }
+  return "";
+}
+
+function resolveHistoryStateHint(history: ChatHistoryItem[]) {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const item = history[index];
+    if (!item || item.role !== "user") continue;
+    const explicit = resolveExplicitBrazilState(item.content || "");
+    if (explicit) return explicit;
+    const normalized = normalizeForVerification(item.content || "");
+    if (!normalized) continue;
+    for (const [location, state] of LOCATION_STATE_HINTS.entries()) {
+      if (normalized.includes(location)) return state;
+    }
+  }
+  return "";
+}
+
+function isGeographicStateQuestion(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  const asksState =
+    /\b(?:qual|que|em que)\s+estado\b/.test(normalized) ||
+    /\bde\s+qual\s+estado\b/.test(normalized);
+  if (!asksState) return false;
+  const place = extractGeographicPlaceCandidate(normalized);
+  if (place) return true;
+  const meaningfulTokens = normalized
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !GEO_QUERY_STOPWORDS.has(token));
+  return meaningfulTokens.length >= 2;
+}
+
+function enrichVerificationTargetPrompt(prompt: string, history: ChatHistoryItem[]) {
+  const base = `${prompt || ""}`.trim();
+  if (!base) return "";
+  if (resolveExplicitBrazilState(base)) return base;
+  if (!isOfficeContextPrompt(base) && !isGeographicStateQuestion(base)) return base;
+
+  const stateHint = resolveHistoryStateHint(history);
+  if (!stateHint) return base;
+  const normalizedBase = normalizeForVerification(base);
+  if (normalizedBase.includes(stateHint)) return base;
+
+  if (isGeographicStateQuestion(base)) {
+    const place = extractGeographicPlaceCandidate(base);
+    if (place) {
+      return `${place} em qual estado no contexto de ${stateHint} no brasil`;
+    }
+    return `${base} (contexto da conversa: ${stateHint})`;
+  }
+
+  return `${base} no estado do ${stateHint}`;
+}
+
 function isOfficeContextPrompt(prompt: string) {
   const normalized = normalizeForVerification(prompt);
   if (!normalized) return false;
@@ -399,16 +573,26 @@ function isBrazilOfficeQuestion(prompt: string) {
   );
 }
 
+function isAuthorYearReferencePrompt(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  const hasAuthorFrame = /\b(segundo|conforme|de acordo com|autor|autora)\b/.test(normalized);
+  const hasYear = /\b(19|20)\d{2}\b/.test(normalized);
+  return hasAuthorFrame && hasYear;
+}
+
 function isVerifiableQuestionForAutoSearch(prompt: string) {
   const normalized = normalizeForVerification(prompt);
   if (!normalized) return false;
   const asksCurrentOffice = isCurrentOfficeQuestion(normalized);
   const asksOfficeDetails = isOfficeDetailPrompt(normalized);
+  const asksGeographicState = isGeographicStateQuestion(normalized);
+  const asksAuthorYearReference = isAuthorYearReferencePrompt(normalized);
   const asksVerifiableData =
     /\b(data|ano|numero|percentual|taxa|fonte|citacao|referencia|lei|norma|resolucao|preco|valor|dosagem|dose|mg|ml)\b/.test(
       normalized,
     );
-  return asksCurrentOffice || asksOfficeDetails || asksVerifiableData;
+  return asksCurrentOffice || asksOfficeDetails || asksGeographicState || asksAuthorYearReference || asksVerifiableData;
 }
 
 function isTrustedOfficeDomain(hostname: string) {
@@ -434,6 +618,21 @@ function isTrustedOfficeDomain(hostname: string) {
   );
 }
 
+function isOfficialGovernmentDomain(hostname: string) {
+  const host = `${hostname || ""}`.trim().toLowerCase();
+  if (!host) return false;
+  if (host.endsWith(".gov")) return true;
+  if (host.endsWith(".gov.br")) return true;
+  if (host.endsWith(".jus.br")) return true;
+  if (host.endsWith(".leg.br")) return true;
+  return (
+    host.includes("planalto.gov.br") ||
+    host.includes("presidencia.gov.br") ||
+    host.includes("camara.leg.br") ||
+    host.includes("senado.leg.br")
+  );
+}
+
 function isPrimaryAuthorityOfficeDomain(hostname: string) {
   const host = `${hostname || ""}`.trim().toLowerCase();
   if (!host) return false;
@@ -446,31 +645,68 @@ function isPrimaryAuthorityOfficeDomain(hostname: string) {
   return false;
 }
 
+function hasOfficeRoleSignal(
+  row: InternetSearchResponse["results"][number],
+  officeRole: string,
+) {
+  const normalized = normalizeForVerification(`${row.title || ""} ${row.snippet || ""} ${row.url || ""}`);
+  if (!normalized) return false;
+  if (!officeRole) {
+    return /\b(prefeito|governador|presidente|ministro|reitor|mayor|governor|president|minister|rector)\b/.test(normalized);
+  }
+  const escapedRole = officeRole.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rolePattern = new RegExp(`\\b${escapedRole}\\b`);
+  return rolePattern.test(normalized);
+}
+
+function scoreOfficeSourceRow(
+  row: InternetSearchResponse["results"][number],
+  officeRole: string,
+  currentOfficeQuestion: boolean,
+) {
+  const host = extractHostname(row.url);
+  const normalized = normalizeForVerification(`${row.title || ""} ${row.snippet || ""}`);
+  let score = 0;
+  if (isPrimaryAuthorityOfficeDomain(host)) score += 7;
+  else if (isOfficialGovernmentDomain(host)) score += 5;
+  else if (isTrustedOfficeDomain(host)) score += 2;
+  if (hasOfficeRoleSignal(row, officeRole)) score += 2;
+  if (currentOfficeQuestion && /\b(atual|incumbente|incumbent|titular|em exercicio|current)\b/.test(normalized)) score += 2;
+  if (host.includes("wikipedia.org")) score -= 1;
+  if (isLowSignalDomain(host)) score -= 2;
+  return score;
+}
+
 function isVerificationFollowUpPrompt(prompt: string) {
   const normalized = normalizeForVerification(prompt);
   if (!normalized) return false;
-  const conciseFollowUp = normalized.length <= 80;
+  const conciseFollowUp = normalized.length <= 160;
   const asksVerification = /\b(verifique|verificar|confirme|confirmar|cheque|checar|validar|validacao|confirm|verify|check)\b/.test(
     normalized,
   );
+  const asksDeepSearch = /\b(busca profunda|pesquise|pesquisar|pesquisa|internet|web|aprofunde)\b/.test(normalized);
   const asksForSources = /\b(fonte|fontes|source|sources|evidencia|evidence)\b/.test(normalized);
-  return conciseFollowUp && (asksVerification || asksForSources);
+  return conciseFollowUp && (asksVerification || asksForSources || asksDeepSearch);
 }
 
 function resolveVerificationTargetPrompt(prompt: string, history: ChatHistoryItem[]) {
   const current = `${prompt || ""}`.trim();
   if (!current) return "";
-  if (isVerifiableQuestionForAutoSearch(current)) return current;
-  if (!isVerificationFollowUpPrompt(current)) return current;
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const item = history[index];
-    if (item.role !== "user") continue;
-    const candidate = `${item.content || ""}`.trim();
-    if (!candidate) continue;
-    if (candidate === current) continue;
-    if (isVerifiableQuestionForAutoSearch(candidate)) return candidate;
+  let target = current;
+  if (!isVerifiableQuestionForAutoSearch(current) && isVerificationFollowUpPrompt(current)) {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const item = history[index];
+      if (item.role !== "user") continue;
+      const candidate = `${item.content || ""}`.trim();
+      if (!candidate) continue;
+      if (candidate === current) continue;
+      if (isVerifiableQuestionForAutoSearch(candidate)) {
+        target = candidate;
+        break;
+      }
+    }
   }
-  return current;
+  return enrichVerificationTargetPrompt(target, history);
 }
 
 function resolveVerificationCascadePlan(input: {
@@ -526,6 +762,56 @@ function extractHostname(url: string) {
   }
 }
 
+function decodeSearchRedirectTarget(value: string) {
+  const raw = `${value || ""}`.trim();
+  if (!raw) return "";
+  const decoded = decodeURIComponent(raw);
+  if (/^https?:\/\//i.test(decoded)) return decoded;
+  if (/^a1/i.test(decoded) && decoded.length > 3) {
+    try {
+      const maybe = Buffer.from(decoded.slice(2), "base64").toString("utf8").trim();
+      if (/^https?:\/\//i.test(maybe)) return maybe;
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function unwrapSearchRedirectUrl(url: string) {
+  const raw = `${url || ""}`.trim();
+  if (!raw) return "";
+  try {
+    const sanitized = raw.replace(/&amp;/gi, "&");
+    const parsed = new URL(sanitized);
+    const host = `${parsed.hostname || ""}`.toLowerCase();
+    const path = `${parsed.pathname || ""}`.toLowerCase();
+    if (host.includes("bing.com") && path.startsWith("/ck")) {
+      const target = decodeSearchRedirectTarget(parsed.searchParams.get("u") || parsed.searchParams.get("url") || "");
+      return target || sanitized;
+    }
+    if (host.includes("google.") && path === "/url") {
+      const target = decodeSearchRedirectTarget(parsed.searchParams.get("q") || parsed.searchParams.get("url") || "");
+      return target || sanitized;
+    }
+    if (host.includes("duckduckgo.com")) {
+      const target = decodeSearchRedirectTarget(parsed.searchParams.get("uddg") || "");
+      return target || sanitized;
+    }
+    return sanitized;
+  } catch {
+    return raw;
+  }
+}
+
+function normalizeSearchResultRow(row: InternetSearchResponse["results"][number]) {
+  const normalizedUrl = unwrapSearchRedirectUrl(`${row.url || ""}`.trim());
+  return {
+    ...row,
+    url: normalizedUrl || `${row.url || ""}`.trim(),
+  };
+}
+
 function isLowSignalDomain(hostname: string) {
   const host = `${hostname || ""}`.trim().toLowerCase();
   if (!host) return false;
@@ -542,10 +828,11 @@ function dedupeUrls(results: Array<InternetSearchResponse["results"][number]>, m
   const unique: Array<InternetSearchResponse["results"][number]> = [];
   const seen = new Set<string>();
   for (const row of results) {
-    const url = `${row.url || ""}`.trim();
+    const normalizedRow = normalizeSearchResultRow(row);
+    const url = `${normalizedRow.url || ""}`.trim();
     if (!url || seen.has(url)) continue;
     seen.add(url);
-    unique.push(row);
+    unique.push(normalizedRow);
     if (unique.length >= maxItems) break;
   }
   return unique;
@@ -637,10 +924,10 @@ function isLikelyOfficeHolderName(candidate: string) {
   ];
   if (blockedTerms.some((term) => normalized.includes(term))) return false;
 
-  const connectorPattern = /^(da|de|do|das|dos|e|d['Ã¢â‚¬â„¢]|del|la|el)$/i;
+  const connectorPattern = /^(da|de|do|das|dos|e|d'|del|la|el)$/i;
   const tokens = value
     .split(/\s+/g)
-    .map((token) => token.replace(/^[^\p{L}]+|[^\p{L}.'Ã¢â‚¬â„¢-]+$/gu, ""))
+    .map((token) => token.replace(/^[^\p{L}]+|[^\p{L}.'-]+$/gu, ""))
     .filter(Boolean);
   if (!tokens.length) return false;
   const significant = tokens.filter((token) => !connectorPattern.test(token));
@@ -679,7 +966,7 @@ function isLikelyOfficeHolderName(candidate: string) {
   for (const token of significant) {
     const clean = token.replace(/\.+$/g, "");
     if (!clean) continue;
-    const looksNamePart = /^\p{Lu}[\p{L}'Ã¢â‚¬â„¢.-]*$/u.test(clean) || /^\p{Lu}\.$/u.test(clean);
+    const looksNamePart = /^\p{Lu}[\p{L}'.-]*$/u.test(clean) || /^\p{Lu}\.$/u.test(clean);
     if (!looksNamePart) return false;
     uppercaseLike += 1;
   }
@@ -832,10 +1119,10 @@ function extractOfficeCandidates(prompt: string, rows: Array<InternetSearchRespo
   const patterns = [
     /Titular atual:\s*([^.;,\n]+)/i,
     /incumbente\s*[:\-]\s*([^.;,\n]+)/i,
-    /(?:presidencia|presid\u00EAncia)\s+da\s+republica[^.\n]{0,80}?(?:\u00E9|e|:)\s+([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})/iu,
-    /([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})\s*[-|]\s*(?:presidencia|presid\u00EAncia)\s+da\s+republica/iu,
-    /(?:governador|prefeito|presidente|ministro|reitor)[^.\n]{0,80}?\s(?:\u00E9|e|:)\s+([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})/iu,
-    /([\p{L}][\p{L}'’.-]{1,40}(?:\s+[\p{L}][\p{L}'’.-]{1,40}){1,4})[^.\n]{0,80}\b(?:prefeito|governador|presidente|ministro|reitor)\b/iu,
+    /(?:presidencia|presid\u00EAncia)\s+da\s+republica[^.\n]{0,80}?(?:\u00E9|e|:)\s+([\p{L}][\p{L}'.-]{1,40}(?:\s+[\p{L}][\p{L}'.-]{1,40}){1,4})/iu,
+    /([\p{L}][\p{L}'.-]{1,40}(?:\s+[\p{L}][\p{L}'.-]{1,40}){1,4})\s*[-|]\s*(?:presidencia|presid\u00EAncia)\s+da\s+republica/iu,
+    /(?:governador|prefeito|presidente|ministro|reitor)[^.\n]{0,80}?\s(?:\u00E9|e|:)\s+([\p{L}][\p{L}'.-]{1,40}(?:\s+[\p{L}][\p{L}'.-]{1,40}){1,4})/iu,
+    /([\p{L}][\p{L}'.-]{1,40}(?:\s+[\p{L}][\p{L}'.-]{1,40}){1,4})[^.\n]{0,80}\b(?:prefeito|governador|presidente|ministro|reitor)\b/iu,
   ];
   for (const row of rows) {
     if (!rowMatchesOfficeScope(row, scopeTokens)) continue;
@@ -1208,6 +1495,9 @@ async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidenc
     selected = highSignalSelected;
   }
   const officeContextQuestion = isOfficeContextPrompt(prompt);
+  const currentOfficeQuestion = isCurrentOfficeQuestion(prompt);
+  const strictOfficeSourceFilter = parseOptionalBoolean(process.env.KNEXAI_OFFICE_STRICT_SOURCE_FILTER) !== false;
+  const officeRole = officeContextQuestion ? extractOfficeRoleKeyword(prompt) : "";
   if (officeContextQuestion) {
     const isUsQuestion = isUsOfficeQuestion(prompt);
     const trustedSelected = selected.filter((row) => isTrustedOfficeDomain(extractHostname(row.url)));
@@ -1261,7 +1551,11 @@ async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidenc
       scopeTokens,
       preview: scopedPreview,
     });
-    const scopeFiltered = selected.filter((row) => rowMatchesOfficeScope(row, scopeTokens));
+    const scopeFiltered = selected.filter((row) => {
+      if (!rowMatchesOfficeScope(row, scopeTokens)) return false;
+      if (!strictOfficeSourceFilter) return true;
+      return hasOfficeRoleSignal(row, officeRole);
+    });
     selected = scopeFiltered;
   }
   if (!selected.length && officeContextQuestion) {
@@ -1269,7 +1563,7 @@ async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidenc
       "[WEB_VERIFIED_CONTEXT]",
       `Pergunta: ${prompt.trim()}`,
       `Consultas executadas: ${executedQueryCount}`,
-      "Status: resultados sem aderencia ao escopo geogrÃƒÂ¡fico/temÃƒÂ¡tico da pergunta.",
+      "Status: resultados sem aderencia ao escopo geografico/tematico da pergunta.",
       "Regra: nao responder fato verificavel por memoria; solicitar nova tentativa de verificacao.",
       "[/WEB_VERIFIED_CONTEXT]",
     ].join("\n");
@@ -1282,8 +1576,26 @@ async function buildAutomaticWebEvidence(prompt: string): Promise<AutoWebEvidenc
       officeCandidates: [],
     };
   }
+  if (officeContextQuestion && strictOfficeSourceFilter) {
+    const officialRows = selected.filter((row) => isOfficialGovernmentDomain(extractHostname(row.url)));
+    if (officialRows.length) {
+      const reliableRows = selected.filter(
+        (row) =>
+          !isOfficialGovernmentDomain(extractHostname(row.url)) &&
+          isTrustedOfficeDomain(extractHostname(row.url)),
+      );
+      const limitedReliableRows = reliableRows.slice(0, 2);
+      selected = [...officialRows, ...limitedReliableRows];
+    }
+    selected = selected
+      .map((row) => ({
+        row,
+        score: scoreOfficeSourceRow(row, officeRole, currentOfficeQuestion),
+      }))
+      .sort((left, right) => right.score - left.score)
+      .map((item) => item.row);
+  }
   selected = selected.slice(0, maxResults);
-  const currentOfficeQuestion = isCurrentOfficeQuestion(prompt);
   if (currentOfficeQuestion) {
     const requiresPrimaryAuthority = parseOptionalBoolean(process.env.KNEXAI_REQUIRE_PRIMARY_AUTHORITY_FOR_CURRENT_OFFICE) !== false;
     if (requiresPrimaryAuthority) {
@@ -1399,9 +1711,9 @@ function resolveLogicalModelName() {
   const explicit = pickFirstNonEmpty(process.env.LLM_MODEL_NAME);
   if (explicit) return explicit;
 
-  const legacy = pickFirstNonEmpty(process.env.VLLM_MODEL);
+  const compatModel = pickFirstNonEmpty(process.env.VLLM_MODEL);
   // VLLM_MODEL historicamente pode receber caminho de disco. No payload OpenAI-like, usar nome logico.
-  if (legacy && !legacy.includes("/") && !legacy.includes("\\")) return legacy;
+  if (compatModel && !compatModel.includes("/") && !compatModel.includes("\\")) return compatModel;
 
   return DEFAULT_MODEL;
 }
@@ -1463,10 +1775,10 @@ function readLlmConfig(): LlmConfig {
 }
 
 function readEngineModeConfig(): EngineModeConfig {
-  const modeRaw = pickFirstNonEmpty(process.env.KNEXAI_ENGINE_MODE, "direct").toLowerCase();
-  const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_BACKEND_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedAnmTimeout = Number(process.env.ANM_BACKEND_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  // Runtime atual: direct-only. Mantemos os campos legados apenas por compatibilidade de contrato.
+  const mode: EngineMode = "direct";
+  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
+  const parsedAnmTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedAnmTimeout) ? Math.max(3_000, Math.round(parsedAnmTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   const parsedAnmSoftTimeout = Number(process.env.KNEXAI_ANM_SOFT_TIMEOUT_MS || DEFAULT_ANM_SOFT_TIMEOUT_MS);
   const anmSoftTimeoutMs = Number.isFinite(parsedAnmSoftTimeout)
@@ -1741,23 +2053,148 @@ function stripPersonaPolicyLeak(text: string) {
   return lines.join("\n").trim();
 }
 
+function decodeLikelyMojibake(value: string): string {
+  if (!/(?:Ãƒ.|Ã‚.|Ã¢[â‚¬â„¢â€œâ€â€“â€”])/.test(value)) return value;
+  try {
+    const bytes = Uint8Array.from(Array.from(value).map((char) => char.charCodeAt(0) & 0xff));
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const before = (value.match(/(?:Ãƒ.|Ã‚.|Ã¢[â‚¬â„¢â€œâ€â€“â€”])/g) || []).length;
+    const after = (decoded.match(/(?:Ãƒ.|Ã‚.|Ã¢[â‚¬â„¢â€œâ€â€“â€”])/g) || []).length;
+    return after < before && !decoded.includes("\uFFFD") ? decoded : value;
+  } catch {
+    return value;
+  }
+}
+
+const INTERNAL_FALLBACK_LINE_PATTERNS: RegExp[] = [
+  /^sem\s+ressalva(?:s)?(?:\s+(?:dominante(?:s)?|adicionais?))?[\.\!\?]*$/i,
+  /^sem\s+sintese\s+disponivel[\.\!\?]*$/i,
+  /^sem\s+evidencia\s+dominante[\.\!\?]*$/i,
+  /^sem\s+hipotese\s+dominante[\.\!\?]*$/i,
+  /^sem\s+dependencia\s+latente\s+dominante[\.\!\?]*$/i,
+  /^sem\s+overclaim\s+dominante[\.\!\?]*$/i,
+  /^sem\s+pressuposto\s+dominante[\.\!\?]*$/i,
+  /^sem\s+caveat\s+dominante[\.\!\?]*$/i,
+  /^sem\s+tensoes?\s+contextuais\s+dominantes[\.\!\?]*$/i,
+];
+
+function isInternalFallbackLine(value: string) {
+  const normalized = normalizeForVerification(value);
+  if (!normalized) return false;
+  return INTERNAL_FALLBACK_LINE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function stripInternalFallbackMarkers(text: string) {
+  let output = `${text || ""}`.trim();
+  if (!output) return "";
+  output = output.replace(/^[\s\S]*?traduc(?:ao|acao|ação|Ã§Ã£o)\s+para o portugues\s*:\s*/i, "");
+  output = output
+    .split(/\r?\n/g)
+    .filter((line) => !isInternalFallbackLine(line))
+    .join("\n");
+  output = output.replace(/\bsem\s+ressalva(?:s)?\s+dominante(?:s)?\b/gi, " ");
+  output = output.replace(/\bsem\s+ressalva(?:s)?\s+adicionais?\b/gi, " ");
+  output = output.replace(/\bsem\s+sintese\s+disponivel\b/gi, " ");
+  output = output.replace(/\ba resposta foi alinhada ao escopo solicitado\.\s*/gi, "");
+  output = output.replace(/\bleitura inicial\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(
+    /\bvou desenvolver isso com voce de forma progressiva,\s*separando o que esta mais consolidado do que ainda precisa de teste\.?/gi,
+    " ",
+  );
+  output = output.replace(/\bperfil comportamental\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bsinal epistemic[oa]\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bconsistencia filosofica\s*:\s*[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bresposta\s*:\s*(?:evit|prioriz|explic|preserv|manter)[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bpriorizar explicitude de incerteza quando aplicavel\.?/gi, " ");
+  output = output.replace(/\bevitar afirmacoes absolutas sem evidencia\.?/gi, " ");
+  output = output.replace(/\blegacy-module\s*=\s*[a-z0-9_-]+[^.\n]*\.?/gi, " ");
+  output = output.replace(/\bruntimeScore\s*=\s*[-\d.]+[^.\n]*\.?/gi, " ");
+  output = output.replace(/texto traduzido para o espanhol\s*:\s*/gi, "");
+  output = output.replace(/traduc(?:ao|acao|ação|Ã§Ã£o)\s+para o portugues\s*:\s*/gi, "");
+  output = output.replace(/\bhere is the spanish text\s*:\s*/gi, "");
+  output = output.replace(/\brespuesta priorizando el contexto[\s\S]*$/i, " ");
+  output = output.replace(/\s*\[[^\]]*doc\s*\d+[^\]]*\]\s*/gi, " ");
+  output = output.replace(/\bnota\s*:\s*algumas afirmacoes nao tiveram evidencia direta nos trechos recuperados\.?/gi, " ");
+  output = output.replace(/\s{2,}/g, " ");
+  output = output.replace(/\n{3,}/g, "\n\n");
+  return output.trim();
+}
+
 function stripConversationRoleArtifacts(text: string) {
   let output = `${text || ""}`.trim();
   if (!output) return "";
-  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant|resposta|answer)\s*[:ÃƒÂ¯Ã‚Â¼Ã…Â¡-]\s*/i, "");
+  output = output.replace(/^\s*resposta\s*:\s*\n+/i, "");
+  output = output.replace(/^\s*resposta\s*:\s*/i, "");
+  output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant|resposta|answer)\s*[:\-]\s*/i, "");
   output = output.replace(/\[(?:end(?:\s+of)?\s+(?:response|answer)|fim da resposta|fim da mensagem)\]/gi, " ");
   output = output.replace(/\[\s*\/?end(?:_of)?_response\s*\]/gi, " ");
   output = output.replace(/\[\s*no response intended[^\]\n]*\]?/gi, " ");
   output = output.replace(/\bno response intended(?: beyond this greeting)?\.?/gi, " ");
   output = output.replace(/<\|eot_id\|>/gi, " ");
   output = output.replace(/<\/?end(?:_of)?_response>/gi, " ");
-  const markerIndex = output.search(/\b(?:usuario|user|assistente|assistant)\s*[:ÃƒÂ¯Ã‚Â¼Ã…Â¡]/i);
+  const markerIndex = output.search(/\b(?:usuario|user|assistente|assistant|leticia|l\.e\.t\.i\.c\.i\.a)\s*[:\-]/i);
   if (markerIndex >= 0) {
     output = output.slice(0, markerIndex).trim();
   }
+  output = output
+    .split(/\r?\n/g)
+    .filter((line) => !/^\s*(?:referencias?|references?)\s*(?:\([^)]*\))?\s*:\s*$/i.test(line))
+    .filter((line) => !/^\s*\d+\.\s*(?:internal|memory):\/\//i.test(line))
+    .filter((line) => !/\b(?:internal|memory):\/\//i.test(line))
+    .join("\n");
+  output = stripInternalFallbackMarkers(output);
+  output = decodeLikelyMojibake(output);
   output = stripPersonaPolicyLeak(output);
+  output = stripInternalFallbackMarkers(output);
   output = output.replace(/\n{3,}/g, "\n\n").trim();
   return output;
+}
+
+function isLowQualityDescendingOutput(text: string, prompt: string) {
+  const normalizedOutput = normalizeForVerification(stripConversationRoleArtifacts(text));
+  if (!normalizedOutput) return true;
+  if (/\b(warmth|casualness|empathy|restraint|stress|stability)\s*=\s*\d/.test(normalizedOutput)) return true;
+  if (/^resposta\s*:\s*\d+(?:[;.,]\s*\w+)?/.test(normalizedOutput)) return true;
+  if (/\bleitura inicial\b/.test(normalizedOutput)) return true;
+  if (/\bperfil comportamental\b/.test(normalizedOutput)) return true;
+  if (/\bsinal epistemic[oa]\b/.test(normalizedOutput)) return true;
+  if (/\bconsistencia filosofica\b/.test(normalizedOutput)) return true;
+  if (/\ba resposta foi alinhada ao escopo solicitado\b/.test(normalizedOutput)) return true;
+  if (/\bpriorizar explicitude de incerteza quando aplicavel\b/.test(normalizedOutput)) return true;
+  if (/\bevitar afirmacoes absolutas sem evidencia\b/.test(normalizedOutput)) return true;
+  if (/\blegacy module\s*=|\blegacy-module\s*=|\bruntimescore\s*=/.test(normalizedOutput)) return true;
+  if (/\btexto traduzido para o espanhol\b/.test(normalizedOutput)) return true;
+  if (/^sem ressalva(?:s)? dominante(?:s)?$/.test(normalizedOutput)) return true;
+  if (/\bsem ressalva(?:s)? dominante(?:s)?\b/.test(normalizedOutput)) {
+    const withoutFallbackMarker = normalizedOutput.replace(/\bsem ressalva(?:s)? dominante(?:s)?\b/g, "").trim();
+    if (!withoutFallbackMarker || withoutFallbackMarker.length < 24) return true;
+  }
+  if (/\bme diga o objetivo em uma frase\b/.test(normalizedOutput)) return true;
+  if (/\beu te ajudo melhor se voce me disser o objetivo em uma frase\b/.test(normalizedOutput)) return true;
+  if (/\breferencias?\b/.test(normalizedOutput) && /\b(internal|memory):\/\//.test(normalizedOutput)) return true;
+  if (/\b(resposta|answer)\s*:\s*(hipotese|contexto|evidencia|conclusao)\b/.test(normalizedOutput)) return true;
+
+  if (isVerifiableQuestionForAutoSearch(prompt)) {
+    const hasVerificationSignal =
+      /\b(fontes?|source|sources|https?:\/\/|nao consegui validar|preciso verificar|incerteza|nao foi possivel confirmar)\b/.test(
+        normalizedOutput,
+      );
+    if (normalizedOutput.length < 42 && !hasVerificationSignal) return true;
+  }
+  return false;
+}
+
+function buildDescendingQualityRepairPrompt(prompt: string): string {
+  const trimmed = `${prompt || ""}`.trim();
+  if (!trimmed) return "";
+  const repairInstructions = [
+    "Ajuste interno de qualidade da resposta:",
+    "- responda somente ao pedido atual do usuario, sem metadados ou telemetria;",
+    "- nao exponha scores, parametros, rotulos internos, JSON ou placeholders;",
+    "- use texto natural, objetivo e coerente com o contexto da conversa;",
+    "- se faltar dado essencial, faca uma pergunta curta de esclarecimento.",
+  ].join("\n");
+  return `${trimmed}\n\n${repairInstructions}`;
 }
 
 function toAnmTextResponse(anm: AnmChatResult, policyContext: ResponsePolicyContext) {
@@ -1787,7 +2224,7 @@ function normalizeHistory(value: unknown): ChatHistoryItem[] {
     items.push({ role, content: trimmed });
   }
   // Mantem uma janela maior para preservar continuidade semantica entre turnos.
-  return items.slice(-16);
+  return items.slice(-24);
 }
 
 function toDescendingRecentTurns(history: ChatHistoryItem[]) {
@@ -1799,7 +2236,7 @@ function filterHistoryForVerifiable(history: ChatHistoryItem[]) {
   const keepAssistantCited =
     parseOptionalBoolean(process.env.KNEXAI_KEEP_ASSISTANT_HISTORY_FOR_VERIFIABLE) !== false;
   const kept: ChatHistoryItem[] = [];
-  for (const item of history.slice(-16)) {
+  for (const item of history.slice(-24)) {
     if (item.role === "user") {
       kept.push(item);
       continue;
@@ -1823,6 +2260,14 @@ function parseOptionalBooleanFromBody(value: unknown) {
     if (["0", "false", "no", "off"].includes(normalized)) return false;
   }
   return undefined;
+}
+
+function buildAnonymousConversationKey(prefix = "knexai:anon") {
+  try {
+    return `${prefix}:${crypto.randomUUID()}`;
+  } catch {
+    return `${prefix}:${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+  }
 }
 
 function parseOptionalFiniteNumberFromBody(value: unknown) {
@@ -1872,7 +2317,9 @@ function parsePipelineVersionFromBody(value: unknown): "v1" | "v2" | undefined {
 function parseOptionalEngineModeFromBody(value: unknown): EngineMode | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "direct" || normalized === "anm") return normalized;
+  if (normalized === "direct") return "direct";
+  // Compat legado: payloads antigos podem enviar "anm", mas o runtime atual e direct-only.
+  if (normalized === "anm") return "direct";
   return undefined;
 }
 
@@ -2007,14 +2454,201 @@ function isMicroSocialPrompt(prompt: string): boolean {
   if (words.length > 8 || normalized.length > 60) return false;
 
   const microSocialPatterns = [
-    /^(oi|ola|ol[aÃƒÂ¯Ã‚Â¿Ã‚Â½]|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
-    /^(bom dia|boa tarde|boa noite)$/i,
-    /^(blz|beleza|tudo bem|td bem|como vai|como vc esta|como voce esta|how are you|que tal)$/i,
+    /^(oi|ola|oie|oii|e ai|eae|opa|fala|salve|saudacoes|hey|hello|hi)(?: leticia)?$/i,
+    /^(bom dia|boa tarde|boa noite|boa trde|boa tardee|boa tard)(?: leticia)?$/i,
+    /^(blz|beleza|tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo|como vai|como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|how are you|que tal)(?: leticia)?$/i,
     /^(nada por agora|nada agora|de boa|tranquilo|ok|okay|ok obrigado|obrigado|obg|valeu)$/i,
-    /^(ate logo|at[eÃƒÂ¯Ã‚Â¿Ã‚Â½] logo|ate mais|at[eÃƒÂ¯Ã‚Â¿Ã‚Â½] mais|tchau|falou|ate breve|at[eÃƒÂ¯Ã‚Â¿Ã‚Â½] breve|bye)$/i,
+    /^(ate logo|ate mais|tchau|falou|ate breve|bye)$/i,
   ];
 
-  return microSocialPatterns.some((pattern) => pattern.test(compact));
+  if (microSocialPatterns.some((pattern) => pattern.test(compact))) return true;
+
+  // Tolerancia para typos simples em saudacoes curtas.
+  const startsLikeGreeting =
+    /^(oi+|ola+|opa|fala|salve|saudac|bom|boa)\b/.test(compact) ||
+    /^(boa\s+trd|boa\s+tard|boa\s+trde)\b/.test(compact);
+  const hasTaskSignal =
+    /\b(api|sql|docker|codigo|c[oó]digo|presidente|capital|doenca|doen[cç]a|medicamento|tratamento|pesquisa|busque|buscar)\b/i.test(
+      compact,
+    );
+
+  return startsLikeGreeting && words.length <= 3 && !hasTaskSignal;
+}
+
+function isBehaviorPersonalityPriorityPrompt(prompt: string): boolean {
+  const normalized = `${prompt || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  if (isMicroSocialPrompt(normalized)) return true;
+
+  const behaviorFamilies: RegExp[] = [
+    /\b(meu nome|me chame|pode me chamar de|chame me de|chame-me de)\b/,
+    /\b(qual(?: (?:e|eh))? (?:o )?(seu|teu) nome|me diga (?:o )?seu nome|me diz (?:o )?seu nome|diga (?:o )?seu nome)\b/,
+    /\b(como (voce|vc|ce) se chama|quem (e|eh) (voce|vc|ce)|voce (e|eh) a leticia|vc (e|eh) a leticia|e o seu)\b/,
+    /\b((por que|porque|pq) (voce|vc|ce) (tem|usa) (esse )?nome|qual a origem do seu nome|de onde vem o nome leticia|de onde surgiu o nome leticia|(?:por que|porque|pq) te chamam assim|te chamam assim)\b/,
+    /\b(o que significa leticia|qual o significado( do nome)?( de)? leticia|leticia significa o que|o que quer dizer leticia|qual o sentido do nome leticia)\b/,
+    /\b(qual o conceito de leticia|conceito de leticia|qual a definicao de leticia|definicao de leticia|base conceitual do nome leticia|qual a ideia por tras do nome leticia|como surgiu o nome leticia)\b/,
+    /\b(quem (e|eh) (o )?medeiros|quem (e|eh) esse medeiros|quem te criou|quem criou voce|quem e seu criador|quem idealizou voce|quem desenvolveu voce)\b/,
+    /\b(mais detalhes sobre ele|fale mais dele|pode me falar mais dele|mais sobre medeiros)\b/,
+  ];
+  return behaviorFamilies.some((pattern) => pattern.test(normalized));
+}
+
+function normalizeIdentityIntentHistoryWindow(history: ChatHistoryItem[], maxItems = 6) {
+  if (!Array.isArray(history) || !history.length) return "";
+  return history
+    .slice(-maxItems)
+    .map((row) => `${row?.content || ""}`.trim())
+    .filter(Boolean)
+    .map((row) => normalizeForVerification(row))
+    .join(" ");
+}
+
+function hasAssistantIdentityContext(history: ChatHistoryItem[]) {
+  const normalized = normalizeIdentityIntentHistoryWindow(history);
+  if (!normalized) return false;
+  return (
+    /\b(eu sou a leticia|meu nome e leticia)\b/.test(normalized) ||
+    /\b(qual\s+(?:(?:e|eh|o)\s+)?(?:o\s+)?seu nome|como voce se chama|quem e voce)\b/.test(normalized) ||
+    /\b(o que significa leticia|por que voce tem esse nome|de onde vem o nome leticia|de onde surgiu o nome leticia|conceito de leticia|definicao de leticia|base conceitual do nome leticia|como surgiu o nome leticia|ideia por tras do nome leticia)\b/.test(
+      normalized,
+    ) ||
+    /\b(quem e medeiros|quem e o medeiros|quem e esse medeiros)\b/.test(normalized)
+  );
+}
+
+function hasCompetingTopicShift(normalized: string) {
+  if (!normalized) return false;
+  return /\b(capital|presidente|governador|prefeito|colesterol|diabetes|sintoma|tratamento|docker|kubernetes|sql|api|codigo|ciencia|historia|geografia)\b/.test(
+    normalized,
+  );
+}
+
+function classifyAssistantIdentityIntentFamily(
+  prompt: string,
+  history: ChatHistoryItem[],
+): AssistantIdentityIntentFamily {
+  const identityFallback = resolveIdentityFallbackForMessage(prompt);
+  if (identityFallback.shouldHandle) {
+    if (
+      identityFallback.creatorQuestionDetected ||
+      identityFallback.founderInfluenceQuestionDetected ||
+      identityFallback.formationQuestionDetected ||
+      identityFallback.professionalQuestionDetected
+    ) {
+      return "creator_identity";
+    }
+    if (identityFallback.nameOriginQuestionDetected) return "name_semantics";
+    if (identityFallback.identityQuestionDetected) return "identity";
+  }
+
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return null;
+
+  const hasIdentityContext = hasAssistantIdentityContext(history);
+  const hasLeticia = /\bleticia\b/.test(normalized);
+  const hasMedeiros = /\bmedeiros\b/.test(normalized);
+  const hasTopicShift = hasCompetingTopicShift(normalized);
+  const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome|isso|disso|isso ai|disso ai)\b/.test(normalized);
+  const hasNameOriginByCalling = /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/.test(normalized);
+  const hasCreatorFollowUpCue = /\b(mais\s+informacoes|mais\s+detalhes|fale\s+mais|me\s+diga\s+mais|me\s+conte\s+mais|quero\s+saber\s+mais|sobre\s+ele|sobre\s+esse|desse\s+medeiros|desse\s+mesmo|pode\s+me\s+falar\s+mais\s+dele|falar\s+mais\s+dele|mais\s+dele|voce\s+tem\s+certeza|vc\s+tem\s+certeza|tem\s+certeza|isso\s+esta\s+certo|isso\s+esta\s+correto|confirma\s+isso|confirmar\s+isso)\b/.test(
+    normalized,
+  );
+  const hasDirectIdentityCue =
+    hasLeticia ||
+    hasNameOriginByCalling ||
+    /\b(seu nome|como voce se chama|quem e voce|quem eh voce|nome leticia|medeiros)\b/.test(normalized);
+  const directedToAssistant =
+    hasDirectIdentityCue ||
+    /\b(voce|vc|seu|sua|teu|tua)\b/.test(normalized) ||
+    /\b(quem (?:e|eh) (?:voce|vc)|e o seu|e qual (?:e|eh)? o seu)\b/.test(normalized) ||
+    (hasIdentityContext && hasFollowUpReference);
+  const directedToUserSelf = /\b(meu|minha)\s+nome\b/.test(normalized);
+  if (!directedToAssistant && directedToUserSelf) return null;
+  if (hasTopicShift && !hasLeticia && !hasMedeiros && !hasNameOriginByCalling) return null;
+
+  const asksSemantics = /\b(significa|significado|quer dizer|sentido|representa|origem|de onde vem|por que|porque|pq|motivo|razao)\b/.test(
+    normalized,
+  );
+  const asksConceptDefinition = /\b(conceito|definicao|base conceitual|de onde surgiu|surgiu de onde|historia do nome|ideia por tras)\b/.test(normalized);
+  const asksCreatorIdentity = /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|e quem (?:e|eh)\s+medeiros|quem (?:e|eh)\s+esse\s+medeiros)\b/.test(
+    normalized,
+  );
+  const asksCreatorExpansion = hasMedeiros && hasCreatorFollowUpCue;
+  const mentionsName = /\b(nome|chama|chamar|chamam|te chamam|identidade|esse nome|leticia)\b/.test(normalized);
+
+  if (
+    (asksCreatorIdentity || asksCreatorExpansion) &&
+    (hasIdentityContext || hasDirectIdentityCue || hasFollowUpReference || /^e quem (?:e|eh)\s+medeiros\b/.test(normalized))
+  ) {
+    return "creator_identity";
+  }
+  if (hasIdentityContext && hasCreatorFollowUpCue && !hasTopicShift) {
+    return "creator_identity";
+  }
+  if (
+    directedToAssistant &&
+    (asksSemantics || asksConceptDefinition) &&
+    (mentionsName || hasLeticia || hasNameOriginByCalling || (hasIdentityContext && hasFollowUpReference))
+  ) {
+    return "name_semantics";
+  }
+  if (
+    directedToAssistant &&
+    (mentionsName || /\b(quem (?:e|eh) (?:voce|vc)|e o seu|e qual (?:e|eh)? o seu)\b/.test(normalized))
+  ) {
+    return "identity";
+  }
+  return null;
+}
+
+function buildAssistantIdentityFamilyReply(family: AssistantIdentityIntentFamily, prompt: string) {
+  const resolved = resolveIdentityFallbackForMessage(prompt);
+  if (!resolved.shouldHandle) return "";
+
+  if (family === "identity" && resolved.identityQuestionDetected) {
+    return resolved.shortNarrative;
+  }
+
+  if (family === "name_semantics" && resolved.nameOriginQuestionDetected) {
+    return resolved.shortNarrative;
+  }
+
+  if (
+    family === "creator_identity" &&
+    (resolved.creatorQuestionDetected ||
+      resolved.founderInfluenceQuestionDetected ||
+      resolved.formationQuestionDetected ||
+      resolved.professionalQuestionDetected)
+  ) {
+    return resolved.shortNarrative;
+  }
+
+  return resolved.shortNarrative || resolved.longNarrative || "";
+}
+
+function isSemanticRoutePriorityPrompt(prompt: string): boolean {
+  const normalized = `${prompt || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+
+  const semanticFamilies: RegExp[] = [
+    /\b(refine|refinar|aprofundar|explorar|elaborar|desenvolver|co construir|co-construir|debater)\b/,
+    /\b(evidencia|evidencias|fonte|fontes|lastro|fato|hipotese|especulacao|incerteza|validar|validacao)\b/,
+    /\b(quem e voce|quem e vc|origem|criador|autoria|existencia|consciencia|limites ontologicos|quem sou eu|quem e leticia)\b/,
+    /\b(analise|analisar|analitico|analitica|analise critica|resenha|resenha critica|dissertacao|dissertacao de|dissertação|dissertação de)\b/,
+    /\b(busque|buscar|pesquise|pesquisar|procure|procurar|encontre|encontrar|search)\b.*\b(internet|web|online|site|sites|fontes|fonte)\b/,
+  ];
+
+  return semanticFamilies.some((pattern) => pattern.test(normalized));
 }
 
 function classifyPromptComplexity(prompt: string): PromptComplexity {
@@ -2023,18 +2657,21 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
   if (isMicroSocialPrompt(normalized)) return "micro";
 
   const lowered = normalized.toLowerCase();
+  const loweredAscii = lowered
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
   const words = normalized.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
   const charCount = normalized.length;
 
   const directIntentPatterns = [
-    /\b(sin[oÃƒÆ’Ã‚Â´]nimo|sinonimo|sin[oÃƒÆ’Ã‚Â´]nimos|sinonimos|ant[oÃƒÆ’Ã‚Â´]nimo|antonimo|ant[oÃƒÆ’Ã‚Â´]nimos|antonimos)\b/i,
-    /\b(traduz|traduza|tradu[cÃƒÆ’Ã‚Â§][aÃƒÆ’Ã‚Â£]o|translation)\b/i,
-    /\b(defina|defini[cÃƒÆ’Ã‚Â§][aÃƒÆ’Ã‚Â£]o|o que significa|significa)\b/i,
-    /\b(corrija|corre[cÃƒÆ’Ã‚Â§][aÃƒÆ’Ã‚Â£]o|ortografia|gram[ÃƒÆ’Ã‚Â¡a]tica)\b/i,
+    /\b(sinonimo|sinonimos|antonimo|antonimos)\b/i,
+    /\b(traduz|traduza|traducao|translation)\b/i,
+    /\b(defina|definicao|o que significa|significa)\b/i,
+    /\b(corrija|correcao|ortografia|gramatica)\b/i,
     /\b(responda em uma frase|responda curto|resuma em uma frase|bem curto)\b/i,
   ];
-  const directIntent = directIntentPatterns.some((pattern) => pattern.test(normalized));
+  const directIntent = directIntentPatterns.some((pattern) => pattern.test(loweredAscii));
   if (directIntent && wordCount <= 24) return "direct";
 
   const complexSignals = [
@@ -2046,7 +2683,6 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
     "passo a passo",
     "arquitetura",
     "estrategia",
-    "estratÃƒÆ’Ã‚Â©gia",
     "plano",
     "trade-off",
     "vantagens e desvantagens",
@@ -2054,12 +2690,45 @@ function classifyPromptComplexity(prompt: string): PromptComplexity {
     "por que",
     "porque",
   ];
-  const hasComplexSignal = complexSignals.some((signal) => lowered.includes(signal));
+  const hasComplexSignal = complexSignals.some((signal) => loweredAscii.includes(signal));
   if (hasComplexSignal || wordCount >= 45 || charCount >= 260) return "complex";
 
   if (wordCount <= 6 && !hasComplexSignal) return "direct";
   if (isShortPrompt(normalized)) return "short";
   return "medium";
+}
+
+function isStrictShortResponsePrompt(prompt: string) {
+  const normalized = `${prompt || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+
+  if (/\b(token de validacao|token de validacao exato|token exato)\b/.test(normalized)) return true;
+  if (/\b(responda apenas|responda somente|apenas com|somente com)\b/.test(normalized)) return true;
+  if (/\b(uma frase|1 frase|uma palavra|1 palavra|sim ou nao|so o nome|somente o nome)\b/.test(normalized)) return true;
+  return false;
+}
+
+function resolveAutoScopedRagMaxResponseTokens(input: {
+  prompt: string;
+  hasDocumentScope: boolean;
+  requestedMaxResponseTokens?: number;
+}) {
+  if (typeof input.requestedMaxResponseTokens === "number" && input.requestedMaxResponseTokens > 0) {
+    return input.requestedMaxResponseTokens;
+  }
+  if (!input.hasDocumentScope) return input.requestedMaxResponseTokens;
+  if (!isStrictShortResponsePrompt(input.prompt)) return input.requestedMaxResponseTokens;
+
+  const complexity = classifyPromptComplexity(input.prompt);
+  if (complexity === "micro") return 80;
+  if (complexity === "direct") return 128;
+  if (complexity === "short") return 192;
+  return 256;
 }
 
 function resolveGenerationProfile(prompt: string, config: LlmConfig): GenerationProfile {
@@ -2072,7 +2741,7 @@ function resolveGenerationProfile(prompt: string, config: LlmConfig): Generation
       maxTokens: Math.min(config.maxTokens, 40),
       repetitionPenalty: 1.2,
       brevityInstruction:
-        "Interacao social minima: responda em 1 frase curtissima (ate 12 palavras), sem convite extra e sem prolongar conversa.",
+        "Interacao social breve: responda em 1 frase curta e cordial (ate 16 palavras), com acolhimento natural e sem rigidez.",
     };
   }
 
@@ -2129,7 +2798,11 @@ function buildSystemInstruction(profile: GenerationProfile, conversationStateBlo
     "",
     "Regras criticas desta resposta:",
     "- Responda a intencao mais recente do usuario (pergunta, saudacao, ajuste ou comando).",
+    "- Em perguntas sobre sua identidade (nome, 'e o seu?', 'quem e voce'), responda diretamente: 'Eu sou a Letícia'.",
+    "- Nunca diga que seu nome e 'Assistente' ou 'Assistant'.",
+    "- Mantenha comunicacao polida, educada e receptiva; evite frieza ou rispidez.",
     "- Trate a mensagem atual como continuacao preferencial do fluxo em andamento, salvo mudanca explicita de assunto.",
+    "- Em saudacoes e turnos sociais curtos, nao force retorno ao assunto anterior.",
     "- Preserve tema principal, tarefa ativa e objeto textual em curso antes de responder.",
     "- Use historico recente para manter continuidade semantica e nao reiniciar o raciocinio sem necessidade.",
     "- Nao invente fatos, termos tecnicos, ingredientes, nomes ou numeros.",
@@ -2164,21 +2837,31 @@ function buildMicroSocialAnswer(prompt: string) {
     .trim();
   const locale = resolveMicroSocialLocale(prompt);
 
-  if (/^(como vc esta|como voce esta|como vai|how are you|tudo bem|td bem|que tal)$/.test(compact)) {
+  if (/^saudacoes$/.test(compact)) {
+    if (locale === "en-US") return "Greetings. How can I help you right now?";
+    if (locale === "es-ES") return "Saludos. Como puedo ayudarte ahora?";
+    return "Saudações. Como posso te ajudar agora?";
+  }
+
+  if (
+    /^(?:(?:oi|ola|opa|fala|salve|saudacoes)\s+)?(como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|como vai|how are you|tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo|que tal)$/.test(
+      compact,
+    )
+  ) {
     if (locale === "en-US") return "I am doing well and ready to help. What do you want to do next?";
     if (locale === "es-ES") return "Estoy bien y lista para ayudar. Que quieres hacer ahora?";
-    return "Estou bem e pronta para ajudar. O que voce quer fazer agora?";
+    return "Estou bem e pronta para ajudar. O que você quer fazer agora?";
   }
 
   if (/^(tchau|falou|ate mais|ate logo|bye|adios)$/.test(compact)) {
     if (locale === "en-US") return "See you! If you need anything else, I am here.";
     if (locale === "es-ES") return "Hasta luego. Si necesitas algo mas, aqui estoy.";
-    return "Ate mais. Se precisar de algo, estou aqui.";
+    return "Até mais. Se precisar de algo, estou aqui.";
   }
   if (/^(obrigado|obg|valeu|thanks|thank you|gracias)$/.test(compact)) {
     if (locale === "en-US") return "You are welcome. I am ready for the next step.";
     if (locale === "es-ES") return "De nada. Estoy lista para el siguiente paso.";
-    return "De nada. Estou pronta para o proximo passo.";
+    return "De nada. Estou pronta para o próximo passo.";
   }
   if (locale === "en-US") return "Hi. How can I help you right now?";
   if (locale === "es-ES") return "Hola. Como puedo ayudarte ahora?";
@@ -2186,8 +2869,9 @@ function buildMicroSocialAnswer(prompt: string) {
 }
 
 function shouldUseSystemRoleForChatCompletions() {
-  const raw = pickFirstNonEmpty(process.env.KNEXAI_CHAT_USE_SYSTEM_ROLE, "0").toLowerCase();
-  return ["1", "true", "yes", "on"].includes(raw);
+  const raw = pickFirstNonEmpty(process.env.KNEXAI_CHAT_USE_SYSTEM_ROLE, "1").toLowerCase();
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return true;
 }
 
 function buildChatMessages(
@@ -2222,10 +2906,10 @@ function buildCompletionPrompt(history: ChatHistoryItem[], profile: GenerationPr
     lines.push(`Estado conversacional consolidado:\n${conversationStateBlock.trim()}`);
   }
   history.forEach((item) => {
-    const prefix = item.role === "assistant" ? "Assistente" : "Usuario";
+    const prefix = item.role === "assistant" ? "Letícia" : "Usuário";
     lines.push(`${prefix}: ${item.content}`);
   });
-  lines.push("Assistente:");
+  lines.push("Letícia:");
   return lines.join("\n\n");
 }
 
@@ -2506,7 +3190,7 @@ async function requestAnmChat(
       );
     }
 
-    const legacyResponse = await fetch(`${config.anmBaseUrl}/chat`, {
+    const fallbackResponse = await fetch(`${config.anmBaseUrl}/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -2519,17 +3203,17 @@ async function requestAnmChat(
       cache: "no-store",
     });
 
-    if (!legacyResponse.ok) {
-      const responseText = await legacyResponse.text().catch(() => "");
+    if (!fallbackResponse.ok) {
+      const responseText = await fallbackResponse.text().catch(() => "");
       const detail = responseText.trim().slice(0, 240);
       throw new LlmRouteError(
-        legacyResponse.status >= 500 ? 503 : 502,
+        fallbackResponse.status >= 500 ? 503 : 502,
         "ANM_UPSTREAM_ERROR",
-        `ANM respondeu com erro HTTP ${legacyResponse.status}${detail ? ` (${detail})` : ""}.`,
+        `ANM respondeu com erro HTTP ${fallbackResponse.status}${detail ? ` (${detail})` : ""}.`,
       );
     }
 
-    const payload = await legacyResponse.json().catch(() => null);
+    const payload = await fallbackResponse.json().catch(() => null);
     return resolveAnmAnswer(payload);
   } catch (error) {
     if (error instanceof LlmRouteError) {
@@ -2850,7 +3534,7 @@ export async function GET() {
     {
       ok: true,
       endpoint: "/api/knexai",
-      provider: engineMode.mode === "anm" ? "anm-backend" : "openai-compatible",
+      provider: engineMode.mode === "anm" ? "anm-api" : "openai-compatible",
       engineMode: engineMode.mode,
       anmBaseUrl: anmResolution?.baseUrl || engineMode.anmBaseUrl,
       anmConfiguredBaseUrl: engineMode.anmBaseUrl,
@@ -2906,8 +3590,50 @@ export async function POST(req: NextRequest) {
     const requestedStreamMode = parseStreamModeFromBody(body?.streamMode);
     const acceptHeader = `${req.headers.get("accept") || ""}`.toLowerCase();
     const streamMode = requestedStreamMode || (acceptHeader.includes("text/event-stream") ? "sse" : "plain");
+
     const normalizedHistory = normalizeHistory(history);
+    const forceDescendingHint =
+      parseOptionalBooleanFromBody(
+        body?.forceDescendingPipeline ?? body?.alwaysUseDescendingPipeline ?? body?.forceDescending,
+      ) === true;
+    const disableMicroSocialFastPathFromBody =
+      parseOptionalBooleanFromBody(body?.disableMicroSocialFastPath ?? body?.skipMicroSocialFastPath) === true;
+    const llmBridgeAlwaysOn = parseOptionalBoolean(process.env.ANM_LLM_BRIDGE_ALWAYS_ON) !== false;
+    const microSocialFastPathEnabled =
+      parseOptionalBoolean(process.env.KNEXAI_MICRO_SOCIAL_FASTPATH_ENABLED) === true &&
+      !llmBridgeAlwaysOn;
+    const shouldUseMicroSocialFastPath =
+      microSocialFastPathEnabled &&
+      !disableMicroSocialFastPathFromBody &&
+      !forceDescendingHint &&
+      normalizedHistory.length === 0 &&
+      isMicroSocialPrompt(safePrompt);
+
+    if (shouldUseMicroSocialFastPath) {
+      const microText = buildMicroSocialAnswer(safePrompt);
+      const textStream = createChunkedTextStream(microText);
+      const responseStream = streamRequested && streamMode === "sse" ? toSseStream(textStream) : textStream;
+      return new Response(responseStream, {
+        status: 200,
+        headers: {
+          "Content-Type":
+            streamRequested && streamMode === "sse"
+              ? "text/event-stream; charset=utf-8"
+              : "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+          "X-KnexAI-Pipeline": "micro-fastpath",
+        },
+      });
+    }
     const verificationTargetPrompt = resolveVerificationTargetPrompt(safePrompt, normalizedHistory);
+    const identityIntentFamilyFromPrompt = classifyAssistantIdentityIntentFamily(safePrompt, normalizedHistory);
+    const identityIntentFamilyFromVerificationTarget =
+      verificationTargetPrompt && verificationTargetPrompt !== safePrompt
+        ? classifyAssistantIdentityIntentFamily(verificationTargetPrompt, normalizedHistory)
+        : null;
+    const identityIntentFamily = identityIntentFamilyFromPrompt || identityIntentFamilyFromVerificationTarget;
 
     const hasDocumentScope =
       Boolean(documentId) ||
@@ -2947,98 +3673,242 @@ export async function POST(req: NextRequest) {
       parseOptionalBoolean(process.env.KNEXAI_FILTER_ASSISTANT_HISTORY_FOR_VERIFIABLE) !== false
         ? filterHistoryForVerifiable(normalizedHistory)
         : normalizedHistory;
+    const historyForCascade: ChatHistoryItem[] =
+      forceWebMultiSource && verifiableQuestion && !hasDocumentScope ? filteredHistoryForVerifiable : normalizedHistory;
+    const effectiveMaxResponseTokens = resolveAutoScopedRagMaxResponseTokens({
+      prompt: safePrompt,
+      hasDocumentScope,
+      requestedMaxResponseTokens: maxResponseTokens,
+    });
     logVerificationCascadeStage("classify", cascade, { hasDocumentScope, requestedForceRag });
 
     const localeHintFromBody =
       (typeof body?.localeHint === "string" && body.localeHint.trim()) ||
       (typeof body?.locale === "string" && body.locale.trim()) ||
       "";
-    const conversationKeyFromBody =
+    const explicitConversationKey =
       (typeof body?.conversationKey === "string" && body.conversationKey.trim()) ||
       (typeof body?.conversation_key === "string" && body.conversation_key.trim()) ||
       (typeof body?.sessionId === "string" && body.sessionId.trim()) ||
-      (typeof body?.threadId === "string" && body.threadId.trim()) ||
-      "knexai:chat";
+      (typeof body?.threadId === "string" && body.threadId.trim());
+    const conversationKeyFromBody = explicitConversationKey || buildAnonymousConversationKey();
     const userKeyFromBody =
       (typeof body?.userKey === "string" && body.userKey.trim()) ||
       (typeof body?.user_key === "string" && body.user_key.trim()) ||
-      "chat-session";
+      conversationKeyFromBody;
     const descendingStrictFromBody = parseOptionalBooleanFromBody(
       body?.descendingPipelineStrict ?? body?.strictDescendingPipeline,
     );
-    const legacyFallbackFromBody = parseOptionalBooleanFromBody(
-      body?.legacyFallbackEnabled ?? body?.allowLegacyFallback,
+    const descendingEnabledFromBody = parseOptionalBooleanFromBody(
+      body?.descendingPipelineEnabled ?? body?.useDescendingPipeline ?? body?.forceDescendingPipeline,
+    );
+    const descendingForceFromBody = parseOptionalBooleanFromBody(
+      body?.forceDescendingPipeline ?? body?.alwaysUseDescendingPipeline ?? body?.forceDescending,
+    );
+    const descendingDisableFromBody = parseOptionalBooleanFromBody(
+      body?.disableDescendingPipeline ?? body?.skipDescendingPipeline,
+    );
+    const directFallbackFromBody = parseOptionalBooleanFromBody(
+      body?.directFallbackEnabled ?? body?.allowDirectFallback,
+    );
+    const descendingQualityRetryCountFromBody = parseOptionalPositiveIntFromBody(
+      body?.descendingQualityRetryCount ?? body?.descendingRetryCount,
+    );
+    const forceDescendingWithDocumentScopeFromBody = parseOptionalBooleanFromBody(
+      body?.forceDescendingWithDocumentScope ?? body?.allowDescendingWithDocumentScope,
     );
     const descendingStrict =
       typeof descendingStrictFromBody === "boolean" ? descendingStrictFromBody : descendingPipelineDefaults.strict;
-    const legacyFallbackEnabled =
-      typeof legacyFallbackFromBody === "boolean"
-        ? legacyFallbackFromBody
-        : parseOptionalBoolean(process.env.KNEXAI_LEGACY_FALLBACK_ENABLED) === true;
-    const descendingInput = {
-      rawMessage: safePrompt,
-      sessionId: conversationKeyFromBody,
-      turnId:
-        (typeof body?.requestId === "string" && body.requestId.trim()) ||
-        `turn-${Date.now()}`,
-      recentTurns: toDescendingRecentTurns(
-        forceWebMultiSource && verifiableQuestion ? filteredHistoryForVerifiable : normalizedHistory,
-      ),
-    };
+    const allowDirectFallbackAfterDescendingFailure =
+      typeof directFallbackFromBody === "boolean"
+        ? directFallbackFromBody
+        : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK) !== false;
+    const descendingQualityRetryCount = (() => {
+      const fromBody = typeof descendingQualityRetryCountFromBody === "number"
+        ? descendingQualityRetryCountFromBody
+        : null;
+      if (fromBody !== null) return Math.max(0, Math.min(2, fromBody));
+      const fromEnv = Number.parseInt(`${process.env.KNEXAI_DESCENDING_QUALITY_RETRY_COUNT || "1"}`, 10);
+      if (Number.isFinite(fromEnv)) return Math.max(0, Math.min(2, fromEnv));
+      return 1;
+    })();
+    let forceDirectAfterDescendingFailure = false;
+    const descendingEnabled =
+      typeof descendingEnabledFromBody === "boolean" ? descendingEnabledFromBody : descendingPipelineDefaults.enabled;
+    const descendingForce = descendingForceFromBody === true;
+    const bypassDescendingWithDocumentScope =
+      typeof forceDescendingWithDocumentScopeFromBody === "boolean"
+        ? !forceDescendingWithDocumentScopeFromBody
+        : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_BYPASS_FOR_DOCUMENT_SCOPE) !== false;
+    const shouldBypassDescendingForDocumentScope = hasDocumentScope && bypassDescendingWithDocumentScope;
+    const behaviorPersonalityPriorityPrompt =
+      isBehaviorPersonalityPriorityPrompt(safePrompt) || isBehaviorPersonalityPriorityPrompt(verificationTargetPrompt);
+    const semanticRoutePriorityPrompt =
+      isSemanticRoutePriorityPrompt(safePrompt) || isSemanticRoutePriorityPrompt(verificationTargetPrompt);
+    const identityPriorityPrompt = identityIntentFamily !== null;
+    const shouldForceDescendingForIdentity = llmBridgeAlwaysOn && identityPriorityPrompt;
+    const shouldRunDescending =
+      descendingDisableFromBody === true
+        ? false
+        : shouldForceDescendingForIdentity
+        ? true
+        : descendingEnabled &&
+          (descendingForce
+            ? true
+            : descendingPipelineDefaults.onlyVerifiable
+            ? (verifiableQuestion || behaviorPersonalityPriorityPrompt || semanticRoutePriorityPrompt || identityPriorityPrompt)
+            : true) &&
+          (descendingPipelineDefaults.allowVerifiable || !verifiableQuestion) &&
+          !shouldBypassDescendingForDocumentScope;
 
-    try {
-      const run = await runPipelineRootBridge(descendingInput);
-      const sanitized = stripConversationRoleArtifacts(run.responseText || "");
-      const outputText = sanitized || run.responseText || "";
-      if (!outputText) {
-        throw new Error("empty_descending_pipeline_output");
-      }
-      console.info("KNEXAI_DESCENDING_PIPELINE_OK", {
-        route: run.route,
-        traceEvents: run.state.trace.length,
-        confidenceFinal: run.state.confidenceScores.final,
-        strict: descendingStrict,
-        usedAsFinalResponse: true,
-      });
+    if (shouldRunDescending) {
+        const descendingInput = {
+          rawMessage: safePrompt,
+          sessionId: conversationKeyFromBody,
+          turnId:
+            (typeof body?.requestId === "string" && body.requestId.trim()) ||
+            `turn-${Date.now()}`,
+          recentTurns: toDescendingRecentTurns(historyForCascade),
+        };
 
-      if (streamRequested) {
-        const textStream = createChunkedTextStream(outputText);
-        const responseStream = streamMode === "sse" ? toSseStream(textStream) : textStream;
-        return new Response(responseStream, {
+      try {
+        const maxAttempts = Math.max(1, descendingQualityRetryCount + 1);
+        let selectedRun: Awaited<ReturnType<typeof runPipelineRootBridge>> | null = null;
+        let selectedOutputText = "";
+        let selectedAttempt = 1;
+        let lastDescendingError: Error | null = null;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          const isRepairAttempt = attempt > 1;
+          const attemptInput = isRepairAttempt
+            ? {
+                ...descendingInput,
+                rawMessage: buildDescendingQualityRepairPrompt(safePrompt),
+                turnId: `${descendingInput.turnId}-q${attempt}`,
+              }
+            : descendingInput;
+
+          try {
+            const run = await runPipelineRootBridge(attemptInput);
+            const sanitized = stripConversationRoleArtifacts(run.responseText || "");
+            const outputText = sanitized || run.responseText || "";
+            if (!outputText) {
+              lastDescendingError = new Error("empty_descending_pipeline_output");
+              continue;
+            }
+            if (isLowQualityDescendingOutput(outputText, verificationTargetPrompt)) {
+              lastDescendingError = new Error("low_quality_descending_pipeline_output");
+              continue;
+            }
+            selectedRun = run;
+            selectedOutputText = outputText;
+            selectedAttempt = attempt;
+            break;
+          } catch (attemptError) {
+            lastDescendingError = attemptError instanceof Error
+              ? attemptError
+              : new Error(String(attemptError));
+            if (attempt >= maxAttempts) {
+              throw lastDescendingError;
+            }
+          }
+        }
+
+        if (!selectedRun || !selectedOutputText) {
+          throw lastDescendingError || new Error("descending_pipeline_attempts_exhausted");
+        }
+        const finalDescendingText = selectedOutputText
+          .replace(/^\s*resposta\s*:\s*\n+/i, "")
+          .replace(/^\s*resposta\s*:\s*/i, "")
+          .trim();
+
+        console.info("KNEXAI_DESCENDING_PIPELINE_OK", {
+          route: selectedRun.route,
+          traceEvents: selectedRun.state.trace.length,
+          confidenceFinal: selectedRun.state.confidenceScores.final,
+          strict: descendingStrict,
+          usedAsFinalResponse: true,
+          attempt: selectedAttempt,
+          maxAttempts,
+        });
+
+        if (streamRequested) {
+          const textStream = createChunkedTextStream(finalDescendingText || selectedOutputText);
+          const responseStream = streamMode === "sse" ? toSseStream(textStream) : textStream;
+          return new Response(responseStream, {
+            status: 200,
+            headers: {
+              "Content-Type": streamMode === "sse" ? "text/event-stream; charset=utf-8" : "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              Connection: "keep-alive",
+              "X-Accel-Buffering": "no",
+              "X-KnexAI-Pipeline": "descending",
+              "X-KnexAI-Route": selectedRun.route,
+              "X-KnexAI-Descending-Attempt": `${selectedAttempt}/${maxAttempts}`,
+            },
+          });
+        }
+
+        return new Response(createChunkedTextStream(finalDescendingText || selectedOutputText), {
           status: 200,
           headers: {
-            "Content-Type": streamMode === "sse" ? "text/event-stream; charset=utf-8" : "text/plain; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-            Connection: "keep-alive",
-            "X-Accel-Buffering": "no",
+            "Content-Type": "text/plain; charset=utf-8",
             "X-KnexAI-Pipeline": "descending",
-            "X-KnexAI-Route": run.route,
+            "X-KnexAI-Route": selectedRun.route,
+            "X-KnexAI-Descending-Attempt": `${selectedAttempt}/${maxAttempts}`,
           },
         });
-      }
-
-      return new Response(createChunkedTextStream(outputText), {
-        status: 200,
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "X-KnexAI-Pipeline": "descending",
-          "X-KnexAI-Route": run.route,
-        },
-      });
-    } catch (error) {
-      console.warn("KNEXAI_DESCENDING_PIPELINE_FAILED", {
-        message: error instanceof Error ? error.message : String(error),
-        strict: descendingStrict,
-        legacyFallbackEnabled,
-      });
-      if (descendingStrict || !legacyFallbackEnabled) {
-        throw new LlmRouteError(
-          503,
-          "DESCENDING_PIPELINE_UNAVAILABLE",
-          "Pipeline descendente indisponivel para este turno.",
-        );
+      } catch (error) {
+        console.warn("KNEXAI_DESCENDING_PIPELINE_FAILED", {
+          message: error instanceof Error ? error.message : String(error),
+          strict: descendingStrict,
+          allowDirectFallbackAfterDescendingFailure,
+          retryBudget: descendingQualityRetryCount,
+          identityIntentFamily,
+        });
+        if (identityIntentFamily) {
+          const canonical = buildAssistantIdentityFamilyReply(identityIntentFamily, safePrompt);
+          if (canonical) {
+            const responseStream = streamRequested && streamMode === "sse"
+              ? toSseStream(createChunkedTextStream(canonical))
+              : createChunkedTextStream(canonical);
+            return new Response(responseStream, {
+              status: 200,
+              headers: {
+                "Content-Type":
+                  streamRequested && streamMode === "sse"
+                    ? "text/event-stream; charset=utf-8"
+                    : "text/plain; charset=utf-8",
+                "Cache-Control": "no-cache, no-transform",
+                Connection: "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-KnexAI-Pipeline": "identity-canonical-fallback",
+              },
+            });
+          }
+        }
+        if (descendingStrict && !allowDirectFallbackAfterDescendingFailure) {
+          throw new LlmRouteError(
+            503,
+            "DESCENDING_PIPELINE_UNAVAILABLE",
+            "Pipeline descendente indisponivel para este turno.",
+          );
+        }
+        forceDirectAfterDescendingFailure = true;
       }
     }
+
+    const conversationState = rebuildConversationState({
+      conversationKey: conversationKeyFromBody,
+      prompt: safePrompt,
+      history: normalizedHistory,
+      localeHint: localeHintFromBody,
+    });
+    const conversationStateBlock = buildConversationStateSummaryBlock(conversationState);
+    const responsePolicyContext: ResponsePolicyContext = {
+      state: conversationState,
+      complexity: classifyPromptComplexity(safePrompt),
+    };
 
     let autoWebEvidenceForForcedRag: AutoWebEvidence | null = null;
     if (forceRag) {
@@ -3059,7 +3929,9 @@ export async function POST(req: NextRequest) {
           queryCount: autoWebEvidenceForForcedRag?.queryCount || 0,
         });
         if (!hasWebEvidence) {
-          const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+          const fallbackText = isAuthorYearReferencePrompt(verificationTargetPrompt)
+            ? buildReferenceGroundingRequiredAnswer(localeHintFromBody)
+            : buildWebVerificationUnavailableAnswer(localeHintFromBody);
           return new Response(createChunkedTextStream(fallbackText), {
             status: 200,
             headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -3079,7 +3951,9 @@ export async function POST(req: NextRequest) {
               headers: { "Content-Type": "text/plain; charset=utf-8" },
             });
           }
-          const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+          const fallbackText = isAuthorYearReferencePrompt(verificationTargetPrompt)
+            ? buildReferenceGroundingRequiredAnswer(localeHintFromBody)
+            : buildWebVerificationUnavailableAnswer(localeHintFromBody);
           return new Response(createChunkedTextStream(fallbackText), {
             status: 200,
             headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -3107,7 +3981,12 @@ export async function POST(req: NextRequest) {
         shouldRequireWebBeforeRag,
       });
 
-      const ragEngineMode = shouldForceFullRagMode ? "anm" : anmEngineModeFromBody || engineMode.mode;
+      const ragEngineMode =
+        forceDirectAfterDescendingFailure
+          ? "direct"
+          : shouldForceFullRagMode
+            ? "direct"
+            : anmEngineModeFromBody || engineMode.mode;
       const ragAnmBaseUrl = anmBaseUrlFromBody || engineMode.anmBaseUrl;
       const ragAnmTimeoutMs = anmTimeoutMsFromBody || engineMode.anmTimeoutMs;
       const ragAnmSoftTimeoutMs = anmSoftTimeoutMsFromBody || engineMode.anmSoftTimeoutMs;
@@ -3127,7 +4006,7 @@ export async function POST(req: NextRequest) {
         mode: "chat",
         stream: streamRequested,
         message: ragMessage,
-        conversation: forceWebMultiSource && verifiableQuestion ? filteredHistoryForVerifiable : normalizedHistory,
+        conversation: historyForCascade,
         attachments: buildAttachmentsFromComposer(composerAttachmentIds, documentIds),
         ragInput: {
           pipelineVersion,
@@ -3141,7 +4020,7 @@ export async function POST(req: NextRequest) {
           retrievalEmbeddingModel: retrievalEmbeddingModel || undefined,
           pipelineModeOverride: shouldForceFullRagMode ? "full" : undefined,
           preferredResponseLanguageId,
-          maxResponseTokens,
+          maxResponseTokens: effectiveMaxResponseTokens,
           temperature,
           seed,
           anmEngineMode: ragEngineMode,
@@ -3167,12 +4046,18 @@ export async function POST(req: NextRequest) {
           },
         });
       }
+      const ragRawContent = `${run.content || ""}`.trim();
+      const ragCleanedContent = stripConversationRoleArtifacts(ragRawContent);
+      const ragEnforcedContent = enforceResponseStructure(ragCleanedContent || ragRawContent, {
+        state: responsePolicyContext.state,
+        complexity: responsePolicyContext.complexity,
+      });
       return Response.json(
         {
           ok: true,
           reply: {
             role: "assistant",
-            content: run.content,
+            content: ragEnforcedContent || ragCleanedContent || ragRawContent,
           },
           metadata: run.ragMetadata,
           meta: run.meta,
@@ -3180,18 +4065,6 @@ export async function POST(req: NextRequest) {
         { status: 200 },
       );
     }
-
-    const conversationState = rebuildConversationState({
-      conversationKey: conversationKeyFromBody,
-      prompt: safePrompt,
-      history: normalizedHistory,
-      localeHint: localeHintFromBody,
-    });
-    const conversationStateBlock = buildConversationStateSummaryBlock(conversationState);
-    const responsePolicyContext: ResponsePolicyContext = {
-      state: conversationState,
-      complexity: classifyPromptComplexity(safePrompt),
-    };
     const autoWebEvidence = await buildAutomaticWebEvidence(verificationTargetPrompt).catch((error) => {
       console.warn("KNEXAI_AUTO_WEB_SEARCH_FAILED", {
         message: error instanceof Error ? error.message : String(error),
@@ -3211,14 +4084,16 @@ export async function POST(req: NextRequest) {
     }
     const hasWebEvidence = Boolean(autoWebEvidence && autoWebEvidence.resultCount > 0);
     logVerificationCascadeStage("search:evidence", cascade, {
-      routeMode: "direct_or_anm",
+      routeMode: "direct_only",
       hasWebEvidence,
       resultCount: autoWebEvidence?.resultCount || 0,
       domainCount: autoWebEvidence?.domainCount || 0,
       queryCount: autoWebEvidence?.queryCount || 0,
     });
     if (!forceRag && forceWebMultiSource && verifiableQuestion && !hasWebEvidence) {
-      const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+      const fallbackText = isAuthorYearReferencePrompt(verificationTargetPrompt)
+        ? buildReferenceGroundingRequiredAnswer(localeHintFromBody)
+        : buildWebVerificationUnavailableAnswer(localeHintFromBody);
       return new Response(createChunkedTextStream(fallbackText), {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -3234,7 +4109,9 @@ export async function POST(req: NextRequest) {
           headers: { "Content-Type": "text/plain; charset=utf-8" },
         });
       }
-      const fallbackText = buildWebVerificationUnavailableAnswer(localeHintFromBody);
+      const fallbackText = isAuthorYearReferencePrompt(verificationTargetPrompt)
+        ? buildReferenceGroundingRequiredAnswer(localeHintFromBody)
+        : buildWebVerificationUnavailableAnswer(localeHintFromBody);
       return new Response(createChunkedTextStream(fallbackText), {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -3248,14 +4125,15 @@ export async function POST(req: NextRequest) {
     const clientSharedIdentityRuntime =
       normalizeRecord(body?.sharedIdentityRuntime) || normalizeRecord(body?.shared_identity_runtime);
     const identitySharedMemory = await resolveIdentityRuntimeSharedContext();
+    const identityContextBlock = identitySharedMemory.promptBlock.trim();
     const promptForAnm = injectConversationStatePrompt(
-      [safePrompt, autoWebContextBlock, webVerificationPolicyBlock].filter(Boolean).join("\n\n"),
+      [safePrompt, identityContextBlock, autoWebContextBlock, webVerificationPolicyBlock].filter(Boolean).join("\n\n"),
       conversationStateBlock,
     );
     const promptForDirect = safePrompt;
     const directContextBlock = [
       conversationStateBlock.trim(),
-      identitySharedMemory.promptBlock.trim(),
+      identityContextBlock,
       autoWebContextBlock,
       webVerificationPolicyBlock,
     ]
@@ -3287,25 +4165,36 @@ export async function POST(req: NextRequest) {
       userKey: userKeyFromBody,
       };
     const forceDirectForVerifiableQuestion = cascade.forceDirectWithoutDocumentScope;
-    const preferredEngineMode: EngineModeConfig = forceDirectForVerifiableQuestion
-      ? { ...engineMode, mode: "direct" }
-      : engineMode;
+    const forceDirectEngineMode =
+      forceDirectForVerifiableQuestion || forceDirectAfterDescendingFailure;
+    const requestedEngineMode = anmEngineModeFromBody;
+    const requestedFallbackToDirect =
+      typeof anmFallbackToDirectFromBody === "boolean" ? anmFallbackToDirectFromBody : engineMode.fallbackToDirect;
+    const preferredEngineMode: EngineModeConfig = forceDirectEngineMode
+      ? { ...engineMode, mode: "direct", fallbackToDirect: true }
+      : requestedEngineMode
+        ? {
+            ...engineMode,
+            mode: requestedEngineMode,
+            anmBaseUrl: anmBaseUrlFromBody || engineMode.anmBaseUrl,
+            anmTimeoutMs: anmTimeoutMsFromBody || engineMode.anmTimeoutMs,
+            anmSoftTimeoutMs: anmSoftTimeoutMsFromBody || engineMode.anmSoftTimeoutMs,
+            fallbackToDirect: requestedEngineMode === "direct" ? true : requestedFallbackToDirect,
+          }
+        : engineMode;
     logVerificationCascadeStage("engine:gate", cascade, {
       selectedEngineMode: preferredEngineMode.mode,
       configuredEngineMode: engineMode.mode,
+      requestedEngineMode: requestedEngineMode || "",
+      forceDirectAfterDescendingFailure,
     });
-    const anmResolution =
-      preferredEngineMode.mode === "anm"
-        ? await resolveReachableAnmBaseUrl({
-            configuredBaseUrl: preferredEngineMode.anmBaseUrl,
-            timeoutMs: Math.min(2_000, preferredEngineMode.anmSoftTimeoutMs),
-            healthPath: "/healthz",
-          })
-        : null;
-    const effectiveEngineMode =
-      anmResolution && preferredEngineMode.mode === "anm"
-        ? { ...preferredEngineMode, anmBaseUrl: anmResolution.baseUrl }
-        : preferredEngineMode;
+    // Guard definitivo: endpoint opera somente em modo direto.
+    const anmResolution: { baseUrl?: string; attemptedBaseUrls?: string[] } | null = null;
+    const effectiveEngineMode: EngineModeConfig = {
+      ...preferredEngineMode,
+      mode: "direct" as EngineMode,
+      fallbackToDirect: true,
+    };
 
     if (effectiveEngineMode.mode === "anm") {
       if (effectiveEngineMode.fallbackToDirect) {
@@ -3359,7 +4248,8 @@ export async function POST(req: NextRequest) {
           directDetail: directHealth.detail,
           anmConfiguredBaseUrl: engineMode.anmBaseUrl,
           anmSelectedBaseUrl: effectiveEngineMode.anmBaseUrl,
-          anmAttemptedBaseUrls: anmResolution?.attemptedBaseUrls || [engineMode.anmBaseUrl],
+          anmAttemptedBaseUrls:
+            (anmResolution as { attemptedBaseUrls?: string[] } | null)?.attemptedBaseUrls || [engineMode.anmBaseUrl],
           directConfiguredBaseUrl: config.baseUrl,
           directSelectedBaseUrl: directConfig.baseUrl,
           directAttemptedBaseUrls: directHealth.attemptedBaseUrls || [],
@@ -3416,7 +4306,10 @@ export async function POST(req: NextRequest) {
             503,
             "ENGINE_PATHS_UNAVAILABLE",
             `ANM indisponivel (${anmHealth.detail}) e LLM direta indisponivel (${directHealth.detail}).` +
-              ` Endpoints ANM tentados: ${(anmResolution?.attemptedBaseUrls || [effectiveEngineMode.anmBaseUrl]).join(", ")}.` +
+              ` Endpoints ANM tentados: ${(
+                (anmResolution as { attemptedBaseUrls?: string[] } | null)?.attemptedBaseUrls ||
+                [effectiveEngineMode.anmBaseUrl]
+              ).join(", ")}.` +
               ` Endpoints diretos tentados: ${(directHealth.attemptedBaseUrls || [config.baseUrl]).join(", ")}.`,
           );
         }
@@ -3519,6 +4412,9 @@ export async function POST(req: NextRequest) {
     return safeBackendError(500, "INTERNAL_ERROR", "Erro interno ao processar a requisicao.");
   }
 }
+
+
+
 
 
 

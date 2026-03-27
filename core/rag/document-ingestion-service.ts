@@ -333,6 +333,7 @@ export class DocumentIngestionService {
               "Nao foi possivel extrair texto legivel automaticamente (provavel PDF escaneado/imagem).",
               "Sugestao: enviar versao com OCR ou arquivo TXT/DOCX para analise textual completa.",
             ].join("\n"),
+            textQuality: "placeholder",
           };
           logger.warn("RAG_INGEST_EMPTY_PDF_TEXT_FALLBACK", {
             jobId: ingestionJobId,
@@ -390,6 +391,9 @@ export class DocumentIngestionService {
           referenced_source_path: referencePathForDb,
           ingested_at: new Date().toISOString(),
           embedding_status: "pending",
+          ocr_applied: extracted.ocrApplied === true,
+          ocr_page_count: Number.isFinite(Number(extracted.ocrPageCount)) ? Math.max(0, Math.trunc(Number(extracted.ocrPageCount))) : 0,
+          text_quality: extracted.textQuality || "native",
         },
         original: {
           filename: materialized.fileName,
@@ -523,7 +527,7 @@ export class DocumentIngestionService {
         const wrapped = new DocumentIngestionError(
           415,
           "INGEST_UNSUPPORTED_TYPE",
-          `${error.message} Tipos suportados: text/plain, text/markdown, text/csv, application/json, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document.`,
+          `${error.message} Tipos suportados incluem arquivos textuais (txt/md/csv/json/xml/yaml/html/rtf), PDF, DOCX e imagens (png/jpg/webp/gif/bmp/tiff) com OCR quando habilitado. HEIC/HEIF entram com fallback de anexo sem OCR nativo nesta etapa.`,
         );
         logger.warn("RAG_INGEST_UNSUPPORTED_TYPE", {
           jobId: ingestionJobId,

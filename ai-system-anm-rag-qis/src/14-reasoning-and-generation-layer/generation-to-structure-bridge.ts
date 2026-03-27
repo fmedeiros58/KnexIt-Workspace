@@ -9,5 +9,6 @@ const GENERATION_TO_STRUCTURE_CONTRACT = {
 
 export function handoffGenerationToStructure(state: ProcessingState): ProcessingState {
   assertHandoffContract(state, GENERATION_TO_STRUCTURE_CONTRACT);
+  state.reasonedDraft = `${state.draftResponse?.text || ""}`.trim();
   return state;
 }

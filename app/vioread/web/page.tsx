@@ -1,4 +1,6 @@
-﻿import "../../../vioread/web/styles/reader.css";
+"use client";
 
-export { default } from "../../../vioread/web/page";
+import "../../../vioread/web/styles/reader.css";
+import RoutedPage from "../../../vioread/web/page";
 
+export default RoutedPage;

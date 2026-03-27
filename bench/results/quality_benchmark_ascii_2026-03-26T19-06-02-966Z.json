@@ -1,0 +1,141 @@
+{
+  "startedAt": "2026-03-26T19:03:51.768Z",
+  "timeoutMs": 70000,
+  "routes": {
+    "api_chat_auto": {
+      "summary": {
+        "requests": 6,
+        "success": 5,
+        "successRatePct": 83.33,
+        "semanticHitRatePct": 50,
+        "leakRatePct": 16.67,
+        "p50ms": 4979,
+        "p95ms": 37201
+      },
+      "rows": [
+        {
+          "id": "greeting",
+          "status": 200,
+          "ok": true,
+          "ms": 2220,
+          "hit": true,
+          "leak": false,
+          "preview": "Oi! Eu sou a Letícia. Como posso te ajudar agora?"
+        },
+        {
+          "id": "capital_br",
+          "status": 200,
+          "ok": true,
+          "ms": 4979,
+          "hit": false,
+          "leak": false,
+          "preview": "Eu me chamo Letícia por duas bases complementares. A base conceitual é que LETICIA condensa Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance, qu"
+        },
+        {
+          "id": "cache_summary",
+          "status": 200,
+          "ok": true,
+          "ms": 5398,
+          "hit": true,
+          "leak": false,
+          "preview": "Cache é uma estrutura de armazenamento temporário que armazena dados frequentemente solicitados, com o objetivo de reduzir a latência e melhorar a performance de um sistema. Quando"
+        },
+        {
+          "id": "name_ai",
+          "status": 200,
+          "ok": true,
+          "ms": 1710,
+          "hit": false,
+          "leak": false,
+          "preview": "Eu sou a Letícia."
+        },
+        {
+          "id": "cholesterol",
+          "status": 200,
+          "ok": true,
+          "ms": 37201,
+          "hit": true,
+          "leak": true,
+          "preview": "Texto original em português brasileiro: Colesterol é um tipo de gordura que é produzido pelos rins e intestinos e também é obtido da dieta. [doc 13, p.1] Ele é necessário para a vi"
+        },
+        {
+          "id": "missing_info",
+          "status": 504,
+          "ok": false,
+          "ms": 70010,
+          "hit": false,
+          "leak": false,
+          "preview": ""
+        }
+      ]
+    },
+    "api_knexai": {
+      "summary": {
+        "requests": 6,
+        "success": 6,
+        "successRatePct": 100,
+        "semanticHitRatePct": 50,
+        "leakRatePct": 0,
+        "p50ms": 378,
+        "p95ms": 2924
+      },
+      "rows": [
+        {
+          "id": "greeting",
+          "status": 200,
+          "ok": true,
+          "ms": 321,
+          "hit": true,
+          "leak": false,
+          "preview": "Oi. Como posso te ajudar agora?"
+        },
+        {
+          "id": "capital_br",
+          "status": 200,
+          "ok": true,
+          "ms": 2924,
+          "hit": false,
+          "leak": false,
+          "preview": "A capital do Brasil é Brasília. Explicação: 1. Identificar a pergunta: A pergunta é sobre a capital do Brasil.\n2. Buscar informação relevante: A capital do Brasil é Brasília.\n3. Fo"
+        },
+        {
+          "id": "cache_summary",
+          "status": 200,
+          "ok": true,
+          "ms": 3085,
+          "hit": true,
+          "leak": false,
+          "preview": "Cache é uma estrutura de armazenamento temporário utilizada por sistemas informacionais para reduzir latência e melhorar performance. Ele permite que os dados frequentemente solici"
+        },
+        {
+          "id": "name_ai",
+          "status": 200,
+          "ok": true,
+          "ms": 378,
+          "hit": false,
+          "leak": false,
+          "preview": "Eu sou a Letícia."
+        },
+        {
+          "id": "cholesterol",
+          "status": 200,
+          "ok": true,
+          "ms": 2852,
+          "hit": true,
+          "leak": false,
+          "preview": "Colesterol alto refere-se a um nível elevado de colesterol no sangue. O colesterol é uma substância lipídica que circula no sangue e é necessário para a produção de hormônios sexua"
+        },
+        {
+          "id": "missing_info",
+          "status": 200,
+          "ok": true,
+          "ms": 116,
+          "hit": false,
+          "leak": false,
+          "preview": "Perfeito, Medeiros. Eu vou te chamar assim daqui pra frente."
+        }
+      ]
+    }
+  },
+  "finishedAt": "2026-03-26T19:06:02.966Z"
+}

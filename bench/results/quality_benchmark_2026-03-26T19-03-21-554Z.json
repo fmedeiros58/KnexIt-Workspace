@@ -1,0 +1,204 @@
+{
+  "startedAt": "2026-03-26T19:00:41.576Z",
+  "timeoutMs": 70000,
+  "prompts": [
+    {
+      "id": "greeting",
+      "q": "oi",
+      "expectAny": [
+        "oi",
+        "ol?",
+        "let?cia"
+      ]
+    },
+    {
+      "id": "capital_br",
+      "q": "qual a capital do brasil?",
+      "expectAny": [
+        "bras?lia",
+        "brasilia"
+      ]
+    },
+    {
+      "id": "cache_summary",
+      "q": "resuma em 1 par?grafo o conceito de cache",
+      "expectAny": [
+        "cache"
+      ]
+    },
+    {
+      "id": "name_ai",
+      "q": "qual o seu nome?",
+      "expectAny": [
+        "let?cia",
+        "leticia"
+      ]
+    },
+    {
+      "id": "cholesterol",
+      "q": "o que significa colesterol alto?",
+      "expectAny": [
+        "colesterol"
+      ]
+    },
+    {
+      "id": "missing_info",
+      "q": "escreva um convite de 15 linhas com meu nome completo, idade e profiss?o. meu nome ? medeiros.",
+      "expectAny": [
+        "idade",
+        "profiss?o",
+        "profissao",
+        "?"
+      ]
+    }
+  ],
+  "routes": {
+    "api_chat_auto": {
+      "summary": {
+        "requests": 6,
+        "success": 5,
+        "successRatePct": 83.33,
+        "semanticHitRatePct": 50,
+        "leakRatePct": 16.67,
+        "p50ms": 4834,
+        "p95ms": 38096
+      },
+      "rows": [
+        {
+          "id": "greeting",
+          "status": 200,
+          "ok": true,
+          "ms": 1988,
+          "hit": true,
+          "leak": false,
+          "preview": "Oi! Eu sou a Letícia. Como posso te ajudar agora?"
+        },
+        {
+          "id": "capital_br",
+          "status": 200,
+          "ok": true,
+          "ms": 4834,
+          "hit": false,
+          "leak": false,
+          "preview": "Eu me chamo Letícia por duas bases complementares. A base conceitual é que LETICIA condensa Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance, que define meu foco em linguagem, cognição"
+        },
+        {
+          "id": "cache_summary",
+          "status": 200,
+          "ok": true,
+          "ms": 6068,
+          "hit": true,
+          "leak": false,
+          "preview": "Cache é um mecanismo de armazenamento temporário de dados, geralmente em memória rápida, com o objetivo de reduzir o tempo de acesso a esses dados em futuras solicitações. Quando um programa ou sistema requer dados que j"
+        },
+        {
+          "id": "name_ai",
+          "status": 200,
+          "ok": true,
+          "ms": 1653,
+          "hit": false,
+          "leak": false,
+          "preview": "Eu sou a Letícia."
+        },
+        {
+          "id": "cholesterol",
+          "status": 200,
+          "ok": true,
+          "ms": 38096,
+          "hit": true,
+          "leak": true,
+          "preview": "Texto original em português brasileiro: Colesterol é um tipo de gordura que é produzido pelos rins e intestinos e também é obtido da dieta. [doc 13, p.1] Ele é necessário para a vida humana, pois participa de processos i"
+        },
+        {
+          "id": "missing_info",
+          "status": 504,
+          "ok": false,
+          "ms": 70017,
+          "hit": false,
+          "leak": false,
+          "preview": ""
+        }
+      ]
+    },
+    "api_knexai": {
+      "summary": {
+        "requests": 6,
+        "success": 6,
+        "successRatePct": 100,
+        "semanticHitRatePct": 66.67,
+        "leakRatePct": 0,
+        "p50ms": 3205,
+        "p95ms": 6592
+      },
+      "rows": [
+        {
+          "id": "greeting",
+          "status": 200,
+          "ok": true,
+          "ms": 772,
+          "hit": true,
+          "leak": false,
+          "preview": "Oi. Como posso te ajudar agora?"
+        },
+        {
+          "id": "capital_br",
+          "status": 200,
+          "ok": true,
+          "ms": 6592,
+          "hit": false,
+          "leak": false,
+          "preview": "A capital do Brasil é Brasília. Explicação:\nO usuário perguntou sobre a capital do Brasil. Em resposta, a Letícia forneceu a informação correta, \"Brasília\", e manteve a conversação natural e cortesmente. Não há necessida"
+        },
+        {
+          "id": "cache_summary",
+          "status": 200,
+          "ok": true,
+          "ms": 3205,
+          "hit": true,
+          "leak": false,
+          "preview": "O conceito de cache refere-se a um espaço temporário utilizado pelos sistemas informacionais para armazenar dados frequentemente solicitados, reduzindo assim a necessidade de obter novas cópias desses dados dos fontes or"
+        },
+        {
+          "id": "name_ai",
+          "status": 200,
+          "ok": true,
+          "ms": 1101,
+          "hit": false,
+          "leak": false,
+          "preview": "Eu sou a Letícia."
+        },
+        {
+          "id": "cholesterol",
+          "status": 200,
+          "ok": true,
+          "ms": 3804,
+          "hit": true,
+          "leak": false,
+          "preview": "Colesterol alto refere-se a um nível elevado de colesterol no sangue. O colesterol é uma substância lipídica que circula no corpo humano e tem várias funções importantes, incluindo transporte de lípides para células corp"
+        },
+        {
+          "id": "missing_info",
+          "status": 200,
+          "ok": true,
+          "ms": 21468,
+          "hit": true,
+          "leak": false,
+          "preview": "Você pode chamar-me Letícia Medeiros. Tenho 35 anos e trabalho como engenheira de software especializada em inteligência artificial. Letícia: Eu sou Letícia Medeiros, tenho 35 anos e dedico minha carreira a desenvolver s"
+        }
+      ]
+    }
+  },
+  "routerMetrics": {
+    "ok": true,
+    "router": {
+      "total": 0,
+      "lite": 0,
+      "full": 0,
+      "fullNearLite": 0,
+      "fullPct": 0,
+      "litePct": 0,
+      "fullNearLitePct": 0
+    }
+  },
+  "finishedAt": "2026-03-26T19:03:21.554Z"
+}

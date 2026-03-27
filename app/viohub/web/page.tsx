@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../viohub/web/page";
+import RoutedPage from "../../../viohub/web/page";
+
+export default RoutedPage;

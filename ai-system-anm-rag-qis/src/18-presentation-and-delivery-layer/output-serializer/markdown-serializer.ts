@@ -1,28 +1,39 @@
-﻿export interface MarkdownSerializerInput {
-  context?: Record<string, unknown>;
-  value?: unknown;
-  enabled?: boolean;
+﻿import type { PresentationRenderModel, SerializedPresentation } from "../presentation-contracts";
+
+export interface MarkdownSerializerInput {
+  model: PresentationRenderModel;
 }
 
-export interface MarkdownSerializerOutput {
-  ok: boolean;
-  component: string;
-  score: number;
-  payload: Record<string, unknown>;
+export interface MarkdownSerializerOutput extends SerializedPresentation {
+  format: "markdown";
 }
 
-export function markdownSerializer(input: MarkdownSerializerInput = {}): MarkdownSerializerOutput {
-  const context = input.context || {};
-  const payload: Record<string, unknown> = {
-    ...context,
-    value: input.value ?? null,
-    enabled: input.enabled !== false,
-  };
-  const score = Object.keys(payload).length > 2 ? 0.82 : 0.64;
+export function markdownSerializer(input: MarkdownSerializerInput): MarkdownSerializerOutput {
+  const model = input.model;
+  const sections: string[] = [];
+  if (model.bubble.text) sections.push(model.bubble.text.trim());
+
+  for (const block of model.codeBlocks) {
+    sections.push("", `\`\`\`${block.language}`, block.code, "\`\`\`");
+  }
+
+  if (model.citations.length > 0) {
+    sections.push("", "### Fontes");
+    for (const citation of model.citations.slice(0, 8)) {
+      sections.push(`- [${citation.title || "fonte"}](${citation.url})`);
+    }
+  }
+
+  const text = sections.join("\n").trim();
   return {
-    ok: true,
-    component: "markdown-serializer",
-    score,
-    payload,
+    format: "markdown",
+    text,
+    score: Math.max(0.48, Math.min(0.98, 0.7 + (model.codeBlocks.length * 0.06))),
+    payload: {
+      markdown: text,
+      citations: model.citations,
+      codeBlocks: model.codeBlocks,
+      confidence: model.confidence,
+    },
   };
 }

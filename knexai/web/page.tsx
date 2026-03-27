@@ -745,6 +745,7 @@ const WRITE_PANEL_TRANSITION_MS = 320;
 const COMPOSER_INDEXING_POLL_MS = 1500;
 const COMPOSER_INDEXING_ERROR_RETRY_LIMIT = 5;
 const COMPOSER_INDEXING_TIMEOUT_MS = 240000;
+const COMPOSER_READINESS_CACHE_TTL_MS = 15000;
 
 const SIDEBAR_ACTIONS = [
   { id: "new", label: "Novo chat", icon: MessageSquarePlus },
@@ -805,10 +806,37 @@ function stripConversationRoleArtifacts(text: string) {
   return output.trim();
 }
 
+function countMojibakeArtifacts(value: string) {
+  return (value.match(/(?:Ã.|Â.|â[€™“”–—])/g) || []).length;
+}
+
+function countPortugueseAccents(value: string) {
+  return (value.match(/[áéíóúàâãêôõçÁÉÍÓÚÀÂÃÊÔÕÇ]/g) || []).length;
+}
+
+function decodeLikelyMojibake(value: string) {
+  const text = `${value || ""}`;
+  if (!text.trim()) return "";
+  if (countMojibakeArtifacts(text) === 0) return text;
+  try {
+    const bytes = Uint8Array.from(Array.from(text).map((char) => char.charCodeAt(0) & 0xff));
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    if (!decoded.trim()) return text;
+    const before = countMojibakeArtifacts(text);
+    const after = countMojibakeArtifacts(decoded);
+    const accentGain = countPortugueseAccents(decoded) - countPortugueseAccents(text);
+    if (after < before || accentGain > 0) return decoded;
+    return text;
+  } catch {
+    return text;
+  }
+}
+
 function sanitizePersistedAssistantContent(content: string) {
   let output = `${content || ""}`.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "").replace(/\u0000/g, "");
   output = output.replace(/^\s*(?:leticia|l\.e\.t\.i\.c\.i\.a|assistente|assistant)\s*[:\-]\s*/i, "");
   output = output.replace(/^\s*["']?(?:leticia|l\.e\.t\.i\.c\.i\.a)["']?\s*[:\-]\s*/i, "");
+  output = decodeLikelyMojibake(output);
   output = stripConversationRoleArtifacts(output);
   return output.trim();
 }
@@ -861,10 +889,6 @@ function sanitizeAssistantFinalContent(content: string, prompt: string) {
 function toModelHistory(messages: LeticiaMessage[]): LeticiaMessage[] {
   return messages.filter((message, index) => {
     if (index === 0 && message.role === "assistant" && message.content === initialMessages[0]?.content) {
-      return false;
-    }
-    const metadata = normalizeMessageMetadata(message.metadata);
-    if (metadata?.rag_attachment_notice === true) {
       return false;
     }
     return message.role === "user" || message.role === "assistant";
@@ -1397,6 +1421,9 @@ export default function KnexAiPage() {
   const flushFrameRef = useRef<number | null>(null);
   const writePanelUnmountTimerRef = useRef<number | null>(null);
   const composerIngestionTasksRef = useRef(new Map<string, { cancelled: boolean }>());
+  const composerReadinessCacheRef = useRef(
+    new Map<number, { checkedAt: number; readiness: ComposerDocumentReadiness }>(),
+  );
   const superadminAutoLoadRef = useRef(false);
   const chatAutoScrollEnabledRef = useRef(true);
   const previousChatThreadIdRef = useRef<string | null>(null);
@@ -2474,6 +2501,11 @@ export default function KnexAiPage() {
   };
 
   const fetchComposerDocumentReadiness = async (documentId: number): Promise<ComposerDocumentReadiness> => {
+    const cached = composerReadinessCacheRef.current.get(documentId);
+    if (cached && Date.now() - cached.checkedAt <= COMPOSER_READINESS_CACHE_TTL_MS) {
+      return cached.readiness;
+    }
+
     const response = await fetch(`/api/documents/${documentId}?limit=1&offset=0`, { method: "GET" });
     const payload = await parseJsonResponse<DocumentLookupResponse>(response);
     if (!response.ok || !payload?.ok || !payload.document) {
@@ -2512,12 +2544,17 @@ export default function KnexAiPage() {
       hasChunkInventory &&
       (pendingChunks === 0 || pendingChunks === null) &&
       (failedChunks === 0 || failedChunks === null);
-    return {
+    const readiness: ComposerDocumentReadiness = {
       embeddingStatus,
       ragReady: Boolean(document.ragReady) || ragReadyFromCounts || ragReadyFromMetadata,
       totalChunks: effectiveTotalChunks,
       embeddedChunks: effectiveEmbeddedChunks,
     };
+    composerReadinessCacheRef.current.set(documentId, {
+      checkedAt: Date.now(),
+      readiness,
+    });
+    return readiness;
   };
 
   const resolveScopedDocumentStates = async (documentIds: number[]) => {
@@ -2534,6 +2571,34 @@ export default function KnexAiPage() {
       normalized.map(async (documentId): Promise<ScopedDocumentState> => {
         const known = writingWorksById.get(documentId);
         const title = known?.title?.trim() || `doc:${documentId}`;
+        if (known?.embeddingStatus === "failed") {
+          return {
+            documentId,
+            title,
+            embeddingStatus: "failed",
+            ragReady: false,
+          };
+        }
+        if (known?.embeddingStatus === "completed") {
+          const cached = composerReadinessCacheRef.current.get(documentId);
+          const cacheFresh = cached && Date.now() - cached.checkedAt <= COMPOSER_READINESS_CACHE_TTL_MS;
+          if (cacheFresh) {
+            return {
+              documentId,
+              title,
+              embeddingStatus: cached.readiness.embeddingStatus,
+              ragReady: cached.readiness.ragReady,
+            };
+          }
+          // Fast path: evita bloquear Enter com round-trip de readiness quando o doc ja
+          // foi marcado como completed localmente no composer.
+          return {
+            documentId,
+            title,
+            embeddingStatus: "completed",
+            ragReady: true,
+          };
+        }
         try {
           const readiness = await fetchComposerDocumentReadiness(documentId);
           return {

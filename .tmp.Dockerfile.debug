@@ -1,0 +1,6 @@
+FROM node:20-alpine
+WORKDIR /app
+COPY . .
+RUN echo "has-app-page=$(test -f app/knexchat/web/page.tsx && echo yes || echo no)" && \
+    echo "has-knexchat-page=$(test -f knexchat/web/page.tsx && echo yes || echo no)" && \
+    if [ -f knexchat/web/page.tsx ]; then wc -c knexchat/web/page.tsx; fi

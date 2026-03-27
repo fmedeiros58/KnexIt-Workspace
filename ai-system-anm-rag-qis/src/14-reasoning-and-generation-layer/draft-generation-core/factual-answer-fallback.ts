@@ -27,6 +27,10 @@ interface ParsedRoleQuestion {
   placeDisplay: string;
 }
 
+function isVerifiableCitationUrl(url: string): boolean {
+  return /^https?:\/\//i.test(`${url || ""}`.trim());
+}
+
 function decodeHtmlEntities(value: string): string {
   return `${value || ""}`
     .replace(/&#(\d+);/g, (_, decimal) => {
@@ -380,6 +384,7 @@ export function buildFactualAnswerFallback(input: FactualAnswerFallbackInput): F
   const citationByName = new Map<string, string[]>();
 
   for (const source of input.sources) {
+    if (!isVerifiableCitationUrl(source.url)) continue;
     const primaryText = `${source.snippet || ""}`.trim();
     const fallbackText = `${source.title || ""}`.trim();
     const name = extractPersonName(parsed, primaryText) || extractPersonName(parsed, fallbackText);
@@ -393,10 +398,11 @@ export function buildFactualAnswerFallback(input: FactualAnswerFallbackInput): F
   if (!ranked.length) return null;
 
   const [personName, score] = ranked[0];
-  const citations = [...new Set((citationByName.get(personName) || []).filter((url) => /^https?:\/\//i.test(url)))].slice(0, 3);
+  const citations = [...new Set((citationByName.get(personName) || []).filter((url) => isVerifiableCitationUrl(url)))].slice(0, 3);
+  if (!citations.length) return null;
   const confidence = Math.max(0.45, Math.min(0.95, 0.35 + (score * 0.16) + (citations.length * 0.1)));
 
-  const citationText = citations.length ? " Confirmado em fontes web recentes." : "";
+  const citationText = " Confirmado em fontes web recentes.";
   const answer =
     parsed.role === "governador"
       ? `O governador do ${parsed.placeDisplay} e ${personName}.${citationText}`

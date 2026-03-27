@@ -1,3 +1,5 @@
 "use client";
 
-export { default } from "../../../vioanalytics/web/page";
+import RoutedPage from "../../../vioanalytics/web/page";
+
+export default RoutedPage;

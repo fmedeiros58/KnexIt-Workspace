@@ -1,4 +1,6 @@
 "use client";
 
-export { default } from "@/app/supadrive/page";
+import RoutedPage from "@/app/supadrive/page";
+
+export default RoutedPage;
 
