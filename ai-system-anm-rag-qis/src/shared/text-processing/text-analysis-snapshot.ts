@@ -52,7 +52,7 @@ const IMPERATIVE_HINT_PATTERN =
   /\b(faca|crie|gere|liste|explique|resuma|mostre|ajuste|corrija|implemente|build|create|generate|list|explain|summarize|show|fix|adjust|implement)\b/gi;
 
 const GREETING_PATTERN =
-  /\b(oi|ola|bom dia|boa tarde|boa noite|hello|hi|hey)\b/gi;
+  /\b(oi|ola|saudacoes|saudações|bom dia|boa tarde|boa noite|hello|hi|hey)\b/gi;
 
 const RECENCY_PATTERN =
   /\b(atual|latest|today|hoje|agora|this week|neste mes|recent|recente|recentemente)\b/gi;

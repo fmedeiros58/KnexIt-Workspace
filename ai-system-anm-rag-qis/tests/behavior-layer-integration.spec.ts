@@ -1,6 +1,6 @@
 import { createInitialProcessingState } from "../src/bridges/contracts/processing-state";
 import { runConversationLayer } from "../src/03-conversation-layer/conversation-layer-bridge";
-import { runBehaviorAndPersonalityLayer } from "../src/03b-behavior-and-personality-layer/behavior-and-personality-layer-bridge";
+import { runBehaviorAndPersonalityLayer } from "../src/17b-response-behavior-layer/behavior-and-personality-layer-bridge";
 import { runContextLayer } from "../src/04-context-and-session-layer/context-layer-bridge";
 
 function assert(condition: boolean, message: string): void {
@@ -30,3 +30,4 @@ async function shouldInjectBehaviorBetweenConversationAndContext() {
 }
 
 await shouldInjectBehaviorBetweenConversationAndContext();
+

@@ -438,6 +438,17 @@ describe("PostprocessStage", () => {
     expect(final).not.toContain("deusa");
   });
 
+  it("corrige familia de pergunta sobre conceito/definicao do nome Letícia", async () => {
+    const ctx = makeContext("Nao ha conceito algum. E apenas um nome escolhido sem contexto.");
+    ctx.userMessage = "qual a definicao do nome Letícia?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = (ctx.finalAnswer || "").toLowerCase();
+    expect(final).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(/homenagem|afetiv|v[ií]nculo humano|sentido humano/.test(final)).toBe(true);
+    expect(final).not.toContain("sem contexto");
+  });
+
   it("corrige pergunta sobre quem e Medeiros no contexto identitario", async () => {
     const ctx = makeContext("Medeiros e apenas um sobrenome de origem latina e pode ser qualquer pessoa.");
     ctx.userMessage = "e quem e medeiros?";
@@ -474,7 +485,8 @@ describe("PostprocessStage", () => {
     const stage = new PostprocessStage();
     await stage.run(ctx);
     const final = (ctx.finalAnswer || "").toLowerCase();
-    expect(final.toLowerCase()).toContain("eu sou a letícia");
+    expect(final.toLowerCase()).toContain("tudo certo por aqui");
+    expect(final.toLowerCase()).not.toContain("eu sou a letícia");
     expect(final).not.toContain("if you meant");
     expect(final).not.toContain("my answer is");
   });
@@ -491,7 +503,8 @@ describe("PostprocessStage", () => {
     const stage = new PostprocessStage();
     await stage.run(ctx);
     const final = `${ctx.finalAnswer || ""}`;
-    expect(final.toLowerCase()).toContain("eu sou a letícia");
+    expect(final.toLowerCase()).toContain("tudo certo por aqui");
+    expect(final.toLowerCase()).not.toContain("eu sou a letícia");
     expect(final.length).toBeLessThanOrEqual(120);
     expect(final.toLowerCase()).not.toContain("language-engineered technology");
     expect(final.toLowerCase()).not.toContain("assistente interno");

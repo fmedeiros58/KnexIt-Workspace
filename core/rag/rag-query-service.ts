@@ -26,6 +26,7 @@ import {
 } from "./internet-search-service";
 import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "./vllm-client";
 import { RagOrchestratorV2 } from "./v2/orchestrator_v2";
+import { resolveIdentityFallbackForMessage } from "../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
 
 type RagLatencyPreset = "default" | "aggressive";
 type QueryComplexity = "simple" | "standard" | "deep";
@@ -576,6 +577,7 @@ function isGreetingPrompt(value: string) {
     "oi",
     "ola",
     "opa",
+    "saudacoes",
     "e ai",
     "eae",
     "hey",
@@ -594,7 +596,8 @@ function isSmallTalkPrompt(value: string) {
   return (
     /\b(tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo)\b/.test(normalized) ||
     /\b(como (?:vc|voce|ce) (?:esta|ta)|como vai|que tal)\b/.test(normalized) ||
-    /\b(beleza|blz|de boa|tranquilo|suave)\b/.test(normalized)
+    /\b(beleza|blz|de boa|tranquilo|suave)\b/.test(normalized) ||
+    /^(?:oi|ola|opa|saudacoes)\s+(?:tudo bem(?: com (?:vc|voce|ce))?|como vai|que tal)\b/.test(normalized)
   );
 }
 
@@ -606,12 +609,13 @@ function buildSmallTalkFastReply(value: string) {
 function containsGreetingToken(value: string) {
   const normalized = normalizeIntentText(value);
   if (!normalized) return false;
-  return /\b(oi|ola|opa|e ai|eae|hey|hello|bom dia|boa tarde|boa noite)\b/.test(normalized);
+  return /\b(oi|ola|opa|saudacoes|e ai|eae|hey|hello|bom dia|boa tarde|boa noite)\b/.test(normalized);
 }
 
 function resolveGreetingLead(value: string) {
   const normalized = normalizeIntentText(value);
   if (!normalized) return "Oi!";
+  if (/\bsaudacoes\b/.test(normalized)) return "Saudações!";
   if (/\bbom dia\b/.test(normalized)) return "Bom dia!";
   if (/\bboa tarde\b/.test(normalized)) return "Boa tarde!";
   if (/\bboa noite\b/.test(normalized)) return "Boa noite!";
@@ -641,7 +645,9 @@ function hasAssistantIdentityContext(history: RagChatHistoryItem[] | undefined) 
   return (
     /\b(eu sou a leticia|meu nome e leticia)\b/.test(normalized) ||
     /\b(qual\s+(?:(?:e|eh|o)\s+)?(?:o\s+)?seu nome|como voce se chama|quem e voce)\b/.test(normalized) ||
-    /\b(o que significa leticia|por que voce tem esse nome|de onde vem o nome leticia)\b/.test(normalized) ||
+    /\b(o que significa leticia|por que voce tem esse nome|de onde vem o nome leticia|de onde surgiu o nome leticia|conceito de leticia|definicao de leticia|base conceitual do nome leticia|como surgiu o nome leticia|ideia por tras do nome leticia)\b/.test(
+      normalized,
+    ) ||
     /\b(quem e medeiros|quem e o medeiros)\b/.test(normalized)
   );
 }
@@ -664,6 +670,20 @@ function classifyAssistantIdentityIntentFamily(
   value: string,
   history?: RagChatHistoryItem[],
 ): AssistantIdentityIntentFamily {
+  const identityFallback = resolveIdentityFallbackForMessage(value);
+  if (identityFallback.shouldHandle) {
+    if (
+      identityFallback.creatorQuestionDetected ||
+      identityFallback.founderInfluenceQuestionDetected ||
+      identityFallback.formationQuestionDetected ||
+      identityFallback.professionalQuestionDetected
+    ) {
+      return "creator_identity";
+    }
+    if (identityFallback.nameOriginQuestionDetected) return "name_semantics";
+    if (identityFallback.identityQuestionDetected) return "identity";
+  }
+
   const normalized = normalizeIntentText(value);
   if (!normalized) return null;
 
@@ -671,7 +691,7 @@ function classifyAssistantIdentityIntentFamily(
   const hasLeticia = /\bleticia\b/.test(normalized);
   const hasMedeiros = /\bmedeiros\b/.test(normalized);
   const hasTopicShift = hasCompetingTopicShift(normalized);
-  const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome)\b/.test(normalized);
+  const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome|isso|disso|isso ai|disso ai)\b/.test(normalized);
   const hasNameOriginByCalling = /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/.test(normalized);
   const hasCreatorFollowUpCue = /\b(mais\s+informacoes|mais\s+detalhes|fale\s+mais|me\s+diga\s+mais|me\s+conte\s+mais|quero\s+saber\s+mais|sobre\s+ele|sobre\s+esse|desse\s+medeiros|desse\s+mesmo)\b/.test(
     normalized,
@@ -692,11 +712,12 @@ function classifyAssistantIdentityIntentFamily(
   const asksSemantics = /\b(significa|significado|quer dizer|sentido|representa|origem|de onde vem|por que|porque|pq|motivo|razao)\b/.test(
     normalized,
   );
+  const asksConceptDefinition = /\b(conceito|definicao|base conceitual|de onde surgiu|surgiu de onde|historia do nome|ideia por tras)\b/.test(normalized);
   const asksCreatorIdentity = /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|e quem (?:e|eh)\s+medeiros|quem (?:e|eh)\s+esse\s+medeiros)\b/.test(
     normalized,
   );
   const asksCreatorExpansion = hasMedeiros && hasCreatorFollowUpCue;
-  const mentionsName = /\b(nome|chama|chamar|chamam|te chamam|identidade|esse nome)\b/.test(normalized);
+  const mentionsName = /\b(nome|chama|chamar|chamam|te chamam|identidade|esse nome|leticia)\b/.test(normalized);
 
   if (
     (asksCreatorIdentity || asksCreatorExpansion) &&
@@ -707,7 +728,11 @@ function classifyAssistantIdentityIntentFamily(
   if (hasIdentityContext && hasCreatorFollowUpCue && !hasTopicShift) {
     return "creator_identity";
   }
-  if (directedToAssistant && asksSemantics && (mentionsName || hasLeticia || hasNameOriginByCalling)) {
+  if (
+    directedToAssistant &&
+    (asksSemantics || asksConceptDefinition) &&
+    (mentionsName || hasLeticia || hasNameOriginByCalling || (hasIdentityContext && hasFollowUpReference))
+  ) {
     return "name_semantics";
   }
   if (
@@ -720,23 +745,19 @@ function classifyAssistantIdentityIntentFamily(
 }
 
 function buildAssistantNameSemanticsReply(value: string) {
+  const fallback = resolveIdentityFallbackForMessage(value);
+  if (fallback.shouldHandle) return fallback.shortNarrative;
+
   const greetingPrefix = containsGreetingToken(value) ? `${resolveGreetingLead(value)} ` : "";
-  return (
-    `${greetingPrefix}Eu me chamo Letícia por duas bases complementares. ` +
-    "A base conceitual é que LETICIA condensa Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance, " +
-    "que define meu foco em linguagem, cognição, interação e assistência. " +
-    "A base afetiva é uma homenagem de Medeiros à sua filha Letícia. " +
-    "Por isso, meu nome une arquitetura técnica e vínculo humano."
-  );
+  return `${greetingPrefix}Eu sou a Letícia.`;
 }
 
 function buildAssistantCreatorReply(value: string) {
+  const fallback = resolveIdentityFallbackForMessage(value);
+  if (fallback.shouldHandle) return fallback.shortNarrative;
+
   const greetingPrefix = containsGreetingToken(value) ? `${resolveGreetingLead(value)} ` : "";
-  return (
-    `${greetingPrefix}No contexto desta IA, Medeiros é o idealizador do projeto Letícia. ` +
-    "Ele definiu a base conceitual do sistema (linguagem, cognição, interação e assistência) e a base afetiva do nome. " +
-    "Se você estiver falando de outro Medeiros, me diga qual para eu responder com precisão."
-  );
+  return `${greetingPrefix}No contexto desta IA, Medeiros e o idealizador do projeto Leticia.`;
 }
 
 function buildAssistantIdentityClarificationReply(value: string) {
@@ -1168,6 +1189,14 @@ export class RagQueryService {
     const raw = Number(process.env.RAG_LITE_TEMPERATURE);
     if (Number.isFinite(raw)) return Math.max(0, Math.min(2, raw));
     return fallback;
+  }
+
+  private shouldUseLocalIntentFastPath() {
+    if (parseOptionalBoolean(process.env.RAG_LOCAL_INTENT_FAST_PATH_ENABLED) === false) return false;
+    const llmBridgeAlwaysOn = parseOptionalBoolean(process.env.ANM_LLM_BRIDGE_ALWAYS_ON) !== false;
+    const allowWithAlwaysOn = parseOptionalBoolean(process.env.RAG_ALLOW_LOCAL_INTENT_FAST_PATH_WITH_LLM_BRIDGE) === true;
+    if (llmBridgeAlwaysOn && !allowWithAlwaysOn) return false;
+    return true;
   }
 
   private toPlainTextStream(answer: string): ReadableStream<Uint8Array> {
@@ -1842,14 +1871,16 @@ export class RagQueryService {
       });
       return this.buildLocalResult(runtimeInput, clarification.answer, clarification.reason);
     }
-    const localIntent = await this.resolveLocalIntentReply(semanticQuestion, runtimeInput.history);
-    if (localIntent) {
-      logger.info("RAG_LOCAL_INTENT_REPLY", {
-        requestId,
-        reason: localIntent.reason,
-        textChars: semanticQuestion.length,
-      });
-      return this.buildLocalResult(runtimeInput, localIntent.answer, localIntent.reason);
+    if (this.shouldUseLocalIntentFastPath()) {
+      const localIntent = await this.resolveLocalIntentReply(semanticQuestion, runtimeInput.history);
+      if (localIntent) {
+        logger.info("RAG_LOCAL_INTENT_REPLY", {
+          requestId,
+          reason: localIntent.reason,
+          textChars: semanticQuestion.length,
+        });
+        return this.buildLocalResult(runtimeInput, localIntent.answer, localIntent.reason);
+      }
     }
     const routed = this.resolveProcessingMode(runtimeInput, semanticQuestion);
     this.trackRouterStats(routed.mode, routed.decision, requestId);
@@ -2106,14 +2137,16 @@ export class RagQueryService {
       });
       return this.toPlainTextStream(clarification.answer);
     }
-    const localIntent = await this.resolveLocalIntentReply(semanticQuestion, runtimeInput.history);
-    if (localIntent) {
-      logger.info("RAG_LOCAL_INTENT_STREAM_REPLY", {
-        requestId,
-        reason: localIntent.reason,
-        textChars: semanticQuestion.length,
-      });
-      return this.toPlainTextStream(localIntent.answer);
+    if (this.shouldUseLocalIntentFastPath()) {
+      const localIntent = await this.resolveLocalIntentReply(semanticQuestion, runtimeInput.history);
+      if (localIntent) {
+        logger.info("RAG_LOCAL_INTENT_STREAM_REPLY", {
+          requestId,
+          reason: localIntent.reason,
+          textChars: semanticQuestion.length,
+        });
+        return this.toPlainTextStream(localIntent.answer);
+      }
     }
     const routed = this.resolveProcessingMode(runtimeInput, semanticQuestion);
     this.trackRouterStats(routed.mode, routed.decision, requestId);

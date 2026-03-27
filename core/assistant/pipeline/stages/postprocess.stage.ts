@@ -7,6 +7,7 @@ import type { Stage } from "@/core/assistant/pipeline/stages/stage.interface";
 import { enforceResponseStructure } from "@/core/chat/perception/response-structure.enforcer";
 import type { ConversationPerceptionState } from "@/core/chat/perception/types";
 import type { RagQueryService } from "@/core/rag/rag-query-service";
+import { resolveIdentityFallbackForMessage } from "../../../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
 
 const CTA_MIN_CHARS = 120;
 const DEFAULT_REPAIR_PASSES = 1;
@@ -200,6 +201,25 @@ function stripQuestionAnswerEnvelope(text: string) {
   const answerMatch = text.match(/(?:resposta|answer|response)\s*[:：-]\s*/i);
   if (!answerMatch || answerMatch.index === undefined) return text;
   return text.slice(answerMatch.index + answerMatch[0].length).trimStart();
+}
+
+function stripDialogueTranscriptArtifacts(text: string) {
+  const source = `${text || ""}`.trim();
+  if (!source) return "";
+
+  // Ex.: "Usuário: ... Letícia: ... Usuário: ... Letícia: ..."
+  const transcriptPattern =
+    /\b(?:usuario|usuário|user)\s*:\s*[\s\S]*?\b(?:leticia|assistente|assistant)\s*:\s*([\s\S]*)$/i;
+  const transcriptMatch = source.match(transcriptPattern);
+  if (transcriptMatch?.[1]) {
+    return `${transcriptMatch[1]}`.trim();
+  }
+
+  // Remove prefixes repetidos de papel no começo da resposta final.
+  return source
+    .replace(/^\s*(?:usuario|usuário|user)\s*:\s*/i, "")
+    .replace(/^\s*(?:leticia|assistente|assistant)\s*:\s*/i, "")
+    .trim();
 }
 
 function stripEchoedUserMessage(text: string, userMessage: string) {
@@ -661,6 +681,7 @@ function stripInternalFallbackMarkers(text: string) {
 function sanitizeChatArtifacts(text: string, userMessage: string) {
   let output = repairUtf8Mojibake(`${text || ""}`);
   if (!output.trim()) return "";
+  output = stripDialogueTranscriptArtifacts(output);
   output = stripPersonaLabelPrefix(output);
   output = stripEchoedUserMessage(output, userMessage);
   output = stripQuestionAnswerEnvelope(output);
@@ -797,6 +818,7 @@ function toConversationPerceptionState(ctx: PipelineContext): ConversationPercep
 
 type MicroConversationalIntent =
   | "greeting"
+  | "wellbeing_check"
   | "gratitude"
   | "assistant_identity"
   | "assistant_name_origin"
@@ -828,6 +850,12 @@ const MICRO_NAME_ORIGIN_PATTERNS: RegExp[] = [
   /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome|por que o nome leticia)\b/,
   /\b(o que significa leticia|qual o significado(?:\s+do\s+nome)?(?:\s+de)?\s+leticia|leticia significa o que|esse nome significa o que)\b/,
   /\b(o que quer dizer leticia|qual o sentido do nome leticia)\b/,
+  /\b(qual(?:\s+(?:e|eh))?\s+o\s+conceito\s+(?:de|da)\s+leticia|conceito\s+de\s+leticia)\b/,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+definicao\s+(?:de|da)\s+leticia|definicao\s+de\s+leticia)\b/,
+  /\b(base\s+conceitual\s+do\s+nome\s+leticia|de\s+onde\s+surgiu\s+(?:o\s+nome\s+)?leticia|de\s+onde\s+surgiu\s+esse\s+nome)\b/,
+  /\b(como\s+surgiu\s+(?:o\s+nome\s+)?leticia|qual\s+a\s+historia\s+do\s+nome\s+leticia)\b/,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+ideia\s+por\s+tras\s+do\s+nome\s+leticia|conceito\s+por\s+tras\s+do\s+nome\s+leticia)\b/,
+  /\b(defina\s+leticia|como\s+se\s+define\s+leticia|qual\s+a\s+definicao\s+do\s+nome\s+leticia)\b/,
 ];
 
 const MICRO_IDENTITY_PATTERNS: RegExp[] = [
@@ -841,10 +869,14 @@ const MICRO_GRATITUDE_PATTERNS: RegExp[] = [
   /^(obrigado|obrigada|obg|valeu|thanks|thank you)(\b|$)/,
 ];
 
+const MICRO_WELLBEING_PATTERNS: RegExp[] = [
+  /^(como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|tudo bem(?: com (?:vc|voce|ce))?|blz|beleza|tudo certo|tudo tranquilo|como vai|que tal)(?: leticia)?$/,
+  /^(?:oi|ola|opa|fala|salve|saudacoes)\s+(?:como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|tudo bem(?: com (?:vc|voce|ce))?|como vai|que tal)(?: leticia)?$/,
+];
+
 const MICRO_GREETING_PATTERNS: RegExp[] = [
-  /^(oi|ola|oie|oii|opa|fala|salve|e ai|eae|hey|hello|hi)(?: leticia)?$/,
-  /^(bom dia|boa tarde|boa noite)(?: leticia)?$/,
-  /^(como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|tudo bem(?: com (?:vc|voce|ce))?|blz|beleza|tudo certo|tudo tranquilo)(?: leticia)?$/,
+  /^(oi|ola|oie|oii|opa|fala|salve|saudacoes|e ai|eae|hey|hello|hi)(?: leticia)?$/,
+  /^(bom dia|boa tarde|boa noite|boa trde|boa tardee|boa tard)(?: leticia)?$/,
 ];
 
 function detectMicroConversationalIntent(value: string): MicroConversationalIntent | null {
@@ -862,7 +894,17 @@ function detectMicroConversationalIntent(value: string): MicroConversationalInte
   if (matchesMicroFamily(normalized, MICRO_GRATITUDE_PATTERNS)) {
     return "gratitude";
   }
+  if (matchesMicroFamily(normalized, MICRO_WELLBEING_PATTERNS)) {
+    return "wellbeing_check";
+  }
   if (matchesMicroFamily(normalized, MICRO_GREETING_PATTERNS)) {
+    return "greeting";
+  }
+  const tokens = normalized.split(" ").filter(Boolean);
+  const startsLikeGreeting =
+    /^(oi+|ola+|opa|fala|salve|saudac|bom|boa)\b/.test(normalized) ||
+    /^(boa\s+trd|boa\s+tard|boa\s+trde)\b/.test(normalized);
+  if (startsLikeGreeting && tokens.length <= 3) {
     return "greeting";
   }
   return null;
@@ -874,6 +916,7 @@ function isMicroSocialPrompt(value: string) {
 
 function resolveGreetingLeadFromMessage(value: string) {
   const normalized = normalizeMicroIntentText(value);
+  if (/\bsaudac(?:oes|oes)?\b/.test(normalized) || /^saudac/.test(normalized)) return "Saudações!";
   if (/\bbom dia\b/.test(normalized)) return "Bom dia!";
   if (/\bboa tarde\b/.test(normalized)) return "Boa tarde!";
   if (/\bboa noite\b/.test(normalized)) return "Boa noite!";
@@ -900,6 +943,9 @@ function hasConversationalSemanticAnomaly(text: string) {
   const normalized = normalizeFold(raw);
   if (!normalized) return true;
   if (/(?:Ã.|â€|ï¿½)/.test(raw)) return true;
+  if (/\b(?:usuario|usuário|user)\s*:/.test(normalized) && /\b(?:leticia|assistente|assistant)\s*:/.test(normalized)) {
+    return true;
+  }
   if (/\b(minha nome|pelo prazer|sem sintese disponivel|sem ressalva dominante|sem ressalvas dominantes?)\b/.test(normalized)) return true;
   if (hasHighSentenceRepetition(raw)) return true;
   return false;
@@ -946,7 +992,7 @@ function hasUnrequestedIdentityDetailInGreeting(text: string) {
 }
 
 function hasMicroOveranswer(intent: MicroConversationalIntent, text: string) {
-  if (intent !== "greeting" && intent !== "gratitude") return false;
+  if (intent !== "greeting" && intent !== "gratitude" && intent !== "wellbeing_check") return false;
   const compact = `${text || ""}`.trim();
   if (!compact) return true;
   return compact.length > 220 || countMicroSentences(compact) > 4 || hasUnrequestedIdentityDetailInGreeting(compact);
@@ -954,43 +1000,44 @@ function hasMicroOveranswer(intent: MicroConversationalIntent, text: string) {
 
 function buildCanonicalMicroConversationalReply(ctx: PipelineContext, intent: MicroConversationalIntent) {
   const languageFamily = resolveLanguageFamily(ctx);
+  const identityFallback = resolveIdentityFallbackForMessage(ctx.userMessage || "");
+  const isIdentityIntent =
+    intent === "assistant_identity" || intent === "assistant_name_origin" || intent === "assistant_creator";
+
+  if (languageFamily !== "en" && isIdentityIntent && identityFallback.shouldHandle) {
+    return identityFallback.shortNarrative;
+  }
+
   if (languageFamily === "en") {
     if (intent === "assistant_creator") {
       return (
-        "In this IA context, Medeiros is the creator of the Letícia project. " +
-        "He defined the conceptual base of the system and the affective origin of the name. " +
+        "In ai-system-anm context, Francimar de Lima Medeiros is the epistemic founder of Leticia. " +
         "If you mean another person named Medeiros, tell me which one so I can answer accurately."
       );
     }
     if (intent === "assistant_name_origin") {
       return (
-        "I am called Letícia for two connected reasons. " +
-        "The conceptual reason is that LETICIA summarizes Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance, " +
-        "which defines my role around language, cognition, interaction, and assistance. " +
-        "The affective reason is that Letícia is also the name of Medeiros' daughter, as a personal tribute at the origin of the project."
+        "My name is Leticia. In ai-system-anm, this identity combines a conceptual basis and an affective origin linked to Medeiros."
       );
     }
     if (intent === "assistant_identity") return "I am Letícia.";
+    if (intent === "wellbeing_check") return "I am doing well. How can I help you now?";
     if (intent === "gratitude") return "You are welcome. I am here to help with whatever you need next.";
     return "Hi! I am Letícia. How can I help you now?";
   }
   if (intent === "assistant_creator") {
     return (
-      "No contexto desta IA, Medeiros é o idealizador do projeto Letícia. " +
-      "Ele definiu a base conceitual do sistema e a base afetiva do nome. " +
-      "Se você estiver falando de outro Medeiros, me diga qual para eu responder com precisão."
+      "No contexto do ai-system-anm, Francimar de Lima Medeiros e o fundador epistemologico da Leticia. " +
+      "Se voce estiver falando de outro Medeiros, me diga qual para eu responder com precisao."
     );
   }
   if (intent === "assistant_name_origin") {
     return (
-      "Eu me chamo Letícia por duas bases complementares. " +
-      "A base conceitual é que LETICIA condensa Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance, " +
-      "que define meu foco em linguagem, cognição, interação e assistência. " +
-      "A base afetiva é uma homenagem de Medeiros à sua filha Letícia. " +
-      "Por isso, meu nome une arquitetura técnica e vínculo humano."
+      "Meu nome e Leticia. No ai-system-anm, essa identidade une base conceitual e origem afetiva ligada a Medeiros."
     );
   }
   if (intent === "assistant_identity") return "Eu sou a Letícia.";
+  if (intent === "wellbeing_check") return "Tudo certo por aqui. Como posso te ajudar agora?";
   if (intent === "gratitude") return "De nada. Eu sigo com você no que precisar.";
   return `${resolveGreetingLeadFromMessage(ctx.userMessage)} Eu sou a Letícia. Como posso te ajudar agora?`;
 }

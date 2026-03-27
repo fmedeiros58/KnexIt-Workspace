@@ -22,6 +22,7 @@ import {
   normalizeConversationText,
   toDisplayName,
 } from "../../shared/utils/conversation-signals";
+import { resolveIdentityRuntimeFallback } from "../../17b-response-behavior-layer/identity-runtime-bridge";
 
 function normalize(value: string): string {
   return normalizeConversationText(value);
@@ -89,20 +90,10 @@ function hasRecentCreatorContext(state: ProcessingState): boolean {
   return /\bmedeiros\b/.test(recent) && /\b(leticia|idealizador do projeto)\b/.test(recent);
 }
 
-function buildPersonaNameOriginResponse(): string {
-  return (
-    "Eu me chamo Letícia por duas bases complementares. " +
-    "A base conceitual é que LETICIA condensa Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance, " +
-    "e a base afetiva é a homenagem de Medeiros à sua filha Letícia."
-  );
-}
-
-function buildPersonaCreatorResponse(): string {
-  return (
-    "No contexto desta IA, Medeiros é o idealizador do projeto Letícia. " +
-    "Ele definiu a base conceitual do sistema (linguagem, cognição, interação e assistência) e a base afetiva do nome. " +
-    "Fora desse contexto, eu não tenho dados biográficos verificados para afirmar formação, títulos ou datas."
-  );
+function buildPersonaIdentityScopedResponse(message: string): string | null {
+  const resolved = resolveIdentityRuntimeFallback(message);
+  if (!resolved) return null;
+  return resolved;
 }
 
 export function resolveConversationFocus(text: string): string {
@@ -188,18 +179,22 @@ export function buildNonEchoRecovery(state: ProcessingState): string {
   const normalizedFocus = normalize(focus);
 
   if (isPersonaIdentityPrompt(normalizedFocus)) {
+    const scoped = buildPersonaIdentityScopedResponse(normalizedFocus);
+    if (scoped) {
+      return knownName ? `${scoped} E lembro de você, ${knownName}.` : scoped;
+    }
     return knownName
       ? `Eu sou a Letícia. E lembro de você, ${knownName}.`
       : "Eu sou a Letícia. Estou aqui para te ajudar.";
   }
   if (isPersonaNameOriginPrompt(normalizedFocus)) {
-    return buildPersonaNameOriginResponse();
+    return buildPersonaIdentityScopedResponse(normalizedFocus) || "Eu sou a Letícia.";
   }
   if (isPersonaCreatorPrompt(normalizedFocus)) {
-    return buildPersonaCreatorResponse();
+    return buildPersonaIdentityScopedResponse(normalizedFocus) || "No contexto desta IA, Medeiros é o idealizador do projeto Letícia.";
   }
   if (isCreatorExpansionPrompt(normalizedFocus) && hasRecentCreatorContext(state)) {
-    return buildPersonaCreatorResponse();
+    return buildPersonaIdentityScopedResponse(normalizedFocus) || "No contexto desta IA, Medeiros é o idealizador do projeto Letícia.";
   }
 
   if (isNameRecallPrompt(normalizedFocus)) {
@@ -281,17 +276,19 @@ export function buildConversationalFallback(state: ProcessingState): string | nu
   if (nameIntent) return nameIntent;
 
   if (isPersonaIdentityPrompt(normalizedFocus)) {
+    const scoped = buildPersonaIdentityScopedResponse(normalizedFocus);
+    if (scoped) return knownName ? `${scoped} E lembro de você, ${knownName}.` : scoped;
     if (knownName) return `Eu sou a Letícia. E lembro de você, ${knownName}.`;
     return "Eu sou a Letícia. Estou aqui para te ajudar.";
   }
   if (isPersonaNameOriginPrompt(normalizedFocus)) {
-    return buildPersonaNameOriginResponse();
+    return buildPersonaIdentityScopedResponse(normalizedFocus) || "Eu sou a Letícia.";
   }
   if (isPersonaCreatorPrompt(normalizedFocus)) {
-    return buildPersonaCreatorResponse();
+    return buildPersonaIdentityScopedResponse(normalizedFocus) || "No contexto desta IA, Medeiros é o idealizador do projeto Letícia.";
   }
   if (isCreatorExpansionPrompt(normalizedFocus) && hasRecentCreatorContext(state)) {
-    return buildPersonaCreatorResponse();
+    return buildPersonaIdentityScopedResponse(normalizedFocus) || "No contexto desta IA, Medeiros é o idealizador do projeto Letícia.";
   }
 
   if (declaredName) {

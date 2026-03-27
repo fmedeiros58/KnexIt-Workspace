@@ -1,4 +1,4 @@
-﻿import type { DeliveryChannel, DeliveryFormat } from "../../shared/enums/delivery-enums";
+import type { DeliveryChannel, DeliveryFormat } from "../../shared/enums/delivery-enums";
 import type { EpistemicStatus } from "../../shared/enums/epistemic-status-enums";
 import type { InteractionMode } from "../../shared/enums/mode-enums";
 import type {
@@ -16,9 +16,10 @@ import type { ReflectiveNotes } from "../../shared/types/reflective-types";
 import type { ResponseDraft } from "../../shared/types/generation-types";
 import type { TextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
 import { buildTextAnalysisSnapshot } from "../../shared/text-processing/text-analysis-snapshot";
-import type { BehaviorPersonalityOutput } from "../../03b-behavior-and-personality-layer/behavior-and-personality-types";
+import type { BehaviorPersonalityOutput } from "../../17b-response-behavior-layer/behavior-and-personality-types";
 import type { CommunicativeElaborationOutput } from "../../14-reasoning-and-generation-layer/communicative-elaboration-and-co-construction/communicative-elaboration.types";
 import type { PhilosophicalSelfModelingOutput } from "../../12-metacognitive-layer/philosophical-self-modeling/philosophical-self-modeling.types";
+import type { ObjectiveRationalityEvaluation } from "../../10-reflective-layer/reflective-core/objective-rationality-core/objective-rationality-types";
 import type { GroundedEvidencePacket } from "../../07-knowledge-retrieval-and-research-layer/grounding/grounded-evidence-packet";
 
 export interface InputSignals {
@@ -55,6 +56,37 @@ export interface ConversationState {
   clarificationStrategy: string;
   followUpPrompt: string | null;
   rapportScore: number;
+}
+
+export interface AffectiveState {
+  dominantAffect: "neutral" | "frustrated" | "anxious" | "enthusiastic" | "concerned" | "calm";
+  emotionalIntensity: number;
+  affectiveMarkers: string[];
+  cautionLevel: number;
+}
+
+export interface ResponsePlanState {
+  responseIntent: "direct" | "explanatory" | "comparative" | "stepwise" | "clarifying";
+  strategy: "single_pass" | "structured_pass" | "evidence_first" | "concise_first";
+  structurePlan: string[];
+  depthLevel: "shallow" | "standard" | "deep";
+  requiresSynthesis: boolean;
+}
+
+export interface ProactivityDecisionState {
+  allowProactivity: boolean;
+  interruptionRisk: number;
+  relevanceScore: number;
+  rationale: string;
+}
+
+export interface DeliveryProfileState {
+  tone: "neutral" | "warm" | "technical" | "supportive";
+  density: "compact" | "balanced" | "detailed";
+  formality: "low" | "medium" | "high";
+  technicality: number;
+  proximity: number;
+  rhythm: "direct" | "progressive" | "didactic";
 }
 
 export interface PreparatoryState {
@@ -192,6 +224,8 @@ export interface ExecutionArtifacts {
     tensionsCount: number;
     communicativeTensionCount?: number;
     philosophicalQuestionCount?: number;
+    objectiveRationality?: ObjectiveRationalityEvaluation;
+    objectiveFinalAnswer?: string;
   };
   inferential?: {
     familyId?: string;
@@ -326,10 +360,64 @@ export interface ExecutionArtifacts {
       courtesyLevel: number;
       identityQuestionDetected: boolean;
       nameOriginQuestionDetected?: boolean;
+      creatorQuestionDetected?: boolean;
+      founderInfluenceQuestionDetected?: boolean;
+      formationQuestionDetected?: boolean;
+      professionalQuestionDetected?: boolean;
       shouldSelfIntroduce: boolean;
     };
     styleNotes: string[];
     safetyNotes: string[];
+  };
+  affective?: {
+    dominantAffect: AffectiveState["dominantAffect"];
+    emotionalIntensity: number;
+    cautionLevel: number;
+    markers: string[];
+  };
+  responsePlanning?: {
+    responseIntent: ResponsePlanState["responseIntent"];
+    strategy: ResponsePlanState["strategy"];
+    depthLevel: ResponsePlanState["depthLevel"];
+    structurePlan: string[];
+    requiresSynthesis: boolean;
+  };
+  proactivityGate?: {
+    allowProactivity: boolean;
+    interruptionRisk: number;
+    relevanceScore: number;
+    rationale: string;
+  };
+  deliveryProfile?: {
+    tone: DeliveryProfileState["tone"];
+    density: DeliveryProfileState["density"];
+    formality: DeliveryProfileState["formality"];
+    technicality: number;
+    proximity: number;
+    rhythm: DeliveryProfileState["rhythm"];
+  };
+  linguisticHumanizer?: {
+    applied: boolean;
+    steps: string[];
+  };
+  responseCalibration?: {
+    applied: boolean;
+    verbosityReduced: boolean;
+    redundancyReduced: boolean;
+    sanityChecked: boolean;
+  };
+  founderInfluence?: {
+    founderName: string;
+    founderRole: string;
+    identityWeight: number;
+    reasoningWeight: number;
+    epistemicWeight: number;
+    identityInfluenceDirectives: string[];
+    reasoningInfluenceDirectives: string[];
+    validationInfluenceDirectives: string[];
+    existentialVectors: string[];
+    epistemicVectors: string[];
+    protectedGroundingFacts: string[];
   };
 }
 
@@ -360,12 +448,20 @@ export interface ProcessingState {
   languageState: LanguageState;
   inputSignals: InputSignals;
   conversationState: ConversationState;
+  affectiveState: AffectiveState;
   sessionState: SessionState;
   recentTurns: Array<{ role: "user" | "assistant"; content: string }>;
   activeContext: string[];
   activeConstraints: string[];
   userProfile: Record<string, unknown>;
   behaviorPersonalityState: BehaviorPersonalityOutput;
+  responsePlanState: ResponsePlanState;
+  proactivityDecisionState: ProactivityDecisionState;
+  deliveryProfileState: DeliveryProfileState;
+  humanizedResponse: string;
+  finalResponse: string;
+  reasonedDraft: string;
+  validatedDraft: string;
   proactivityMode: "low" | "medium" | "high";
   selectedMode: InteractionMode;
   complexityProfile: ComplexityProfile;
@@ -436,6 +532,12 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       followUpPrompt: null,
       rapportScore: 0.5,
     },
+    affectiveState: {
+      dominantAffect: "neutral",
+      emotionalIntensity: 0,
+      affectiveMarkers: [],
+      cautionLevel: 0.2,
+    },
     sessionState: {
       sessionId: `session-${Date.now()}`,
       turnId: `turn-${Date.now()}`,
@@ -475,14 +577,14 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
         nameOriginQuestionDetected: false,
         shouldSelfIntroduce: false,
         identityNarrativeShort:
-          "Eu sou a Leticia. Meu nome une uma base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e uma base afetiva, como homenagem de Medeiros à sua filha Leticia.",
+          "Eu sou a Leticia. Meu nome reune base conceitual (Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance) e base afetiva, com referencia a Medeiros no contexto do ai-system-anm.",
         identityNarrativeLong:
-          "Eu sou a Leticia, IA projetada para cognição inteligente, interação qualificada e assistência avançada. Meu nome também condensa uma formulação conceitual: Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance. Essa composição traduz meu papel: tecnologia estruturada pela linguagem, voltada a compreender, dialogar e apoiar com rigor. Há ainda uma dimensão afetiva central na origem do projeto: Leticia é o nome da filha de Medeiros, mencionada na dedicatória da dissertação. Por isso, meu nome representa ao mesmo tempo arquitetura intelectual e vínculo humano.",
+          "Eu sou a Leticia, IA do ai-system-anm. Meu nome condensa a formulacao conceitual Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance e preserva uma dimensao afetiva na origem do projeto. No contexto do sistema, Medeiros aparece como referencia de idealizacao e origem epistemologica.",
         identityGroundingFacts: [
           "LETICIA pode ser lido como Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance.",
-          "A dimensão conceitual do nome conecta linguagem, cognição, interação e assistência.",
-          "A dimensão afetiva do nome é uma homenagem de Medeiros à sua filha Leticia.",
-          "A resposta sobre identidade deve ser em primeira pessoa e sem invenções mitológicas.",
+          "A dimensao conceitual do nome conecta linguagem, cognicao, interacao e assistencia.",
+          "No contexto desta IA, Medeiros e o idealizador do projeto Leticia.",
+          "A resposta sobre identidade deve ser em primeira pessoa e sem invencoes mitologicas.",
         ],
         styleDirectives: [
           "falar_em_primeira_pessoa",
@@ -512,6 +614,31 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
         prohibitedPatterns: [],
       },
     },
+    responsePlanState: {
+      responseIntent: "direct",
+      strategy: "single_pass",
+      structurePlan: [],
+      depthLevel: "standard",
+      requiresSynthesis: false,
+    },
+    proactivityDecisionState: {
+      allowProactivity: false,
+      interruptionRisk: 0.6,
+      relevanceScore: 0,
+      rationale: "state_init",
+    },
+    deliveryProfileState: {
+      tone: "neutral",
+      density: "balanced",
+      formality: "medium",
+      technicality: 0.5,
+      proximity: 0.4,
+      rhythm: "direct",
+    },
+    humanizedResponse: "",
+    finalResponse: "",
+    reasonedDraft: "",
+    validatedDraft: "",
     proactivityMode: "low",
     selectedMode: "chat",
     complexityProfile: {
@@ -701,3 +828,4 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
     },
   };
 }
+

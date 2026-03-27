@@ -21,14 +21,16 @@ function matchesAnyPattern(value: string, patterns: RegExp[]): boolean {
 }
 
 const GREETING_PATTERNS: RegExp[] = [
-  /^(oi+|ola+|oie+|oii+|opa|fala|salve|e ai|eae|hey|hello|hi|yo)(?: leticia)?\??$/,
+  /^(oi+|ola+|oie+|oii+|opa|fala|salve|saudacoes|e ai|eae|hey|hello|hi|yo)(?: leticia)?\??$/,
   /^(bom dia|boa tarde|boa noite)(?: leticia)?\??$/,
+  /^(boa trde|boa tardee|boa tardee)(?: leticia)?\??$/,
 ];
 
 const SMALL_TALK_PATTERNS: RegExp[] = [
   /^(tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo)(?: leticia)?\??$/,
   /^(como (?:vc|voce|ce) (?:esta|ta)|como vai|que tal)(?: leticia)?\??$/,
   /^(beleza|blz|de boa|tranquilo|suave)(?: leticia)?\??$/,
+  /^(?:oi+|ola+|opa|fala|salve|saudacoes)\s+(?:tudo bem(?: com (?:vc|voce|ce))?|como vai|que tal)(?: leticia)?\??$/,
 ];
 
 const NAME_SHARE_PATTERNS: RegExp[] = [
@@ -56,6 +58,12 @@ const ASSISTANT_NAME_ORIGIN_PATTERNS: RegExp[] = [
   /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/i,
   /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome)\b/i,
   /\b(o que significa leticia|qual o significado(?: do nome)?(?: de)? leticia|leticia significa o que|o que quer dizer leticia)\b/i,
+  /\b(qual(?:\s+(?:e|eh))?\s+o\s+conceito\s+(?:de|da)\s+leticia|conceito\s+de\s+leticia)\b/i,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+definicao\s+(?:de|da)\s+leticia|definicao\s+de\s+leticia)\b/i,
+  /\b(base\s+conceitual\s+do\s+nome\s+leticia|de\s+onde\s+surgiu\s+(?:o\s+nome\s+)?leticia|de\s+onde\s+surgiu\s+esse\s+nome)\b/i,
+  /\b(como\s+surgiu\s+(?:o\s+nome\s+)?leticia|qual\s+a\s+historia\s+do\s+nome\s+leticia)\b/i,
+  /\b(qual(?:\s+(?:e|eh))?\s+a\s+ideia\s+por\s+tras\s+do\s+nome\s+leticia|conceito\s+por\s+tras\s+do\s+nome\s+leticia)\b/i,
+  /\b(defina\s+leticia|como\s+se\s+define\s+leticia|qual\s+a\s+definicao\s+do\s+nome\s+leticia)\b/i,
 ];
 
 const ASSISTANT_CREATOR_PATTERNS: RegExp[] = [
@@ -240,6 +248,7 @@ export function extractPreferredNameFromIdentityMemory(state: ProcessingState): 
 export function isConversationalPrompt(text: string): boolean {
   const normalized = normalize(text);
   if (!normalized) return false;
+  const tokens = normalized.split(" ").filter(Boolean);
 
   if (
     isSmallTalkMessage(normalized) ||
@@ -254,7 +263,6 @@ export function isConversationalPrompt(text: string): boolean {
   }
 
   const hasQuestion = normalized.includes("?");
-  const tokens = normalized.split(" ").filter(Boolean);
   const hasTechnicalSignal =
     /\b(api|endpoint|typescript|javascript|python|sql|docker|kubernetes|bug|debug|normalizer|normalizers|normalize|regex|parser)\b/i.test(
       normalized,
@@ -265,6 +273,15 @@ export function isConversationalPrompt(text: string): boolean {
     );
   const hasResearchSignal = /\b(pesquisa|pesquise|buscar|busca|busque|procure|artigo|paper|estudo|literatura|referencia|referencias|doi|scholar|scielo|pubmed)\b/i.test(normalized);
   const hasReferentialFactualSignal = hasReferentialFactualCue(normalized);
+
+  const hasLooseGreetingSignal =
+    tokens.length <= 3 &&
+    (/^(boa|bom)\b/.test(normalized) || /^oi+\b|^ola+\b|^opa\b|^fala\b|^salve\b|^saudac/.test(normalized)) &&
+    !hasTechnicalSignal &&
+    !hasFactualSignal &&
+    !hasResearchSignal &&
+    !hasReferentialFactualSignal;
+  if (hasLooseGreetingSignal) return true;
 
   if (
     !hasTechnicalSignal &&

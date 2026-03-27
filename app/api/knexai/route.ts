@@ -10,6 +10,7 @@ import { RagPipelineError } from "@/core/rag/rag-errors";
 import { toSseStream } from "@/core/rag/streaming-response";
 import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
 import { runPipelineRootBridge } from "../../../ai-system-anm-rag-qis/src/00-myelinated-pipeline-core/pipeline-root-bridge";
+import { resolveIdentityFallbackForMessage } from "../../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
 import {
   buildConversationStateSummaryBlock,
   injectConversationStatePrompt,
@@ -2453,14 +2454,25 @@ function isMicroSocialPrompt(prompt: string): boolean {
   if (words.length > 8 || normalized.length > 60) return false;
 
   const microSocialPatterns = [
-    /^(oi|ola|oie|oii|e ai|eae|opa|fala|salve|hey|hello|hi)(?: leticia)?$/i,
-    /^(bom dia|boa tarde|boa noite)(?: leticia)?$/i,
+    /^(oi|ola|oie|oii|e ai|eae|opa|fala|salve|saudacoes|hey|hello|hi)(?: leticia)?$/i,
+    /^(bom dia|boa tarde|boa noite|boa trde|boa tardee|boa tard)(?: leticia)?$/i,
     /^(blz|beleza|tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo|como vai|como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|how are you|que tal)(?: leticia)?$/i,
     /^(nada por agora|nada agora|de boa|tranquilo|ok|okay|ok obrigado|obrigado|obg|valeu)$/i,
     /^(ate logo|ate mais|tchau|falou|ate breve|bye)$/i,
   ];
 
-  return microSocialPatterns.some((pattern) => pattern.test(compact));
+  if (microSocialPatterns.some((pattern) => pattern.test(compact))) return true;
+
+  // Tolerancia para typos simples em saudacoes curtas.
+  const startsLikeGreeting =
+    /^(oi+|ola+|opa|fala|salve|saudac|bom|boa)\b/.test(compact) ||
+    /^(boa\s+trd|boa\s+tard|boa\s+trde)\b/.test(compact);
+  const hasTaskSignal =
+    /\b(api|sql|docker|codigo|c[oó]digo|presidente|capital|doenca|doen[cç]a|medicamento|tratamento|pesquisa|busque|buscar)\b/i.test(
+      compact,
+    );
+
+  return startsLikeGreeting && words.length <= 3 && !hasTaskSignal;
 }
 
 function isBehaviorPersonalityPriorityPrompt(prompt: string): boolean {
@@ -2477,8 +2489,9 @@ function isBehaviorPersonalityPriorityPrompt(prompt: string): boolean {
     /\b(meu nome|me chame|pode me chamar de|chame me de|chame-me de)\b/,
     /\b(qual(?: (?:e|eh))? (?:o )?(seu|teu) nome|me diga (?:o )?seu nome|me diz (?:o )?seu nome|diga (?:o )?seu nome)\b/,
     /\b(como (voce|vc|ce) se chama|quem (e|eh) (voce|vc|ce)|voce (e|eh) a leticia|vc (e|eh) a leticia|e o seu)\b/,
-    /\b((por que|porque|pq) (voce|vc|ce) (tem|usa) (esse )?nome|qual a origem do seu nome|de onde vem o nome leticia|(?:por que|porque|pq) te chamam assim|te chamam assim)\b/,
-    /\b(o que significa leticia|qual o significado( do nome)?( de)? leticia|leticia significa o que|o que quer dizer leticia)\b/,
+    /\b((por que|porque|pq) (voce|vc|ce) (tem|usa) (esse )?nome|qual a origem do seu nome|de onde vem o nome leticia|de onde surgiu o nome leticia|(?:por que|porque|pq) te chamam assim|te chamam assim)\b/,
+    /\b(o que significa leticia|qual o significado( do nome)?( de)? leticia|leticia significa o que|o que quer dizer leticia|qual o sentido do nome leticia)\b/,
+    /\b(qual o conceito de leticia|conceito de leticia|qual a definicao de leticia|definicao de leticia|base conceitual do nome leticia|qual a ideia por tras do nome leticia|como surgiu o nome leticia)\b/,
     /\b(quem (e|eh) (o )?medeiros|quem (e|eh) esse medeiros|quem te criou|quem criou voce|quem e seu criador|quem idealizou voce|quem desenvolveu voce)\b/,
     /\b(mais detalhes sobre ele|fale mais dele|pode me falar mais dele|mais sobre medeiros)\b/,
   ];
@@ -2501,7 +2514,9 @@ function hasAssistantIdentityContext(history: ChatHistoryItem[]) {
   return (
     /\b(eu sou a leticia|meu nome e leticia)\b/.test(normalized) ||
     /\b(qual\s+(?:(?:e|eh|o)\s+)?(?:o\s+)?seu nome|como voce se chama|quem e voce)\b/.test(normalized) ||
-    /\b(o que significa leticia|por que voce tem esse nome|de onde vem o nome leticia)\b/.test(normalized) ||
+    /\b(o que significa leticia|por que voce tem esse nome|de onde vem o nome leticia|de onde surgiu o nome leticia|conceito de leticia|definicao de leticia|base conceitual do nome leticia|como surgiu o nome leticia|ideia por tras do nome leticia)\b/.test(
+      normalized,
+    ) ||
     /\b(quem e medeiros|quem e o medeiros|quem e esse medeiros)\b/.test(normalized)
   );
 }
@@ -2517,6 +2532,20 @@ function classifyAssistantIdentityIntentFamily(
   prompt: string,
   history: ChatHistoryItem[],
 ): AssistantIdentityIntentFamily {
+  const identityFallback = resolveIdentityFallbackForMessage(prompt);
+  if (identityFallback.shouldHandle) {
+    if (
+      identityFallback.creatorQuestionDetected ||
+      identityFallback.founderInfluenceQuestionDetected ||
+      identityFallback.formationQuestionDetected ||
+      identityFallback.professionalQuestionDetected
+    ) {
+      return "creator_identity";
+    }
+    if (identityFallback.nameOriginQuestionDetected) return "name_semantics";
+    if (identityFallback.identityQuestionDetected) return "identity";
+  }
+
   const normalized = normalizeForVerification(prompt);
   if (!normalized) return null;
 
@@ -2524,7 +2553,7 @@ function classifyAssistantIdentityIntentFamily(
   const hasLeticia = /\bleticia\b/.test(normalized);
   const hasMedeiros = /\bmedeiros\b/.test(normalized);
   const hasTopicShift = hasCompetingTopicShift(normalized);
-  const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome)\b/.test(normalized);
+  const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome|isso|disso|isso ai|disso ai)\b/.test(normalized);
   const hasNameOriginByCalling = /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/.test(normalized);
   const hasCreatorFollowUpCue = /\b(mais\s+informacoes|mais\s+detalhes|fale\s+mais|me\s+diga\s+mais|me\s+conte\s+mais|quero\s+saber\s+mais|sobre\s+ele|sobre\s+esse|desse\s+medeiros|desse\s+mesmo|pode\s+me\s+falar\s+mais\s+dele|falar\s+mais\s+dele|mais\s+dele|voce\s+tem\s+certeza|vc\s+tem\s+certeza|tem\s+certeza|isso\s+esta\s+certo|isso\s+esta\s+correto|confirma\s+isso|confirmar\s+isso)\b/.test(
     normalized,
@@ -2545,11 +2574,12 @@ function classifyAssistantIdentityIntentFamily(
   const asksSemantics = /\b(significa|significado|quer dizer|sentido|representa|origem|de onde vem|por que|porque|pq|motivo|razao)\b/.test(
     normalized,
   );
+  const asksConceptDefinition = /\b(conceito|definicao|base conceitual|de onde surgiu|surgiu de onde|historia do nome|ideia por tras)\b/.test(normalized);
   const asksCreatorIdentity = /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|e quem (?:e|eh)\s+medeiros|quem (?:e|eh)\s+esse\s+medeiros)\b/.test(
     normalized,
   );
   const asksCreatorExpansion = hasMedeiros && hasCreatorFollowUpCue;
-  const mentionsName = /\b(nome|chama|chamar|chamam|te chamam|identidade|esse nome)\b/.test(normalized);
+  const mentionsName = /\b(nome|chama|chamar|chamam|te chamam|identidade|esse nome|leticia)\b/.test(normalized);
 
   if (
     (asksCreatorIdentity || asksCreatorExpansion) &&
@@ -2560,7 +2590,11 @@ function classifyAssistantIdentityIntentFamily(
   if (hasIdentityContext && hasCreatorFollowUpCue && !hasTopicShift) {
     return "creator_identity";
   }
-  if (directedToAssistant && asksSemantics && (mentionsName || hasLeticia || hasNameOriginByCalling)) {
+  if (
+    directedToAssistant &&
+    (asksSemantics || asksConceptDefinition) &&
+    (mentionsName || hasLeticia || hasNameOriginByCalling || (hasIdentityContext && hasFollowUpReference))
+  ) {
     return "name_semantics";
   }
   if (
@@ -2573,27 +2607,28 @@ function classifyAssistantIdentityIntentFamily(
 }
 
 function buildAssistantIdentityFamilyReply(family: AssistantIdentityIntentFamily, prompt: string) {
-  const greetingPrefix = /^(oi|ola|bom dia|boa tarde|boa noite)\b/i.test(`${prompt || ""}`.trim()) ? "Oi. " : "";
-  if (family === "identity") {
-    return `${greetingPrefix}Eu sou a Letícia.`;
+  const resolved = resolveIdentityFallbackForMessage(prompt);
+  if (!resolved.shouldHandle) return "";
+
+  if (family === "identity" && resolved.identityQuestionDetected) {
+    return resolved.shortNarrative;
   }
-  if (family === "name_semantics") {
-    return (
-      `${greetingPrefix}Eu me chamo Letícia por duas bases complementares. ` +
-      "A base conceitual é que LETICIA condensa Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance, " +
-      "que define meu foco em linguagem, cognição, interação e assistência. " +
-      "A base afetiva é uma homenagem de Medeiros à sua filha Letícia. " +
-      "Por isso, meu nome une arquitetura técnica e vínculo humano."
-    );
+
+  if (family === "name_semantics" && resolved.nameOriginQuestionDetected) {
+    return resolved.shortNarrative;
   }
-  if (family === "creator_identity") {
-    return (
-      `${greetingPrefix}No contexto desta IA, Medeiros é o idealizador do projeto Letícia. ` +
-      "Ele definiu a base conceitual do sistema (linguagem, cognição, interação e assistência) e a base afetiva do nome. " +
-      "Fora desse contexto, eu não tenho dados biográficos verificados para afirmar formação, títulos ou datas."
-    );
+
+  if (
+    family === "creator_identity" &&
+    (resolved.creatorQuestionDetected ||
+      resolved.founderInfluenceQuestionDetected ||
+      resolved.formationQuestionDetected ||
+      resolved.professionalQuestionDetected)
+  ) {
+    return resolved.shortNarrative;
   }
-  return "";
+
+  return resolved.shortNarrative || resolved.longNarrative || "";
 }
 
 function isSemanticRoutePriorityPrompt(prompt: string): boolean {
@@ -2610,6 +2645,7 @@ function isSemanticRoutePriorityPrompt(prompt: string): boolean {
     /\b(evidencia|evidencias|fonte|fontes|lastro|fato|hipotese|especulacao|incerteza|validar|validacao)\b/,
     /\b(quem e voce|quem e vc|origem|criador|autoria|existencia|consciencia|limites ontologicos|quem sou eu|quem e leticia)\b/,
     /\b(analise|analisar|analitico|analitica|analise critica|resenha|resenha critica|dissertacao|dissertacao de|dissertação|dissertação de)\b/,
+    /\b(busque|buscar|pesquise|pesquisar|procure|procurar|encontre|encontrar|search)\b.*\b(internet|web|online|site|sites|fontes|fonte)\b/,
   ];
 
   return semanticFamilies.some((pattern) => pattern.test(normalized));
@@ -2801,7 +2837,17 @@ function buildMicroSocialAnswer(prompt: string) {
     .trim();
   const locale = resolveMicroSocialLocale(prompt);
 
-  if (/^(como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|como vai|how are you|tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo|que tal)$/.test(compact)) {
+  if (/^saudacoes$/.test(compact)) {
+    if (locale === "en-US") return "Greetings. How can I help you right now?";
+    if (locale === "es-ES") return "Saludos. Como puedo ayudarte ahora?";
+    return "Saudações. Como posso te ajudar agora?";
+  }
+
+  if (
+    /^(?:(?:oi|ola|opa|fala|salve|saudacoes)\s+)?(como vc (?:esta|ta)|como voce (?:esta|ta)|como ce (?:esta|ta)|como vai|how are you|tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo|que tal)$/.test(
+      compact,
+    )
+  ) {
     if (locale === "en-US") return "I am doing well and ready to help. What do you want to do next?";
     if (locale === "es-ES") return "Estoy bien y lista para ayudar. Que quieres hacer ahora?";
     return "Estou bem e pronta para ajudar. O que você quer fazer agora?";
@@ -3700,9 +3746,12 @@ export async function POST(req: NextRequest) {
     const semanticRoutePriorityPrompt =
       isSemanticRoutePriorityPrompt(safePrompt) || isSemanticRoutePriorityPrompt(verificationTargetPrompt);
     const identityPriorityPrompt = identityIntentFamily !== null;
+    const shouldForceDescendingForIdentity = llmBridgeAlwaysOn && identityPriorityPrompt;
     const shouldRunDescending =
       descendingDisableFromBody === true
         ? false
+        : shouldForceDescendingForIdentity
+        ? true
         : descendingEnabled &&
           (descendingForce
             ? true
@@ -4140,10 +4189,10 @@ export async function POST(req: NextRequest) {
       forceDirectAfterDescendingFailure,
     });
     // Guard definitivo: endpoint opera somente em modo direto.
-    const anmResolution = null;
+    const anmResolution: { baseUrl?: string; attemptedBaseUrls?: string[] } | null = null;
     const effectiveEngineMode: EngineModeConfig = {
       ...preferredEngineMode,
-      mode: "direct",
+      mode: "direct" as EngineMode,
       fallbackToDirect: true,
     };
 
@@ -4199,7 +4248,8 @@ export async function POST(req: NextRequest) {
           directDetail: directHealth.detail,
           anmConfiguredBaseUrl: engineMode.anmBaseUrl,
           anmSelectedBaseUrl: effectiveEngineMode.anmBaseUrl,
-          anmAttemptedBaseUrls: anmResolution?.attemptedBaseUrls || [engineMode.anmBaseUrl],
+          anmAttemptedBaseUrls:
+            (anmResolution as { attemptedBaseUrls?: string[] } | null)?.attemptedBaseUrls || [engineMode.anmBaseUrl],
           directConfiguredBaseUrl: config.baseUrl,
           directSelectedBaseUrl: directConfig.baseUrl,
           directAttemptedBaseUrls: directHealth.attemptedBaseUrls || [],
@@ -4256,7 +4306,10 @@ export async function POST(req: NextRequest) {
             503,
             "ENGINE_PATHS_UNAVAILABLE",
             `ANM indisponivel (${anmHealth.detail}) e LLM direta indisponivel (${directHealth.detail}).` +
-              ` Endpoints ANM tentados: ${(anmResolution?.attemptedBaseUrls || [effectiveEngineMode.anmBaseUrl]).join(", ")}.` +
+              ` Endpoints ANM tentados: ${(
+                (anmResolution as { attemptedBaseUrls?: string[] } | null)?.attemptedBaseUrls ||
+                [effectiveEngineMode.anmBaseUrl]
+              ).join(", ")}.` +
               ` Endpoints diretos tentados: ${(directHealth.attemptedBaseUrls || [config.baseUrl]).join(", ")}.`,
           );
         }

@@ -64,9 +64,10 @@ const EXPLICIT_TOPIC_SWITCH_PATTERNS = [
 ];
 
 const MICRO_SOCIAL_PATTERNS = [
-  /^(oi|ola|ol[aá]|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
+  /^(oi|ola|ol[aá]|oie|oii|e ai|eae|opa|saudacoes|hey|hello|hi)$/i,
   /^(bom dia|boa tarde|boa noite)$/i,
   /^(blz|beleza|tudo bem|td bem|como vai|como vc esta|como voce esta|how are you|que tal)$/i,
+  /^(oi|ola|opa|saudacoes)\s+(tudo bem|td bem|como vai|que tal)$/i,
   /^(obrigado|obg|valeu|thanks|thank you|gracias)$/i,
   /^(tchau|falou|ate mais|at[eé] mais|ate logo|at[eé] logo|bye|adios)$/i,
 ];

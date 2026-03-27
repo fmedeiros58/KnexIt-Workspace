@@ -118,8 +118,14 @@ function readLlmConfig() {
 }
 
 function readEngineModeConfig() {
-  // Runtime atual: direct-only. Mantemos os campos legados apenas por compatibilidade.
-  const mode: EngineMode = "direct";
+  const modeRaw = pickFirstNonEmpty(
+    process.env.KNEXAI_ENGINE_MODE,
+    process.env.ANM_ENGINE_MODE,
+    "direct",
+  )
+    .trim()
+    .toLowerCase();
+  const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
   const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
   const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, parsedTimeout) : DEFAULT_ANM_TIMEOUT_MS;

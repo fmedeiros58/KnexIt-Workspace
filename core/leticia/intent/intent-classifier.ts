@@ -2,7 +2,7 @@ import type { LeticiaIntent } from "../types";
 import { compactWhitespace, detectLocaleFromText, normalizeForIntentMatch } from "../utils/text";
 
 const GREETING_PATTERNS = [
-  /^(oi|ola|opa|e ai|eae|hey|hello|hi)\b/,
+  /^(oi|ola|opa|saudacoes|e ai|eae|hey|hello|hi)\b/,
   /^(bom dia|boa tarde|boa noite)\b/,
   /^(hola|buenos dias|buenas tardes|buenas noches)\b/,
 ];

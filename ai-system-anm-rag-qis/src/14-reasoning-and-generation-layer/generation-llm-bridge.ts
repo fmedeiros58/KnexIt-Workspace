@@ -1,6 +1,6 @@
 import type { ProcessingState } from "../bridges/contracts/processing-state";
 import { createVllmClient, vllmClientInfo } from "../infra/llm/vllm-client";
-import { isConversationalPrompt } from "../shared/utils/conversation-signals";
+import { isConversationalPrompt, isGreetingMessage, isSmallTalkMessage } from "../shared/utils/conversation-signals";
 
 const vllmClient = createVllmClient();
 
@@ -60,6 +60,40 @@ function sanitizeRuntimeDraft(value: string): string {
   return cleaned;
 }
 
+function hasDialogueArtifact(text: string): boolean {
+  const normalized = `${text || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  if (!normalized) return false;
+  return /\b(?:usuario\s*:|usuario\s+[:\-]|leticia\s*:|pergunta atual\s*:|resposta:\s*usuario)\b/.test(normalized);
+}
+
+function isLikelyMicroConversationalPrompt(text: string): boolean {
+  const normalized = `${text || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  if (isGreetingMessage(normalized) || isSmallTalkMessage(normalized)) return true;
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length > 4) return false;
+  return /^(oi+|ola+|opa|fala|salve|bom dia|boa tarde|boa noite|boa trde|tudo bem|td bem|como vai)\b/.test(normalized);
+}
+
+function shouldRejectLlmDraft(state: ProcessingState, draft: string): boolean {
+  const message = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  const conversational = isConversationalPrompt(message) || isLikelyMicroConversationalPrompt(message);
+  if (!conversational) return false;
+
+  if (hasDialogueArtifact(draft)) return true;
+  if (isLikelyMicroConversationalPrompt(message) && draft.length > 220) return true;
+  return false;
+}
+
 export async function runGenerationLlmBridge(state: ProcessingState): Promise<ProcessingState> {
   if (!state.collapsedTruth.summary && state.retrievedEvidence.length > 0) {
     state.collapsedTruth.summary = state.retrievedEvidence.slice(0, 2).join(" ");
@@ -82,6 +116,12 @@ export async function runGenerationLlmBridge(state: ProcessingState): Promise<Pr
   const prompt = buildRuntimePrompt(state);
   const llmDraft = sanitizeRuntimeDraft(await vllmClient.generate(prompt, { timeoutMs: runtimeTimeout }));
   if (!llmDraft) return state;
+  if (shouldRejectLlmDraft(state, llmDraft)) {
+    state.activeConstraints = [
+      ...new Set([...state.activeConstraints, "llm_micro_output_rejected"]),
+    ].slice(-32);
+    return state;
+  }
 
   state.executionArtifacts.generationRuntime.used = true;
   state.executionArtifacts.generationRuntime.llmDraft = llmDraft;

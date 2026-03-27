@@ -47,6 +47,7 @@ import {
   isAssistantNameOriginPrompt,
   isConversationalPrompt,
 } from "../shared/utils/conversation-signals";
+import { buildFounderReasoningInfluence } from "../12b-founder-influence-layer/founder-reasoning-bridge";
 
 function isGroundedSourceUrl(url: string): boolean {
   return /^https?:\/\//i.test(`${url || ""}`.trim());
@@ -100,6 +101,51 @@ function isAuthorYearReferencePrompt(text: string): boolean {
     normalized,
   );
   return hasYear && hasAcademicSourceCue && (hasAuthorFrame || hasInlineAuthorYear);
+}
+
+function normalizeForTemporalIntent(text: string): string {
+  return `${text || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isCurrentDateQuestion(text: string): boolean {
+  const normalized = normalizeForTemporalIntent(text);
+  if (!normalized) return false;
+
+  const asksDate =
+    /\b(que dia e hoje|qual o dia de hoje|qual dia e hoje|qual e a data de hoje|data de hoje|dia de hoje)\b/.test(normalized) ||
+    (/\b(hoje)\b/.test(normalized) && /\b(que dia|qual dia|data)\b/.test(normalized));
+  const asksTimeOnly = /\b(que horas sao|hora agora|horas agora|que horas e agora)\b/.test(normalized);
+  return asksDate && !asksTimeOnly;
+}
+
+function capitalizeFirst(text: string): string {
+  if (!text) return text;
+  return text[0].toUpperCase() + text.slice(1);
+}
+
+function buildCurrentDateAnswer(timeZone = "America/Sao_Paulo"): string {
+  const now = new Date();
+  const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "long", timeZone }).format(now);
+  const fullDate = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    timeZone,
+  }).format(now);
+  return `Hoje é ${capitalizeFirst(weekday)}, ${fullDate}.`;
+}
+
+function resolveReflectiveObjectiveFinalAnswer(state: ProcessingState): string | null {
+  const reflective = state.executionArtifacts.reflective;
+  if (!reflective?.objectiveRationality?.shouldForceDirectAnswer) return null;
+  const answer = `${reflective.objectiveFinalAnswer || ""}`.trim();
+  if (!answer) return null;
+  return answer;
 }
 
 function buildUnresolvedFactualMessage(state: ProcessingState): string {
@@ -179,6 +225,21 @@ function buildReasoningBlock(state: ProcessingState): string {
 
 export async function runGenerationLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
+  const founderReasoningInfluence = buildFounderReasoningInfluence();
+
+  state.executionArtifacts.founderInfluence = {
+    founderName: founderReasoningInfluence.founderName,
+    founderRole: state.executionArtifacts.founderInfluence?.founderRole || "fundador_epistemologico_da_leticia",
+    identityWeight: state.executionArtifacts.founderInfluence?.identityWeight || 0,
+    reasoningWeight: founderReasoningInfluence.reasoningWeight,
+    epistemicWeight: state.executionArtifacts.founderInfluence?.epistemicWeight || 0,
+    identityInfluenceDirectives: [...(state.executionArtifacts.founderInfluence?.identityInfluenceDirectives || [])],
+    reasoningInfluenceDirectives: [...founderReasoningInfluence.reasoningInfluenceDirectives],
+    validationInfluenceDirectives: [...(state.executionArtifacts.founderInfluence?.validationInfluenceDirectives || [])],
+    existentialVectors: [...new Set([...(state.executionArtifacts.founderInfluence?.existentialVectors || []), ...founderReasoningInfluence.existentialVectors])],
+    epistemicVectors: [...new Set([...(state.executionArtifacts.founderInfluence?.epistemicVectors || []), ...founderReasoningInfluence.epistemicVectors])],
+    protectedGroundingFacts: [...new Set([...(state.executionArtifacts.founderInfluence?.protectedGroundingFacts || []), ...founderReasoningInfluence.protectedGroundingFacts])],
+  };
 
   await runGenerationMemoryBridge(state);
   await runGenerationEvidenceBridge(state);
@@ -188,6 +249,29 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
   const groundedSourceCount = countGroundedSources(state);
   const llmDraft = state.executionArtifacts.generationRuntime?.llmDraft || "";
   const llmDraftAvailable = llmDraft.trim().length > 0;
+  const reflectiveObjectiveAnswer = resolveReflectiveObjectiveFinalAnswer(state);
+
+  if (isCurrentDateQuestion(state.normalizedMessage)) {
+    const directDateAnswer = applyMultimodalDraftBridge(
+      buildCurrentDateAnswer(),
+      state.inputSignals.modality,
+    );
+    state.generationPrompt = buildPrompt(state);
+    state.draftResponse = {
+      text: directDateAnswer,
+      sections: [{ title: "Resposta", content: directDateAnswer }],
+    };
+    state.trace.push(
+      makeTraceEvent({
+        layer: "generation",
+        action: "date_question_resolved_directly",
+        route: state.executionPlan.selectedRoute,
+        latencyMs: Date.now() - startedAt,
+        detail: "temporal_guard=enabled; source=system_clock; timezone=America/Sao_Paulo",
+      }),
+    );
+    return handoffGenerationToStructure(state);
+  }
 
   const factualFallback = buildFactualAnswerFallback({
     question: state.normalizedMessage,
@@ -266,8 +350,6 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
 
   const focusForFallbackPriority = resolveConversationFocus(state.normalizedMessage);
   const shouldPrioritizeConversationalFallback =
-    state.behaviorPersonalityState?.aiIdentity.identityQuestionDetected === true ||
-    state.behaviorPersonalityState?.aiIdentity.nameOriginQuestionDetected === true ||
     isAssistantIdentityPrompt(focusForFallbackPriority) ||
     isAssistantNameOriginPrompt(focusForFallbackPriority) ||
     isAssistantCreatorPrompt(focusForFallbackPriority);
@@ -321,6 +403,28 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
       );
       return handoffGenerationToStructure(state);
     }
+  }
+
+  if (reflectiveObjectiveAnswer) {
+    const objectiveText = applyMultimodalDraftBridge(
+      reflectiveObjectiveAnswer,
+      state.inputSignals.modality,
+    );
+    state.generationPrompt = buildPrompt(state);
+    state.draftResponse = {
+      text: objectiveText,
+      sections: [{ title: "Resposta", content: objectiveText }],
+    };
+    state.trace.push(
+      makeTraceEvent({
+        layer: "generation",
+        action: "reflective_objective_answer_adopted",
+        route: state.executionPlan.selectedRoute,
+        latencyMs: Date.now() - startedAt,
+        detail: "source=reflective_objective_rationality",
+      }),
+    );
+    return handoffGenerationToStructure(state);
   }
 
   if (llmDraft) {

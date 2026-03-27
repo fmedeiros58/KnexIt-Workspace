@@ -10,10 +10,11 @@ export interface RouteExecutionPolicy {
   runInput: true;
   runLanguage: true;
   runConversation: true;
-  runBehaviorPersonality: true;
+  runAffectiveSignal: true;
   runContext: true;
   runOrchestration: true;
   runMemory: true;
+  runResponsePlanning: true;
   runKnowledge: boolean;
   runQuantum: boolean;
   runPreparatoryCognitive: boolean;
@@ -24,6 +25,11 @@ export interface RouteExecutionPolicy {
   runGeneration: true;
   runStructure: true;
   runAcademicNormalization: boolean;
+  runResponseBehavior: true;
+  runProactivityGate: true;
+  runDeliveryProfile: true;
+  runLinguisticHumanizer: true;
+  runResponseCalibration: true;
   validationProfile: "light" | "standard" | "strict";
   runPresentation: true;
   runObservability: true;
@@ -36,20 +42,26 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
-    runBehaviorPersonality: true,
+    runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,
+    runResponsePlanning: true,
     runKnowledge: false,
     runQuantum: false,
-    runPreparatoryCognitive: false,
-    runReflective: false,
+    runPreparatoryCognitive: true,
+    runReflective: true,
     runInferential: false,
     runMetacognitive: false,
     runEpistemicIntegration: false,
     runGeneration: true,
     runStructure: true,
     runAcademicNormalization: false,
+    runResponseBehavior: true,
+    runProactivityGate: true,
+    runDeliveryProfile: true,
+    runLinguisticHumanizer: true,
+    runResponseCalibration: true,
     validationProfile: "light",
     runPresentation: true,
     runObservability: true,
@@ -60,10 +72,11 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
-    runBehaviorPersonality: true,
+    runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,
+    runResponsePlanning: true,
     runKnowledge: false,
     runQuantum: false,
     runPreparatoryCognitive: true,
@@ -74,6 +87,11 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runGeneration: true,
     runStructure: true,
     runAcademicNormalization: false,
+    runResponseBehavior: true,
+    runProactivityGate: true,
+    runDeliveryProfile: true,
+    runLinguisticHumanizer: true,
+    runResponseCalibration: true,
     validationProfile: "standard",
     runPresentation: true,
     runObservability: true,
@@ -84,10 +102,11 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
-    runBehaviorPersonality: true,
+    runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,
+    runResponsePlanning: true,
     runKnowledge: true,
     runQuantum: false,
     runPreparatoryCognitive: true,
@@ -98,6 +117,11 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runGeneration: true,
     runStructure: true,
     runAcademicNormalization: false,
+    runResponseBehavior: true,
+    runProactivityGate: true,
+    runDeliveryProfile: true,
+    runLinguisticHumanizer: true,
+    runResponseCalibration: true,
     validationProfile: "standard",
     runPresentation: true,
     runObservability: true,
@@ -108,10 +132,11 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runInput: true,
     runLanguage: true,
     runConversation: true,
-    runBehaviorPersonality: true,
+    runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
     runMemory: true,
+    runResponsePlanning: true,
     runKnowledge: true,
     runQuantum: true,
     runPreparatoryCognitive: true,
@@ -122,6 +147,11 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runGeneration: true,
     runStructure: true,
     runAcademicNormalization: true,
+    runResponseBehavior: true,
+    runProactivityGate: true,
+    runDeliveryProfile: true,
+    runLinguisticHumanizer: true,
+    runResponseCalibration: true,
     validationProfile: "strict",
     runPresentation: true,
     runObservability: true,

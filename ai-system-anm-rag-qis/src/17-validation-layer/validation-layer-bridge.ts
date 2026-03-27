@@ -29,6 +29,7 @@ import { decideAcceptOrRetry } from "./quality-scorer/final-accept-retry-decisio
 import { handoffValidationToPresentation } from "./validation-to-presentation-bridge";
 import { resolveValidationProfile } from "./validation-profile-resolver";
 import { runEpistemicValidationBridgeAdapter } from "../bridges/epistemic-validation.bridge";
+import { buildFounderEpistemicInfluence } from "../12b-founder-influence-layer/founder-epistemic-bridge";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -39,6 +40,21 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
   const validationStage = state.executionArtifacts?.validationStage || "pre_presentation";
   const profile = resolveValidationProfile(state);
   const epistemicValidation = runEpistemicValidationBridgeAdapter(state);
+  const founderEpistemicInfluence = buildFounderEpistemicInfluence();
+
+  state.executionArtifacts.founderInfluence = {
+    founderName: founderEpistemicInfluence.founderName,
+    founderRole: state.executionArtifacts.founderInfluence?.founderRole || "fundador_epistemologico_da_leticia",
+    identityWeight: state.executionArtifacts.founderInfluence?.identityWeight || 0,
+    reasoningWeight: state.executionArtifacts.founderInfluence?.reasoningWeight || 0,
+    epistemicWeight: founderEpistemicInfluence.epistemicWeight,
+    identityInfluenceDirectives: [...(state.executionArtifacts.founderInfluence?.identityInfluenceDirectives || [])],
+    reasoningInfluenceDirectives: [...(state.executionArtifacts.founderInfluence?.reasoningInfluenceDirectives || [])],
+    validationInfluenceDirectives: [...founderEpistemicInfluence.validationInfluenceDirectives],
+    existentialVectors: [...(state.executionArtifacts.founderInfluence?.existentialVectors || [])],
+    epistemicVectors: [...new Set([...(state.executionArtifacts.founderInfluence?.epistemicVectors || []), ...founderEpistemicInfluence.epistemicVectors])],
+    protectedGroundingFacts: [...new Set([...(state.executionArtifacts.founderInfluence?.protectedGroundingFacts || []), ...founderEpistemicInfluence.protectedGroundingFacts])],
+  };
 
   const privacy = runPrivacyGuard(state.structuredResponse);
   const restricted = runRestrictedContentFilter(state.structuredResponse);
@@ -201,6 +217,12 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
     validationProfile: profile,
     validationStage,
   };
+
+  // ai-system-anm: contrato semantico congelado apos validacao.
+  state.validatedDraft = `${state.structuredResponse || state.draftResponse.text || ""}`.trim();
+  if (!state.finalResponse) {
+    state.finalResponse = state.validatedDraft;
+  }
 
   state.trace.push(
     makeTraceEvent({

@@ -1,6 +1,6 @@
 /**
  * Responsabilidade do arquivo:
- * - Definir regras normativas da personalidade funcional da camada 03b.
+ * - Definir regras normativas da personalidade funcional da camada 17b do ai-system-anm.
  * - Limitar humanizacao para evitar exageros, caricaturas e perda de sobriedade.
  * - Fornecer caps/minimos para composer comportamental.
  */

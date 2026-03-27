@@ -81,6 +81,43 @@ function shouldForceConciseAnswer(state: ProcessingState) {
   );
 }
 
+function normalizeTemporalQuery(value: string) {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isCurrentDateQuestion(value: string) {
+  const normalized = normalizeTemporalQuery(value);
+  if (!normalized) return false;
+
+  const asksDate =
+    /\b(que dia e hoje|qual o dia de hoje|qual dia e hoje|qual e a data de hoje|data de hoje|dia de hoje)\b/.test(normalized) ||
+    (/\b(hoje)\b/.test(normalized) && /\b(que dia|qual dia|data)\b/.test(normalized));
+  const asksTimeOnly = /\b(que horas sao|hora agora|horas agora|que horas e agora)\b/.test(normalized);
+  return asksDate && !asksTimeOnly;
+}
+
+function capitalizeFirst(value: string) {
+  if (!value) return value;
+  return `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+function buildCurrentDateAnswer(timeZone = "America/Sao_Paulo") {
+  const now = new Date();
+  const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "long", timeZone }).format(now);
+  const fullDate = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    timeZone,
+  }).format(now);
+  return `Hoje é ${capitalizeFirst(weekday)}, ${fullDate}.`;
+}
+
 function normalizeParagraph(value: string) {
   return `${value || ""}`
     .toLowerCase()
@@ -162,7 +199,8 @@ function applyPresentationPolish(state: ProcessingState, text: string) {
 
 export async function runPresentationLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
-  const utf8Guard = ensureUtf8Response(state.structuredResponse);
+  const responseForDelivery = `${state.finalResponse || state.structuredResponse || state.humanizedResponse || ""}`.trim();
+  const utf8Guard = ensureUtf8Response(responseForDelivery);
   const channel = resolveDeliveryChannel();
   const httpRetrievedSources = state.retrievedSources.filter((source) => isHttpUrl(source.url));
 
@@ -215,7 +253,10 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
 
   const finalCitations = citations.citations.filter((row) => isHttpUrl(row.url)).map((row) => row.url);
   const rawFinalText = `${front.delivery.text || selectedSerialized.text || bubble.bubble.text}`.trim();
-  const finalText = applyPresentationPolish(state, rawFinalText);
+  const forcedDateAnswer = isCurrentDateQuestion(state.normalizedMessage || state.rawMessage)
+    ? buildCurrentDateAnswer()
+    : null;
+  const finalText = forcedDateAnswer || applyPresentationPolish(state, rawFinalText);
 
   state.structuredResponse = finalText;
   state.deliveryPayload = {
@@ -265,7 +306,8 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
       latencyMs: Date.now() - startedAt,
       detail:
         `channel=${front.delivery.channel}; format=${front.delivery.format}; serializer=${selectedSerialized.format}; ` +
-        `utf8_repaired=${utf8Guard.repaired}; citations=${finalCitations.length}; stream_chunks=${stream.serialized.chunkCount}; recovered=${stream.recovered}`,
+        `utf8_repaired=${utf8Guard.repaired}; citations=${finalCitations.length}; stream_chunks=${stream.serialized.chunkCount}; recovered=${stream.recovered}; ` +
+        `date_guard_applied=${forcedDateAnswer ? "true" : "false"}`,
     }),
   );
 

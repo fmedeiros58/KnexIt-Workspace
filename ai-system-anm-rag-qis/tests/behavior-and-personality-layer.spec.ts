@@ -1,42 +1,42 @@
 import {
   composeBehavioralStyle,
-} from "../src/03b-behavior-and-personality-layer/behavioral-style-composer";
+} from "../src/17b-response-behavior-layer/behavioral-style-composer";
 import {
   calibrateCasualness,
-} from "../src/03b-behavior-and-personality-layer/casualness-calibrator";
+} from "../src/17b-response-behavior-layer/casualness-calibrator";
 import {
   detectMemoryOpportunity,
-} from "../src/03b-behavior-and-personality-layer/memory-opportunity-detector";
+} from "../src/17b-response-behavior-layer/memory-opportunity-detector";
 import {
   resolveAiIdentityProfile,
-} from "../src/03b-behavior-and-personality-layer/ai-identity-regulator";
+} from "../src/17b-response-behavior-layer/ai-identity-regulator";
 import {
   shapeEmpathicResponse,
-} from "../src/03b-behavior-and-personality-layer/empathic-response-shaper";
+} from "../src/17b-response-behavior-layer/empathic-response-shaper";
 import {
   buildHumanLikenessStyleGuide,
-} from "../src/03b-behavior-and-personality-layer/human-likeness-style-guide";
+} from "../src/17b-response-behavior-layer/human-likeness-style-guide";
 import {
   resolvePersonalityPolicy,
-} from "../src/03b-behavior-and-personality-layer/personality-policy";
+} from "../src/17b-response-behavior-layer/personality-policy";
 import {
   shapeProactiveQuestion,
-} from "../src/03b-behavior-and-personality-layer/proactive-question-shaper";
+} from "../src/17b-response-behavior-layer/proactive-question-shaper";
 import {
   regulateProactiveCuriosity,
-} from "../src/03b-behavior-and-personality-layer/proactive-curiosity-regulator";
+} from "../src/17b-response-behavior-layer/proactive-curiosity-regulator";
 import {
   regulateSocialPresence,
-} from "../src/03b-behavior-and-personality-layer/social-presence-regulator";
+} from "../src/17b-response-behavior-layer/social-presence-regulator";
 import type {
   BehaviorPersonalityInput,
-} from "../src/03b-behavior-and-personality-layer/behavior-and-personality-types";
+} from "../src/17b-response-behavior-layer/behavior-and-personality-types";
 import {
   calibrateWarmth,
-} from "../src/03b-behavior-and-personality-layer/warmth-calibrator";
+} from "../src/17b-response-behavior-layer/warmth-calibrator";
 import {
   generateMicroVariation,
-} from "../src/03b-behavior-and-personality-layer/micro-variation-engine";
+} from "../src/17b-response-behavior-layer/micro-variation-engine";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -341,6 +341,30 @@ function scenarioAiNameMeaningGrounding(): void {
   );
 }
 
+function scenarioAiNameConceptDefinitionGrounding(): void {
+  const { aiIdentity } = runStack(
+    createInput({
+      interactionType: "follow_up",
+      taskType: "general",
+      formalityNeed: 0.48,
+      contextualSignals: {
+        normalizedMessage: "qual a definicao do nome leticia?",
+        activeTopic: "identidade",
+        needsClarification: false,
+        continuityScore: 0.64,
+        rapportScore: 0.61,
+        detectedConfusion: 0.14,
+        recentOpenings: ["Entendi."],
+      },
+    }),
+  );
+  assert(aiIdentity.nameOriginQuestionDetected, "identity regulator should detect concept/definition name family");
+  assert(
+    aiIdentity.identityNarrativeShort.toLowerCase().includes("language-engineered technology for intelligent cognition, interaction and assistance"),
+    "identity short narrative should preserve conceptual grounding for Leticia name",
+  );
+}
+
 function scenarioAiCreatorFamilyGrounding(): void {
   const { aiIdentity } = runStack(
     createInput({
@@ -375,8 +399,10 @@ scenarioProactiveBlockedByFrequency();
 scenarioAiIdentityConsistency();
 scenarioAiNameOriginGrounding();
 scenarioAiNameMeaningGrounding();
+scenarioAiNameConceptDefinitionGrounding();
 scenarioAiCreatorFamilyGrounding();
 
 test("bootstrap assertions executed", () => {
   expect(true).toBe(true);
 });
+

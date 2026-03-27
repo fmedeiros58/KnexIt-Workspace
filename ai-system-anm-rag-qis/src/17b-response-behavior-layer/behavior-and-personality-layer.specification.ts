@@ -1,32 +1,28 @@
 /**
  * Responsabilidade do arquivo:
- * - Documentar especificacao operacional da camada 03b.
+ * - Documentar especificacao operacional da camada 17b do ai-system-anm.
  * - Servir como referencia de manutencao e integracao incremental.
  * - Registrar invariantes de nao interferencia factual.
  */
 
 export const BEHAVIOR_AND_PERSONALITY_LAYER_SPECIFICATION = {
-  layerId: "03b-behavior-and-personality-layer",
+  layerId: "17b-response-behavior-layer",
   objective:
-    "Modular comportamento textual para respostas mais humanas, naturais e contextuais, incluindo proatividade conversacional regulada e nao invasiva, sem alterar factualidade.",
+    "Modular comportamento da resposta apos validacao, sem alterar semantica, fatos ou estrutura logica validada.",
   boundaries: {
     does: [
-      "regular_calor_humano",
-      "regular_casualidade",
-      "regular_empatia_sobria",
-      "regular_presenca_social",
-      "regular_proatividade_conversacional_nao_invasiva",
-      "regular_identidade_conversacional_da_ia",
-      "detectar_oportunidades_de_memoria_funcional",
-      "modelar_perguntas_proativas_curtas_e_uteis",
-      "fornecer_notas_de_estilo_para_camadas_posteriores",
+      "modular_tom_final_sem_reabrir_reasoning",
+      "modular_formalidade_de_entrega",
+      "modular_densidade_de_apresentacao",
+      "aplicar_politica_de_personalidade_tardia",
+      "fornecer_notas_de_estilo_para_camadas_de_entrega",
     ],
     doesNot: [
       "nao_inventar_fatos",
-      "nao_reescrever_nucleo_epistemico",
-      "nao_substituir_generation_layer",
+      "nao_reescrever_conteudo_semantico_validado",
+      "nao_reabrir_reasoning",
       "nao_substituir_validation_layer",
-      "nao_transformar_toda_resposta_em_smalltalk",
+      "nao_alterar_verdade_coerencia_factual_ou_estrutura_logica",
     ],
   },
   inputs: [
@@ -118,3 +114,4 @@ export const BEHAVIOR_AND_PERSONALITY_LAYER_SPECIFICATION = {
     "questionFrequencyCap",
   ],
 } as const;
+

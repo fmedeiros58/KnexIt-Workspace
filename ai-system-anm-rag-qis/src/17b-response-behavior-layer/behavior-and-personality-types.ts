@@ -1,6 +1,6 @@
 /**
  * Responsabilidade do arquivo:
- * - Definir contratos tipados da camada 03b de comportamento e personalidade.
+ * - Definir contratos tipados da camada 17b de comportamento de resposta do ai-system-anm.
  * - Padronizar entradas/saidas para integracao segura com pipeline existente.
  * - Manter semantica explicita para calibradores e composer comportamental.
  */
@@ -118,9 +118,15 @@ export interface AiIdentityProfile {
   courtesyLevel: number; // 0..1
   identityQuestionDetected: boolean;
   nameOriginQuestionDetected: boolean;
+  creatorQuestionDetected?: boolean;
+  founderInfluenceQuestionDetected?: boolean;
+  formationQuestionDetected?: boolean;
+  professionalQuestionDetected?: boolean;
   shouldSelfIntroduce: boolean;
   identityNarrativeShort: string;
   identityNarrativeLong: string;
+  medeirosNarrativeShort?: string;
+  medeirosNarrativeLong?: string;
   identityGroundingFacts: string[];
   styleDirectives: string[];
 }

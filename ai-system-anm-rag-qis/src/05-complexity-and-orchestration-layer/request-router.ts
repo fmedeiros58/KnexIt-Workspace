@@ -46,8 +46,9 @@ export function isAssistantIdentityFamilyPrompt(message: string) {
   const identityFamilies: RegExp[] = [
     /\b(qual(?: (?:e|eh))? (?:o )?(seu|teu) nome|me diga (?:o )?seu nome|me diz (?:o )?seu nome|diga (?:o )?seu nome)\b/,
     /\b(como (voce|vc|ce) se chama|e o seu)\b/,
-    /\b((por que|porque|pq) (voce|vc|ce) (tem|usa) (esse )?nome|qual a origem do seu nome|de onde vem o nome leticia)\b/,
-    /\b(o que significa leticia|qual o significado( do nome)?( de)? leticia|leticia significa o que|o que quer dizer leticia)\b/,
+    /\b((por que|porque|pq) (voce|vc|ce) (tem|usa) (esse )?nome|qual a origem do seu nome|de onde vem o nome leticia|de onde surgiu o nome leticia|como surgiu o nome leticia)\b/,
+    /\b(o que significa leticia|qual o significado( do nome)?( de)? leticia|leticia significa o que|o que quer dizer leticia|qual o sentido do nome leticia)\b/,
+    /\b(qual o conceito de leticia|conceito de leticia|qual a definicao de leticia|definicao de leticia|base conceitual do nome leticia|qual a ideia por tras do nome leticia)\b/,
     /\b(quem (e|eh) (o )?medeiros|quem te criou|quem criou voce|quem e seu criador|quem idealizou voce|quem desenvolveu voce)\b/,
   ];
   return identityFamilies.some((pattern) => pattern.test(normalized));

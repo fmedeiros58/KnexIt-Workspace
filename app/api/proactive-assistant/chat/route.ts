@@ -70,7 +70,7 @@ function isMicroSocialPrompt(prompt: string): boolean {
   if (words.length > 8 || normalized.length > 60) return false;
 
   const microSocialPatterns = [
-    /^(oi|ola|oie|oii|e ai|eae|opa|hey|hello|hi)$/i,
+    /^(oi|ola|oie|oii|e ai|eae|opa|saudacoes|hey|hello|hi)$/i,
     /^(bom dia|boa tarde|boa noite)$/i,
     /^(blz|beleza|tudo bem|td bem|como vai|como vc esta|como voce esta|how are you|que tal)$/i,
     /^(nada por agora|nada agora|de boa|tranquilo|ok|okay|ok obrigado|obrigado|obg|valeu)$/i,
@@ -98,7 +98,13 @@ function buildMicroSocialAnswer(prompt: string) {
     .trim();
   const locale = resolveMicroSocialLocale(prompt);
 
-  if (/^(como vc esta|como voce esta|como vai|how are you|tudo bem|td bem|que tal)$/.test(compact)) {
+  if (/^saudacoes$/.test(compact)) {
+    if (locale === "en-US") return "Greetings. How can I help you right now?";
+    if (locale === "es-ES") return "Saludos. Como puedo ayudarte ahora?";
+    return "Saudações. Como posso te ajudar agora?";
+  }
+
+  if (/^(?:(?:oi|ola|opa|fala|salve|saudacoes)\s+)?(como vc esta|como voce esta|como vai|how are you|tudo bem|td bem|que tal)$/.test(compact)) {
     if (locale === "en-US") return "I am doing well and ready to help. What do you want to do next?";
     if (locale === "es-ES") return "Estoy bien y lista para ayudar. Que quieres hacer ahora?";
     return "Estou bem e pronta para ajudar. O que voce quer fazer agora?";
