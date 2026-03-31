@@ -2,8 +2,23 @@ import { execFileSync } from "node:child_process";
 
 const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const WSL_DISCOVERY_CACHE_MS = 60_000;
-const ANM_RESOLUTION_CACHE_MS = Math.max(500, Number(process.env.ANM_BASE_URL_RESOLUTION_CACHE_MS || 3_000));
-const ANM_STICKY_REACHABLE_MS = Math.max(1_000, Number(process.env.ANM_BASE_URL_STICKY_REACHABLE_MS || 120_000));
+
+function readEnvCompat(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+const ANM_RESOLUTION_CACHE_MS = Math.max(
+  500,
+  Number(readEnvCompat("AI_SYSTEM_ANM_BASE_URL_RESOLUTION_CACHE_MS", "ANM_BASE_URL_RESOLUTION_CACHE_MS") || 3_000),
+);
+const ANM_STICKY_REACHABLE_MS = Math.max(
+  1_000,
+  Number(readEnvCompat("AI_SYSTEM_ANM_BASE_URL_STICKY_REACHABLE_MS", "ANM_BASE_URL_STICKY_REACHABLE_MS") || 120_000),
+);
 
 type ResolutionCache = {
   key: string;
@@ -86,8 +101,8 @@ function resolveKubernetesServiceBaseUrl(configuredBaseUrl: string) {
 
   const explicit = normalizeUrl(
     pickFirstNonEmpty(
-      process.env.ANM_K8S_API_BASE_URL,
-      process.env.ANM_CLUSTER_API_BASE_URL,
+      readEnvCompat("AI_SYSTEM_ANM_K8S_API_BASE_URL", "ANM_K8S_API_BASE_URL"),
+      readEnvCompat("AI_SYSTEM_ANM_CLUSTER_API_BASE_URL", "ANM_CLUSTER_API_BASE_URL"),
     ),
   );
   if (explicit) return explicit;
@@ -115,7 +130,7 @@ function tryDiscoverWslHostIp() {
 export function readConfiguredAnmBaseUrl(defaultBaseUrl = DEFAULT_ANM_BASE_URL) {
   return normalizeUrl(
     pickFirstNonEmpty(
-      process.env.ANM_API_BASE_URL,
+      readEnvCompat("AI_SYSTEM_ANM_API_BASE_URL", "ANM_API_BASE_URL"),
       defaultBaseUrl,
     ),
   );
@@ -125,7 +140,7 @@ export function resolveAnmBaseUrlCandidates(configuredBaseUrl: string) {
   const configured = normalizeUrl(configuredBaseUrl || DEFAULT_ANM_BASE_URL);
   const fallbackBaseUrls = parseBaseUrlList(
     pickFirstNonEmpty(
-      process.env.ANM_API_BASE_URL_FALLBACKS,
+      readEnvCompat("AI_SYSTEM_ANM_API_BASE_URL_FALLBACKS", "ANM_API_BASE_URL_FALLBACKS"),
       "",
     ),
   ).filter((item) => item !== configured);
@@ -145,7 +160,7 @@ export function resolveAnmBaseUrlCandidates(configuredBaseUrl: string) {
     result.push(k8sCandidate);
   }
 
-  if (!parseBooleanFlag(process.env.ANM_WSL_DISCOVERY_ENABLED, true)) {
+  if (!parseBooleanFlag(readEnvCompat("AI_SYSTEM_ANM_WSL_DISCOVERY_ENABLED", "ANM_WSL_DISCOVERY_ENABLED"), true)) {
     return result;
   }
   if (process.platform !== "win32") {
@@ -176,7 +191,7 @@ export function resolveAnmBaseUrlCandidates(configuredBaseUrl: string) {
   }
 
   const configuredHost = pickFirstNonEmpty(
-    process.env.ANM_WSL_HOST_IP,
+    readEnvCompat("AI_SYSTEM_ANM_WSL_HOST_IP", "ANM_WSL_HOST_IP"),
     process.env.KNEXAI_WSL_HOST_IP,
     process.env.LOCAL_WSL_HOST_IP,
   );

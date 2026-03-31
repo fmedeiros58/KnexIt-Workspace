@@ -13,6 +13,7 @@ import {
   isConversationalPrompt,
   isNameRecallPrompt,
 } from "../shared/utils/conversation-signals";
+import { evaluateGreetingFastLane } from "./greeting-fast-lane-core/greeting-fast-lane-bridge";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -85,6 +86,15 @@ export function runInputPreRouteScan(state: ProcessingState): ProcessingState {
   const quickSafety = detectQuickSafety(focusedIntentCanonical);
   const quickComplexity = estimateQuickComplexity(snapshot);
   const quickAmbiguity = estimateQuickAmbiguity(snapshot);
+  const greetingFastLane = evaluateGreetingFastLane({
+    text: focusedIntentCanonical,
+    quickIntent,
+    quickComplexity,
+    quickAmbiguity,
+    tokenCount: snapshot.tokenCount,
+    questionCount: snapshot.questionCount,
+    safetyAction: quickSafety.safetyAction,
+  });
 
   state.textAnalysisSnapshot = snapshot;
   state.preRouteSignals = {
@@ -92,7 +102,11 @@ export function runInputPreRouteScan(state: ProcessingState): ProcessingState {
     quickUrgency,
     quickComplexity,
     quickAmbiguity,
-    hasGreetingSignal: snapshot.hasGreetingSignal,
+    hasGreetingSignal: snapshot.hasGreetingSignal || greetingFastLane.detected,
+    greetingFamily: greetingFastLane.family || "none",
+    greetingConfidence: greetingFastLane.confidence,
+    greetingFastLaneEligible: greetingFastLane.eligible,
+    greetingFastLaneReason: greetingFastLane.reason,
     hasVerifiableSignal: snapshot.hasVerifiableSignal && !isNameRecallPrompt(focused),
     hasRecencySignal: snapshot.hasRecencySignal,
     hasSafetyRisk: quickSafety.hasSafetyRisk,

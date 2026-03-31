@@ -17,6 +17,7 @@ export type PipelineLayerId =
   | "reflective"
   | "inferential"
   | "metacognitive"
+  | "founder-influence"
   | "epistemic-integration"
   | "generation"
   | "structure"

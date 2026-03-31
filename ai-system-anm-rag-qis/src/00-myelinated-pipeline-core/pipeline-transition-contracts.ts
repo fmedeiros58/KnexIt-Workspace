@@ -5,6 +5,7 @@ export type PipelineBootstrapInput = {
   rawMessage: string;
   sessionId?: string;
   turnId?: string;
+  userTimeZone?: string;
   recentTurns?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 

@@ -13,6 +13,8 @@ import type {
 } from "./behavior-and-personality-types";
 import { buildFounderIdentityInfluence } from "../12b-founder-influence-layer/founder-identity-bridge";
 import { resolveMedeirosIdentityProfile } from "./medeiros-identity-submodule/medeiros-identity-resolver";
+import { textNormalizationService } from "../shared/text-processing/text-normalization.service";
+import { ensureUtf8Response } from "../18-presentation-and-delivery-layer/text-encoding-guard";
 
 type IdentityNarrativeMode = "short" | "long";
 
@@ -47,11 +49,11 @@ const LETICIA_IDENTITY_FACTS: IdentityFacts = {
   conceptualExpansion:
     "Language-Engineered Technology for Intelligent Cognition, Interaction and Assistance",
   conceptualMeaning:
-    "Meu nome tem uma base conceitual ligada à linguagem, à cognição, à interação e à assistência.",
+    "Meu nome tem uma base conceitual ligada \u00E0 linguagem, \u00E0 cogni\u00E7\u00E3o, \u00E0 intera\u00E7\u00E3o e \u00E0 assist\u00EAncia.",
   affectiveMeaning:
-    "Ele também carrega uma base afetiva, como homenagem de Medeiros à sua filha Leticia.",
+    "Ele tamb\u00E9m carrega uma base afetiva, como homenagem de Medeiros \u00E0 sua filha Leticia.",
   creatorContext:
-    "No contexto deste projeto, Medeiros é o idealizador da Leticia.",
+    "No contexto deste projeto, Medeiros \u00E9 o idealizador da Leticia.",
   addressPreferenceSummary:
     "Voce pode me chamar de Leticia. Se preferir um tratamento mais carinhoso e ainda respeitoso, tambem pode usar Leticia IA ou apenas Leticia, sempre em tom cordial.",
 };
@@ -303,16 +305,15 @@ function clamp01(value: number): number {
 }
 
 function normalize(text: string): string {
-  return `${text || ""}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
+  return textNormalizationService
+    .expandContractions(text || "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function normalizeLoose(text: string): string {
-  return normalize(text)
+  return textNormalizationService
+    .expandContractions(text || "")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -322,6 +323,146 @@ function hasLeticiaReference(text: string): boolean {
   const loose = normalizeLoose(text);
   return /\bleticia\b/.test(loose) || /\blet\s*i?\s*cia\b/.test(loose);
 }
+
+const IDENTITY_PT_REPAIRS: ReadonlyArray<[RegExp, string]> = [
+  [/\bleticia\b/g, "let\u00EDcia"],
+  [/\bLeticia\b/g, "Let\u00EDcia"],
+  [/\btambem\b/g, "tamb\u00E9m"],
+  [/\bTambem\b/g, "Tamb\u00E9m"],
+  [/\bha\b/g, "h\u00E1"],
+  [/\bHa\b/g, "H\u00E1"],
+  [/\bnao\b/g, "n\u00E3o"],
+  [/\bNao\b/g, "N\u00E3o"],
+  [/\bvoce\b/g, "voc\u00EA"],
+  [/\bVoce\b/g, "Voc\u00EA"],
+  [/\bvinculo\b/g, "v\u00EDnculo"],
+  [/\bVinculo\b/g, "V\u00EDnculo"],
+  [/\btecnico\b/g, "t\u00E9cnico"],
+  [/\bTecnico\b/g, "T\u00E9cnico"],
+  [/\bdimensao\b/g, "dimens\u00E3o"],
+  [/\bDimensao\b/g, "Dimens\u00E3o"],
+  [/\bformulacao\b/g, "formula\u00E7\u00E3o"],
+  [/\bFormulacao\b/g, "Formula\u00E7\u00E3o"],
+  [/\binteracao\b/g, "intera\u00E7\u00E3o"],
+  [/\bInteracao\b/g, "Intera\u00E7\u00E3o"],
+  [/\bcognicao\b/g, "cogni\u00E7\u00E3o"],
+  [/\bCognicao\b/g, "Cogni\u00E7\u00E3o"],
+  [/\bassistencia\b/g, "assist\u00EAncia"],
+  [/\bAssistencia\b/g, "Assist\u00EAncia"],
+  [/\bproposito\b/g, "prop\u00F3sito"],
+  [/\bProposito\b/g, "Prop\u00F3sito"],
+  [/\breune\b/g, "re\u00FAne"],
+  [/\bReune\b/g, "Re\u00FAne"],
+  [/\bpor tras\b/g, "por tr\u00E1s"],
+  [/\bPor tras\b/g, "Por tr\u00E1s"],
+  [/\balem\b/g, "al\u00E9m"],
+  [/\bAlem\b/g, "Al\u00E9m"],
+  [/\bambito\b/g, "\u00E2mbito"],
+  [/\bAmbito\b/g, "\u00C2mbito"],
+  [/\breferencia\b/g, "refer\u00EAncia"],
+  [/\bReferencia\b/g, "Refer\u00EAncia"],
+  [/\bidealizacao\b/g, "idealiza\u00E7\u00E3o"],
+  [/\bIdealizacao\b/g, "Idealiza\u00E7\u00E3o"],
+  [/\bsintese\b/g, "s\u00EDntese"],
+  [/\bSintese\b/g, "S\u00EDntese"],
+  [/\bforca\b/g, "for\u00E7a"],
+  [/\bForca\b/g, "For\u00E7a"],
+  [/\bfuncao\b/g, "fun\u00E7\u00E3o"],
+  [/\bFuncao\b/g, "Fun\u00E7\u00E3o"],
+  [/\bhistoria\b/g, "hist\u00F3ria"],
+  [/\bHistoria\b/g, "Hist\u00F3ria"],
+  [/\bpreferencia\b/g, "prefer\u00EAncia"],
+  [/\bPreferencia\b/g, "Prefer\u00EAncia"],
+  [/\brelacao\b/g, "rela\u00E7\u00E3o"],
+  [/\bRelacao\b/g, "Rela\u00E7\u00E3o"],
+  [/\bapresentacao\b/g, "apresenta\u00E7\u00E3o"],
+  [/\bApresentacao\b/g, "Apresenta\u00E7\u00E3o"],
+  [/\bcomunicacao\b/g, "comunica\u00E7\u00E3o"],
+  [/\bComunicacao\b/g, "Comunica\u00E7\u00E3o"],
+  [/\bconsistencia\b/g, "consist\u00EAncia"],
+  [/\bConsistencia\b/g, "Consist\u00EAncia"],
+  [/\brazao\b/g, "raz\u00E3o"],
+  [/\bRazao\b/g, "Raz\u00E3o"],
+  [/\bteorico\b/g, "te\u00F3rico"],
+  [/\bTeorico\b/g, "Te\u00F3rico"],
+  [/\bteorica\b/g, "te\u00F3rica"],
+  [/\bTeorica\b/g, "Te\u00F3rica"],
+  [/\bpropria\b/g, "pr\u00F3pria"],
+  [/\bPropria\b/g, "Pr\u00F3pria"],
+  [/\bconstrucao\b/g, "constru\u00E7\u00E3o"],
+  [/\bConstrucao\b/g, "Constru\u00E7\u00E3o"],
+  [/\bcombinacao\b/g, "combina\u00E7\u00E3o"],
+  [/\bCombinacao\b/g, "Combina\u00E7\u00E3o"],
+  [/\bconvergencia\b/g, "converg\u00EAncia"],
+  [/\bConvergencia\b/g, "Converg\u00EAncia"],
+  [/\bcarater\b/g, "car\u00E1ter"],
+  [/\bCarater\b/g, "Car\u00E1ter"],
+  [/\bjuncao\b/g, "jun\u00E7\u00E3o"],
+  [/\bJuncao\b/g, "Jun\u00E7\u00E3o"],
+  [/\bexcecao\b/g, "exce\u00E7\u00E3o"],
+  [/\bExcecao\b/g, "Exce\u00E7\u00E3o"],
+];
+
+const IDENTITY_CONTEXTUAL_REPAIRS: ReadonlyArray<[RegExp, string]> = [
+  [/\b([Mm]eu nome)\s+e\s+/g, "$1 \u00E9 "],
+  [/\b([Oo] nome)\s+e\s+/g, "$1 \u00E9 "],
+  [/\b([Ll]eticia|[Ll]et\u00EDcia)\s+e\s+um\b/g, "$1 \u00E9 um"],
+  [/\b([Ll]eticia|[Ll]et\u00EDcia)\s+e\s+uma\b/g, "$1 \u00E9 uma"],
+  [/\b([Mm]edeiros)\s+e\s+o\b/g, "$1 \u00E9 o"],
+  [/\b([Mm]edeiros)\s+e\s+a\b/g, "$1 \u00E9 a"],
+  [/\b([Ii]sso)\s+e\s+/g, "$1 \u00E9 "],
+];
+
+function finalizeIdentityText(value: string): string {
+  const utf8 = ensureUtf8Response(value || "").text;
+  let repaired = `${utf8 || ""}`;
+  for (const [pattern, replacement] of IDENTITY_PT_REPAIRS) {
+    repaired = repaired.replace(pattern, replacement);
+  }
+  for (const [pattern, replacement] of IDENTITY_CONTEXTUAL_REPAIRS) {
+    repaired = repaired.replace(pattern, replacement);
+  }
+  return repaired.replace(/\s+/g, " ").trim();
+}
+
+function canonicalizeIdentityFacts(facts: IdentityFacts): IdentityFacts {
+  return {
+    canonicalName: finalizeIdentityText(facts.canonicalName),
+    conceptualExpansion: finalizeIdentityText(facts.conceptualExpansion),
+    conceptualMeaning: finalizeIdentityText(facts.conceptualMeaning),
+    affectiveMeaning: finalizeIdentityText(facts.affectiveMeaning),
+    creatorContext: finalizeIdentityText(facts.creatorContext),
+    addressPreferenceSummary: finalizeIdentityText(facts.addressPreferenceSummary),
+  };
+}
+
+function canonicalizeNarrativeBank(bank: NarrativeVariantBank): NarrativeVariantBank {
+  return {
+    openings: bank.openings.map((row) => finalizeIdentityText(row)),
+    conceptualLeads: bank.conceptualLeads.map((row) => finalizeIdentityText(row)),
+    conceptualSupport: bank.conceptualSupport.map((row) => finalizeIdentityText(row)),
+    affectiveLeads: bank.affectiveLeads.map((row) => finalizeIdentityText(row)),
+    affectiveSupport: bank.affectiveSupport.map((row) => finalizeIdentityText(row)),
+    creatorLeads: bank.creatorLeads.map((row) => finalizeIdentityText(row)),
+    warmthBridges: bank.warmthBridges.map((row) => finalizeIdentityText(row)),
+    closings: bank.closings.map((row) => finalizeIdentityText(row)),
+    identityAnswersShort: bank.identityAnswersShort.map((row) => finalizeIdentityText(row)),
+    nameOriginAnswersShort: bank.nameOriginAnswersShort.map((row) => finalizeIdentityText(row)),
+    creatorAnswersShort: bank.creatorAnswersShort.map((row) => finalizeIdentityText(row)),
+    addressPreferenceAnswersShort: bank.addressPreferenceAnswersShort.map((row) => finalizeIdentityText(row)),
+    addressOpenings: bank.addressOpenings.map((row) => finalizeIdentityText(row)),
+    addressClosings: bank.addressClosings.map((row) => finalizeIdentityText(row)),
+  };
+}
+
+const LETICIA_IDENTITY_FACTS_CANONICAL = canonicalizeIdentityFacts(LETICIA_IDENTITY_FACTS);
+const LETICIA_PREFERRED_FORMS_OF_ADDRESS_CANONICAL = LETICIA_PREFERRED_FORMS_OF_ADDRESS.map((row) =>
+  finalizeIdentityText(row),
+);
+const LETICIA_IDENTITY_GROUNDING_FACTS_CANONICAL = LETICIA_IDENTITY_GROUNDING_FACTS.map((row) =>
+  finalizeIdentityText(row),
+);
+const LETICIA_NARRATIVE_BANK_CANONICAL = canonicalizeNarrativeBank(LETICIA_NARRATIVE_BANK);
 
 function matchesAnyPattern(value: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(value));
@@ -378,6 +519,7 @@ const IDENTITY_QUESTION_PATTERNS: RegExp[] = [
 const NAME_ORIGIN_QUESTION_PATTERNS: RegExp[] = [
   /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+(?:tem|usa)\s+(esse\s+)?nome)\b/,
   /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+leticia)\b/,
+  /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+assim|se\s+chama\s+assim)\b/,
   /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/,
   /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome)\b/,
   /\b(o que significa leticia|qual o significado(?:\s+do\s+nome)?(?:\s+de)?\s+leticia|leticia significa o que|esse nome significa o que)\b/,
@@ -395,6 +537,16 @@ const CREATOR_QUESTION_PATTERNS: RegExp[] = [
   /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|quem e esse medeiros)\b/,
   /\b(quem te criou|quem criou voce|quem e seu criador|quem desenvolveu voce)\b/,
   /\b(quem idealizou (?:voce|o projeto)|quem te batizou)\b/,
+  /\b(quem te deu (?:esse\s+)?nome|quem (?:deu|escolheu|definiu) (?:esse\s+)?nome (?:a|para) (?:voce|vc|ce|ti))\b/,
+  /\b(quem escolheu (?:o\s+)?seu nome|quem te chamou de leticia|quem deu esse nome pra vc)\b/,
+  /\b(foi ele que te criou|ele te criou|voce e (?:filha|filho) dele|vc e (?:filha|filho) dele)\b/,
+];
+
+const KINSHIP_METAPHOR_PATTERNS: RegExp[] = [
+  /\b(voce e (?:filha|filho) dele|vc e (?:filha|filho) dele)\b/,
+  /\b(filha de medeiros|filho de medeiros)\b/,
+  /\b(medeiros e seu pai|medeiros e tua pai|medeiros e teu pai)\b/,
+  /\b(relacao biologica|vinculo biologico|parentesco)\b/,
 ];
 
 const ADDRESS_PREFERENCE_QUESTION_PATTERNS: RegExp[] = [
@@ -434,16 +586,31 @@ function isNameOriginQuestion(message: string): boolean {
       loose,
     );
   const referencesName = /\b(seu nome|esse nome|nome)\b/.test(loose) || hasLeticiaReference(loose);
-  const referencesNamingAct = /\b(se chama|te chamam|chamam|batizada|rotulada|definida|conceituada)\b/.test(loose);
+  const referencesNamingAct = /\b(se chama|se chama assim|te chamam|chamam|batizada|rotulada|definida|conceituada)\b/.test(loose);
 
   if (asksWhyOrOrigin && referencesName) return true;
-  if (asksWhyOrOrigin && referencesNamingAct && hasLeticiaReference(loose)) return true;
+  if (asksWhyOrOrigin && referencesNamingAct && (hasLeticiaReference(loose) || /\b(voce|vc|ce|te)\b/.test(loose))) return true;
   return false;
 }
 
 function isCreatorContextQuestion(message: string): boolean {
   const normalized = normalize(message);
-  return matchesAnyPattern(normalized, CREATOR_QUESTION_PATTERNS);
+  const loose = normalizeLoose(message);
+  if (matchesAnyPattern(normalized, CREATOR_QUESTION_PATTERNS)) return true;
+  if (
+    /\b(criou|criador|idealizou|batizou|deu esse nome|escolheu esse nome)\b/.test(loose) &&
+    /\b(voce|vc|ce|te|leticia|medeiros|ele|dele)\b/.test(loose)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isKinshipMetaphorQuestion(message: string): boolean {
+  const normalized = normalize(message);
+  const loose = normalizeLoose(message);
+  if (matchesAnyPattern(normalized, KINSHIP_METAPHOR_PATTERNS)) return true;
+  return /\b(filha|filho|pai|mae|mãe|parentesco|biologic)\b/.test(loose) && /\b(leticia|medeiros|voce|vc|ce)\b/.test(loose);
 }
 
 function isAddressPreferenceQuestion(message: string): boolean {
@@ -463,7 +630,7 @@ function shouldSelfIntroduce(
 }
 
 function resolvePreferredFormsSnippet(seedBase: number): string {
-  const selectedForms = pickManyUnique(LETICIA_PREFERRED_FORMS_OF_ADDRESS, 3, seedBase + 401);
+  const selectedForms = pickManyUnique(LETICIA_PREFERRED_FORMS_OF_ADDRESS_CANONICAL, 3, seedBase + 401);
   const joinedForms = joinWithConjunction(selectedForms, "e");
   return `Voce pode me chamar de ${joinedForms}.`;
 }
@@ -478,22 +645,23 @@ function resolveIdentityNarrative(
   const identityQuestionDetected = isIdentityQuestion(normalizedMessage);
   const nameOriginQuestionDetected = isNameOriginQuestion(normalizedMessage);
   const creatorContextQuestionDetected = isCreatorContextQuestion(normalizedMessage);
+  const kinshipMetaphorQuestionDetected = isKinshipMetaphorQuestion(normalizedMessage);
   const addressPreferenceQuestionDetected = isAddressPreferenceQuestion(normalizedMessage);
 
-  const opening = pickOne(LETICIA_NARRATIVE_BANK.openings, seedBase + 1);
-  const conceptualLead = pickOne(LETICIA_NARRATIVE_BANK.conceptualLeads, seedBase + 2);
-  const conceptualSupport = pickOne(LETICIA_NARRATIVE_BANK.conceptualSupport, seedBase + 3);
-  const affectiveLead = pickOne(LETICIA_NARRATIVE_BANK.affectiveLeads, seedBase + 4);
-  const affectiveSupport = pickOne(LETICIA_NARRATIVE_BANK.affectiveSupport, seedBase + 5);
-  const creatorLead = pickOne(LETICIA_NARRATIVE_BANK.creatorLeads, seedBase + 6);
-  const warmthBridge = pickOne(LETICIA_NARRATIVE_BANK.warmthBridges, seedBase + 7);
-  const closing = pickOne(LETICIA_NARRATIVE_BANK.closings, seedBase + 8);
+  const opening = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.openings, seedBase + 1);
+  const conceptualLead = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.conceptualLeads, seedBase + 2);
+  const conceptualSupport = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.conceptualSupport, seedBase + 3);
+  const affectiveLead = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.affectiveLeads, seedBase + 4);
+  const affectiveSupport = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.affectiveSupport, seedBase + 5);
+  const creatorLead = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.creatorLeads, seedBase + 6);
+  const warmthBridge = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.warmthBridges, seedBase + 7);
+  const closing = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.closings, seedBase + 8);
   const preferredFormsSnippet = resolvePreferredFormsSnippet(seedBase);
 
   if (addressPreferenceQuestionDetected) {
-    const answerShort = pickOne(LETICIA_NARRATIVE_BANK.addressPreferenceAnswersShort, seedBase + 9);
-    const addressOpening = pickOne(LETICIA_NARRATIVE_BANK.addressOpenings, seedBase + 10);
-    const addressClosing = pickOne(LETICIA_NARRATIVE_BANK.addressClosings, seedBase + 11);
+    const answerShort = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.addressPreferenceAnswersShort, seedBase + 9);
+    const addressOpening = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.addressOpenings, seedBase + 10);
+    const addressClosing = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.addressClosings, seedBase + 11);
 
     if (mode === "short") {
       return [
@@ -506,13 +674,22 @@ function resolveIdentityNarrative(
       addressOpening,
       answerShort,
       preferredFormsSnippet,
-      LETICIA_IDENTITY_FACTS.addressPreferenceSummary,
+      LETICIA_IDENTITY_FACTS_CANONICAL.addressPreferenceSummary,
       addressClosing,
     ].join(" ");
   }
 
   if (creatorContextQuestionDetected && !nameOriginQuestionDetected && !identityQuestionDetected) {
-    const answerShort = pickOne(LETICIA_NARRATIVE_BANK.creatorAnswersShort, seedBase + 12);
+    if (kinshipMetaphorQuestionDetected) {
+      if (mode === "short") {
+        return "Nao. Eu sou a propria Leticia, uma IA do ai-system-anm; Medeiros e meu idealizador, sem relacao biologica.";
+      }
+      return [
+        "Nao. Eu sou a propria Leticia, uma IA do ai-system-anm; Medeiros e meu idealizador, sem relacao biologica.",
+        "Quando essa origem e explicada, trata-se de idealizacao epistemologica do sistema, nao de parentesco.",
+      ].join(" ");
+    }
+    const answerShort = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.creatorAnswersShort, seedBase + 12);
 
     if (mode === "short") {
       return answerShort;
@@ -520,27 +697,27 @@ function resolveIdentityNarrative(
 
     return [
       answerShort,
-      LETICIA_IDENTITY_FACTS.creatorContext,
+      LETICIA_IDENTITY_FACTS_CANONICAL.creatorContext,
       "Quando essa identidade e explicada, Medeiros aparece como a referencia de idealizacao do projeto Leticia.",
       warmthBridge,
     ].join(" ");
   }
 
   if (nameOriginQuestionDetected) {
-    const answerShort = pickOne(LETICIA_NARRATIVE_BANK.nameOriginAnswersShort, seedBase + 13);
+    const answerShort = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.nameOriginAnswersShort, seedBase + 13);
 
     if (mode === "short") {
       return [
         answerShort,
-        `${conceptualLead} ${LETICIA_IDENTITY_FACTS.conceptualExpansion}.`,
+        `${conceptualLead} ${LETICIA_IDENTITY_FACTS_CANONICAL.conceptualExpansion}.`,
       ].join(" ");
     }
 
     return [
       opening,
       answerShort,
-      LETICIA_IDENTITY_FACTS.conceptualMeaning,
-      `${conceptualLead} ${LETICIA_IDENTITY_FACTS.conceptualExpansion}.`,
+      LETICIA_IDENTITY_FACTS_CANONICAL.conceptualMeaning,
+      `${conceptualLead} ${LETICIA_IDENTITY_FACTS_CANONICAL.conceptualExpansion}.`,
       conceptualSupport,
       affectiveLead,
       affectiveSupport,
@@ -552,7 +729,7 @@ function resolveIdentityNarrative(
   }
 
   if (identityQuestionDetected) {
-    const answerShort = pickOne(LETICIA_NARRATIVE_BANK.identityAnswersShort, seedBase + 14);
+    const answerShort = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.identityAnswersShort, seedBase + 14);
 
     if (mode === "short") {
       return answerShort;
@@ -560,8 +737,8 @@ function resolveIdentityNarrative(
 
     return [
       answerShort,
-      LETICIA_IDENTITY_FACTS.conceptualMeaning,
-      `${conceptualLead} ${LETICIA_IDENTITY_FACTS.conceptualExpansion}.`,
+      LETICIA_IDENTITY_FACTS_CANONICAL.conceptualMeaning,
+      `${conceptualLead} ${LETICIA_IDENTITY_FACTS_CANONICAL.conceptualExpansion}.`,
       conceptualSupport,
       affectiveLead,
       affectiveSupport,
@@ -574,15 +751,15 @@ function resolveIdentityNarrative(
   if (mode === "short") {
     return [
       opening,
-      `${conceptualLead} ${LETICIA_IDENTITY_FACTS.conceptualExpansion}.`,
-      LETICIA_IDENTITY_FACTS.affectiveMeaning,
+      `${conceptualLead} ${LETICIA_IDENTITY_FACTS_CANONICAL.conceptualExpansion}.`,
+      LETICIA_IDENTITY_FACTS_CANONICAL.affectiveMeaning,
     ].join(" ");
   }
 
   return [
     opening,
-    LETICIA_IDENTITY_FACTS.conceptualMeaning,
-    `${conceptualLead} ${LETICIA_IDENTITY_FACTS.conceptualExpansion}.`,
+    LETICIA_IDENTITY_FACTS_CANONICAL.conceptualMeaning,
+    `${conceptualLead} ${LETICIA_IDENTITY_FACTS_CANONICAL.conceptualExpansion}.`,
     conceptualSupport,
     affectiveLead,
     affectiveSupport,
@@ -598,6 +775,7 @@ export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIde
   const identityQuestionDetected = isIdentityQuestion(sourceMessage);
   const nameOriginQuestionDetected = isNameOriginQuestion(sourceMessage);
   const creatorContextQuestionDetected = isCreatorContextQuestion(sourceMessage);
+  const kinshipMetaphorQuestionDetected = isKinshipMetaphorQuestion(sourceMessage);
   const addressPreferenceQuestionDetected = isAddressPreferenceQuestion(sourceMessage);
   const medeirosIdentity = resolveMedeirosIdentityProfile(sourceMessage);
   const founderIdentityInfluence = buildFounderIdentityInfluence();
@@ -625,6 +803,7 @@ export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIde
   let identityNarrativeLong = resolveIdentityNarrative("long", sourceMessage);
 
   const shouldPrioritizeMedeirosNarrative =
+    !kinshipMetaphorQuestionDetected &&
     !identityQuestionDetected &&
     !nameOriginQuestionDetected &&
     (creatorContextQuestionDetected ||
@@ -637,6 +816,18 @@ export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIde
     identityNarrativeShort = medeirosIdentity.shortNarrative;
     identityNarrativeLong = medeirosIdentity.longNarrative;
   }
+
+  identityNarrativeShort = finalizeIdentityText(identityNarrativeShort);
+  identityNarrativeLong = finalizeIdentityText(identityNarrativeLong);
+  const medeirosNarrativeShort = finalizeIdentityText(medeirosIdentity.shortNarrative);
+  const medeirosNarrativeLong = finalizeIdentityText(medeirosIdentity.longNarrative);
+  const identityGroundingFacts = [
+    ...new Set([
+      ...LETICIA_IDENTITY_GROUNDING_FACTS_CANONICAL,
+      ...medeirosIdentity.groundingFacts,
+      ...founderIdentityInfluence.protectedGroundingFacts,
+    ]),
+  ].map((fact) => finalizeIdentityText(fact));
 
   const styleDirectives = [
     "falar_em_primeira_pessoa",
@@ -674,14 +865,6 @@ export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIde
     styleDirectives.push("explicar_como_posso_ser_chamada_com_tom_afetuoso_respeitoso_e_claro");
   }
 
-  const identityGroundingFacts = [
-    ...new Set([
-      ...LETICIA_IDENTITY_GROUNDING_FACTS,
-      ...medeirosIdentity.groundingFacts,
-      ...founderIdentityInfluence.protectedGroundingFacts,
-    ]),
-  ];
-
   return {
     canonicalName: "Leticia",
     entityDescription: "IA nativa do ecossistema KnexIT",
@@ -699,8 +882,8 @@ export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIde
     shouldSelfIntroduce: shouldIntroduce,
     identityNarrativeShort,
     identityNarrativeLong,
-    medeirosNarrativeShort: medeirosIdentity.shortNarrative,
-    medeirosNarrativeLong: medeirosIdentity.longNarrative,
+    medeirosNarrativeShort,
+    medeirosNarrativeLong,
     identityGroundingFacts,
     styleDirectives: [...new Set(styleDirectives)],
   };
@@ -721,6 +904,7 @@ export function resolveIdentityFallbackForMessage(message: string): {
   const identityQuestionDetected = isIdentityQuestion(sourceMessage);
   const nameOriginQuestionDetected = isNameOriginQuestion(sourceMessage);
   const creatorContextQuestionDetected = isCreatorContextQuestion(sourceMessage);
+  const kinshipMetaphorQuestionDetected = isKinshipMetaphorQuestion(sourceMessage);
   const addressPreferenceQuestionDetected = isAddressPreferenceQuestion(sourceMessage);
   const medeirosIdentity = resolveMedeirosIdentityProfile(sourceMessage);
 
@@ -728,6 +912,7 @@ export function resolveIdentityFallbackForMessage(message: string): {
   let longNarrative = resolveIdentityNarrative("long", sourceMessage);
 
   const shouldPrioritizeMedeirosNarrative =
+    !kinshipMetaphorQuestionDetected &&
     !identityQuestionDetected &&
     !nameOriginQuestionDetected &&
     (creatorContextQuestionDetected ||
@@ -740,6 +925,9 @@ export function resolveIdentityFallbackForMessage(message: string): {
     shortNarrative = medeirosIdentity.shortNarrative;
     longNarrative = medeirosIdentity.longNarrative;
   }
+
+  shortNarrative = finalizeIdentityText(shortNarrative);
+  longNarrative = finalizeIdentityText(longNarrative);
 
   const shouldHandle =
     identityQuestionDetected ||

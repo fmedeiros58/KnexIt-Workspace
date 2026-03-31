@@ -11,6 +11,8 @@ import { toSseStream } from "@/core/rag/streaming-response";
 import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
 import { runPipelineRootBridge } from "../../../ai-system-anm-rag-qis/src/00-myelinated-pipeline-core/pipeline-root-bridge";
 import { resolveIdentityFallbackForMessage } from "../../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
+import { ensureUtf8Response } from "../../../ai-system-anm-rag-qis/src/18-presentation-and-delivery-layer/text-encoding-guard";
+import { textNormalizationService } from "../../../ai-system-anm-rag-qis/src/shared/text-processing/text-normalization.service";
 import {
   buildConversationStateSummaryBlock,
   injectConversationStatePrompt,
@@ -65,6 +67,9 @@ type AnmChatResult = {
 type ResponsePolicyContext = {
   state: ConversationPerceptionState;
   complexity: PromptComplexity;
+  userMessage: string;
+  history: ChatHistoryItem[];
+  identityIntentFamily: AssistantIdentityIntentFamily;
 };
 type AutoWebEvidence = {
   contextBlock: string;
@@ -145,6 +150,14 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   return "";
 }
 
+function readAnmCompatEnv(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function normalizeUrl(value: string) {
   return value.replace(/\/+$/, "");
 }
@@ -165,13 +178,30 @@ function parseOptionalBoolean(value: string | undefined | null): boolean | undef
   return undefined;
 }
 
+function isLegacyAnmChatFallbackEnabled() {
+  const raw = readAnmCompatEnv(
+    "AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK",
+    "ANM_ENABLE_LEGACY_CHAT_FALLBACK",
+  );
+  return parseOptionalBoolean(raw) === true;
+}
+
 function readDescendingPipelineConfig(): DescendingPipelineConfig {
   return {
     enabled: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ENABLED) !== false,
-    onlyVerifiable: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ONLY_VERIFIABLE) !== false,
+    onlyVerifiable: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ONLY_VERIFIABLE) === true,
     strict: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_STRICT) !== false,
     allowVerifiable: parseOptionalBoolean(process.env.KNEXAI_DESCENDING_PIPELINE_ALLOW_VERIFIABLE) !== false,
   };
+}
+
+function isDescendingPipelineAlwaysOn(): boolean {
+  const raw = readAnmCompatEnv(
+    "KNEXAI_DESCENDING_PIPELINE_ALWAYS_ON",
+    "AI_SYSTEM_DESCENDING_PIPELINE_ALWAYS_ON",
+    "ANM_DESCENDING_PIPELINE_ALWAYS_ON",
+  );
+  return parseOptionalBoolean(raw) !== false;
 }
 
 function parseBaseUrlList(value: string) {
@@ -243,11 +273,9 @@ function tryDiscoverWslHostIp() {
 }
 
 function normalizeTemporalPrompt(prompt: string) {
-  return prompt
+  return textNormalizationService
+    .expandContractions(prompt)
     .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
     .replace(/[!?.,;:"]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -369,10 +397,8 @@ function buildDeterministicOfficeAnswer(localeHint: string, candidate: string, s
 }
 
 function normalizeForVerification(value: string) {
-  return `${value || ""}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
+  return textNormalizationService
+    .expandContractions(value || "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -1777,14 +1803,26 @@ function readLlmConfig(): LlmConfig {
 function readEngineModeConfig(): EngineModeConfig {
   // Runtime atual: direct-only. Mantemos os campos legados apenas por compatibilidade de contrato.
   const mode: EngineMode = "direct";
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedAnmTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(
+    pickFirstNonEmpty(
+      readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL", "ANM_API_BASE_URL"),
+      DEFAULT_ANM_BASE_URL,
+    ),
+  );
+  const parsedAnmTimeout = Number(
+    readAnmCompatEnv("AI_SYSTEM_ANM_API_TIMEOUT_MS", "ANM_API_TIMEOUT_MS") || DEFAULT_ANM_TIMEOUT_MS,
+  );
   const anmTimeoutMs = Number.isFinite(parsedAnmTimeout) ? Math.max(3_000, Math.round(parsedAnmTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
-  const parsedAnmSoftTimeout = Number(process.env.KNEXAI_ANM_SOFT_TIMEOUT_MS || DEFAULT_ANM_SOFT_TIMEOUT_MS);
+  const parsedAnmSoftTimeout = Number(
+    readAnmCompatEnv("KNEXAI_AI_SYSTEM_ANM_SOFT_TIMEOUT_MS", "KNEXAI_ANM_SOFT_TIMEOUT_MS") || DEFAULT_ANM_SOFT_TIMEOUT_MS,
+  );
   const anmSoftTimeoutMs = Number.isFinite(parsedAnmSoftTimeout)
     ? Math.max(200, Math.min(anmTimeoutMs, Math.round(parsedAnmSoftTimeout)))
     : DEFAULT_ANM_SOFT_TIMEOUT_MS;
-  const fallbackRaw = pickFirstNonEmpty(process.env.KNEXAI_ANM_FALLBACK_TO_DIRECT, "1").toLowerCase();
+  const fallbackRaw = pickFirstNonEmpty(
+    readAnmCompatEnv("KNEXAI_AI_SYSTEM_ANM_FALLBACK_TO_DIRECT", "KNEXAI_ANM_FALLBACK_TO_DIRECT"),
+    "1",
+  ).toLowerCase();
   const fallbackToDirect = !["0", "false", "no", "off"].includes(fallbackRaw);
   return { mode, anmBaseUrl, anmTimeoutMs, anmSoftTimeoutMs, fallbackToDirect };
 }
@@ -2203,9 +2241,15 @@ function toAnmTextResponse(anm: AnmChatResult, policyContext: ResponsePolicyCont
     state: policyContext.state,
     complexity: policyContext.complexity,
   });
+  const guardedAnswer = enforceRouteMicroConversationalGuard({
+    prompt: policyContext.userMessage,
+    history: policyContext.history,
+    answer: enforcedAnswer || cleaned || anm.answer,
+    identityIntentFamily: policyContext.identityIntentFamily,
+  });
   const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
   if (anm.traceId) headers["X-KnexAI-Trace-Id"] = anm.traceId;
-  return new Response(createChunkedTextStream(enforcedAnswer || cleaned || anm.answer), {
+  return new Response(createChunkedTextStream(guardedAnswer), {
     status: 200,
     headers,
   });
@@ -2319,7 +2363,7 @@ function parseOptionalEngineModeFromBody(value: unknown): EngineMode | undefined
   const normalized = value.trim().toLowerCase();
   if (normalized === "direct") return "direct";
   // Compat legado: payloads antigos podem enviar "anm", mas o runtime atual e direct-only.
-  if (normalized === "anm") return "direct";
+  if (normalized === "anm" || normalized === "ai-system-anm" || normalized === "ai_system_anm") return "direct";
   return undefined;
 }
 
@@ -2489,10 +2533,10 @@ function isBehaviorPersonalityPriorityPrompt(prompt: string): boolean {
     /\b(meu nome|me chame|pode me chamar de|chame me de|chame-me de)\b/,
     /\b(qual(?: (?:e|eh))? (?:o )?(seu|teu) nome|me diga (?:o )?seu nome|me diz (?:o )?seu nome|diga (?:o )?seu nome)\b/,
     /\b(como (voce|vc|ce) se chama|quem (e|eh) (voce|vc|ce)|voce (e|eh) a leticia|vc (e|eh) a leticia|e o seu)\b/,
-    /\b((por que|porque|pq) (voce|vc|ce) (tem|usa) (esse )?nome|qual a origem do seu nome|de onde vem o nome leticia|de onde surgiu o nome leticia|(?:por que|porque|pq) te chamam assim|te chamam assim)\b/,
+    /\b((por que|porque|pq) (voce|vc|ce) (tem|usa) (esse )?nome|qual a origem do seu nome|de onde vem o nome leticia|de onde surgiu o nome leticia|(?:por que|porque|pq) (?:voce|vc|ce) se chama assim|se chama assim|(?:por que|porque|pq) te chamam assim|te chamam assim)\b/,
     /\b(o que significa leticia|qual o significado( do nome)?( de)? leticia|leticia significa o que|o que quer dizer leticia|qual o sentido do nome leticia)\b/,
     /\b(qual o conceito de leticia|conceito de leticia|qual a definicao de leticia|definicao de leticia|base conceitual do nome leticia|qual a ideia por tras do nome leticia|como surgiu o nome leticia)\b/,
-    /\b(quem (e|eh) (o )?medeiros|quem (e|eh) esse medeiros|quem te criou|quem criou voce|quem e seu criador|quem idealizou voce|quem desenvolveu voce)\b/,
+    /\b(quem (e|eh) (o )?medeiros|quem (e|eh) esse medeiros|quem te criou|quem criou voce|quem e seu criador|quem idealizou voce|quem desenvolveu voce|quem te batizou|quem te deu (esse )?nome|quem (deu|escolheu|definiu) (esse )?nome (a|para) (voce|vc|ce|ti)|quem escolheu (o )?seu nome|quem te chamou de leticia|quem deu esse nome pra vc)\b/,
     /\b(mais detalhes sobre ele|fale mais dele|pode me falar mais dele|mais sobre medeiros)\b/,
   ];
   return behaviorFamilies.some((pattern) => pattern.test(normalized));
@@ -2506,6 +2550,50 @@ function normalizeIdentityIntentHistoryWindow(history: ChatHistoryItem[], maxIte
     .filter(Boolean)
     .map((row) => normalizeForVerification(row))
     .join(" ");
+}
+
+function resolveIdentityAnchorFromHistory(history: ChatHistoryItem[]) {
+  if (!Array.isArray(history) || !history.length) return "";
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const item = history[index];
+    if (!item || item.role !== "user") continue;
+    const content = `${item.content || ""}`.trim();
+    if (!content) continue;
+    const resolved = resolveIdentityFallbackForMessage(content);
+    if (resolved.shouldHandle) return content;
+  }
+  return "";
+}
+
+function isIdentityFamilyAnswerSufficient(
+  family: AssistantIdentityIntentFamily,
+  answer: string,
+) {
+  if (!family) return true;
+  const normalized = normalizeForVerification(stripConversationRoleArtifacts(answer));
+  if (!normalized) return false;
+
+  if (
+    /\b(nao (?:ha|h[aá]|tenho) (?:contexto|informacao|informacoes)|nao posso responder|informacao nao disponivel|nao esta disponivel|sem contexto|contexto insuficiente|nao consigo responder|nao foi possivel responder)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+
+  if (family === "identity") {
+    return /\b(leticia|eu sou|me chamo)\b/.test(normalized);
+  }
+
+  if (family === "name_semantics") {
+    return /\b(leticia|language-engineered technology|conceitual|afetiv|homenagem)\b/.test(normalized);
+  }
+
+  if (family === "creator_identity") {
+    return /\b(medeiros|francimar|idealizador|fundador)\b/.test(normalized);
+  }
+
+  return true;
 }
 
 function hasAssistantIdentityContext(history: ChatHistoryItem[]) {
@@ -2553,9 +2641,9 @@ function classifyAssistantIdentityIntentFamily(
   const hasLeticia = /\bleticia\b/.test(normalized);
   const hasMedeiros = /\bmedeiros\b/.test(normalized);
   const hasTopicShift = hasCompetingTopicShift(normalized);
-  const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome|isso|disso|isso ai|disso ai)\b/.test(normalized);
-  const hasNameOriginByCalling = /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/.test(normalized);
-  const hasCreatorFollowUpCue = /\b(mais\s+informacoes|mais\s+detalhes|fale\s+mais|me\s+diga\s+mais|me\s+conte\s+mais|quero\s+saber\s+mais|sobre\s+ele|sobre\s+esse|desse\s+medeiros|desse\s+mesmo|pode\s+me\s+falar\s+mais\s+dele|falar\s+mais\s+dele|mais\s+dele|voce\s+tem\s+certeza|vc\s+tem\s+certeza|tem\s+certeza|isso\s+esta\s+certo|isso\s+esta\s+correto|confirma\s+isso|confirmar\s+isso)\b/.test(
+  const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome|isso|disso|isso ai|disso ai|assim|essa definicao|dessa definicao|essa explicacao|dessa explicacao|essa descricao|dessa descricao|essa ideia|dessa ideia|ele|dele|dela|esse criador|esse fundador)\b/.test(normalized);
+  const hasNameOriginByCalling = /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+assim|se\s+chama\s+assim|(por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/.test(normalized);
+  const hasCreatorFollowUpCue = /\b(mais\s+informacoes|mais\s+detalhes|fale\s+mais|me\s+diga\s+mais|me\s+conte\s+mais|quero\s+saber\s+mais|sobre\s+ele|sobre\s+esse|desse\s+medeiros|desse\s+mesmo|pode\s+me\s+falar\s+mais\s+dele|falar\s+mais\s+dele|mais\s+dele|voce\s+tem\s+certeza|vc\s+tem\s+certeza|tem\s+certeza|isso\s+esta\s+certo|isso\s+esta\s+correto|confirma\s+isso|confirmar\s+isso|foi\s+ele\s+que\s+te\s+criou|ele\s+te\s+criou|vc\s+e\s+(?:filha|filho)\s+dele|voce\s+e\s+(?:filha|filho)\s+dele)\b/.test(
     normalized,
   );
   const hasDirectIdentityCue =
@@ -2575,7 +2663,7 @@ function classifyAssistantIdentityIntentFamily(
     normalized,
   );
   const asksConceptDefinition = /\b(conceito|definicao|base conceitual|de onde surgiu|surgiu de onde|historia do nome|ideia por tras)\b/.test(normalized);
-  const asksCreatorIdentity = /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|e quem (?:e|eh)\s+medeiros|quem (?:e|eh)\s+esse\s+medeiros)\b/.test(
+  const asksCreatorIdentity = /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|e quem (?:e|eh)\s+medeiros|quem (?:e|eh)\s+esse\s+medeiros|quem te criou|quem criou voce|quem e seu criador|quem idealizou voce|quem desenvolveu voce|quem te batizou|quem te deu (?:esse\s+)?nome|quem (?:deu|escolheu|definiu) (?:esse\s+)?nome (?:a|para) (?:voce|vc|ce|ti)|quem escolheu (?:o\s+)?seu nome|quem te chamou de leticia|quem deu esse nome pra vc)\b/.test(
     normalized,
   );
   const asksCreatorExpansion = hasMedeiros && hasCreatorFollowUpCue;
@@ -2606,9 +2694,41 @@ function classifyAssistantIdentityIntentFamily(
   return null;
 }
 
-function buildAssistantIdentityFamilyReply(family: AssistantIdentityIntentFamily, prompt: string) {
-  const resolved = resolveIdentityFallbackForMessage(prompt);
+function isIdentityOpinionFollowUpPrompt(prompt: string) {
+  const normalized = normalizeForVerification(prompt);
+  if (!normalized) return false;
+  const asksOpinion = /\b(o que (?:voce|vc|ce) acha|qual (?:a )?sua opiniao|voce concorda|faz sentido)\b/.test(
+    normalized,
+  );
+  const refersToDefinition = /\b(definicao|explicacao|descricao|conceito|significado|isso|disso|essa|dessa)\b/.test(
+    normalized,
+  );
+  return asksOpinion && refersToDefinition;
+}
+
+function buildAssistantIdentityFamilyReply(
+  family: AssistantIdentityIntentFamily,
+  prompt: string,
+  history: ChatHistoryItem[] = [],
+) {
+  let resolved = resolveIdentityFallbackForMessage(prompt);
+
+  if (!resolved.shouldHandle && history.length) {
+    const anchor = resolveIdentityAnchorFromHistory(history);
+    if (anchor) {
+      const syntheticPrompt = `${anchor}\n${prompt}`.trim();
+      const anchored = resolveIdentityFallbackForMessage(syntheticPrompt);
+      if (anchored.shouldHandle) {
+        resolved = anchored;
+      }
+    }
+  }
+
   if (!resolved.shouldHandle) return "";
+
+  if (family === "name_semantics" && isIdentityOpinionFollowUpPrompt(prompt)) {
+    return "Acho essa definição coerente e bem construída: ela une uma base conceitual clara (LETICIA) com uma base afetiva humana ligada à origem do projeto.";
+  }
 
   if (family === "identity" && resolved.identityQuestionDetected) {
     return resolved.shortNarrative;
@@ -2826,6 +2946,32 @@ function resolveMicroSocialLocale(prompt: string): SupportedLocale {
   return "pt-BR";
 }
 
+function resolveMicroSocialTimeGreeting(locale: SupportedLocale) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    hour: "2-digit",
+  }).formatToParts(new Date());
+  const hour = Number.parseInt(parts.find((part) => part.type === "hour")?.value || "12", 10);
+
+  if (locale === "en-US") {
+    if (hour >= 5 && hour <= 11) return "Good morning";
+    if (hour >= 12 && hour <= 17) return "Good afternoon";
+    return "Good evening";
+  }
+
+  if (locale === "es-ES") {
+    if (hour >= 5 && hour <= 11) return "Buenos dias";
+    if (hour >= 12 && hour <= 17) return "Buenas tardes";
+    return "Buenas noches";
+  }
+
+  if (hour >= 5 && hour <= 11) return "Bom dia";
+  if (hour >= 12 && hour <= 17) return "Boa tarde";
+  return "Boa noite";
+}
+
 function buildMicroSocialAnswer(prompt: string) {
   const compact = prompt
     .trim()
@@ -2836,10 +2982,11 @@ function buildMicroSocialAnswer(prompt: string) {
     .replace(/\s+/g, " ")
     .trim();
   const locale = resolveMicroSocialLocale(prompt);
+  const timeGreeting = resolveMicroSocialTimeGreeting(locale);
 
   if (/^saudacoes$/.test(compact)) {
-    if (locale === "en-US") return "Greetings. How can I help you right now?";
-    if (locale === "es-ES") return "Saludos. Como puedo ayudarte ahora?";
+    if (locale === "en-US") return `${timeGreeting}. How can I help you right now?`;
+    if (locale === "es-ES") return `${timeGreeting}. Como puedo ayudarte ahora?`;
     return "Saudações. Como posso te ajudar agora?";
   }
 
@@ -2863,9 +3010,77 @@ function buildMicroSocialAnswer(prompt: string) {
     if (locale === "es-ES") return "De nada. Estoy lista para el siguiente paso.";
     return "De nada. Estou pronta para o próximo passo.";
   }
-  if (locale === "en-US") return "Hi. How can I help you right now?";
-  if (locale === "es-ES") return "Hola. Como puedo ayudarte ahora?";
-  return "Oi. Como posso te ajudar agora?";
+  if (locale === "en-US") return `${timeGreeting}. How can I help you right now?`;
+  if (locale === "es-ES") return `${timeGreeting}. Como puedo ayudarte ahora?`;
+  return `${timeGreeting}. Como posso te ajudar agora?`;
+}
+
+function countRouteSentences(text: string) {
+  return `${text || ""}`
+    .split(/[.!?]\s+/g)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+}
+
+function hasRouteMicroConversationalAnomaly(text: string) {
+  const raw = `${text || ""}`.trim();
+  if (!raw) return true;
+  const normalized = normalizeForVerification(stripConversationRoleArtifacts(raw));
+  if (!normalized) return true;
+  if (/(?:Ã.|â€|ï¿½|�)/.test(raw)) return true;
+  if (/\b(?:usuario|user|assistente|assistant|leticia)\s*:/.test(normalized)) return true;
+  if (
+    /\b(nao (?:ha|h[aá]|tenho) (?:contexto|informacao|informacoes)|informacao nao disponivel|sem contexto|contexto insuficiente)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(eu e a (?:inteligencia artificial|ia)\s+leticia)\b/.test(normalized) ||
+    /\b(voce e o assistente interno(?: da plataforma knexit)?\b.*\bleticia\b)\b/.test(normalized) ||
+    /\b(assistente interno da plataforma knexit)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function enforceRouteMicroConversationalGuard(input: {
+  prompt: string;
+  history: ChatHistoryItem[];
+  answer: string;
+  identityIntentFamily: AssistantIdentityIntentFamily;
+}) {
+  const prompt = `${input.prompt || ""}`.trim();
+  const answer = `${input.answer || ""}`.trim();
+  if (!prompt) return answer;
+
+  const identityFamily = input.identityIntentFamily || classifyAssistantIdentityIntentFamily(prompt, input.history);
+  if (identityFamily) {
+    const canonical = buildAssistantIdentityFamilyReply(identityFamily, prompt, input.history);
+    if (!canonical) return answer;
+    if (!isIdentityFamilyAnswerSufficient(identityFamily, answer) || hasRouteMicroConversationalAnomaly(answer)) {
+      return canonical;
+    }
+    return answer;
+  }
+
+  if (!isMicroSocialPrompt(prompt)) return answer;
+
+  const normalizedPrompt = normalizeForVerification(prompt);
+  const normalizedAnswer = normalizeForVerification(stripConversationRoleArtifacts(answer));
+  const tooLong = answer.length > 280 || countRouteSentences(answer) > 4;
+  const anomaly = hasRouteMicroConversationalAnomaly(answer);
+  const wellbeingPrompt = /\b(tudo bem|como vai|como vc|como voce|como ce|que tal)\b/.test(normalizedPrompt);
+  const wellbeingAcknowledged =
+    /\b(tudo certo|tudo bem|estou bem|vou bem|bem por aqui|pronta para ajudar)\b/.test(normalizedAnswer);
+
+  if (tooLong || anomaly || (wellbeingPrompt && !wellbeingAcknowledged)) {
+    return buildMicroSocialAnswer(prompt);
+  }
+
+  return answer;
 }
 
 function shouldUseSystemRoleForChatCompletions() {
@@ -3093,15 +3308,24 @@ async function mapNonStreamingToText(response: Response) {
 }
 
 function createChunkedTextStream(text: string, chunkSize = 320) {
+  const source = `${text || ""}`;
+  const utf8Repaired = ensureUtf8Response(decodeLikelyMojibake(source)).text;
+  const finalText = `${utf8Repaired || source}`
+    .replace(/\uFFFD+/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
   const encoder = new TextEncoder();
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      if (!text) {
+      if (!finalText) {
         controller.close();
         return;
       }
-      for (let index = 0; index < text.length; index += chunkSize) {
-        controller.enqueue(encoder.encode(text.slice(index, index + chunkSize)));
+      for (let index = 0; index < finalText.length; index += chunkSize) {
+        controller.enqueue(encoder.encode(finalText.slice(index, index + chunkSize)));
       }
       controller.close();
     },
@@ -3180,13 +3404,18 @@ async function requestAnmChat(
       return resolveAnmAnswer(payload);
     }
 
-    if (leticiaResponse.status !== 404) {
+    const legacyFallbackEnabled = isLegacyAnmChatFallbackEnabled();
+    if (leticiaResponse.status !== 404 || !legacyFallbackEnabled) {
       const responseText = await leticiaResponse.text().catch(() => "");
       const detail = responseText.trim().slice(0, 240);
+      const legacyHint =
+        leticiaResponse.status === 404 && !legacyFallbackEnabled
+          ? " Endpoint /assistant/leticia/respond ausente e fallback legado /chat desativado."
+          : "";
       throw new LlmRouteError(
         leticiaResponse.status >= 500 ? 503 : 502,
         "ANM_UPSTREAM_ERROR",
-        `ANM respondeu com erro HTTP ${leticiaResponse.status}${detail ? ` (${detail})` : ""}.`,
+        `ANM respondeu com erro HTTP ${leticiaResponse.status}${detail ? ` (${detail})` : ""}.${legacyHint}`,
       );
     }
 
@@ -3511,7 +3740,13 @@ async function toClientTextStreamResponse(
     state: policyContext.state,
     complexity: policyContext.complexity,
   });
-  return new Response(createChunkedTextStream(enforced || cleaned || rawText), {
+  const guarded = enforceRouteMicroConversationalGuard({
+    prompt: policyContext.userMessage,
+    history: policyContext.history,
+    answer: enforced || cleaned || rawText,
+    identityIntentFamily: policyContext.identityIntentFamily,
+  });
+  return new Response(createChunkedTextStream(guarded), {
     status: 200,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
@@ -3549,6 +3784,7 @@ export async function GET() {
       contextWindow: config.contextWindow,
       maxTokens: config.maxTokens,
       descendingPipeline,
+      descendingPipelineAlwaysOn: isDescendingPipelineAlwaysOn(),
     },
     { status: 200 },
   );
@@ -3598,10 +3834,14 @@ export async function POST(req: NextRequest) {
       ) === true;
     const disableMicroSocialFastPathFromBody =
       parseOptionalBooleanFromBody(body?.disableMicroSocialFastPath ?? body?.skipMicroSocialFastPath) === true;
-    const llmBridgeAlwaysOn = parseOptionalBoolean(process.env.ANM_LLM_BRIDGE_ALWAYS_ON) !== false;
+    const llmBridgeAlwaysOn = parseOptionalBoolean(
+      readAnmCompatEnv("AI_SYSTEM_LLM_BRIDGE_ALWAYS_ON", "ANM_LLM_BRIDGE_ALWAYS_ON"),
+    ) !== false;
+    const descendingAlwaysOn = isDescendingPipelineAlwaysOn();
     const microSocialFastPathEnabled =
       parseOptionalBoolean(process.env.KNEXAI_MICRO_SOCIAL_FASTPATH_ENABLED) === true &&
-      !llmBridgeAlwaysOn;
+      !llmBridgeAlwaysOn &&
+      !descendingAlwaysOn;
     const shouldUseMicroSocialFastPath =
       microSocialFastPathEnabled &&
       !disableMicroSocialFastPathFromBody &&
@@ -3719,10 +3959,13 @@ export async function POST(req: NextRequest) {
     );
     const descendingStrict =
       typeof descendingStrictFromBody === "boolean" ? descendingStrictFromBody : descendingPipelineDefaults.strict;
+    const defaultAllowDirectFallbackAfterDescendingFailure = descendingAlwaysOn
+      ? false
+      : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK) !== false;
     const allowDirectFallbackAfterDescendingFailure =
       typeof directFallbackFromBody === "boolean"
         ? directFallbackFromBody
-        : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK) !== false;
+        : defaultAllowDirectFallbackAfterDescendingFailure;
     const descendingQualityRetryCount = (() => {
       const fromBody = typeof descendingQualityRetryCountFromBody === "number"
         ? descendingQualityRetryCountFromBody
@@ -3739,7 +3982,7 @@ export async function POST(req: NextRequest) {
     const bypassDescendingWithDocumentScope =
       typeof forceDescendingWithDocumentScopeFromBody === "boolean"
         ? !forceDescendingWithDocumentScopeFromBody
-        : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_BYPASS_FOR_DOCUMENT_SCOPE) !== false;
+        : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_BYPASS_FOR_DOCUMENT_SCOPE) === true;
     const shouldBypassDescendingForDocumentScope = hasDocumentScope && bypassDescendingWithDocumentScope;
     const behaviorPersonalityPriorityPrompt =
       isBehaviorPersonalityPriorityPrompt(safePrompt) || isBehaviorPersonalityPriorityPrompt(verificationTargetPrompt);
@@ -3750,6 +3993,8 @@ export async function POST(req: NextRequest) {
     const shouldRunDescending =
       descendingDisableFromBody === true
         ? false
+        : descendingAlwaysOn
+        ? true
         : shouldForceDescendingForIdentity
         ? true
         : descendingEnabled &&
@@ -3821,6 +4066,28 @@ export async function POST(req: NextRequest) {
           .replace(/^\s*resposta\s*:\s*\n+/i, "")
           .replace(/^\s*resposta\s*:\s*/i, "")
           .trim();
+        let finalOutputText = finalDescendingText || selectedOutputText;
+
+        if (identityIntentFamily) {
+          const canonicalIdentityReply = buildAssistantIdentityFamilyReply(
+            identityIntentFamily,
+            safePrompt,
+            historyForCascade,
+          );
+          if (
+            canonicalIdentityReply &&
+            !isIdentityFamilyAnswerSufficient(identityIntentFamily, finalOutputText)
+          ) {
+            finalOutputText = canonicalIdentityReply;
+          }
+        }
+
+        finalOutputText = enforceRouteMicroConversationalGuard({
+          prompt: safePrompt,
+          history: historyForCascade,
+          answer: finalOutputText,
+          identityIntentFamily,
+        });
 
         console.info("KNEXAI_DESCENDING_PIPELINE_OK", {
           route: selectedRun.route,
@@ -3833,7 +4100,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (streamRequested) {
-          const textStream = createChunkedTextStream(finalDescendingText || selectedOutputText);
+          const textStream = createChunkedTextStream(finalOutputText);
           const responseStream = streamMode === "sse" ? toSseStream(textStream) : textStream;
           return new Response(responseStream, {
             status: 200,
@@ -3849,7 +4116,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        return new Response(createChunkedTextStream(finalDescendingText || selectedOutputText), {
+        return new Response(createChunkedTextStream(finalOutputText), {
           status: 200,
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
@@ -3867,7 +4134,7 @@ export async function POST(req: NextRequest) {
           identityIntentFamily,
         });
         if (identityIntentFamily) {
-          const canonical = buildAssistantIdentityFamilyReply(identityIntentFamily, safePrompt);
+          const canonical = buildAssistantIdentityFamilyReply(identityIntentFamily, safePrompt, historyForCascade);
           if (canonical) {
             const responseStream = streamRequested && streamMode === "sse"
               ? toSseStream(createChunkedTextStream(canonical))
@@ -3908,6 +4175,9 @@ export async function POST(req: NextRequest) {
     const responsePolicyContext: ResponsePolicyContext = {
       state: conversationState,
       complexity: classifyPromptComplexity(safePrompt),
+      userMessage: safePrompt,
+      history: historyForCascade,
+      identityIntentFamily,
     };
 
     let autoWebEvidenceForForcedRag: AutoWebEvidence | null = null;
@@ -4052,12 +4322,20 @@ export async function POST(req: NextRequest) {
         state: responsePolicyContext.state,
         complexity: responsePolicyContext.complexity,
       });
+      const ragGuardedContent = enforceRouteMicroConversationalGuard({
+        prompt: responsePolicyContext.userMessage,
+        history: responsePolicyContext.history,
+        answer: ragEnforcedContent || ragCleanedContent || ragRawContent,
+        identityIntentFamily: responsePolicyContext.identityIntentFamily,
+      });
       return Response.json(
         {
           ok: true,
           reply: {
             role: "assistant",
-            content: ragEnforcedContent || ragCleanedContent || ragRawContent,
+            content: ensureUtf8Response(
+              decodeLikelyMojibake(ragGuardedContent),
+            ).text,
           },
           metadata: run.ragMetadata,
           meta: run.meta,
@@ -4198,7 +4476,9 @@ export async function POST(req: NextRequest) {
 
     if (effectiveEngineMode.mode === "anm") {
       if (effectiveEngineMode.fallbackToDirect) {
-        const strictAnmPrimary = parseOptionalBoolean(process.env.KNEXAI_ANM_STRICT_PRIMARY) !== false;
+        const strictAnmPrimary = parseOptionalBoolean(
+          readAnmCompatEnv("KNEXAI_AI_SYSTEM_ANM_STRICT_PRIMARY", "KNEXAI_ANM_STRICT_PRIMARY"),
+        ) !== false;
         if (strictAnmPrimary) {
           const anmAttempt = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
             .then((anm) => toAttemptOk("anm", anm))
@@ -4412,6 +4692,7 @@ export async function POST(req: NextRequest) {
     return safeBackendError(500, "INTERNAL_ERROR", "Erro interno ao processar a requisicao.");
   }
 }
+
 
 
 

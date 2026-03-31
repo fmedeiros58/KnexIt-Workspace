@@ -43,20 +43,20 @@ function resolveMedeirosNarrative(mode: MedeirosNarrativeMode, message: string):
   const professionalQuestionDetected = isMedeirosProfessionalQuestion(normalized);
 
   if (formationQuestionDetected && mode === "short") {
-    return "Medeiros tem uma formacao interdisciplinar que inclui Letras, Medicina e Mestrado em Educacao, alem de especializacoes em Lingua Portuguesa e Literatura e Educacao Especial Inclusiva Avancada.";
+    return "Medeiros tem uma formação interdisciplinar que inclui Letras, Medicina e Mestrado em Educação, além de especializações em Língua Portuguesa e Literatura e Educação Especial Inclusiva Avançada.";
   }
 
   if (professionalQuestionDetected && mode === "short") {
-    return "Profissionalmente, Medeiros atua na educacao basica e no NIEAD/UFAC, com experiencia em docencia, coordenacao pedagogica, ensino superior e formacao docente.";
+    return "Profissionalmente, Medeiros atua na educação básica e no NIEAD/UFAC, com experiência em docência, coordenação pedagógica, ensino superior e formação docente.";
   }
 
   if (formationQuestionDetected && mode === "long") {
     return [
       pickOne(MEDEIROS_NARRATIVE_BANK.openings, seedBase + 1),
-      "Sua formacao combina graduacao em Letras pela UFAC, bacharelado em Medicina pela Universidad Privada Abierta Latinoamericana e Mestrado em Educacao pela UFAC.",
-      "Tambem inclui pos-graduacao em Lingua Portuguesa e Literatura e pos-graduacao lato sensu em Educacao Especial Inclusiva Avancada.",
-      "No percurso profissional, essa base se conecta com docencia, formacao docente e atuacao institucional no ensino superior, na educacao basica e no NIEAD/UFAC.",
-      "No ai-system-anm, essa formacao interdisciplinar influencia a origem epistemologica da Leticia e sua leitura nao reducionista do humano.",
+      "Sua formação combina graduação em Letras pela UFAC, bacharelado em Medicina pela Universidad Privada Abierta Latinoamericana e Mestrado em Educação pela UFAC.",
+      "Também inclui pós-graduação em Língua Portuguesa e Literatura e pós-graduação lato sensu em Educação Especial Inclusiva Avançada.",
+      "No percurso profissional, essa base se conecta com docência, formação docente e atuação institucional no ensino superior, na educação básica e no NIEAD/UFAC.",
+      "No ai-system-anm, essa formação interdisciplinar influencia a origem epistemológica da Letícia e sua leitura não reducionista do humano.",
       pickOne(MEDEIROS_NARRATIVE_BANK.closings, seedBase + 2),
     ].join(" ");
   }
@@ -64,10 +64,10 @@ function resolveMedeirosNarrative(mode: MedeirosNarrativeMode, message: string):
   if (professionalQuestionDetected && mode === "long") {
     return [
       pickOne(MEDEIROS_NARRATIVE_BANK.openings, seedBase + 3),
-      "Profissionalmente, Medeiros atua como professor da Educacao Basica da Secretaria de Educacao do Estado do Acre e como assessor pedagogico da Coordenacao Pedagogica do NIEAD/UFAC.",
-      "Sua trajetoria inclui docencia em Linguistica e Lingua Portuguesa no ensino superior, atuacao na pos-graduacao em Didatica e experiencia em Lingua Inglesa, Quimica e Fisica no ensino medio.",
-      "Tambem inclui coordenacao pedagogica, coordenacao de ensino, PDE/escola e coordenacao do Nucleo da UFAC em Porto Walter.",
-      "Esse conjunto de experiencia educacional e institucional reforca sua influencia na origem da Leticia dentro do ai-system-anm.",
+      "Profissionalmente, Medeiros atua como professor da Educação Básica da Secretaria de Educação do Estado do Acre e como assessor pedagógico da Coordenação Pedagógica do NIEAD/UFAC.",
+      "Sua trajetória inclui docência em Linguística e Língua Portuguesa no ensino superior, atuação na pós-graduação em Didática e experiência em Língua Inglesa, Química e Física no ensino médio.",
+      "Também inclui coordenação pedagógica, coordenação de ensino, PDE/escola e coordenação do Núcleo da UFAC em Porto Walter.",
+      "Esse conjunto de experiência educacional e institucional reforça sua influência na origem da Letícia dentro do ai-system-anm.",
       pickOne(MEDEIROS_NARRATIVE_BANK.closings, seedBase + 4),
     ].join(" ");
   }

@@ -27,6 +27,7 @@ import {
 import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "./vllm-client";
 import { RagOrchestratorV2 } from "./v2/orchestrator_v2";
 import { resolveIdentityFallbackForMessage } from "../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
+import { textNormalizationService } from "../../ai-system-anm-rag-qis/src/shared/text-processing/text-normalization.service";
 
 type RagLatencyPreset = "default" | "aggressive";
 type QueryComplexity = "simple" | "standard" | "deep";
@@ -527,17 +528,53 @@ type LocalIntentReply = {
     | "DOCUMENT_GROUNDING_REQUIRED";
 };
 
+function resolveTimeZoneForGreeting() {
+  const configured = `${process.env.AI_SYSTEM_TIMEZONE || process.env.TZ || "America/Sao_Paulo"}`.trim();
+  if (!configured) return "America/Sao_Paulo";
+  try {
+    new Intl.DateTimeFormat("pt-BR", { timeZone: configured }).format(new Date());
+    return configured;
+  } catch {
+    return "America/Sao_Paulo";
+  }
+}
+
+function resolveClockGreetingLabel() {
+  const timeZone = resolveTimeZoneForGreeting();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    hour: "2-digit",
+  }).formatToParts(new Date());
+  const hour = Number.parseInt(parts.find((item) => item.type === "hour")?.value || "12", 10);
+  if (hour >= 5 && hour <= 11) return "Bom dia";
+  if (hour >= 12 && hour <= 17) return "Boa tarde";
+  return "Boa noite";
+}
+
+function pickGreetingVariant(value: string, variants: string[]) {
+  if (!variants.length) return "";
+  const normalized = normalizeIntentText(value);
+  const seed = Math.max(0, normalized.length);
+  return variants[seed % variants.length];
+}
+
 function buildGreetingFastReply(value: string) {
   const salutation = resolveGreetingLead(value);
-  return `${salutation} Eu sou a Letícia. Como posso te ajudar agora?`;
+  return pickGreetingVariant(value, [
+    `${salutation} Como posso te ajudar agora?`,
+    `${salutation} Em que posso te ajudar agora?`,
+    `${salutation} Diga como posso te ajudar.`,
+  ]);
 }
 
 function normalizeIntentText(value: string) {
-  return `${value || ""}`
-    .trim()
+  return textNormalizationService
+    .expandContractions(value || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
+    .trim()
     .replace(/[!?.,;:"]/g, " ")
     .replace(/\s+/g, " ");
 }
@@ -603,7 +640,11 @@ function isSmallTalkPrompt(value: string) {
 
 function buildSmallTalkFastReply(value: string) {
   const greetingPrefix = containsGreetingToken(value) ? `${resolveGreetingLead(value)} ` : "";
-  return `${greetingPrefix}Tudo certo por aqui. Como posso te ajudar agora?`;
+  return pickGreetingVariant(value, [
+    `${greetingPrefix}Tudo certo por aqui. Como posso te ajudar agora?`,
+    `${greetingPrefix}Tudo bem por aqui. Como posso te ajudar agora?`,
+    `${greetingPrefix}Tudo tranquilo por aqui. Como posso te ajudar agora?`,
+  ]);
 }
 
 function containsGreetingToken(value: string) {
@@ -614,12 +655,12 @@ function containsGreetingToken(value: string) {
 
 function resolveGreetingLead(value: string) {
   const normalized = normalizeIntentText(value);
-  if (!normalized) return "Oi!";
+  if (!normalized) return `${resolveClockGreetingLabel()}!`;
   if (/\bsaudacoes\b/.test(normalized)) return "Saudações!";
   if (/\bbom dia\b/.test(normalized)) return "Bom dia!";
   if (/\bboa tarde\b/.test(normalized)) return "Boa tarde!";
   if (/\bboa noite\b/.test(normalized)) return "Boa noite!";
-  return "Oi!";
+  return `${resolveClockGreetingLabel()}!`;
 }
 
 function buildAssistantIdentityReply(value: string) {
@@ -1009,7 +1050,7 @@ function buildDocumentSelectionPrompt(docs: ScopedDocumentLabel[]) {
 
 function buildClarificationGreetingReply(parentQuestion: string, currentQuestion: string) {
   const salutation = resolveGreetingLead(currentQuestion);
-  const intro = `${salutation} Eu sou a Letícia.`;
+  const intro = `${salutation}`;
   const prompt = normalizeString(parentQuestion);
   if (!prompt) {
     return `${intro} Se quiser, continuo a solicitação anterior. Você quer que eu retome ou prefere um novo assunto?`;
@@ -1193,7 +1234,8 @@ export class RagQueryService {
 
   private shouldUseLocalIntentFastPath() {
     if (parseOptionalBoolean(process.env.RAG_LOCAL_INTENT_FAST_PATH_ENABLED) === false) return false;
-    const llmBridgeAlwaysOn = parseOptionalBoolean(process.env.ANM_LLM_BRIDGE_ALWAYS_ON) !== false;
+    const llmBridgeAlwaysOn =
+      parseOptionalBoolean(process.env.AI_SYSTEM_LLM_BRIDGE_ALWAYS_ON ?? process.env.ANM_LLM_BRIDGE_ALWAYS_ON) !== false;
     const allowWithAlwaysOn = parseOptionalBoolean(process.env.RAG_ALLOW_LOCAL_INTENT_FAST_PATH_WITH_LLM_BRIDGE) === true;
     if (llmBridgeAlwaysOn && !allowWithAlwaysOn) return false;
     return true;

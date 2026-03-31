@@ -29,9 +29,37 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   return "";
 }
 
+function readAnmCompatEnv(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function parseOptionalBoolean(value: string | undefined | null): boolean | undefined {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function isLegacyAnmChatFallbackEnabled() {
+  const raw = readAnmCompatEnv(
+    "AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK",
+    "ANM_ENABLE_LEGACY_CHAT_FALLBACK",
+  );
+  return parseOptionalBoolean(raw) === true;
+}
+
 function readAnmConfig() {
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAnmBaseUrl(
+    pickFirstNonEmpty(readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL", "ANM_API_BASE_URL"), DEFAULT_ANM_BASE_URL),
+  );
+  const parsedTimeout = Number(
+    readAnmCompatEnv("AI_SYSTEM_ANM_API_TIMEOUT_MS", "ANM_API_TIMEOUT_MS") || DEFAULT_ANM_TIMEOUT_MS,
+  );
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(3_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, anmTimeoutMs };
 }
@@ -385,6 +413,19 @@ export async function POST(req: NextRequest) {
           message: leticiaResult.detail || `Falha ao consultar o motor proativo (HTTP ${leticiaResult.response.status}).`,
         },
         { status: leticiaResult.response.status >= 500 ? 502 : leticiaResult.response.status },
+      );
+    }
+
+    const legacyFallbackEnabled = isLegacyAnmChatFallbackEnabled();
+    if (!legacyFallbackEnabled) {
+      return Response.json(
+        {
+          ok: false,
+          code: "PROACTIVE_UPSTREAM_ERROR",
+          message:
+            "Endpoint /assistant/leticia/respond ausente e fallback legado /chat desativado. Ative AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK=true apenas se necessario.",
+        },
+        { status: 502 },
       );
     }
 

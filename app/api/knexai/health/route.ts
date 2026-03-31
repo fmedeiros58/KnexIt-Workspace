@@ -12,6 +12,12 @@ const DEFAULT_ANM_TIMEOUT_MS = 8_000;
 const WSL_DISCOVERY_CACHE_MS = 60_000;
 
 type EngineMode = "direct" | "anm";
+type EngineModeConfig = {
+  mode: EngineMode;
+  anmBaseUrl: string;
+  anmTimeoutMs: number;
+  fallbackToDirect: boolean;
+};
 
 let wslDiscoveryCache: { key: string; checkedAt: number; urls: string[] } | null = null;
 
@@ -19,6 +25,14 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   for (const value of values) {
     const trimmed = typeof value === "string" ? value.trim() : "";
     if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+function readAnmCompatEnv(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
 }
@@ -117,19 +131,23 @@ function readLlmConfig() {
   return { baseUrl, fallbackBaseUrls, model, apiKey, timeoutMs };
 }
 
-function readEngineModeConfig() {
-  const modeRaw = pickFirstNonEmpty(
-    process.env.KNEXAI_ENGINE_MODE,
-    process.env.ANM_ENGINE_MODE,
-    "direct",
-  )
-    .trim()
-    .toLowerCase();
-  const mode: EngineMode = modeRaw === "anm" ? "anm" : "direct";
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+function readEngineModeConfig(): EngineModeConfig {
+  // Runtime atual: direct-only no endpoint principal /api/knexai.
+  const mode: EngineMode = "direct";
+  const anmBaseUrl = readConfiguredAnmBaseUrl(
+    pickFirstNonEmpty(
+      readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL", "ANM_API_BASE_URL"),
+      DEFAULT_ANM_BASE_URL,
+    ),
+  );
+  const parsedTimeout = Number(
+    readAnmCompatEnv("AI_SYSTEM_ANM_API_TIMEOUT_MS", "ANM_API_TIMEOUT_MS") || DEFAULT_ANM_TIMEOUT_MS,
+  );
   const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, parsedTimeout) : DEFAULT_ANM_TIMEOUT_MS;
-  const fallbackRaw = pickFirstNonEmpty(process.env.KNEXAI_ANM_FALLBACK_TO_DIRECT, "1").toLowerCase();
+  const fallbackRaw = pickFirstNonEmpty(
+    readAnmCompatEnv("KNEXAI_AI_SYSTEM_ANM_FALLBACK_TO_DIRECT", "KNEXAI_ANM_FALLBACK_TO_DIRECT"),
+    "1",
+  ).toLowerCase();
   const fallbackToDirect = !["0", "false", "no", "off"].includes(fallbackRaw);
   return { mode, anmBaseUrl, anmTimeoutMs, fallbackToDirect };
 }

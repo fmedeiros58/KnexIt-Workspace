@@ -30,6 +30,7 @@ const HISTORY_ITEM_TRUNCATE_SUFFIX = "...";
 export type ChatRouteHandlerConfig = {
   routeLabel: string;
   requireApiKey: boolean;
+  proxyThroughKnexAi?: boolean;
   includeRequestMetaInLog?: boolean;
   includeAnswerCharsInSuccessLog?: boolean;
   includeKnownErrorMessageInLog?: boolean;
@@ -55,6 +56,14 @@ export type ChatRouteHandlerConfig = {
 
 function normalizeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readAnmCompatEnv(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
 }
 
 function parseOptionalFiniteNumber(value: unknown) {
@@ -123,7 +132,7 @@ function parseOptionalEngineMode(value: unknown): "direct" | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
   if (normalized === "direct") return "direct";
-  if (normalized === "anm") return "direct";
+  if (normalized === "anm" || normalized === "ai-system-anm" || normalized === "ai_system_anm") return "direct";
   return undefined;
 }
 
@@ -219,6 +228,15 @@ function buildAttachmentsFromComposer(
 ) {
   const ids = (composerAttachmentIds && composerAttachmentIds.length ? composerAttachmentIds : scopedDocumentIds) || [];
   return ids.map((id) => ({ id: `${id}`, kind: "file" as const, name: `documento-${id}` }));
+}
+
+function extractAssistantTextFromKnexAiPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const row = payload as { reply?: { content?: unknown }; content?: unknown; answer?: unknown };
+  if (typeof row.reply?.content === "string") return row.reply.content.trim();
+  if (typeof row.content === "string") return row.content.trim();
+  if (typeof row.answer === "string") return row.answer.trim();
+  return "";
 }
 
 function truncateHistoryContent(value: string) {
@@ -368,6 +386,128 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
         strictFactualModeEnabled &&
         isStrictFactualPrompt(message) &&
         (!hasDocumentScope || !strictFactualBypassDocumentScope);
+
+      const shouldProxyThroughKnexAi =
+        config.proxyThroughKnexAi === true ||
+        parseOptionalBoolean(
+          readAnmCompatEnv("AI_SYSTEM_ANM_CHAT_ROUTE_PROXY_TO_KNEXAI", "CHAT_ROUTE_PROXY_TO_KNEXAI"),
+        ) === true;
+
+      if (shouldProxyThroughKnexAi) {
+        const proxyPayload = {
+          prompt: message,
+          message,
+          history,
+          stream: wantsStream,
+          streamMode,
+          pipeline: pipelineVersion,
+          composerBound,
+          composerAttachmentIds,
+          topK,
+          maxDistance,
+          documentId,
+          documentIds,
+          sourceType,
+          retrievalEmbeddingModel,
+          preferredResponseLanguageId,
+          maxResponseTokens: effectiveMaxResponseTokens,
+          temperature,
+          seed,
+          anmEngineMode,
+          engineMode: anmEngineMode,
+          anmBaseUrl: anmBaseUrl || undefined,
+          anmTimeoutMs,
+          anmSoftTimeoutMs,
+          anmFallbackToDirect,
+        };
+
+        const proxyResponse = await fetch(`${req.nextUrl.origin}/api/knexai`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            accept: wantsStream && streamMode === "sse" ? "text/event-stream" : "text/plain,application/json",
+            "x-internal-chat-route-proxy": "1",
+          },
+          cache: "no-store",
+          body: JSON.stringify(proxyPayload),
+        });
+
+        if (wantsStream) {
+          if (!proxyResponse.ok || !proxyResponse.body) {
+            const detail = `${await proxyResponse.text().catch(() => "")}`.trim().slice(0, 200);
+            throw new RagPipelineError(
+              proxyResponse.status || 502,
+              "CHAT_ROUTE_PROXY_FAILED",
+              `Falha ao abrir stream via /api/knexai${detail ? ` (${detail})` : ""}.`,
+            );
+          }
+
+          logger.info(config.logEvents.streamOpen, {
+            requestId: context.requestId,
+            path: context.path,
+            streamMode,
+            proxiedTo: "/api/knexai",
+          });
+
+          const upstreamContentType = proxyResponse.headers.get("content-type") || "";
+          const headers = buildResponseHeadersWithCors(context, { methods: routeOptions.methods }, {
+            "Content-Type":
+              streamMode === "sse" || upstreamContentType.includes("text/event-stream")
+                ? "text/event-stream; charset=utf-8"
+                : "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+          });
+          return new Response(proxyResponse.body, { status: proxyResponse.status || 200, headers });
+        }
+
+        if (!proxyResponse.ok) {
+          const detail = `${await proxyResponse.text().catch(() => "")}`.trim().slice(0, 200);
+          throw new RagPipelineError(
+            proxyResponse.status || 502,
+            "CHAT_ROUTE_PROXY_FAILED",
+            `Falha no proxy para /api/knexai${detail ? ` (${detail})` : ""}.`,
+          );
+        }
+
+        const contentType = `${proxyResponse.headers.get("content-type") || ""}`.toLowerCase();
+        let proxiedText = "";
+        let proxiedMetadata: unknown = null;
+        let proxiedMeta: unknown = null;
+        if (contentType.includes("application/json")) {
+          const payload = await proxyResponse.json().catch(() => null);
+          proxiedText = extractAssistantTextFromKnexAiPayload(payload);
+          if (payload && typeof payload === "object") {
+            const row = payload as { metadata?: unknown; meta?: unknown };
+            proxiedMetadata = row.metadata ?? null;
+            proxiedMeta = row.meta ?? null;
+          }
+        } else {
+          proxiedText = `${await proxyResponse.text()}`.trim();
+        }
+
+        logger.info(config.logEvents.success, {
+          requestId: context.requestId,
+          proxiedTo: "/api/knexai",
+          ...(config.includeAnswerCharsInSuccessLog ? { answerChars: proxiedText.length } : {}),
+        });
+
+        return jsonWithCors(
+          context,
+          {
+            ok: true,
+            reply: {
+              role: "assistant",
+              content: proxiedText,
+            },
+            metadata: proxiedMetadata,
+            meta: proxiedMeta || { requestId: context.requestId, proxiedTo: "/api/knexai" },
+          },
+          200,
+          { methods: routeOptions.methods },
+        );
+      }
 
       if (!wantsStream && shouldUseStrictFactualProxy) {
         const proxyPayload = {

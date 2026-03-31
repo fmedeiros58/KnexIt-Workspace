@@ -8,6 +8,17 @@ import { createInitialProcessingState, type ProcessingState } from "../bridges/c
 import { buildTextAnalysisSnapshot } from "../shared/text-processing/text-analysis-snapshot";
 import type { PipelineBootstrapInput } from "./pipeline-transition-contracts";
 
+function sanitizeTimeZone(value: string | undefined): string {
+  const candidate = `${value || ""}`.trim();
+  if (!candidate) return "";
+  try {
+    new Intl.DateTimeFormat("pt-BR", { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return "";
+  }
+}
+
 export function buildPipelineState(input: PipelineBootstrapInput): ProcessingState {
   const state = createInitialProcessingState(input.rawMessage);
   state.timings.pipelineStartedAt = Date.now();
@@ -18,6 +29,10 @@ export function buildPipelineState(input: PipelineBootstrapInput): ProcessingSta
     quickComplexity: 0,
     quickAmbiguity: 0,
     hasGreetingSignal: false,
+    greetingFamily: "none",
+    greetingConfidence: 0,
+    greetingFastLaneEligible: false,
+    greetingFastLaneReason: "no_greeting_family",
     hasVerifiableSignal: false,
     hasRecencySignal: false,
     hasSafetyRisk: false,
@@ -50,6 +65,13 @@ export function buildPipelineState(input: PipelineBootstrapInput): ProcessingSta
 
   if (input.sessionId) state.sessionState.sessionId = input.sessionId;
   if (input.turnId) state.sessionState.turnId = input.turnId;
+  const userTimeZone = sanitizeTimeZone(input.userTimeZone);
+  if (userTimeZone) {
+    state.userProfile = {
+      ...state.userProfile,
+      timeZone: userTimeZone,
+    };
+  }
   if (Array.isArray(input.recentTurns)) state.recentTurns = input.recentTurns.slice(-12);
   return state;
 }

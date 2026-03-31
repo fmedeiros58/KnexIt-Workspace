@@ -100,6 +100,8 @@ export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
   state.complexityProfile.score = score;
   state.complexityProfile.ambiguity = finalAmbiguity;
 
+  if (preRoute?.greetingFastLaneEligible) return "minimum";
+
   const verifiable =
     !isNameRecallPrompt(focusedMessage) &&
     (snapshot.hasVerifiableSignal || Boolean(preRoute?.hasVerifiableSignal));

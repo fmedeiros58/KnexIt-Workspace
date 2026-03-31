@@ -49,10 +49,24 @@ function detectSignals(state: ProcessingState) {
   const snapshot = state.textAnalysisSnapshot;
   const pre = state.preRouteSignals;
   const latestAnchor = inferLatestDomainAnchor(state);
+  const greetingFastLaneEligible = Boolean(pre.greetingFastLaneEligible);
 
   const hasSafetyBlock =
     pre.safetyAction === "caution" ||
     state.inputSignals.safetyFlags.some((flag) => /block|malicious|harmful|prompt_injection/i.test(flag));
+
+  if (greetingFastLaneEligible && !hasSafetyBlock) {
+    return {
+      text,
+      routeFloor: "minimum" as PipelineRoute,
+      requiredSteps: [],
+      reasonTags: ["greeting_fast_lane_top_gate"],
+      requiresKnowledge: false,
+      requiresWeb: false,
+      followUpDependency: false,
+      blockedBySafety: false,
+    };
+  }
 
   const hasFactualEntityCue =
     /\b(presidente|governador|prefeito|ceo|capital|cotacao|indice|taxa|mandato|eleit[oa]|posse|data|ano|numero|percentual|lei|norma|resolucao|preco|dose|mg|ml)\b/i.test(

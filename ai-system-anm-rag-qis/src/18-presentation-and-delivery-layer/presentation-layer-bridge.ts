@@ -256,7 +256,8 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
   const forcedDateAnswer = isCurrentDateQuestion(state.normalizedMessage || state.rawMessage)
     ? buildCurrentDateAnswer()
     : null;
-  const finalText = forcedDateAnswer || applyPresentationPolish(state, rawFinalText);
+  const finalTextGuard = ensureUtf8Response(forcedDateAnswer || applyPresentationPolish(state, rawFinalText));
+  const finalText = finalTextGuard.text;
 
   state.structuredResponse = finalText;
   state.deliveryPayload = {
@@ -291,7 +292,7 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
       streamChunkCount: stream.serialized.chunkCount,
       streamRecovered: stream.recovered,
       retryPolicy: front.retryPolicy,
-      utf8Repaired: utf8Guard.repaired,
+      utf8Repaired: utf8Guard.repaired || finalTextGuard.repaired,
       dialogicProgressionApplied: shouldApplyDialogicProgression(state, rawFinalText),
       epistemicClarityApplied: shouldApplyEpistemicClarity(state),
       philosophicalConsistencyApplied: shouldApplyPhilosophicalConsistency(state),
@@ -306,7 +307,7 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
       latencyMs: Date.now() - startedAt,
       detail:
         `channel=${front.delivery.channel}; format=${front.delivery.format}; serializer=${selectedSerialized.format}; ` +
-        `utf8_repaired=${utf8Guard.repaired}; citations=${finalCitations.length}; stream_chunks=${stream.serialized.chunkCount}; recovered=${stream.recovered}; ` +
+        `utf8_repaired=${utf8Guard.repaired || finalTextGuard.repaired}; citations=${finalCitations.length}; stream_chunks=${stream.serialized.chunkCount}; recovered=${stream.recovered}; ` +
         `date_guard_applied=${forcedDateAnswer ? "true" : "false"}`,
     }),
   );

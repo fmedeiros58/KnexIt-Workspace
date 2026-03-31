@@ -1,4 +1,4 @@
-import {
+﻿import {
   composeBehavioralStyle,
 } from "../src/17b-response-behavior-layer/behavioral-style-composer";
 import {
@@ -9,6 +9,7 @@ import {
 } from "../src/17b-response-behavior-layer/memory-opportunity-detector";
 import {
   resolveAiIdentityProfile,
+  resolveIdentityFallbackForMessage,
 } from "../src/17b-response-behavior-layer/ai-identity-regulator";
 import {
   shapeEmpathicResponse,
@@ -37,6 +38,7 @@ import {
 import {
   generateMicroVariation,
 } from "../src/17b-response-behavior-layer/micro-variation-engine";
+import { ensureUtf8Response } from "../src/18-presentation-and-delivery-layer/text-encoding-guard";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -312,8 +314,37 @@ function scenarioAiNameOriginGrounding(): void {
     "identity narrative should include LETICIA conceptual expansion",
   );
   assert(
-    aiIdentity.identityGroundingFacts.some((fact) => /homenagem.+medeiros.+filha leticia/i.test(fact)),
+    aiIdentity.identityGroundingFacts.some((fact) => {
+      const normalized = `${fact || ""}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      return /homenagem.+medeiros.+filha leticia/.test(normalized);
+    }),
     "identity grounding facts should include affective tribute context",
+  );
+}
+
+function scenarioAiNameOriginContractedFollowUpGrounding(): void {
+  const { aiIdentity } = runStack(
+    createInput({
+      interactionType: "follow_up",
+      taskType: "general",
+      formalityNeed: 0.5,
+      contextualSignals: {
+        normalizedMessage: "e pq vc se chama assim? tbm queria entender",
+        activeTopic: "identidade",
+        needsClarification: false,
+        continuityScore: 0.62,
+        rapportScore: 0.6,
+        detectedConfusion: 0.12,
+        recentOpenings: ["Eu me chamo Leticia, com muito gosto."],
+      },
+    }),
+  );
+  assert(
+    aiIdentity.nameOriginQuestionDetected,
+    "identity regulator should detect contracted follow-up name-origin family",
   );
 }
 
@@ -388,6 +419,35 @@ function scenarioAiCreatorFamilyGrounding(): void {
   );
 }
 
+function scenarioAiCreatorNamingQuestionGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("e quem deu esse nome a vc");
+  assert(fallback.shouldHandle, "identity fallback should handle creator naming question");
+  assert(fallback.creatorQuestionDetected, "creator-question family must be detected for naming-origin author");
+  assert(
+    /medeiros/i.test(fallback.shortNarrative),
+    "creator naming question should route through Medeiros identity narrative",
+  );
+}
+
+function scenarioIdentityUtf8RepairForNameOrigin(): void {
+  const fallback = resolveIdentityFallbackForMessage("e pq vc se chama assim?");
+  assert(fallback.shouldHandle, "identity fallback should handle contracted name-origin question");
+  assert(fallback.nameOriginQuestionDetected, "name-origin family must be detected");
+  assert(/Let\u00EDcia/.test(fallback.shortNarrative), "identity fallback should preserve UTF-8 accent in Letícia");
+  assert(!/\bpor tras\b/i.test(fallback.shortNarrative), "identity fallback should repair 'por trás' accent");
+  assert(!/\breune\b/i.test(fallback.shortNarrative), "identity fallback should repair 'reúne' accent");
+  assert(!/\bproposito\b/i.test(fallback.shortNarrative), "identity fallback should repair 'propósito' accent");
+  assert(!/Ãƒ|Ã‚|ï¿½/.test(fallback.shortNarrative), "identity fallback should not return mojibake artifacts");
+}
+
+function scenarioGlobalPortugueseOrthographyRepair(): void {
+  const sample =
+    "Leticia e um nome que, no contexto desta IA, reune proposito conceitual e sentido afetivo.";
+  const repaired = ensureUtf8Response(sample).text;
+  assert(repaired.includes("Letícia é um nome"), "global output guard should repair copula accent");
+  assert(repaired.includes("reúne propósito"), "global output guard should repair lexical accents");
+}
+
 scenarioObjectiveTechnical();
 scenarioFrustratedPractical();
 scenarioInformalSimple();
@@ -398,11 +458,16 @@ scenarioProactiveBlockedSensitive();
 scenarioProactiveBlockedByFrequency();
 scenarioAiIdentityConsistency();
 scenarioAiNameOriginGrounding();
+scenarioAiNameOriginContractedFollowUpGrounding();
 scenarioAiNameMeaningGrounding();
 scenarioAiNameConceptDefinitionGrounding();
 scenarioAiCreatorFamilyGrounding();
+scenarioAiCreatorNamingQuestionGrounding();
+scenarioIdentityUtf8RepairForNameOrigin();
+scenarioGlobalPortugueseOrthographyRepair();
 
 test("bootstrap assertions executed", () => {
   expect(true).toBe(true);
 });
+
 

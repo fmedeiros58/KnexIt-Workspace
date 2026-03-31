@@ -153,6 +153,14 @@ function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   return fallback;
 }
 
+function readAnmCompatEnv(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function parseBaseUrlList(value: string) {
   const result: string[] = [];
   const seen = new Set<string>();
@@ -552,7 +560,9 @@ function buildSystemPrompt(
   followupMode: "required" | "omit",
 ) {
   const lines: string[] = [
-    "Voce e o assistente interno da plataforma KnexIT.",
+    "Voce e Leticia, a IA nativa do ai-system-anm no ecossistema KnexIT.",
+    "Nao se descreva como entidade separada de Leticia.",
+    "Nunca diga formulacoes como 'eu e a inteligencia artificial Leticia' ou 'voce e o assistente enquanto Leticia e a IA'.",
     "Responda sempre no mesmo idioma da PERGUNTA do usuario, salvo pedido explicito de traducao/troca de idioma.",
     "Nao misture idiomas na resposta final.",
     "Se o contexto estiver em outro idioma, traduza mentalmente e responda somente no idioma obrigatorio.",
@@ -909,7 +919,9 @@ export class VllmInternalClient {
 
   private resolveAnmCandidates(baseUrl: string) {
     const primary = normalizeUrl(baseUrl);
-    const fallbackEnv = parseBaseUrlList(process.env.ANM_API_BASE_URL_FALLBACKS || "");
+    const fallbackEnv = parseBaseUrlList(
+      readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL_FALLBACKS", "ANM_API_BASE_URL_FALLBACKS"),
+    );
     const seedUrls = [primary, ...fallbackEnv];
     const unique: string[] = [];
     const seen = new Set<string>();
@@ -952,7 +964,7 @@ export class VllmInternalClient {
 
     const discoveredHosts: string[] = [];
     const configuredHost = (
-      process.env.ANM_WSL_HOST_IP ||
+      readAnmCompatEnv("AI_SYSTEM_ANM_WSL_HOST_IP", "ANM_WSL_HOST_IP") ||
       process.env.KNEXAI_WSL_HOST_IP ||
       process.env.LOCAL_WSL_HOST_IP ||
       process.env.RAG_LLM_WSL_HOST_IP ||
@@ -1046,12 +1058,22 @@ export class VllmInternalClient {
         };
       }
 
-      if (leticiaResponse.status !== 404) {
+      const legacyFallbackEnabled =
+        parseBooleanFlag(
+          readAnmCompatEnv("AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK", "ANM_ENABLE_LEGACY_CHAT_FALLBACK"),
+          false,
+        );
+
+      if (leticiaResponse.status !== 404 || !legacyFallbackEnabled) {
         const detail = (await leticiaResponse.text().catch(() => "")).trim().slice(0, 240);
+        const legacyHint =
+          leticiaResponse.status === 404 && !legacyFallbackEnabled
+            ? " Endpoint /assistant/leticia/respond ausente e fallback legado /chat desativado."
+            : "";
         throw new RagPipelineError(
           leticiaResponse.status >= 500 ? 503 : 502,
           "RAG_ANM_UPSTREAM_ERROR",
-          `ANM respondeu com erro HTTP ${leticiaResponse.status}${detail ? `: ${detail}` : "."}`,
+          `ANM respondeu com erro HTTP ${leticiaResponse.status}${detail ? `: ${detail}` : "."}${legacyHint}`,
         );
       }
 

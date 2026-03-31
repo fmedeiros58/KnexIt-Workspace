@@ -156,6 +156,10 @@ export interface PreRouteSignals {
   quickComplexity: number;
   quickAmbiguity: number;
   hasGreetingSignal: boolean;
+  greetingFamily?: string;
+  greetingConfidence?: number;
+  greetingFastLaneEligible?: boolean;
+  greetingFastLaneReason?: string;
   hasVerifiableSignal: boolean;
   hasRecencySignal: boolean;
   hasSafetyRisk: boolean;
@@ -653,6 +657,10 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       quickComplexity: 0,
       quickAmbiguity: 0,
       hasGreetingSignal: false,
+      greetingFamily: "none",
+      greetingConfidence: 0,
+      greetingFastLaneEligible: false,
+      greetingFastLaneReason: "no_greeting_family",
       hasVerifiableSignal: false,
       hasRecencySignal: false,
       hasSafetyRisk: false,

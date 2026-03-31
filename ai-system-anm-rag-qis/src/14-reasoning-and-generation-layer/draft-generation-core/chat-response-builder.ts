@@ -6,6 +6,7 @@
  */
 import type { ProcessingState } from "../../bridges/contracts/processing-state";
 import {
+  classifyGreetingFamily,
   isAssistantCreatorPrompt,
   isAssistantIdentityPrompt,
   isAssistantNameOriginPrompt,
@@ -26,6 +27,92 @@ import { resolveIdentityRuntimeFallback } from "../../17b-response-behavior-laye
 
 function normalize(value: string): string {
   return normalizeConversationText(value);
+}
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isValidTimeZone(value: string): boolean {
+  if (!value) return false;
+  try {
+    new Intl.DateTimeFormat("pt-BR", { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveUserTimeZone(state: ProcessingState): string {
+  const profile = state.userProfile || {};
+  const profileRecord = profile as Record<string, unknown>;
+  const candidates = [
+    readString(profileRecord.timeZone),
+    readString(profileRecord.timezone),
+    readString(profileRecord.userTimeZone),
+    readString(profileRecord.userTimezone),
+    readString(profileRecord.tz),
+    readString(profileRecord.tzName),
+  ];
+  const selected = candidates.find((candidate) => isValidTimeZone(candidate));
+  return selected || "America/Sao_Paulo";
+}
+
+type DayGreetingPhase = "morning" | "afternoon" | "night";
+
+function resolveDayGreetingPhase(timeZone: string): DayGreetingPhase {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    hour: "2-digit",
+  }).formatToParts(new Date());
+  const hourText = parts.find((part) => part.type === "hour")?.value || "12";
+  const hour = Number.parseInt(hourText, 10);
+  if (hour >= 5 && hour <= 11) return "morning";
+  if (hour >= 12 && hour <= 17) return "afternoon";
+  return "night";
+}
+
+function resolveDayGreetingLabel(phase: DayGreetingPhase): string {
+  if (phase === "morning") return "Bom dia";
+  if (phase === "afternoon") return "Boa tarde";
+  return "Boa noite";
+}
+
+function canonicalSurface(text: string): string {
+  return `${text || ""}`
+    .toLowerCase()
+    .replace(/[!?.,;:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pickVariant(state: ProcessingState, variants: string[], seed = 0): string {
+  if (variants.length === 0) return "";
+  if (variants.length === 1) return variants[0];
+
+  const recentAssistant = state.recentTurns
+    .filter((turn) => turn.role === "assistant")
+    .slice(-6)
+    .map((turn) => canonicalSurface(turn.content));
+  const recentSet = new Set(recentAssistant);
+
+  const turnCount = Number.isFinite(state.conversationState.turnCount) ? state.conversationState.turnCount : 0;
+  const base = Math.max(0, turnCount + state.recentTurns.length + seed);
+  const start = base % variants.length;
+
+  for (let offset = 0; offset < variants.length; offset += 1) {
+    const candidate = variants[(start + offset) % variants.length];
+    if (!recentSet.has(canonicalSurface(candidate))) return candidate;
+  }
+
+  return variants[start];
+}
+
+function isCheckinPrompt(normalized: string): boolean {
+  return /\b(tudo bem|tudo certo|tudo tranquilo|como vai|como esta|como voce esta|como vc ta|como c ta|que tal|blz|beleza|de boa|suave|tranquilo)\b/i.test(
+    normalized,
+  );
 }
 
 function isTechnicalRequest(text: string): boolean {
@@ -100,13 +187,67 @@ export function resolveConversationFocus(text: string): string {
   return extractLatestUtterance(text || "");
 }
 
-function buildGreetingResponse(normalized: string): string | null {
-  if (isGreetingMessage(normalized)) {
-    return "Oi! Eu sou a Letícia. Como posso te ajudar agora?";
+function buildGreetingResponse(state: ProcessingState, normalized: string): string | null {
+  const familyFromState = `${state.preRouteSignals?.greetingFamily || ""}`.trim().toLowerCase();
+  const family = familyFromState && familyFromState !== "none"
+    ? familyFromState
+    : classifyGreetingFamily(normalized);
+  const greetingDetected = Boolean(family) || isGreetingMessage(normalized);
+  const checkinDetected = family === "greeting_checkin" || isCheckinPrompt(normalized);
+
+  if (!greetingDetected && !checkinDetected) return null;
+
+  const timeZone = resolveUserTimeZone(state);
+  const phase = resolveDayGreetingPhase(timeZone);
+  const dayGreeting = resolveDayGreetingLabel(phase);
+
+  if (family === "greeting_courtesy_ping") {
+    return pickVariant(state, [
+      `Estou por aqui, sim. ${dayGreeting}! Como posso te ajudar agora?`,
+      `Estou online. ${dayGreeting}! Como posso te ajudar agora?`,
+      `Presente por aqui. ${dayGreeting}! Como posso te ajudar agora?`,
+    ], normalized.length);
   }
 
-  if (isSmallTalkMessage(normalized)) {
-    return "Estou bem e pronta para te ajudar. O que você precisa agora?";
+  if (checkinDetected) {
+    return pickVariant(state, [
+      `Tudo bem por aqui. ${dayGreeting}! Como posso te ajudar agora?`,
+      `Tudo certo por aqui. ${dayGreeting}! Como posso te ajudar agora?`,
+      `Tudo tranquilo por aqui. ${dayGreeting}! Como posso te ajudar agora?`,
+    ], normalized.length);
+  }
+
+  if (family === "greeting_formal") {
+    return pickVariant(state, [
+      `${dayGreeting}. Em que posso te ajudar agora?`,
+      `${dayGreeting}. Como posso te ajudar agora?`,
+      `${dayGreeting}. Diga como prefere seguir.`,
+    ], normalized.length);
+  }
+
+  if (family === "greeting_reentry") {
+    return pickVariant(state, [
+      `${dayGreeting}! Que bom te ver de novo. Como posso te ajudar agora?`,
+      `${dayGreeting}! Que bom te ver de volta. Como posso te ajudar agora?`,
+      `${dayGreeting}! Vamos continuar. Como posso te ajudar agora?`,
+    ], normalized.length);
+  }
+
+  if (family === "greeting_timebound") {
+    return pickVariant(state, [
+      `${dayGreeting}! Como posso te ajudar agora?`,
+      `${dayGreeting}! Como posso te ajudar hoje?`,
+      `${dayGreeting}! Em que posso te ajudar agora?`,
+    ], normalized.length);
+  }
+
+  if (greetingDetected) {
+    return pickVariant(state, [
+      `${dayGreeting}! Como posso te ajudar agora?`,
+      `${dayGreeting}! Em que posso te ajudar agora?`,
+      `${dayGreeting}! Diga como posso te ajudar.`,
+      `${dayGreeting}! Como você quer seguir?`,
+    ], normalized.length);
   }
 
   return null;
@@ -295,7 +436,7 @@ export function buildConversationalFallback(state: ProcessingState): string | nu
     return `Perfeito, ${declaredName}. Eu vou te chamar assim daqui pra frente.`;
   }
 
-  const greeting = buildGreetingResponse(normalizedFocus);
+  const greeting = buildGreetingResponse(state, normalizedFocus);
   if (greeting) return greeting;
 
   if (isRedoCommand(focus)) {

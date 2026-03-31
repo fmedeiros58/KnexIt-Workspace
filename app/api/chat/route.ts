@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 const handlers = createChatRouteHandlers({
   routeLabel: "/api/chat",
   requireApiKey: process.env.NODE_ENV === "production",
+  proxyThroughKnexAi: true,
   includeRequestMetaInLog: false,
   includeAnswerCharsInSuccessLog: false,
   includeKnownErrorMessageInLog: true,
