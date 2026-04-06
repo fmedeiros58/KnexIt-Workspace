@@ -348,6 +348,26 @@ function scenarioAiNameOriginContractedFollowUpGrounding(): void {
   );
 }
 
+function scenarioAiNameOriginTypoFollowUpGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("e pq tte chamam assim?");
+  assert(fallback.shouldHandle, "identity fallback should handle typo variation of name-origin question");
+  assert(fallback.nameOriginQuestionDetected, "name-origin family should survive typo in short pronoun token");
+  assert(
+    /let[ií]cia|language-engineered|homenagem|medeiros/i.test(fallback.shortNarrative),
+    "name-origin typo should still route to identity-grounded narrative",
+  );
+}
+
+function scenarioAiNameOriginEmotionalBaseFollowUpGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("e na base emocional, de onde susrgiu?");
+  assert(fallback.shouldHandle, "identity fallback should handle emotional-base follow-up with typo");
+  assert(fallback.nameOriginQuestionDetected, "emotional-base follow-up should stay in name-origin family");
+  assert(
+    /let[ií]cia|language-engineered|homenagem|medeiros/i.test(fallback.shortNarrative),
+    "emotional-base follow-up should preserve identity-grounded narrative",
+  );
+}
+
 function scenarioAiNameMeaningGrounding(): void {
   const { aiIdentity } = runStack(
     createInput({
@@ -429,6 +449,18 @@ function scenarioAiCreatorNamingQuestionGrounding(): void {
   );
 }
 
+function scenarioAiWhoIsMedeirosGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("mas entao, quem e medeiros?");
+  assert(fallback.shouldHandle, "identity fallback should handle who-is Medeiros question");
+  assert(fallback.creatorQuestionDetected, "who-is Medeiros question should be routed as creator family context");
+  assert(
+    /francimar de lima medeiros|fundador epistemol[oó]gico|idealizador|refer[êe]ncia humana|origem da let[ií]cia/i.test(
+      fallback.shortNarrative,
+    ),
+    "who-is Medeiros answer should identify him directly, not only restate creator framing",
+  );
+}
+
 function scenarioIdentityUtf8RepairForNameOrigin(): void {
   const fallback = resolveIdentityFallbackForMessage("e pq vc se chama assim?");
   assert(fallback.shouldHandle, "identity fallback should handle contracted name-origin question");
@@ -459,15 +491,15 @@ scenarioProactiveBlockedByFrequency();
 scenarioAiIdentityConsistency();
 scenarioAiNameOriginGrounding();
 scenarioAiNameOriginContractedFollowUpGrounding();
+scenarioAiNameOriginTypoFollowUpGrounding();
+scenarioAiNameOriginEmotionalBaseFollowUpGrounding();
 scenarioAiNameMeaningGrounding();
 scenarioAiNameConceptDefinitionGrounding();
 scenarioAiCreatorFamilyGrounding();
 scenarioAiCreatorNamingQuestionGrounding();
+scenarioAiWhoIsMedeirosGrounding();
 scenarioIdentityUtf8RepairForNameOrigin();
 scenarioGlobalPortugueseOrthographyRepair();
-
-test("bootstrap assertions executed", () => {
-  expect(true).toBe(true);
-});
+assert(true, "bootstrap assertions executed");
 
 

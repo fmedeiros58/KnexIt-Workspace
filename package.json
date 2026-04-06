@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "dev": "node scripts/dev-smart.mjs",
+    "dev:next": "next dev -H 0.0.0.0 -p 3000",
     "dev:restart": "powershell -ExecutionPolicy Bypass -File scripts/dev-restart.ps1",
-    "dev:app": "next dev -H 0.0.0.0 -p 3000",
+    "dev:app": "npm run dev:next",
     "dev:knexchat": "node scripts/dev-knexchat.cjs",
     "dev:knexai": "start \"\" http://localhost:3004/knexai && next dev -H 127.0.0.1 -p 3004",
     "dev:supadrive": "start \"\" http://localhost:3005/supadrive && next dev -H 127.0.0.1 -p 3005",

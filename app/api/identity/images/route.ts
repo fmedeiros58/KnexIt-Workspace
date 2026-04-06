@@ -5,7 +5,7 @@ import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
 export const runtime = "nodejs";
 
 const IMAGE_BUCKET = (process.env.IDENTITY_RUNTIME_IMAGE_BUCKET || "identity-runtime-images").trim();
-const IDENTITY_SCHEMA = (process.env.ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
+const IDENTITY_SCHEMA = (process.env.AI_SYSTEM_ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
 const IMAGE_TABLE = "identity_image_assets";
 const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024;
 

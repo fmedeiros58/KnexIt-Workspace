@@ -11,6 +11,7 @@ import {
   isMedeirosFounderInfluenceQuestion,
   isMedeirosIdentityQuestion,
   isMedeirosProfessionalQuestion,
+  isMedeirosWhoIsQuestion,
   normalizeMedeirosText,
 } from "./medeiros-question-patterns";
 import type {
@@ -37,10 +38,25 @@ function resolveMedeirosNarrative(mode: MedeirosNarrativeMode, message: string):
   const seedBase = hashString(normalized || "medeiros-default-seed");
 
   const creatorQuestionDetected = isMedeirosCreatorQuestion(normalized);
+  const whoIsQuestionDetected = isMedeirosWhoIsQuestion(normalized);
   const identityQuestionDetected = isMedeirosIdentityQuestion(normalized);
   const founderInfluenceQuestionDetected = isMedeirosFounderInfluenceQuestion(normalized);
   const formationQuestionDetected = isMedeirosFormationQuestion(normalized);
   const professionalQuestionDetected = isMedeirosProfessionalQuestion(normalized);
+
+  if (whoIsQuestionDetected && mode === "short") {
+    return pickOne(MEDEIROS_NARRATIVE_BANK.whoIsAnswersShort, seedBase + 1);
+  }
+
+  if (whoIsQuestionDetected && mode === "long") {
+    return [
+      pickOne(MEDEIROS_NARRATIVE_BANK.openings, seedBase + 2),
+      "Medeiros é Francimar de Lima Medeiros, idealizador da Letícia no ai-system-anm e referência fundadora de origem epistemológica do sistema.",
+      "Sua trajetória integra formação em Letras, Medicina e Educação, com atuação em docência, coordenação pedagógica e assessoramento educacional.",
+      "No contexto da Letícia, ele não é tratado apenas como autor técnico, mas como eixo de coerência conceitual, identitária e existencial.",
+      pickOne(MEDEIROS_NARRATIVE_BANK.closings, seedBase + 3),
+    ].join(" ");
+  }
 
   if (formationQuestionDetected && mode === "short") {
     return "Medeiros tem uma formação interdisciplinar que inclui Letras, Medicina e Mestrado em Educação, além de especializações em Língua Portuguesa e Literatura e Educação Especial Inclusiva Avançada.";
@@ -100,6 +116,7 @@ function resolveMedeirosNarrative(mode: MedeirosNarrativeMode, message: string):
 
 export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentityProfile {
   const normalized = normalizeMedeirosText(message);
+  const whoIsQuestionDetected = isMedeirosWhoIsQuestion(normalized);
   const identityQuestionDetected = isMedeirosIdentityQuestion(normalized);
   const creatorQuestionDetected = isMedeirosCreatorQuestion(normalized);
   const founderInfluenceQuestionDetected = isMedeirosFounderInfluenceQuestion(normalized);
@@ -107,6 +124,7 @@ export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentit
   const professionalQuestionDetected = isMedeirosProfessionalQuestion(normalized);
 
   const shouldExplainMedeiros =
+    whoIsQuestionDetected ||
     creatorQuestionDetected ||
     identityQuestionDetected ||
     founderInfluenceQuestionDetected ||
@@ -123,6 +141,7 @@ export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentit
     "evitar_invencoes_biograficas",
     "quando_relevante_mencionar_nome_completo_francimar_de_lima_medeiros",
     "quando_relevante_mencionar_citacao_bibliografica_medeiros_f_l",
+    "quando_perguntarem_quem_e_medeiros_priorizar_identificacao_biografica_direta",
     "quando_perguntarem_sobre_formacao_de_medeiros_responder_com_base_interdisciplinar",
     "quando_perguntarem_sobre_atuacao_profissional_de_medeiros_incluir_docencia_niead_e_formacao_docente",
     "explicar_que_a_trajectoria_de_medeiros_influencia_a_leticia_tambem_pela_experiencia_educacional_e_institucional",
@@ -132,6 +151,7 @@ export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentit
     canonicalName: MEDEIROS_BASE_PROFILE.canonicalName,
     systemRole: MEDEIROS_BASE_PROFILE.systemRole,
     preferredReference: MEDEIROS_BASE_PROFILE.preferredReference,
+    whoIsQuestionDetected,
     identityQuestionDetected,
     creatorQuestionDetected,
     founderInfluenceQuestionDetected,

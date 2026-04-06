@@ -236,7 +236,7 @@ function Sync-KubernetesRuntimeEnvFromDotEnv([string]$KubectlPath, [string]$Name
     "LOCAL_LLM_API_KEY",
     "VLLM_API_KEY",
     "EMBEDDING_API_KEY",
-    "ANM_ENGINE_API_KEY",
+    "AI_SYSTEM_ANM_ENGINE_API_KEY",
     "HUGGING_FACE_HUB_TOKEN",
     "DATABASE_URL",
     "VECTOR_DATABASE_URL",
@@ -353,3 +353,4 @@ Sync-KubernetesRuntimeEnvFromDotEnv -KubectlPath $kubectlPath -Namespace "knexit
 Wait-DeploymentRolloutIfExists -KubectlPath $kubectlPath -Namespace "knexit" -DeploymentName "vllm" -Timeout "900s"
 Wait-DeploymentRolloutIfExists -KubectlPath $kubectlPath -Namespace "knexit" -DeploymentName "knexit-web" -Timeout "300s"
 Invoke-Checked $kubectlPath @("-n", "knexit", "get", "pods", "-o", "wide")
+

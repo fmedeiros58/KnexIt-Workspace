@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $WorkspacePath = $env:EMBEDDING_CPU_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
-  $WorkspacePath = $env:ANM_WSL_WORKSPACE_DIR
+  $WorkspacePath = $env:AI_SYSTEM_ANM_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $repoRootWindows = $repoRoot.Path.Replace("\", "/")
@@ -77,3 +77,4 @@ wsl -e bash -lc $command
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
+

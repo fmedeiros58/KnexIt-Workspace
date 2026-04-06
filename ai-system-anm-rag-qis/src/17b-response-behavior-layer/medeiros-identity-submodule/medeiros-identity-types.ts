@@ -7,6 +7,7 @@ export type MedeirosNarrativeBank = {
   epistemicLeads: string[];
   influenceLeads: string[];
   closings: string[];
+  whoIsAnswersShort: string[];
   creatorAnswersShort: string[];
   identityAnswersShort: string[];
   influenceAnswersShort: string[];
@@ -16,6 +17,7 @@ export type MedeirosIdentityProfile = {
   canonicalName: string;
   systemRole: string;
   preferredReference: string;
+  whoIsQuestionDetected: boolean;
   identityQuestionDetected: boolean;
   creatorQuestionDetected: boolean;
   founderInfluenceQuestionDetected: boolean;

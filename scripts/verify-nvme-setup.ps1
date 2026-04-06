@@ -227,21 +227,21 @@ $embeddingsBasePath = if ($env:EMBEDDINGS_BASE_PATH) { $env:EMBEDDINGS_BASE_PATH
 $localLlmModelDefault = if ($env:LOCAL_LLM_MODEL_DEFAULT) { $env:LOCAL_LLM_MODEL_DEFAULT } else { "$embeddingsBasePath/CModelosMistral-7B-Instruct-v0.2-AWQ" }
 $tempWorkdirPath = if ($env:TEMP_WORKDIR_PATH) { $env:TEMP_WORKDIR_PATH } else { ".tmp" }
 $exportsBasePath = if ($env:EXPORTS_BASE_PATH) { $env:EXPORTS_BASE_PATH } else { "data/exports" }
-$anmCheckpointDir = if ($env:ANM_CHECKPOINT_DIR) { $env:ANM_CHECKPOINT_DIR } else { "data/checkpoints" }
+$anmCheckpointDir = if ($env:AI_SYSTEM_ANM_CHECKPOINT_DIR) { $env:AI_SYSTEM_ANM_CHECKPOINT_DIR } else { "data/checkpoints" }
 $ragRawDocumentsPath = if ($env:RAG_RAW_DOCUMENTS_PATH) { $env:RAG_RAW_DOCUMENTS_PATH } else { "$storageBasePath/rag/raw" }
 $ragExtractedTextPath = if ($env:RAG_EXTRACTED_TEXT_PATH) { $env:RAG_EXTRACTED_TEXT_PATH } else { "$storageBasePath/rag/text" }
 $ragAdminBulkBasePath = if ($env:RAG_ADMIN_BULK_BASE_PATH) { $env:RAG_ADMIN_BULK_BASE_PATH } else { "$storageBasePath/rag/bulk" }
 $dockerTemplatePath = if ($env:DOCKER_ENGINE_TEMPLATE_PATH) { $env:DOCKER_ENGINE_TEMPLATE_PATH } else { "infra/docker/docker-desktop-engine.nvme2.json" }
 $dockerDataRoot = if ($env:DOCKER_DATA_ROOT) { $env:DOCKER_DATA_ROOT } else { "/var/lib/docker" }
 $identityMigrationsPolicy = if ($env:IDENTITY_MIGRATIONS_POLICY) { $env:IDENTITY_MIGRATIONS_POLICY } else { "required" }
-$anmCheckpointRetentionDays = if ($env:ANM_CHECKPOINT_RETENTION_DAYS) { $env:ANM_CHECKPOINT_RETENTION_DAYS } else { "14" }
+$anmCheckpointRetentionDays = if ($env:AI_SYSTEM_ANM_CHECKPOINT_RETENTION_DAYS) { $env:AI_SYSTEM_ANM_CHECKPOINT_RETENTION_DAYS } else { "14" }
 $exportsRetentionDays = if ($env:EXPORTS_RETENTION_DAYS) { $env:EXPORTS_RETENTION_DAYS } else { "60" }
 
 Write-Output "[INFO] MIGRATIONS_PATH=$migrationsPath"
 Write-Output "[INFO] KNEXAI_MIGRATION_FILE=$knexAiMigrationFile"
 Write-Output "[INFO] VECTOR_MIGRATION_FILE=$vectorMigrationFile"
 Write-Output "[INFO] VECTOR_HNSW_MIGRATION_FILE=$vectorIndexMigrationFile"
-Write-Output "[INFO] ANM_CHECKPOINT_DIR=$anmCheckpointDir"
+Write-Output "[INFO] AI_SYSTEM_ANM_CHECKPOINT_DIR=$anmCheckpointDir"
 Write-Output "[INFO] STORAGE_BASE_PATH=$storageBasePath"
 Write-Output "[INFO] TEMP_WORKDIR_PATH=$tempWorkdirPath"
 Write-Output "[INFO] EXPORTS_BASE_PATH=$exportsBasePath"
@@ -254,7 +254,7 @@ Write-Output "[INFO] LOCAL_LLM_MODEL_DEFAULT=$localLlmModelDefault"
 Write-Output "[INFO] DOCKER_ENGINE_TEMPLATE_PATH=$dockerTemplatePath"
 Write-Output "[INFO] DOCKER_DATA_ROOT=$dockerDataRoot"
 Write-Output "[INFO] IDENTITY_MIGRATIONS_POLICY=$identityMigrationsPolicy"
-Write-Output "[INFO] ANM_CHECKPOINT_RETENTION_DAYS=$anmCheckpointRetentionDays"
+Write-Output "[INFO] AI_SYSTEM_ANM_CHECKPOINT_RETENTION_DAYS=$anmCheckpointRetentionDays"
 Write-Output "[INFO] EXPORTS_RETENTION_DAYS=$exportsRetentionDays"
 
 $posixCandidates = @($env:NVME_BASE_PATH, $knexAiMigrationFile, $anmCheckpointDir, $dockerDataRoot)
@@ -289,7 +289,7 @@ if (@("required", "optional") -notcontains $identityMigrationsPolicy) {
   Write-Fail "IDENTITY_MIGRATIONS_POLICY invalido: $identityMigrationsPolicy (use required|optional)"
 }
 if (-not $checkpointRetentionOk -or $checkpointRetentionValue -le 0) {
-  Write-Fail "ANM_CHECKPOINT_RETENTION_DAYS invalido: $anmCheckpointRetentionDays"
+  Write-Fail "AI_SYSTEM_ANM_CHECKPOINT_RETENTION_DAYS invalido: $anmCheckpointRetentionDays"
 }
 if (-not $exportsRetentionOk -or $exportsRetentionValue -le 0) {
   Write-Fail "EXPORTS_RETENTION_DAYS invalido: $exportsRetentionDays"
@@ -307,7 +307,7 @@ Check-ReadableFile "Template Docker Engine" $dockerTemplatePath
 Check-WritableOrCreatableDir "Storage base" $storageBasePath
 Check-WritableOrCreatableDir "Diretorio temporario persistente" $tempWorkdirPath
 Check-WritableOrCreatableDir "Diretorio de exportacoes" $exportsBasePath
-Check-WritableOrCreatableDir "Checkpoint ANM" $anmCheckpointDir
+Check-WritableOrCreatableDir "Checkpoint AI_SYSTEM_ANM" $anmCheckpointDir
 Check-WritableOrCreatableDir "Diretorio RAG de documentos brutos" $ragRawDocumentsPath
 Check-WritableOrCreatableDir "Diretorio RAG de texto extraido" $ragExtractedTextPath
 Check-WritableOrCreatableDir "Diretorio RAG de ingestao em massa" $ragAdminBulkBasePath
@@ -516,3 +516,4 @@ if ($script:FailCount -gt 0) {
   exit 1
 }
 exit 0
+

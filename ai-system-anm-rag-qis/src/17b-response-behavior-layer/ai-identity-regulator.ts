@@ -520,6 +520,7 @@ const NAME_ORIGIN_QUESTION_PATTERNS: RegExp[] = [
   /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+(?:tem|usa)\s+(esse\s+)?nome)\b/,
   /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+leticia)\b/,
   /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+assim|se\s+chama\s+assim)\b/,
+  /\b((por que|porque|pq)\s+(?:te|tte)\s+chamam?\s+assim)\b/,
   /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/,
   /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome)\b/,
   /\b(o que significa leticia|qual o significado(?:\s+do\s+nome)?(?:\s+de)?\s+leticia|leticia significa o que|esse nome significa o que)\b/,
@@ -540,6 +541,8 @@ const CREATOR_QUESTION_PATTERNS: RegExp[] = [
   /\b(quem te deu (?:esse\s+)?nome|quem (?:deu|escolheu|definiu) (?:esse\s+)?nome (?:a|para) (?:voce|vc|ce|ti))\b/,
   /\b(quem escolheu (?:o\s+)?seu nome|quem te chamou de leticia|quem deu esse nome pra vc)\b/,
   /\b(foi ele que te criou|ele te criou|voce e (?:filha|filho) dele|vc e (?:filha|filho) dele)\b/,
+  /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+diz\s+que\s+(?:ele|medeiros)\s+nao\s+e\s+apenas\s+(?:um\s+)?autor\s+tecnico)\b/,
+  /\b((?:ele|medeiros)\s+nao\s+e\s+apenas\s+(?:um\s+)?autor\s+tecnico)\b/,
 ];
 
 const KINSHIP_METAPHOR_PATTERNS: RegExp[] = [
@@ -564,9 +567,17 @@ const ADDRESS_PREFERENCE_QUESTION_PATTERNS: RegExp[] = [
 function isIdentityQuestion(message: string): boolean {
   const normalized = normalize(message);
   const loose = normalizeLoose(message);
+  const asksAssistantNamePolitely =
+    /\b(gostaria|quero|queria|preciso|pode|poderia|consegue|conseguiria)\b/.test(loose) &&
+    /\b(saber|dizer|informar|falar|conhecer)\b/.test(loose) &&
+    /\bnome\b/.test(loose) &&
+    /\b(seu|teu|voce|vc|ce)\b/.test(loose) &&
+    !/\b(meu|minha)\s+nome\b/.test(loose);
+
   if (matchesAnyPattern(normalized, IDENTITY_QUESTION_PATTERNS) || /\b(e qual (e|eh) o seu)\b/.test(normalized)) {
     return true;
   }
+  if (asksAssistantNamePolitely) return true;
   if (/\b(voce|vc|ce)\s+se\s+chama\b/.test(loose) && (hasLeticiaReference(loose) || /\bcomo|qual\b/.test(loose))) {
     return true;
   }
@@ -587,9 +598,14 @@ function isNameOriginQuestion(message: string): boolean {
     );
   const referencesName = /\b(seu nome|esse nome|nome)\b/.test(loose) || hasLeticiaReference(loose);
   const referencesNamingAct = /\b(se chama|se chama assim|te chamam|chamam|batizada|rotulada|definida|conceituada)\b/.test(loose);
+  const asksEmotionalBase = /\b(base emocional|base afetiva|dimensao afetiva|camada afetiva)\b/.test(loose);
+  const asksLooseEmergence = /\b(de onde s(?:u|us)rgiu|como s(?:u|us)rgiu|de onde veio)\b/.test(loose);
+  const referencesIdentityAnaphora = /\b(esse nome|nome|isso|assim|dessa forma)\b/.test(loose);
 
   if (asksWhyOrOrigin && referencesName) return true;
   if (asksWhyOrOrigin && referencesNamingAct && (hasLeticiaReference(loose) || /\b(voce|vc|ce|te)\b/.test(loose))) return true;
+  if (asksEmotionalBase && asksLooseEmergence) return true;
+  if (asksEmotionalBase && referencesIdentityAnaphora) return true;
   return false;
 }
 
@@ -597,9 +613,16 @@ function isCreatorContextQuestion(message: string): boolean {
   const normalized = normalize(message);
   const loose = normalizeLoose(message);
   if (matchesAnyPattern(normalized, CREATOR_QUESTION_PATTERNS)) return true;
+  if (/\b(quem)\s+(?:e|eh|é)\s+(?:o\s+)?(?:seu|teu)\s+criador\b/.test(loose)) return true;
   if (
     /\b(criou|criador|idealizou|batizou|deu esse nome|escolheu esse nome)\b/.test(loose) &&
-    /\b(voce|vc|ce|te|leticia|medeiros|ele|dele)\b/.test(loose)
+    /\b(voce|vc|ce|te|seu|sua|teu|tua|leticia|medeiros|ele|dele)\b/.test(loose)
+  ) {
+    return true;
+  }
+  if (
+    /\b(autor tecnico|fundador epistemologico|origem epistemologica)\b/.test(loose) &&
+    /\b(leticia|medeiros|ele|dele|voce|vc|ce)\b/.test(loose)
   ) {
     return true;
   }
@@ -616,6 +639,37 @@ function isKinshipMetaphorQuestion(message: string): boolean {
 function isAddressPreferenceQuestion(message: string): boolean {
   const normalized = normalize(message);
   return matchesAnyPattern(normalized, ADDRESS_PREFERENCE_QUESTION_PATTERNS);
+}
+
+function hasFounderDetectedByRuntime(input: BehaviorPersonalityInput): boolean {
+  if (input.contextualSignals.identityRuntimeFounderDetected === true) return true;
+  const labels = Array.isArray(input.contextualSignals.identityRuntimeLabels)
+    ? input.contextualSignals.identityRuntimeLabels
+    : [];
+  return labels.some((label) => /\b(medeiros|francimar)\b/.test(normalizeLoose(label)));
+}
+
+function isFounderContextFollowUpQuestion(message: string): boolean {
+  const loose = normalizeLoose(message);
+  if (!loose) return false;
+
+  if (
+    /\b(quem teve essa ideia|quem teve a ideia|de quem foi essa ideia|essa ideia foi de quem|foi ideia de quem)\b/.test(
+      loose,
+    )
+  ) {
+    return true;
+  }
+
+  const hasDeicticReference =
+    /\b(ele|dele|desse|desse mesmo|essa pessoa|esse criador|esse fundador|quem foi ele)\b/.test(loose) ||
+    /\b(esse nome|essa origem|essa definicao|essa explicacao|essa ideia)\b/.test(loose);
+  const hasCreatorSemantics =
+    /\b(criou|criador|idealizou|fundador|origem|deu esse nome|escolheu esse nome|te chamou|te batizou|filha|filho|pai)\b/.test(
+      loose,
+    );
+
+  return hasDeicticReference && hasCreatorSemantics;
 }
 
 function shouldSelfIntroduce(
@@ -635,16 +689,28 @@ function resolvePreferredFormsSnippet(seedBase: number): string {
   return `Voce pode me chamar de ${joinedForms}.`;
 }
 
+function ensureCanonicalNameLead(text: string): string {
+  const trimmed = `${text || ""}`.trim();
+  if (!trimmed) return "Meu nome e Leticia.";
+  const normalized = normalizeLoose(trimmed);
+  if (/\b(meu nome|eu sou|eu me chamo|sou a leticia)\b/.test(normalized)) return trimmed;
+  return `Meu nome e Leticia. ${trimmed}`;
+}
+
 function resolveIdentityNarrative(
   mode: IdentityNarrativeMode,
   message: string,
+  options?: {
+    forceCreatorContext?: boolean;
+  },
 ): string {
   const normalizedMessage = normalize(message || "");
   const seedBase = hashString(normalizedMessage || "leticia-default-seed");
 
   const identityQuestionDetected = isIdentityQuestion(normalizedMessage);
   const nameOriginQuestionDetected = isNameOriginQuestion(normalizedMessage);
-  const creatorContextQuestionDetected = isCreatorContextQuestion(normalizedMessage);
+  const creatorContextQuestionDetected =
+    options?.forceCreatorContext === true || isCreatorContextQuestion(normalizedMessage);
   const kinshipMetaphorQuestionDetected = isKinshipMetaphorQuestion(normalizedMessage);
   const addressPreferenceQuestionDetected = isAddressPreferenceQuestion(normalizedMessage);
 
@@ -707,13 +773,13 @@ function resolveIdentityNarrative(
     const answerShort = pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.nameOriginAnswersShort, seedBase + 13);
 
     if (mode === "short") {
-      return [
+      return ensureCanonicalNameLead([
         answerShort,
         `${conceptualLead} ${LETICIA_IDENTITY_FACTS_CANONICAL.conceptualExpansion}.`,
-      ].join(" ");
+      ].join(" "));
     }
 
-    return [
+    return ensureCanonicalNameLead([
       opening,
       answerShort,
       LETICIA_IDENTITY_FACTS_CANONICAL.conceptualMeaning,
@@ -725,7 +791,7 @@ function resolveIdentityNarrative(
       warmthBridge,
       preferredFormsSnippet,
       closing,
-    ].join(" ");
+    ].join(" "));
   }
 
   if (identityQuestionDetected) {
@@ -749,11 +815,7 @@ function resolveIdentityNarrative(
   }
 
   if (mode === "short") {
-    return [
-      opening,
-      `${conceptualLead} ${LETICIA_IDENTITY_FACTS_CANONICAL.conceptualExpansion}.`,
-      LETICIA_IDENTITY_FACTS_CANONICAL.affectiveMeaning,
-    ].join(" ");
+    return pickOne(LETICIA_NARRATIVE_BANK_CANONICAL.identityAnswersShort, seedBase + 15);
   }
 
   return [
@@ -772,12 +834,18 @@ function resolveIdentityNarrative(
 
 export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIdentityProfile {
   const sourceMessage = input.contextualSignals.normalizedMessage || "";
+  const founderDetectedByRuntime = hasFounderDetectedByRuntime(input);
+  const founderFollowUpDetected = founderDetectedByRuntime && isFounderContextFollowUpQuestion(sourceMessage);
+  const sourceMessageForFounderInference = founderFollowUpDetected
+    ? `${sourceMessage} medeiros`
+    : sourceMessage;
   const identityQuestionDetected = isIdentityQuestion(sourceMessage);
   const nameOriginQuestionDetected = isNameOriginQuestion(sourceMessage);
-  const creatorContextQuestionDetected = isCreatorContextQuestion(sourceMessage);
-  const kinshipMetaphorQuestionDetected = isKinshipMetaphorQuestion(sourceMessage);
+  const creatorContextQuestionDetected =
+    isCreatorContextQuestion(sourceMessageForFounderInference) || founderFollowUpDetected;
+  const kinshipMetaphorQuestionDetected = isKinshipMetaphorQuestion(sourceMessageForFounderInference);
   const addressPreferenceQuestionDetected = isAddressPreferenceQuestion(sourceMessage);
-  const medeirosIdentity = resolveMedeirosIdentityProfile(sourceMessage);
+  const medeirosIdentity = resolveMedeirosIdentityProfile(sourceMessageForFounderInference);
   const founderIdentityInfluence = buildFounderIdentityInfluence();
 
   const courtesyBase =
@@ -799,18 +867,23 @@ export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIde
     addressPreferenceQuestionDetected,
   );
 
-  let identityNarrativeShort = resolveIdentityNarrative("short", sourceMessage);
-  let identityNarrativeLong = resolveIdentityNarrative("long", sourceMessage);
+  let identityNarrativeShort = resolveIdentityNarrative("short", sourceMessage, {
+    forceCreatorContext: founderFollowUpDetected,
+  });
+  let identityNarrativeLong = resolveIdentityNarrative("long", sourceMessage, {
+    forceCreatorContext: founderFollowUpDetected,
+  });
 
   const shouldPrioritizeMedeirosNarrative =
     !kinshipMetaphorQuestionDetected &&
     !identityQuestionDetected &&
     !nameOriginQuestionDetected &&
+    (medeirosIdentity.whoIsQuestionDetected ||
     (creatorContextQuestionDetected ||
       medeirosIdentity.creatorQuestionDetected ||
       medeirosIdentity.founderInfluenceQuestionDetected ||
       medeirosIdentity.formationQuestionDetected ||
-      medeirosIdentity.professionalQuestionDetected);
+      medeirosIdentity.professionalQuestionDetected));
 
   if (shouldPrioritizeMedeirosNarrative) {
     identityNarrativeShort = medeirosIdentity.shortNarrative;
@@ -859,6 +932,10 @@ export function resolveAiIdentityProfile(input: BehaviorPersonalityInput): AiIde
 
   if (creatorContextQuestionDetected) {
     styleDirectives.push("responder_quem_e_medeiros_no_contexto_do_projeto_leticia_sem_generalizacao_desancorada");
+  }
+
+  if (founderDetectedByRuntime) {
+    styleDirectives.push("usar_contexto_de_identidade_verificada_no_turno_para_desambiguar_referencias_a_medeiros");
   }
 
   if (addressPreferenceQuestionDetected) {
@@ -915,11 +992,12 @@ export function resolveIdentityFallbackForMessage(message: string): {
     !kinshipMetaphorQuestionDetected &&
     !identityQuestionDetected &&
     !nameOriginQuestionDetected &&
+    (medeirosIdentity.whoIsQuestionDetected ||
     (creatorContextQuestionDetected ||
       medeirosIdentity.creatorQuestionDetected ||
       medeirosIdentity.founderInfluenceQuestionDetected ||
       medeirosIdentity.formationQuestionDetected ||
-      medeirosIdentity.professionalQuestionDetected);
+      medeirosIdentity.professionalQuestionDetected));
 
   if (shouldPrioritizeMedeirosNarrative) {
     shortNarrative = medeirosIdentity.shortNarrative;

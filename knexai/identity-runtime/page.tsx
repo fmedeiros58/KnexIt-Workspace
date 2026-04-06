@@ -1796,11 +1796,12 @@ export default function IdentityRuntimePage() {
 
   useEffect(() => {
     void loadPanel();
+    if (isStreamOnly) return;
     const timer = window.setInterval(() => {
       void loadPanel();
     }, 3500);
     return () => window.clearInterval(timer);
-  }, [loadPanel]);
+  }, [isStreamOnly, loadPanel]);
 
   useEffect(() => {
     const stream = localStreamRef.current;
@@ -1993,12 +1994,13 @@ export default function IdentityRuntimePage() {
   ]);
 
   useEffect(() => {
+    if (isStreamOnly) return;
     void fetchWantedPeople({ preserveSelection: true });
     const timer = window.setInterval(() => {
       void fetchWantedPeople({ preserveSelection: true });
     }, 8_000);
     return () => window.clearInterval(timer);
-  }, [fetchWantedPeople]);
+  }, [fetchWantedPeople, isStreamOnly]);
 
   useEffect(() => {
     if (!wantedPeople.length) {
@@ -2396,7 +2398,7 @@ export default function IdentityRuntimePage() {
               <div className="z-[1] flex min-w-0 items-center">
                 {!isEmbedded ? (
                   <Link
-                    href="/knexai/web"
+                    href="/ai-system-anm/web"
                     className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
                   >
                     <ArrowLeft size={14} />
@@ -2415,7 +2417,7 @@ export default function IdentityRuntimePage() {
                 </span>
                 {!isEmbedded ? (
                   <Link
-                    href="/knexai/web"
+                    href="/ai-system-anm/web"
                     className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                   >
                     Configuracoes no chat

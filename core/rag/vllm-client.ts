@@ -65,8 +65,8 @@ const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 524]
 const DEFAULT_MIN_BUDGET_PER_CALL = 384;
 const DEFAULT_LLM_CONTEXT_WINDOW_TOKENS = 8192;
 const DEFAULT_LOCKED_MAX_TOKENS_PER_CALL = 16384;
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
-const DEFAULT_ANM_TIMEOUT_MS = 45_000;
+const DEFAULT_AI_SYSTEM_ANM_BASE_URL = "http://127.0.0.1:3000";
+const DEFAULT_AI_SYSTEM_ANM_TIMEOUT_MS = 45_000;
 
 type LlmEndpointAttempt = {
   baseUrl: string;
@@ -920,7 +920,7 @@ export class VllmInternalClient {
   private resolveAnmCandidates(baseUrl: string) {
     const primary = normalizeUrl(baseUrl);
     const fallbackEnv = parseBaseUrlList(
-      readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL_FALLBACKS", "ANM_API_BASE_URL_FALLBACKS"),
+      readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL_FALLBACKS"),
     );
     const seedUrls = [primary, ...fallbackEnv];
     const unique: string[] = [];
@@ -964,7 +964,7 @@ export class VllmInternalClient {
 
     const discoveredHosts: string[] = [];
     const configuredHost = (
-      readAnmCompatEnv("AI_SYSTEM_ANM_WSL_HOST_IP", "ANM_WSL_HOST_IP") ||
+      readAnmCompatEnv("AI_SYSTEM_ANM_WSL_HOST_IP") ||
       process.env.KNEXAI_WSL_HOST_IP ||
       process.env.LOCAL_WSL_HOST_IP ||
       process.env.RAG_LLM_WSL_HOST_IP ||
@@ -1060,7 +1060,7 @@ export class VllmInternalClient {
 
       const legacyFallbackEnabled =
         parseBooleanFlag(
-          readAnmCompatEnv("AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK", "ANM_ENABLE_LEGACY_CHAT_FALLBACK"),
+          readAnmCompatEnv("AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK"),
           false,
         );
 
@@ -2567,5 +2567,6 @@ export class VllmInternalClient {
 export function createVllmInternalClient(rawEnv = process.env) {
   return new VllmInternalClient(loadRagLlmConfig(rawEnv));
 }
+
 
 

@@ -3,8 +3,8 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 
 const MODES = [
-  { key: "anm", url: process.env.BENCH_ANM_URL || "http://localhost:3000/api/knexai" },
-  { key: "direct", url: process.env.BENCH_DIRECT_URL || "http://localhost:3010/api/knexai" },
+  { key: "ai_system_anm", url: process.env.BENCH_ANM_URL || "http://localhost:3000/api/ai-system-anm" },
+  { key: "direct", url: process.env.BENCH_DIRECT_URL || "http://localhost:3010/api/ai-system-anm" },
 ];
 
 const ITERATIONS = Number(process.env.BENCH_ITERATIONS || 2);

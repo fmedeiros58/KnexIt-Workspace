@@ -17,11 +17,39 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   return "";
 }
 
+function readForwardedToken(value: string | null) {
+  const first = `${value || ""}`
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)[0] || "";
+  return first;
+}
+
+function sanitizeForwardedHost(value: string | null) {
+  const first = readForwardedToken(value);
+  if (!first) return "";
+  const withoutScheme = first.replace(/^https?:\/\//i, "");
+  const hostOnly = withoutScheme.split("/")[0]?.trim() || "";
+  if (!hostOnly) return "";
+  try {
+    return new URL(`http://${hostOnly}`).host;
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeForwardedProto(value: string | null) {
+  const first = readForwardedToken(value).toLowerCase();
+  if (first === "http" || first === "https") return first;
+  return "";
+}
+
 export function resolveRequestOrigin(req: NextRequest) {
-  const forwardedProto = pickFirstNonEmpty(req.headers.get("x-forwarded-proto"));
-  const forwardedHost = pickFirstNonEmpty(req.headers.get("x-forwarded-host"));
-  if (forwardedProto && forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`;
+  const forwardedHost = sanitizeForwardedHost(req.headers.get("x-forwarded-host"));
+  if (forwardedHost) {
+    const forwardedProto = sanitizeForwardedProto(req.headers.get("x-forwarded-proto"));
+    const fallbackProto = `${req.nextUrl.protocol || "http:"}`.replace(/:$/, "") || "http";
+    return `${forwardedProto || fallbackProto}://${forwardedHost}`;
   }
   return req.nextUrl.origin;
 }

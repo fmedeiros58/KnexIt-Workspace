@@ -41,24 +41,21 @@ import { fallbackStrategyManager } from "./execution-coordinator/fallback-strate
 import { handoffOrchestrationToMemory } from "./orchestration-to-memory-bridge";
 import { applyPipelineDecisionGuard } from "../00-myelinated-pipeline-core/pipeline-decision-guard";
 import { isConversationalPrompt } from "../shared/utils/conversation-signals";
-import {
-  hasIntentGateEvaluation,
-  resolveIntentGateRoute,
-} from "../shared/routing/intent-gate-route-resolver";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
 function routeRank(route: PipelineRoute) {
-  if (route === "minimum") return 0;
-  if (route === "reflective") return 1;
-  if (route === "inferential") return 2;
-  return 3;
+  return route === "minimum" ? 0 : 1;
 }
 
 function elevateRoute(current: PipelineRoute, floor: PipelineRoute): PipelineRoute {
   return routeRank(current) >= routeRank(floor) ? current : floor;
+}
+
+function toOperationalRoute(route: PipelineRoute): PipelineRoute {
+  return route === "minimum" ? "minimum" : "inferential";
 }
 
 function countRecentFailures(state: ProcessingState) {
@@ -137,23 +134,17 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   const hasSafetyRestriction =
     state.preRouteSignals?.safetyAction === "caution" ||
     state.inputSignals.safetyFlags.some((flag) => /block|malicious|prompt_injection|harmful/i.test(flag));
-  const hasIntentGateEvaluationSignal = hasIntentGateEvaluation({
-    intentGateConfidence: state.preRouteSignals?.intentGateConfidence,
-    intentGateDebugTrace: state.preRouteSignals?.intentGateDebugTrace,
-  });
   const greetingFastLaneEligible = Boolean(state.preRouteSignals?.greetingFastLaneEligible);
-  const intentGateBypassDeepPipeline =
-    hasIntentGateEvaluationSignal && Boolean(state.preRouteSignals?.intentGateShouldBypassDeepPipeline);
-  const intentGateRouteHint = hasIntentGateEvaluationSignal
-    ? resolveIntentGateRoute({
-        routingRecommendation: state.preRouteSignals?.intentGateRoutingRecommendation,
-        shouldEscalateToDeepPipeline: state.preRouteSignals?.intentGateShouldEscalateToDeepPipeline,
-        hasVerifiableSignal: state.preRouteSignals?.hasVerifiableSignal || snapshot.hasVerifiableSignal,
-      })
-    : null;
+  const intentGateBypassDeepPipeline = false;
+  const logicalFrame = state.logicalFrame;
+  const logicalRoutingBias = logicalFrame?.shouldAffectRouting ? Math.max(0, logicalFrame.confidence * 0.22) : 0;
+  const logicalRetrievalBias = Boolean(logicalFrame?.shouldAffectRetrieval);
 
   if (conversationalPrompt && !hasSemanticRoutingDemand) {
     complexityScore = Math.min(complexityScore, 0.28);
+  }
+  if (!hasSafetyRestriction && !greetingFastLaneEligible && logicalRoutingBias > 0) {
+    complexityScore = clamp01(complexityScore + logicalRoutingBias);
   }
 
   const modeCandidates = [
@@ -189,8 +180,8 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   state.executionPlan.mode = selectedMode;
   state.executionPlan.maxDepth = depth.depthRequired;
 
-  const routeHint = routeRequest(state);
-  const originalRoute = state.executionPlan.selectedRoute;
+  const routeHint = toOperationalRoute(routeRequest(state));
+  const originalRoute = toOperationalRoute(state.executionPlan.selectedRoute);
   const routeElevated = routeRank(routeHint) > routeRank(originalRoute);
 
   let planningRoute: PipelineRoute = routeElevated ? routeHint : originalRoute;
@@ -200,36 +191,30 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     semanticRouteFloor = "inferential";
     routeFloorReason = "semantic_inferential_floor";
   } else if (semanticModes.includes("communicative_elaboration")) {
-    routeFloorReason = "semantic_reflective_floor";
-  }
-
-  if (
-    semanticModes.includes("epistemic_audit") &&
-    snapshot.hasVerifiableSignal &&
-    !hasSafetyRestriction
-  ) {
-    semanticRouteFloor = "quantum-state";
-    routeFloorReason = "semantic_quantum_floor";
+    routeFloorReason = "semantic_inferential_floor";
   }
 
   if (
     conversationalPrompt &&
     !hasSemanticRoutingDemand &&
     !hasSafetyRestriction &&
-    !greetingFastLaneEligible &&
-    !intentGateBypassDeepPipeline
+    !greetingFastLaneEligible
   ) {
     planningRoute = elevateRoute(planningRoute, "inferential");
     routeFloorReason = "conversation_inferential_floor";
   }
 
-  if (!hasSafetyRestriction && !greetingFastLaneEligible && !intentGateBypassDeepPipeline) {
+  if (!hasSafetyRestriction && !greetingFastLaneEligible) {
     planningRoute = elevateRoute(planningRoute, semanticRouteFloor);
   }
+  if (!hasSafetyRestriction && !greetingFastLaneEligible && logicalFrame?.shouldAffectRouting) {
+    planningRoute = elevateRoute(planningRoute, "inferential");
+    routeFloorReason = "logical_discernment_floor";
+  }
 
-  if (regulatory.blockStructuralConsolidation && planningRoute === "quantum-state") {
-    planningRoute = "reflective";
-    routeFloorReason = "regulatory_quantum_downgrade";
+  if (regulatory.blockStructuralConsolidation && planningRoute !== "minimum") {
+    planningRoute = "inferential";
+    routeFloorReason = "regulatory_deep_floor";
   }
 
   if (
@@ -237,15 +222,14 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     planningRoute === "minimum" &&
     complexityScore >= 0.33
   ) {
-    planningRoute = "reflective";
-    routeFloorReason = "legacy_reflective_floor";
+    planningRoute = "inferential";
+    routeFloorReason = "legacy_deep_floor";
   }
 
   if (
     !hasSafetyRestriction &&
     planningRoute === "minimum" &&
-    !greetingFastLaneEligible &&
-    !intentGateBypassDeepPipeline
+    !greetingFastLaneEligible
   ) {
     planningRoute = "inferential";
     routeFloorReason = "minimum_disabled_deep_default_floor";
@@ -254,10 +238,12 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   if (greetingFastLaneEligible && !hasSafetyRestriction) {
     planningRoute = "minimum";
     routeFloorReason = "greeting_fast_lane_top_gate";
-  } else if (intentGateBypassDeepPipeline && !hasSafetyRestriction && intentGateRouteHint) {
-    planningRoute = intentGateRouteHint;
-    routeFloorReason = "intent_gate_top_gate";
+  } else if (!hasSafetyRestriction) {
+    planningRoute = "inferential";
+    routeFloorReason = routeFloorReason === "none" ? "non_greeting_deep_default" : routeFloorReason;
   }
+
+  planningRoute = toOperationalRoute(planningRoute);
 
   const retrievalDemandByIntent = ["research", "analysis", "technical"].includes(state.inputSignals.intent);
   const retrievalDemandBySignal =
@@ -272,6 +258,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     (
       retrievalDemandByIntent ||
       retrievalDemandBySignal ||
+      logicalRetrievalBias ||
       complexityScore >= 0.52
     );
 
@@ -280,7 +267,6 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     !intentGateBypassDeepPipeline &&
     !directAnswerCue &&
     (
-      planningRoute === "quantum-state" ||
       state.inputSignals.intent === "research" ||
       snapshot.hasRecencySignal
     );
@@ -363,6 +349,8 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
       ...(greetingFastLaneEligible ? [toConstraint("fast_lane", "greeting_top_gate")] : []),
       ...(intentGateBypassDeepPipeline ? [toConstraint("fast_lane", "intent_gate_top_gate")] : []),
       ...(guardDecision.enforced ? [toConstraint("decision_guard", "enforced_post_orchestration")] : []),
+      ...(logicalFrame ? [toConstraint("logical_principle", logicalFrame.dominantPrinciple)] : []),
+      ...(logicalFrame?.recommendedAction ? [toConstraint("logical_recommended_action", "present")] : []),
       toConstraint("fallback", fallback.primaryStrategy),
       toConstraint("retry_max_attempts", `${retry.maxAttempts}`),
       ...(needMemoryReinforcement ? [toConstraint("memory", "reinforcement_required")] : []),
@@ -406,6 +394,8 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
         `score=${complexityScore.toFixed(3)}; ambiguity=${ambiguity.score.toFixed(3)}; mode=${selectedMode}; routeHint=${routeHint}; ` +
         `planRoute=${planningRoute}; semanticModes=${semanticModes.join(",") || "none"}; steps=${state.executionPlan.steps.length}; fallback=${fallback.primaryStrategy}; retry=${retry.maxAttempts}; ` +
         `greetingFastLaneEligible=${greetingFastLaneEligible}; intentGateBypass=${intentGateBypassDeepPipeline}; ` +
+        `logicalPrinciple=${logicalFrame?.dominantPrinciple || "none"}; logicalAffectRouting=${logicalFrame?.shouldAffectRouting ? "true" : "false"}; ` +
+        `logicalAffectRetrieval=${logicalFrame?.shouldAffectRetrieval ? "true" : "false"}; ` +
         `tokens=${snapshot.tokenCount}; sentences=${snapshot.sentenceCount}; verifiable=${snapshot.hasVerifiableSignal}; recency=${snapshot.hasRecencySignal}; ` +
         `memoryBias=${memoryComplexityBias.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; nodularAttention=${nodular.attention.toFixed(2)}; ` +
         `legacyTop=${legacyRuntimeTop.slice(0, 2).join(",")}; memoryManager=${(legacyRuntimeMap.memory_manager || 0).toFixed(2)}`,

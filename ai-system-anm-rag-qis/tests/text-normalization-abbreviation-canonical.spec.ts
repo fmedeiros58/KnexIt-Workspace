@@ -28,5 +28,10 @@ describe("TextNormalizationService abbreviations", () => {
     const b = textNormalizationService.fingerprint("porque voce esta bem?");
     expect(a).toBe(b);
   });
-});
 
+  it("corrige typo funcional em pronome curto sem perder intencao", () => {
+    const normalized = textNormalizationService.canonical("e pq tte chamam assim?", "intent");
+    expect(normalized).toContain("porque");
+    expect(normalized).toContain("te chamam assim");
+  });
+});

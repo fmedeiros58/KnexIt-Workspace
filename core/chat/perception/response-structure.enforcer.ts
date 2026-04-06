@@ -190,19 +190,64 @@ function trimDanglingTail(text: string) {
   return normalized;
 }
 
+function stripContinuitySelfPresentation(text: string, options: ResponseStructureOptions) {
+  const continuityMode = options.state.continuity_mode;
+  if (continuityMode !== "continue" && continuityMode !== "adjust") return text.trim();
+
+  const original = `${text || ""}`.trim();
+  if (!original) return "";
+  let output = original;
+
+  // Remove aberturas formulaicas que quebram continuidade em follow-ups.
+  const leadingPatterns: RegExp[] = [
+    /^\s*(?:ol[aá]|oi|bom dia|boa tarde|boa noite)[^.!?]{0,90}[.!?]\s*/i,
+    /^\s*(?:meu nome (?:e|é)\s+let[íi]cia|eu (?:sou|me chamo)\s+(?:a\s+)?let[íi]cia)[^.!?]{0,140}[.!?]\s*/i,
+    /^\s*(?:sou uma intelig[eê]ncia artificial[^.!?]{0,140})[.!?]\s*/i,
+  ];
+
+  let changed = false;
+  for (const pattern of leadingPatterns) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (!pattern.test(output)) break;
+      const candidate = output.replace(pattern, "").trimStart();
+      if (!candidate) break;
+      output = candidate;
+      changed = true;
+    }
+  }
+
+  // Remove fechamento de concierge redundante em continuidade.
+  const trailingPatterns: RegExp[] = [
+    /\s*(?:se\s+v(?:o|ô)?c(?:e|ê)\s+precisar[^.!?]{0,180}(?:estou por aqui|estou aqui|nao hesite em dizer|pode dizer|me diga)[^.!?]*[.!?]?)\s*$/i,
+    /\s*(?:se\s+quiser[^.!?]{0,180}(?:continuo|posso ajudar|posso te ajudar|te ajudo)[^.!?]*[.!?]?)\s*$/i,
+  ];
+  for (const pattern of trailingPatterns) {
+    const candidate = output.replace(pattern, "").trimEnd();
+    if (candidate && candidate !== output) {
+      output = candidate;
+      changed = true;
+    }
+  }
+
+  if (!changed) return original;
+  return output.trim() || original;
+}
+
 export function enforceResponseStructure(rawText: string, options: ResponseStructureOptions) {
   const normalized = stripAnswerArtifacts(stripMetaLeakage(normalizeWhitespace(rawText)));
   if (!normalized) return "";
+  const continuitySanitized = stripContinuitySelfPresentation(normalized, options);
+  const prepared = continuitySanitized || normalized;
 
   if (options.complexity === "micro") {
-    return trimDanglingTail(normalized.split("\n")[0].trim());
+    return trimDanglingTail(prepared.split("\n")[0].trim());
   }
 
   if (shouldKeepListFormat(options.state)) {
-    return removeExcessiveLineBreaks(normalized);
+    return removeExcessiveLineBreaks(prepared);
   }
 
-  const noMicroBlocks = collapseMicroBlocksIntoParagraph(normalized);
+  const noMicroBlocks = collapseMicroBlocksIntoParagraph(prepared);
   if (options.complexity === "direct" || options.complexity === "short") {
     return trimDanglingTail(removeExcessiveLineBreaks(noMicroBlocks));
   }

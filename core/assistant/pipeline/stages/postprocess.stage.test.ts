@@ -212,6 +212,20 @@ describe("PostprocessStage", () => {
     expect(ctx.finalAnswer || "").not.toMatch(/^ol[aá],?\s*usuario/i);
   });
 
+  it("corrige resposta anomala em pergunta de origem de nome com typo", async () => {
+    const ctx = makeContext(
+      "Olá, usuário carinho! Não sou uma entidade separada, eu sou apenas Letícia.",
+    );
+    ctx.userMessage = "e pq tte chamam assim?";
+    const stage = new PostprocessStage();
+    await stage.run(ctx);
+    const final = `${ctx.finalAnswer || ""}`;
+    expect(final.toLowerCase()).not.toContain("usuario carinho");
+    expect(final.toLowerCase()).not.toContain("sou apenas leticia");
+    expect(final).toMatch(/Let[ií]cia/);
+    expect(final.toLowerCase()).toMatch(/nome|conceitual|homenagem|medeiros/);
+  });
+
   it("bloqueia resposta factual sem evidencia web em pergunta verificavel", async () => {
     const ctx = makeContext("Atualmente, o presidente do Brasil e Jair Bolsonaro.");
     ctx.userMessage = "quem e o presidente do brasil atualmente?";

@@ -90,8 +90,8 @@ const DEFAULT_RAG_MAX_RESPONSE_TOKENS = Math.max(
 );
 const DEFAULT_STREAM_PIPELINE = `${process.env.NEXT_PUBLIC_CHAT_STREAM_PIPELINE || "v1"}`.trim().toLowerCase() === "v2" ? "v2" : "v1";
 const DEFAULT_CHAT_API_PATH = (() => {
-  const raw = `${process.env.NEXT_PUBLIC_CHAT_API_PATH || "/api/knexai"}`.trim();
-  if (!raw) return "/api/knexai";
+  const raw = `${process.env.NEXT_PUBLIC_CHAT_API_PATH || "/api/ai-system-anm"}`.trim();
+  if (!raw) return "/api/ai-system-anm";
   return raw.startsWith("/") ? raw : `/${raw}`;
 })();
 const STREAM_DELAY_MS = Math.max(8, Number(process.env.NEXT_PUBLIC_CHAT_STREAM_DELAY_MS || 16) || 16);
@@ -604,7 +604,7 @@ function ensureOk(res: Response, label: string) {
 }
 
 export async function loadPersistedThreads(sessionId: string): Promise<PersistedThread[]> {
-  const url = `/api/knexai/threads?sessionId=${encodeURIComponent(sessionId)}&includeMessages=1`;
+  const url = `/api/ai-system-anm/threads?sessionId=${encodeURIComponent(sessionId)}&includeMessages=1`;
   const res = await fetch(url, { method: "GET", cache: "no-store" });
   ensureOk(res, "KNEXAI_THREADS_GET");
   const payload = (await res.json()) as { threads?: PersistedThread[] };
@@ -612,7 +612,7 @@ export async function loadPersistedThreads(sessionId: string): Promise<Persisted
 }
 
 export async function createPersistedThread(sessionId: string, title: string): Promise<PersistedThread> {
-  const res = await fetch("/api/knexai/threads", {
+  const res = await fetch("/api/ai-system-anm/threads", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId, title }),
@@ -630,7 +630,7 @@ export async function savePersistedMessage(input: {
   content: string;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
-  const res = await fetch("/api/knexai/messages", {
+  const res = await fetch("/api/ai-system-anm/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),

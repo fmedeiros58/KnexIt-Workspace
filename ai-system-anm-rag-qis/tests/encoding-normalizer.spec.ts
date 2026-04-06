@@ -3,7 +3,7 @@
  * - Garantir reparo de mojibake basico na entrada.
  * - Evitar regressao em cenarios comuns de acentuacao quebrada.
  */
-import { encodingNormalizer } from "../src/01-input-layer/input-normalization-core/encoding-normalizer";
+import { encodingNormalizer } from "../src/01-input-layer/01-input-normalization-core/encoding-normalizer";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);

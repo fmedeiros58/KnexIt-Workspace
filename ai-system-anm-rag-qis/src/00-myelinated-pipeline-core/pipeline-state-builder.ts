@@ -19,6 +19,44 @@ function sanitizeTimeZone(value: string | undefined): string {
   }
 }
 
+function sanitizeIdentityRuntimeLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    labels.push(trimmed);
+    if (labels.length >= 8) break;
+  }
+  return labels;
+}
+
+function sanitizeIdentityRuntimeSource(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, 64);
+}
+
+function parseIdentityRuntimeContext(input: PipelineBootstrapInput) {
+  const raw = input.identityRuntimeContext;
+  if (!raw || typeof raw !== "object") return null;
+
+  const source = sanitizeIdentityRuntimeSource(raw.source);
+  const recognizedLabels = sanitizeIdentityRuntimeLabels(raw.recognizedLabels);
+  const founderDetected = raw.founderDetected === true;
+
+  if (!source && !recognizedLabels.length && !founderDetected) return null;
+  return {
+    source: source || "identity_runtime_shared_memory",
+    recognizedLabels,
+    founderDetected,
+  };
+}
+
 export function buildPipelineState(input: PipelineBootstrapInput): ProcessingState {
   const state = createInitialProcessingState(input.rawMessage);
   state.timings.pipelineStartedAt = Date.now();
@@ -39,6 +77,21 @@ export function buildPipelineState(input: PipelineBootstrapInput): ProcessingSta
     safetyAction: "allow",
     tokenCount: 0,
     questionCount: 0,
+    intentGatePrimaryIntent: "react_socially",
+    intentGateSecondaryIntents: [],
+    intentGateMinimalDepth: "minimal",
+    intentGateRoutingRecommendation: "lightweight_answer",
+    intentGateResponseModeHint: "social",
+    intentGateHasContextDependency: false,
+    intentGateContextDependencyScore: 0,
+    intentGateAmbiguityScore: 0,
+    intentGateSemanticDensityScore: 0,
+    intentGateShouldBypassDeepPipeline: false,
+    intentGateShouldUseRecentConversationContext: false,
+    intentGateShouldEscalateToDeepPipeline: false,
+    intentGateConfidence: 0,
+    intentGateReasoningTags: [],
+    intentGateDebugTrace: [],
   };
   state.executionArtifacts = {
     ...state.executionArtifacts,
@@ -73,5 +126,19 @@ export function buildPipelineState(input: PipelineBootstrapInput): ProcessingSta
     };
   }
   if (Array.isArray(input.recentTurns)) state.recentTurns = input.recentTurns.slice(-12);
+
+  const identityRuntimeContext = parseIdentityRuntimeContext(input);
+  if (identityRuntimeContext) {
+    state.userProfile = {
+      ...state.userProfile,
+      identityRuntimeContext,
+    };
+    state.activeContext = [
+      ...state.activeContext,
+      ...identityRuntimeContext.recognizedLabels.map((label) => `identity_runtime_label:${label}`),
+      `identity_runtime_source:${identityRuntimeContext.source}`,
+      ...(identityRuntimeContext.founderDetected ? ["identity_runtime_founder:medeiros"] : []),
+    ].slice(-24);
+  }
   return state;
 }

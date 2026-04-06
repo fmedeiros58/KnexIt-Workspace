@@ -2,7 +2,7 @@
 
 Camada de IA nativa do ecossistema KnexIT (Leticia + modelo Mistral/vLLM). Inclui:
 - `/knexai`: UI Next.js com chat em streaming.
-- `/api/knexai`: endpoint de chat com engine real (pipeline descendente + vLLM).
+- `/api/ai-system-anm`: endpoint de chat com engine real (pipeline descendente + vLLM).
 - `lib/knexai/spec.ts`: prompt base da Leticia.
 
 ## Estrutura
@@ -50,24 +50,24 @@ RAG_INGEST_EMBED_BATCH_SIZE=16
 PUBLIC_API_ALLOWED_ORIGINS=https://seu-frontend.vercel.app,https://app.knexspace.com
 PUBLIC_API_KEY=troque-por-uma-chave-forte
 
-# Provider do endpoint /api/knexai
+# Provider do endpoint /api/ai-system-anm
 KNEXAI_ENGINE_MODE=direct
 ```
 
 ## UI (Next.js)
 - Rota app: `/knexai` (wrapper em `app/knexai/page.tsx` -> `knexai/web/page.tsx`).
-- Endpoint: `/api/knexai` (pipeline descendente + vLLM).
+- Endpoint: `/api/ai-system-anm` (pipeline descendente + vLLM).
 - Endpoints RAG (MVP): `/api/query` e `/api/chat`.
 - UI de ingestao de documentos: `/knexai/ingest` (atalho: `/ingest`).
 - Endpoints publicos (proxy/HTTPS): `/query`, `/chat`, `/health`, `/ready`, `/v1/chat/completions`.
 - Para embeddings locais em CPU: `npm run serve:embeddings:cpu`.
 - Helper: `knexai/lib/client.ts` (streaming via fetch+ReadableStream).
-- Persistencia de chat: `/api/knexai/threads` e `/api/knexai/messages`.
+- Persistencia de chat: `/api/ai-system-anm/threads` e `/api/ai-system-anm/messages`.
 
 ## Guard de mensagens (persistencia)
 - O frontend gera `sessionId` local e guarda em `localStorage`.
-- Conversas sao carregadas automaticamente do backend (`/api/knexai/threads?includeMessages=1`).
-- Cada mensagem user/assistant e salva em `/api/knexai/messages`.
+- Conversas sao carregadas automaticamente do backend (`/api/ai-system-anm/threads?includeMessages=1`).
+- Cada mensagem user/assistant e salva em `/api/ai-system-anm/messages`.
 - Se o backend estiver indisponivel, o cache local mantem os chats para nao "sumirem".
 
 ## Migracoes SQL (Supabase)
@@ -98,7 +98,7 @@ cd knexai
 npm install
 npm run dev  # porta 3700, health em /health
 ```
-Observacao: esse stub nao e o caminho principal do produto; o fluxo oficial usa `app/api/knexai` no Next.
+Observacao: esse stub nao e o caminho principal do produto; o fluxo oficial usa `app/api/ai-system-anm` no Next.
 
 ## Proximos passos
 - Conectar fontes de contexto (Drive/Read/Review/Search) e cache semantico.

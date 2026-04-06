@@ -1,5 +1,13 @@
 import { NextRequest } from "next/server";
-import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
+import {
+  buildSharedIdentityRuntimePayload,
+  readIdentityRuntimeStatus,
+  resolveRequestOrigin,
+} from "@/app/api/proactive-assistant/_shared";
+import {
+  readConfiguredAiSystemAnmBaseUrl,
+  resolveReachableAiSystemAnmBaseUrl,
+} from "@/app/api/_shared/ai-system-anm-endpoint";
 import { rebuildConversationState } from "@/core/chat/perception/conversation-state.manager";
 import { enforceResponseStructure } from "@/core/chat/perception/response-structure.enforcer";
 
@@ -10,16 +18,8 @@ type ChatHistoryItem = {
   content: string;
 };
 
-type AnmChatResult = {
-  answer: string;
-  traceId: string | null;
-};
-
 type PromptComplexity = "micro" | "direct" | "short" | "medium" | "complex";
 type SupportedLocale = "pt-BR" | "en-US" | "es-ES";
-
-const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
-const DEFAULT_ANM_TIMEOUT_MS = 45_000;
 
 function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   for (const value of values) {
@@ -27,41 +27,6 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
     if (trimmed) return trimmed;
   }
   return "";
-}
-
-function readAnmCompatEnv(...keys: string[]) {
-  for (const key of keys) {
-    const value = process.env[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-
-function parseOptionalBoolean(value: string | undefined | null): boolean | undefined {
-  const normalized = `${value || ""}`.trim().toLowerCase();
-  if (!normalized) return undefined;
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return undefined;
-}
-
-function isLegacyAnmChatFallbackEnabled() {
-  const raw = readAnmCompatEnv(
-    "AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK",
-    "ANM_ENABLE_LEGACY_CHAT_FALLBACK",
-  );
-  return parseOptionalBoolean(raw) === true;
-}
-
-function readAnmConfig() {
-  const anmBaseUrl = readConfiguredAnmBaseUrl(
-    pickFirstNonEmpty(readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL", "ANM_API_BASE_URL"), DEFAULT_ANM_BASE_URL),
-  );
-  const parsedTimeout = Number(
-    readAnmCompatEnv("AI_SYSTEM_ANM_API_TIMEOUT_MS", "ANM_API_TIMEOUT_MS") || DEFAULT_ANM_TIMEOUT_MS,
-  );
-  const anmTimeoutMs = Number.isFinite(parsedTimeout) ? Math.max(3_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
-  return { anmBaseUrl, anmTimeoutMs };
 }
 
 function normalizeHistory(value: unknown): ChatHistoryItem[] {
@@ -204,37 +169,15 @@ async function parseErrorMessage(response: Response) {
     const payload = (await response.json().catch(() => null)) as { detail?: unknown; message?: unknown; code?: unknown } | null;
     return `${payload?.message || payload?.detail || payload?.code || ""}`.trim();
   }
-  return (await response.text().catch(() => "")).trim().slice(0, 320);
-}
-
-function resolveAnmAnswer(payload: unknown): AnmChatResult {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("ANM retornou payload invalido.");
+  if (contentType.includes("text/html")) {
+    const html = (await response.text().catch(() => "")).trim();
+    const compact = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (response.status === 404 || /\b404\b/.test(compact)) {
+      return "Rota nao encontrada no backend canonico (HTTP 404).";
+    }
+    return compact.slice(0, 220);
   }
-  const candidate = payload as {
-    answer?: unknown;
-    text?: unknown;
-    output?: unknown;
-    trace_id?: unknown;
-    traceId?: unknown;
-  };
-  const answerRaw =
-    typeof candidate.answer === "string"
-      ? candidate.answer
-      : typeof candidate.text === "string"
-        ? candidate.text
-        : typeof candidate.output === "string"
-          ? candidate.output
-          : "";
-  const answer = answerRaw.trim();
-  if (!answer) throw new Error("ANM nao retornou resposta textual.");
-  const traceCandidate =
-    typeof candidate.trace_id === "string"
-      ? candidate.trace_id
-      : typeof candidate.traceId === "string"
-        ? candidate.traceId
-        : "";
-  return { answer, traceId: traceCandidate || null };
+  return (await response.text().catch(() => "")).trim().slice(0, 320);
 }
 
 function createChunkedTextStream(text: string, chunkSize = 320) {
@@ -253,9 +196,29 @@ function createChunkedTextStream(text: string, chunkSize = 320) {
   });
 }
 
-async function requestLeticiaAnmChat(input: {
-  anmBaseUrl: string;
-  anmTimeoutMs: number;
+function stripConversationRoleArtifacts(text: string): string {
+  return text
+    .replace(/(^|\n)\s*(assistant|leticia|let[ií]cia)\s*[:\-]\s*/gim, "$1")
+    .replace(/(^|\n)\s*(usuario|user)\s*[:\-]\s*/gim, "$1")
+    .replace(/^\s*resposta\s*:\s*/im, "")
+    .trim();
+}
+
+function readCanonicalChatTimeoutMs() {
+  const parsed = Number(
+    pickFirstNonEmpty(
+      process.env.AI_SYSTEM_PROACTIVE_CHAT_TIMEOUT_MS,
+      process.env.AI_SYSTEM_ANM_API_TIMEOUT_MS,
+      "45000",
+    ),
+  );
+  if (!Number.isFinite(parsed)) return 45_000;
+  return Math.max(3_000, Math.round(parsed));
+}
+
+async function requestLeticiaCanonicalChat(input: {
+  baseUrl: string;
+  timeoutMs: number;
   prompt: string;
   history: ChatHistoryItem[];
   localeHint: string;
@@ -264,72 +227,38 @@ async function requestLeticiaAnmChat(input: {
   sharedIdentityRuntime: Record<string, unknown> | null;
 }) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), input.anmTimeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), input.timeoutMs);
   try {
-    const response = await fetch(`${input.anmBaseUrl}/assistant/leticia/respond`, {
+    return await fetch(`${input.baseUrl}/api/ai-system-anm`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       cache: "no-store",
       signal: controller.signal,
       body: JSON.stringify({
-        message: input.prompt,
-        mode: "proactive",
-        locale_hint: input.localeHint || undefined,
-        conversation_key: input.conversationKey,
-        user_key: input.userKey,
+        prompt: input.prompt,
         history: input.history,
-        shared_identity_runtime: input.sharedIdentityRuntime || undefined,
+        localeHint: input.localeHint || undefined,
+        locale: input.localeHint || undefined,
+        conversationKey: input.conversationKey,
+        userKey: input.userKey,
+        sharedIdentityRuntime: input.sharedIdentityRuntime || undefined,
+        // Proactive sempre exige fluxo descendente + geração com vLLM.
+        forceDescendingPipeline: true,
+        descendingPipelineEnabled: true,
+        descendingPipelineStrict: true,
+        directFallbackEnabled: false,
+        disableMicroSocialFastPath: true,
+        disableIdentityCanonicalFallback: true,
+        requireGenerationLlm: true,
+        stream: false,
       }),
     });
-
-    if (response.status === 404) {
-      return { response, fallback: true as const, answer: null as AnmChatResult | null, detail: "" };
-    }
-    if (!response.ok) {
-      const detail = await parseErrorMessage(response);
-      return { response, fallback: false as const, answer: null as AnmChatResult | null, detail };
-    }
-    const payload = await response.json().catch(() => null);
-    const answer = resolveAnmAnswer(payload);
-    return { response, fallback: false as const, answer, detail: "" };
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-async function requestFallbackAnmChat(input: {
-  anmBaseUrl: string;
-  anmTimeoutMs: number;
-  prompt: string;
-  sharedIdentityRuntime: Record<string, unknown> | null;
-}) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), input.anmTimeoutMs);
-  try {
-    const response = await fetch(`${input.anmBaseUrl}/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-      body: JSON.stringify({
-        message: input.prompt,
-        shared_identity_runtime: input.sharedIdentityRuntime || undefined,
-      }),
-    });
-    if (!response.ok) {
-      const detail = await parseErrorMessage(response);
-      return { ok: false as const, detail, status: response.status };
-    }
-    const payload = await response.json().catch(() => null);
-    return { ok: true as const, answer: resolveAnmAnswer(payload) };
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
 export async function POST(req: NextRequest) {
-  let resolvedAnmBaseUrl = "";
-  let attemptedAnmBaseUrls: string[] = [];
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const promptRaw = body.prompt ?? body.message;
@@ -359,15 +288,26 @@ export async function POST(req: NextRequest) {
       (typeof body.userKey === "string" && body.userKey.trim()) ||
       (typeof body.user_key === "string" && body.user_key.trim()) ||
       "chat-session";
+    const origin = resolveRequestOrigin(req);
     if (isMicroSocialPrompt(prompt)) {
       return new Response(createChunkedTextStream(buildMicroSocialAnswer(prompt)), {
         status: 200,
         headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
       });
     }
+    const configuredAiSystemBaseUrl = readConfiguredAiSystemAnmBaseUrl();
+    const aiSystemBaseResolution = await resolveReachableAiSystemAnmBaseUrl({
+      configuredBaseUrl: configuredAiSystemBaseUrl,
+      timeoutMs: Math.min(2_000, readCanonicalChatTimeoutMs()),
+      healthPath: "/healthz",
+    });
+    const aiSystemBaseUrl = aiSystemBaseResolution.baseUrl;
+
     const sharedIdentityFromBody =
       normalizeRecord(body.sharedIdentityRuntime) || normalizeRecord(body.shared_identity_runtime);
-    const sharedIdentityRuntime = sharedIdentityFromBody || null;
+    const identityRuntimeSnapshot = await readIdentityRuntimeStatus(origin, 2_000);
+    const sharedIdentityRuntime =
+      sharedIdentityFromBody || buildSharedIdentityRuntimePayload(identityRuntimeSnapshot) || null;
     const conversationState = rebuildConversationState({
       conversationKey,
       prompt,
@@ -375,18 +315,9 @@ export async function POST(req: NextRequest) {
       localeHint,
     });
     const complexity = classifyPromptComplexity(prompt);
-    const { anmBaseUrl, anmTimeoutMs } = readAnmConfig();
-    const anmResolution = await resolveReachableAnmBaseUrl({
-      configuredBaseUrl: anmBaseUrl,
-      timeoutMs: Math.min(2_000, anmTimeoutMs),
-      healthPath: "/healthz",
-    });
-    resolvedAnmBaseUrl = anmResolution.baseUrl;
-    attemptedAnmBaseUrls = anmResolution.attemptedBaseUrls;
-
-    const leticiaResult = await requestLeticiaAnmChat({
-      anmBaseUrl: resolvedAnmBaseUrl,
-      anmTimeoutMs,
+    let upstream = await requestLeticiaCanonicalChat({
+      baseUrl: aiSystemBaseUrl,
+      timeoutMs: readCanonicalChatTimeoutMs(),
       prompt,
       history,
       localeHint,
@@ -395,75 +326,106 @@ export async function POST(req: NextRequest) {
       sharedIdentityRuntime,
     });
 
-    if (!leticiaResult.fallback && leticiaResult.answer) {
-      const answer = enforceResponseStructure(leticiaResult.answer.answer, {
-        state: conversationState,
-        complexity,
-      });
-      const headers: Record<string, string> = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
-      if (leticiaResult.answer.traceId) headers["x-knexai-trace-id"] = leticiaResult.answer.traceId;
-      return new Response(createChunkedTextStream(answer || leticiaResult.answer.answer), { status: 200, headers });
-    }
-
-    if (!leticiaResult.fallback) {
+    if (!upstream.ok) {
+      let detail = await parseErrorMessage(upstream);
+      if (sharedIdentityRuntime && upstream.status >= 500) {
+        const retryWithoutIdentity = await requestLeticiaCanonicalChat({
+          baseUrl: aiSystemBaseUrl,
+          timeoutMs: readCanonicalChatTimeoutMs(),
+          prompt,
+          history,
+          localeHint,
+          conversationKey,
+          userKey,
+          sharedIdentityRuntime: null,
+        });
+        if (retryWithoutIdentity.ok) {
+          upstream = retryWithoutIdentity;
+        } else {
+          detail = await parseErrorMessage(retryWithoutIdentity);
+        }
+      }
+      if (!upstream.ok) {
       return Response.json(
         {
           ok: false,
-          code: "PROACTIVE_UPSTREAM_ERROR",
-          message: leticiaResult.detail || `Falha ao consultar o motor proativo (HTTP ${leticiaResult.response.status}).`,
+          code: "PROACTIVE_LETICIA_UPSTREAM_ERROR",
+          message: detail || `Falha ao consultar a API da Letícia (HTTP ${upstream.status}).`,
         },
-        { status: leticiaResult.response.status >= 500 ? 502 : leticiaResult.response.status },
+        { status: upstream.status >= 500 ? 502 : upstream.status },
+      );
+      }
+    }
+
+    const upstreamPipeline = `${upstream.headers.get("x-knexai-pipeline") || ""}`.trim().toLowerCase();
+    if (upstreamPipeline !== "descending") {
+      return Response.json(
+        {
+          ok: false,
+          code: "PROACTIVE_PIPELINE_WATCHDOG",
+          message:
+            "Watchdog canônico ativo: resposta recusada porque não veio do pipeline descendente do ai-system-anm.",
+        },
+        { status: 503 },
       );
     }
 
-    const legacyFallbackEnabled = isLegacyAnmChatFallbackEnabled();
-    if (!legacyFallbackEnabled) {
+    const llmUsed = `${upstream.headers.get("x-knexai-generation-llm-used") || ""}`.trim();
+    if (llmUsed !== "1") {
       return Response.json(
         {
           ok: false,
-          code: "PROACTIVE_UPSTREAM_ERROR",
+          code: "PROACTIVE_VLLM_REQUIRED",
           message:
-            "Endpoint /assistant/leticia/respond ausente e fallback legado /chat desativado. Ative AI_SYSTEM_ANM_ENABLE_LEGACY_CHAT_FALLBACK=true apenas se necessario.",
+            "Resposta recusada: o fluxo proativo exige participação ativa do vLLM no pipeline da Letícia.",
+        },
+        { status: 503 },
+      );
+    }
+
+    const rawAnswer = (await upstream.text().catch(() => "")).trim();
+    if (!rawAnswer) {
+      return Response.json(
+        {
+          ok: false,
+          code: "PROACTIVE_EMPTY_RESPONSE",
+          message: "A API da Letícia retornou resposta vazia para este turno proativo.",
         },
         { status: 502 },
       );
     }
 
-    const fallback = await requestFallbackAnmChat({
-      anmBaseUrl: resolvedAnmBaseUrl,
-      anmTimeoutMs,
-      prompt,
-      sharedIdentityRuntime,
-    });
-    if (!fallback.ok) {
-      return Response.json(
-        {
-          ok: false,
-          code: "PROACTIVE_UPSTREAM_ERROR",
-          message: fallback.detail || `Falha ao consultar o motor proativo (HTTP ${fallback.status}).`,
-        },
-        { status: fallback.status >= 500 ? 502 : fallback.status },
-      );
-    }
-    const answer = enforceResponseStructure(fallback.answer.answer, {
-      state: conversationState,
-      complexity,
-    });
-    const headers: Record<string, string> = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
-    if (fallback.answer.traceId) headers["x-knexai-trace-id"] = fallback.answer.traceId;
-    return new Response(createChunkedTextStream(answer || fallback.answer.answer), { status: 200, headers });
+    const canonicalAnswer = stripConversationRoleArtifacts(rawAnswer);
+    const answer = upstreamPipeline === "descending"
+      ? canonicalAnswer || rawAnswer
+      : enforceResponseStructure(canonicalAnswer || rawAnswer, {
+          state: conversationState,
+          complexity,
+        });
+    const headers: Record<string, string> = {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-knexai-pipeline": upstreamPipeline || "descending",
+      "x-knexai-route": `${upstream.headers.get("x-knexai-route") || ""}`,
+      "x-knexai-generation-llm-used": llmUsed,
+      "x-knexai-generation-llm-provider": `${upstream.headers.get("x-knexai-generation-llm-provider") || ""}`,
+      "x-knexai-generation-llm-model": `${upstream.headers.get("x-knexai-generation-llm-model") || ""}`,
+      "x-knexai-watchdog": `${upstream.headers.get("x-knexai-watchdog") || "canonical-descending-enforced"}`,
+    };
+    const traceId = `${upstream.headers.get("x-knexai-trace-id") || ""}`.trim();
+    if (traceId) headers["x-knexai-trace-id"] = traceId;
+    return new Response(createChunkedTextStream(answer || rawAnswer), { status: 200, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Assistente proativo indisponivel no momento.";
-    const attempted = attemptedAnmBaseUrls.length ? attemptedAnmBaseUrls.join(", ") : "n/a";
-    const anmEndpoint = resolvedAnmBaseUrl || "n/a";
     return Response.json(
       {
         ok: false,
         code: "PROACTIVE_UNAVAILABLE",
-        message: `${message} (ANM: ${anmEndpoint}; tentados: ${attempted})`,
+        message,
       },
       { status: 503 },
     );
   }
 }
+
 

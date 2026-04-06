@@ -259,8 +259,8 @@ function Resolve-AnmHealthUrl {
     return $AnmHealthUrl.Trim()
   }
   $anmBaseUrl = Get-FirstNonEmpty @(
-    $env:ANM_API_BASE_URL,
-    (Get-DotEnvValue -Name "ANM_API_BASE_URL"),
+    $env:AI_SYSTEM_ANM_API_BASE_URL,
+    (Get-DotEnvValue -Name "AI_SYSTEM_ANM_API_BASE_URL"),
     "http://127.0.0.1:3000"
   )
   $normalizedBase = "$anmBaseUrl".Trim().TrimEnd("/")
@@ -273,8 +273,8 @@ function Resolve-AnmHealthUrl {
 function Resolve-AnmComposeFilePath {
   $candidate = Get-FirstNonEmpty @(
     $AnmComposeFile,
-    $env:ANM_DOCKER_COMPOSE_FILE,
-    (Get-DotEnvValue -Name "ANM_DOCKER_COMPOSE_FILE")
+    $env:AI_SYSTEM_ANM_DOCKER_COMPOSE_FILE,
+    (Get-DotEnvValue -Name "AI_SYSTEM_ANM_DOCKER_COMPOSE_FILE")
   )
   if ([string]::IsNullOrWhiteSpace($candidate)) {
     return ""
@@ -293,8 +293,8 @@ function Resolve-AnmChatProbeEnabled {
   }
 
   $probeFlag = Get-FirstNonEmpty @(
-    $env:KNEXAI_ANM_CHAT_PROBE_ENABLED,
-    (Get-DotEnvValue -Name "KNEXAI_ANM_CHAT_PROBE_ENABLED"),
+    $env:KNEXAI_AI_SYSTEM_ANM_CHAT_PROBE_ENABLED,
+    (Get-DotEnvValue -Name "KNEXAI_AI_SYSTEM_ANM_CHAT_PROBE_ENABLED"),
     "1"
   )
 
@@ -307,16 +307,16 @@ function Resolve-AnmChatProbeUrl {
   }
 
   $configured = Get-FirstNonEmpty @(
-    $env:KNEXAI_ANM_CHAT_PROBE_URL,
-    (Get-DotEnvValue -Name "KNEXAI_ANM_CHAT_PROBE_URL")
+    $env:KNEXAI_AI_SYSTEM_ANM_CHAT_PROBE_URL,
+    (Get-DotEnvValue -Name "KNEXAI_AI_SYSTEM_ANM_CHAT_PROBE_URL")
   )
   if (-not [string]::IsNullOrWhiteSpace($configured)) {
     return $configured.Trim()
   }
 
   $anmBaseUrl = Get-FirstNonEmpty @(
-    $env:ANM_API_BASE_URL,
-    (Get-DotEnvValue -Name "ANM_API_BASE_URL"),
+    $env:AI_SYSTEM_ANM_API_BASE_URL,
+    (Get-DotEnvValue -Name "AI_SYSTEM_ANM_API_BASE_URL"),
     "http://127.0.0.1:3000"
   )
   $normalizedBase = "$anmBaseUrl".Trim().TrimEnd("/")
@@ -328,8 +328,8 @@ function Resolve-AnmChatProbeUrl {
 
 function Resolve-AnmChatProbeMessage {
   return Get-FirstNonEmpty @(
-    $env:KNEXAI_ANM_CHAT_PROBE_MESSAGE,
-    (Get-DotEnvValue -Name "KNEXAI_ANM_CHAT_PROBE_MESSAGE"),
+    $env:KNEXAI_AI_SYSTEM_ANM_CHAT_PROBE_MESSAGE,
+    (Get-DotEnvValue -Name "KNEXAI_AI_SYSTEM_ANM_CHAT_PROBE_MESSAGE"),
     "__watchdog_probe__"
   )
 }
@@ -1033,8 +1033,8 @@ function Resolve-EmbeddingsHealthUrl {
 function Resolve-AnmComposeServiceName {
   return Get-FirstNonEmpty @(
     $AnmComposeServiceName,
-    $env:ANM_DOCKER_SERVICE_NAME,
-    (Get-DotEnvValue -Name "ANM_DOCKER_SERVICE_NAME"),
+    $env:AI_SYSTEM_ANM_DOCKER_SERVICE_NAME,
+    (Get-DotEnvValue -Name "AI_SYSTEM_ANM_DOCKER_SERVICE_NAME"),
     "anm"
   )
 }
@@ -1042,8 +1042,8 @@ function Resolve-AnmComposeServiceName {
 function Resolve-AnmContainerName {
   return Get-FirstNonEmpty @(
     $AnmContainerName,
-    $env:ANM_DOCKER_CONTAINER_NAME,
-    (Get-DotEnvValue -Name "ANM_DOCKER_CONTAINER_NAME")
+    $env:AI_SYSTEM_ANM_DOCKER_CONTAINER_NAME,
+    (Get-DotEnvValue -Name "AI_SYSTEM_ANM_DOCKER_CONTAINER_NAME")
   )
 }
 
@@ -1535,3 +1535,4 @@ do {
   if ($Once) { break }
   Start-Sleep -Seconds $IntervalSeconds
 } while ($true)
+

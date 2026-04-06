@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$WorkspacePath = "",
   [string]$EntryScript = "scripts/serve-vllm.sh",
   [string]$Distro = "",
@@ -33,13 +33,13 @@ if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $WorkspacePath = $env:VLLM_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
-  $WorkspacePath = $env:ANM_WSL_WORKSPACE_DIR
+  $WorkspacePath = $env:AI_SYSTEM_ANM_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($Distro)) {
   $Distro = $env:VLLM_WSL_DISTRO
 }
 if ([string]::IsNullOrWhiteSpace($Distro)) {
-  $Distro = $env:ANM_WSL_DISTRO
+  $Distro = $env:AI_SYSTEM_ANM_WSL_DISTRO
 }
 if ([string]::IsNullOrWhiteSpace($Distro)) {
   $Distro = $env:WSL_DISTRO_NAME
@@ -48,7 +48,7 @@ if ([string]::IsNullOrWhiteSpace($User)) {
   $User = $env:VLLM_WSL_USER
 }
 if ([string]::IsNullOrWhiteSpace($User)) {
-  $User = $env:ANM_WSL_USER
+  $User = $env:AI_SYSTEM_ANM_WSL_USER
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $repoRootWindows = $repoRoot.Path.Replace("\", "/")
@@ -116,3 +116,4 @@ Invoke-WslBash $command
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
+

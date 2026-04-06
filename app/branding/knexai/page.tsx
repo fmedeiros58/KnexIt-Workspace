@@ -8,7 +8,7 @@ export default function KnexAiBranding() {
       heroDescription="Assistentes, leitura e busca conectados aos seus dados, com streaming e governança."
       featureCards={[
         { title: "Assistentes configuráveis", body: "Contexto de aulas, arquivos e pesquisas." },
-        { title: "Streaming e prompts", body: "Endpoint /api/knexai com resposta incremental." },
+        { title: "Streaming e prompts", body: "Endpoint /api/ai-system-anm com resposta incremental." },
         { title: "Limites por plano", body: "Governança alinhada ao Workspace." },
         { title: "Integrações", body: "Pontos com VioRead, KnexReview e KnexSearch." },
       ]}

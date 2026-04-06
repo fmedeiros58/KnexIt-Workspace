@@ -208,6 +208,29 @@ function normalizeSurfaceWhitespace(text: string): string {
     .trim();
 }
 
+function uppercaseFirstLetter(text: string): string {
+  return `${text || ""}`.replace(/^(\s*)([\p{Ll}])/u, (_match, leading: string, letter: string) => {
+    return `${leading}${letter.toLocaleUpperCase("pt-BR")}`;
+  });
+}
+
+function stripIdentitySelfAddressLead(text: string): string {
+  let updated = `${text || ""}`;
+  updated = updated.replace(
+    /^\s*(?:ol[aá],?\s*)?(?:eu\s+(?:sou|me\s+chamo)\s+a\s+)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s*aqui\b\s*[:\-]\s*/gimu,
+    "",
+  );
+  updated = updated.replace(
+    /^\s*(?:ol[aá],?\s*)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s*aqui\b[.!?]\s*/gimu,
+    "",
+  );
+  updated = updated.replace(
+    /^\s*(?:eu\s+sou\s+a\s+)?(?:ia\s+)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s+aqui\b\s*[:\-]\s*/gimu,
+    "",
+  );
+  return uppercaseFirstLetter(updated.trimStart());
+}
+
 function shouldApplyPortugueseDiacriticRepair(value: string): boolean {
   const normalized = `${value || ""}`
     .toLowerCase()
@@ -247,6 +270,7 @@ export function ensureUtf8Response(text: string): Utf8GuardResult {
       return updated;
     });
   }
+  repaired = stripIdentitySelfAddressLead(repaired);
   repaired = normalizeSurfaceWhitespace(repaired);
 
   return {

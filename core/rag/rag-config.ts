@@ -2,7 +2,8 @@ import { loadVectorDatabaseConfig } from "../config/env";
 
 const DEFAULT_INTERNAL_BASE_URL = "http://127.0.0.1:8000/v1";
 const DEFAULT_LLM_MODEL = "mistral-awq";
-const DEFAULT_EMBEDDING_MODEL = "mistral-awq";
+const DEFAULT_EMBEDDING_BASE_URL = "http://127.0.0.1:8001/v1";
+const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-base";
 const DEFAULT_EMBEDDING_TIMEOUT_MS = 30_000;
 const DEFAULT_LLM_TIMEOUT_MS = 45_000;
 const DEFAULT_LLM_RETRY_ATTEMPTS = 2;
@@ -137,6 +138,19 @@ function deriveLoopbackFallbacks(baseUrl: string) {
   return [];
 }
 
+function looksLikeGenerativeModelName(value: string) {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (!normalized) return false;
+  return /(mistral|llama|qwen|gpt|instruct|chat|awq)/i.test(normalized);
+}
+
+function looksLikeLlmEndpoint(value: string) {
+  const normalized = normalizeBaseUrl(`${value || ""}`.trim(), "");
+  if (!normalized) return false;
+  if (/[:/]8000(?:\/|$)/.test(normalized)) return true;
+  return /\/v1\/?$/.test(normalized) && /localhost|127\.0\.0\.1/.test(normalized) && /8000/.test(normalized);
+}
+
 function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   const normalized = (value || "").trim().toLowerCase();
   if (!normalized) return fallback;
@@ -173,23 +187,58 @@ function enforceLoopbackBaseUrl(baseUrl: string) {
 
 export function loadRagEmbeddingConfig(raw: NodeJS.ProcessEnv = process.env): RagEmbeddingConfig {
   const vectorConfig = loadVectorDatabaseConfig(raw);
-  const configuredBaseUrl = normalizeBaseUrl(
-    pickFirstNonEmpty(raw.EMBEDDING_BASE_URL, raw.LOCAL_LLM_BASE_URL, raw.LLM_BASE_URL, raw.VLLM_BASE_URL),
-    DEFAULT_INTERNAL_BASE_URL,
+  const allowLlmEndpointFallback = parseBooleanFlag(raw.EMBEDDING_ALLOW_LLM_ENDPOINT_FALLBACK, false);
+  const allowLlmModelFallback = parseBooleanFlag(raw.EMBEDDING_ALLOW_LLM_MODEL_FALLBACK, false);
+
+  const baseUrlCandidates = allowLlmEndpointFallback
+    ? [
+        raw.EMBEDDING_BASE_URL,
+        raw.AI_SYSTEM_ANM_EMBEDDING_URL,
+        raw.LOCAL_EMBEDDING_BASE_URL,
+        raw.LOCAL_LLM_BASE_URL,
+        raw.LLM_BASE_URL,
+        raw.VLLM_BASE_URL,
+      ]
+    : [
+        raw.EMBEDDING_BASE_URL,
+        raw.AI_SYSTEM_ANM_EMBEDDING_URL,
+        raw.LOCAL_EMBEDDING_BASE_URL,
+      ];
+  let configuredBaseUrl = normalizeBaseUrl(
+    pickFirstNonEmpty(...baseUrlCandidates),
+    DEFAULT_EMBEDDING_BASE_URL,
   );
   const envFallbacks = parseCsvUrls(raw.EMBEDDING_BASE_URL_FALLBACKS);
+  const apiKey = pickFirstNonEmpty(raw.EMBEDDING_API_KEY, raw.LOCAL_LLM_API_KEY, raw.LLM_API_KEY, raw.VLLM_API_KEY, "token-local");
+  const modelCandidates = allowLlmModelFallback
+    ? [
+        raw.EMBEDDING_MODEL_NAME,
+        raw.EMBEDDING_MODEL,
+        raw.AI_SYSTEM_ANM_EMBEDDING_MODEL,
+        raw.VLLM_EMBEDDING_MODEL,
+        raw.LLM_MODEL_NAME,
+        raw.VLLM_MODEL,
+      ]
+    : [
+        raw.EMBEDDING_MODEL_NAME,
+        raw.EMBEDDING_MODEL,
+        raw.AI_SYSTEM_ANM_EMBEDDING_MODEL,
+        raw.VLLM_EMBEDDING_MODEL,
+      ];
+  let model = pickFirstNonEmpty(
+    ...modelCandidates,
+    DEFAULT_EMBEDDING_MODEL,
+  );
+
+  if (!allowLlmEndpointFallback && looksLikeLlmEndpoint(configuredBaseUrl)) {
+    configuredBaseUrl = DEFAULT_EMBEDDING_BASE_URL;
+  }
+  if (!allowLlmModelFallback && looksLikeGenerativeModelName(model)) {
+    model = DEFAULT_EMBEDDING_MODEL;
+  }
   const autoLoopbackFallbacks = deriveLoopbackFallbacks(configuredBaseUrl);
   const fallbackBaseUrls = uniqueUrls([...envFallbacks, ...autoLoopbackFallbacks]).filter(
     (url) => normalizeBaseUrl(url, "") !== configuredBaseUrl,
-  );
-  const apiKey = pickFirstNonEmpty(raw.EMBEDDING_API_KEY, raw.LOCAL_LLM_API_KEY, raw.LLM_API_KEY, raw.VLLM_API_KEY, "token-local");
-  const model = pickFirstNonEmpty(
-    raw.EMBEDDING_MODEL_NAME,
-    raw.EMBEDDING_MODEL,
-    raw.VLLM_EMBEDDING_MODEL,
-    raw.LLM_MODEL_NAME,
-    raw.VLLM_MODEL,
-    DEFAULT_EMBEDDING_MODEL,
   );
   const timeoutMs = parsePositiveInt(raw.EMBEDDING_TIMEOUT_MS, DEFAULT_EMBEDDING_TIMEOUT_MS, 2_000, 120_000);
   const healthcheckPath = pickFirstNonEmpty(raw.EMBEDDING_HEALTHCHECK_PATH, "/health");

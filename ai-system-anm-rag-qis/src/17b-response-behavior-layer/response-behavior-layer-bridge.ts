@@ -74,9 +74,43 @@ function resolveFormalityNeed(state: ProcessingState): number {
   return clamp01(formalityByProfile + directBoost);
 }
 
+function resolveIdentityRuntimeSignal(state: ProcessingState): {
+  source?: string;
+  recognizedLabels?: string[];
+  founderDetected?: boolean;
+} {
+  const rawProfile = state.userProfile;
+  if (!rawProfile || typeof rawProfile !== "object" || Array.isArray(rawProfile)) {
+    return {};
+  }
+  const rawIdentityContext = (rawProfile as Record<string, unknown>).identityRuntimeContext;
+  if (!rawIdentityContext || typeof rawIdentityContext !== "object" || Array.isArray(rawIdentityContext)) {
+    return {};
+  }
+
+  const contextRecord = rawIdentityContext as Record<string, unknown>;
+  const source = typeof contextRecord.source === "string" ? contextRecord.source.trim() : "";
+  const recognizedLabels = Array.isArray(contextRecord.recognizedLabels)
+    ? contextRecord.recognizedLabels
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 8)
+    : [];
+  const founderDetected = contextRecord.founderDetected === true;
+
+  if (!source && !recognizedLabels.length && !founderDetected) return {};
+  return {
+    source: source || undefined,
+    recognizedLabels: recognizedLabels.length ? recognizedLabels : undefined,
+    founderDetected,
+  };
+}
+
 function buildBehaviorInput(state: ProcessingState): BehaviorPersonalityInput {
   const message = `${state.normalizedMessage || state.rawMessage || ""}`;
   const normalizedMessage = normalize(message);
+  const identityRuntimeSignal = resolveIdentityRuntimeSignal(state);
   const frustrationSignal =
     state.affectiveState.dominantAffect === "frustrated"
       ? clamp01(state.affectiveState.emotionalIntensity || 0)
@@ -109,6 +143,9 @@ function buildBehaviorInput(state: ProcessingState): BehaviorPersonalityInput {
       rapportScore: state.conversationState.rapportScore,
       detectedConfusion: state.conversationState.needsClarification ? 0.7 : 0.2,
       recentOpenings: [],
+      identityRuntimeSource: identityRuntimeSignal.source,
+      identityRuntimeLabels: identityRuntimeSignal.recognizedLabels,
+      identityRuntimeFounderDetected: identityRuntimeSignal.founderDetected === true,
     },
     previousBehaviorState: state.behaviorPersonalityState,
   };
@@ -119,15 +156,70 @@ function isIdentityTurn(message: string): boolean {
   return resolved.shouldHandle;
 }
 
-function resolveIdentityCanonicalDraft(state: ProcessingState): string {
+function resolveIdentityCanonicalDraft(
+  state: ProcessingState,
+  narratives?: { shortNarrative?: string; longNarrative?: string },
+): string {
   const shortPreferred =
     state.responsePlanState.responseIntent === "direct" ||
     state.responsePlanState.depthLevel === "shallow" ||
     state.responsePlanState.depthLevel === "standard";
 
   return shortPreferred
-    ? state.behaviorPersonalityState.aiIdentity.identityNarrativeShort
-    : state.behaviorPersonalityState.aiIdentity.identityNarrativeLong;
+    ? `${narratives?.shortNarrative || state.behaviorPersonalityState.aiIdentity.identityNarrativeShort || ""}`.trim()
+    : `${narratives?.longNarrative || state.behaviorPersonalityState.aiIdentity.identityNarrativeLong || ""}`.trim();
+}
+
+function normalizeLoose(value: string): string {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasIdentityAnchor(text: string): boolean {
+  const normalized = normalizeLoose(text);
+  if (!normalized) return false;
+  return /\b(leticia|medeiros|criador|idealizador|origem|nome|fundador|homenagem)\b/.test(normalized);
+}
+
+function isShortFollowUpIdentityPrompt(state: ProcessingState, message: string): boolean {
+  const normalized = normalizeLoose(message);
+  if (!normalized) return false;
+
+  const tokenCount = normalized.split(" ").filter(Boolean).length;
+  if (tokenCount === 0 || tokenCount > 14) return false;
+
+  const hasFollowUpCue =
+    /^(e|entao|mas|humm|hum|ta|ok|certo|certo,|pois)\b/.test(normalized) ||
+    /\b(esse|essa|isso|assim|ele|dele|de onde|como)\b/.test(normalized);
+  const hasQuestionCue =
+    /\?$/.test(message.trim()) ||
+    /\b(quem|qual|por que|porque|pq|de onde|como)\b/.test(normalized);
+  if (!hasFollowUpCue || !hasQuestionCue) return false;
+
+  const hasRecentIdentityContext =
+    hasIdentityAnchor(state.conversationState.activeTopic || "") ||
+    state.recentTurns.slice(-6).some((turn) => hasIdentityAnchor(turn.content));
+  return hasRecentIdentityContext;
+}
+
+function resolveContextualIdentityFallback(
+  state: ProcessingState,
+  message: string,
+): ReturnType<typeof resolveIdentityFallbackForMessage> | null {
+  if (!isShortFollowUpIdentityPrompt(state, message)) return null;
+
+  const historyWindow = state.recentTurns
+    .slice(-6)
+    .map((turn) => `${turn.content || ""}`.trim())
+    .filter(Boolean)
+    .join(" ");
+  const composite = `${historyWindow} ${message}`.trim();
+  const fallback = resolveIdentityFallbackForMessage(composite);
+  return fallback.shouldHandle ? fallback : null;
 }
 
 function resolveToneTargets(state: ProcessingState) {
@@ -157,6 +249,36 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
   let validatedDraft = `${state.validatedDraft || state.structuredResponse || state.draftResponse?.text || ""}`.trim();
   const behaviorInput = buildBehaviorInput(state);
   const aiIdentity = resolveAiIdentityProfile(behaviorInput);
+  const messageForIdentity = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  const contextualIdentityFallback = resolveContextualIdentityFallback(state, messageForIdentity);
+  const effectiveAiIdentity = contextualIdentityFallback
+    ? {
+        ...aiIdentity,
+        identityQuestionDetected:
+          aiIdentity.identityQuestionDetected || contextualIdentityFallback.identityQuestionDetected,
+        nameOriginQuestionDetected:
+          aiIdentity.nameOriginQuestionDetected || contextualIdentityFallback.nameOriginQuestionDetected,
+        creatorQuestionDetected:
+          aiIdentity.creatorQuestionDetected === true || contextualIdentityFallback.creatorQuestionDetected,
+        founderInfluenceQuestionDetected:
+          aiIdentity.founderInfluenceQuestionDetected === true ||
+          contextualIdentityFallback.founderInfluenceQuestionDetected,
+        formationQuestionDetected:
+          aiIdentity.formationQuestionDetected === true || contextualIdentityFallback.formationQuestionDetected,
+        professionalQuestionDetected:
+          aiIdentity.professionalQuestionDetected === true || contextualIdentityFallback.professionalQuestionDetected,
+        identityNarrativeShort:
+          contextualIdentityFallback.shortNarrative || aiIdentity.identityNarrativeShort,
+        identityNarrativeLong:
+          contextualIdentityFallback.longNarrative || aiIdentity.identityNarrativeLong,
+        styleDirectives: [
+          ...new Set([
+            ...aiIdentity.styleDirectives,
+            "identity_contextual_continuation_detected",
+          ]),
+        ],
+      }
+    : aiIdentity;
   const founderIdentityInfluence = buildFounderIdentityInfluence();
 
   const targets = resolveToneTargets(state);
@@ -169,13 +291,13 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
     styleNotes: {
       ...state.behaviorPersonalityState.styleNotes,
       guidance: [
-        ...aiIdentity.styleDirectives.slice(0, 6),
+        ...effectiveAiIdentity.styleDirectives.slice(0, 6),
         "response_behavior_post_validation",
         "semantic_content_locked",
         "no_fact_injection",
       ],
     },
-    aiIdentity,
+    aiIdentity: effectiveAiIdentity,
     safetyNotes: [
       ...new Set([
         ...state.behaviorPersonalityState.safetyNotes,
@@ -186,15 +308,19 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
 
   let identityCanonicalApplied = false;
   if (
-    isIdentityTurn(state.normalizedMessage || state.rawMessage || "") ||
-    aiIdentity.identityQuestionDetected ||
-    aiIdentity.nameOriginQuestionDetected ||
-    aiIdentity.creatorQuestionDetected === true ||
-    aiIdentity.founderInfluenceQuestionDetected === true ||
-    aiIdentity.formationQuestionDetected === true ||
-    aiIdentity.professionalQuestionDetected === true
+    isIdentityTurn(messageForIdentity) ||
+    contextualIdentityFallback != null ||
+    effectiveAiIdentity.identityQuestionDetected ||
+    effectiveAiIdentity.nameOriginQuestionDetected ||
+    effectiveAiIdentity.creatorQuestionDetected === true ||
+    effectiveAiIdentity.founderInfluenceQuestionDetected === true ||
+    effectiveAiIdentity.formationQuestionDetected === true ||
+    effectiveAiIdentity.professionalQuestionDetected === true
   ) {
-    const identityDraft = resolveIdentityCanonicalDraft(state).trim();
+    const identityDraft = resolveIdentityCanonicalDraft(state, {
+      shortNarrative: effectiveAiIdentity.identityNarrativeShort,
+      longNarrative: effectiveAiIdentity.identityNarrativeLong,
+    });
     if (identityDraft) {
       validatedDraft = identityDraft;
       identityCanonicalApplied = true;
@@ -270,7 +396,8 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
       latencyMs: Date.now() - startedAt,
       detail:
         `warmth=${targets.targetWarmth.toFixed(2)}; restraint=${targets.targetRestraint.toFixed(2)}; ` +
-        `identityDetected=${aiIdentity.identityQuestionDetected || aiIdentity.nameOriginQuestionDetected}; ` +
+        `identityDetected=${effectiveAiIdentity.identityQuestionDetected || effectiveAiIdentity.nameOriginQuestionDetected}; ` +
+        `contextualIdentityFallback=${contextualIdentityFallback ? "true" : "false"}; ` +
         `canonicalApplied=${identityCanonicalApplied}; chars=${validatedDraft.length}`,
     }),
   );

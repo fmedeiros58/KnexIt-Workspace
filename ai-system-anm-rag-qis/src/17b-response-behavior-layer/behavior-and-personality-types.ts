@@ -56,6 +56,9 @@ export interface BehaviorContextualSignals {
   rapportScore?: number;
   detectedConfusion?: number;
   recentOpenings?: string[];
+  identityRuntimeSource?: string;
+  identityRuntimeLabels?: string[];
+  identityRuntimeFounderDetected?: boolean;
 }
 
 export interface BehaviorPersonalityInput {

@@ -887,6 +887,8 @@ const MICRO_NAME_ORIGIN_PATTERNS: RegExp[] = [
   /\b((por que|porque|pq)\s+(voce|vc|ce)\s+(tem|usa)\s+(esse\s+)?nome)\b/,
   /\b((por que|porque|pq)\s+(voce|vc|ce)\s+se\s+chama\s+leticia)\b/,
   /\b((por que|porque|pq)\s+(voce|vc|ce)\s+se\s+chama\s+assim|se\s+chama\s+assim)\b/,
+  /\b((por que|porque|pq)\s+(?:te|tte)\s+chamam?\s+assim)\b/,
+  /\b((por que|porque|pq)\s+te\s+chamam?\s+assim|te\s+chamam?\s+assim)\b/,
   /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome|por que o nome leticia)\b/,
   /\b(o que significa leticia|qual o significado(?:\s+do\s+nome)?(?:\s+de)?\s+leticia|leticia significa o que|esse nome significa o que)\b/,
   /\b(o que quer dizer leticia|qual o sentido do nome leticia)\b/,
@@ -1018,6 +1020,8 @@ function hasConversationalSemanticAnomaly(text: string) {
   ) {
     return true;
   }
+  if (/\b(ola[, ]+usuario carinho|ol[aá],?\s+usu[aá]rio carinho|usuario carinho)\b/.test(normalized)) return true;
+  if (/\b(eu sou apenas leticia|sou apenas leticia)\b/.test(normalized)) return true;
   if (hasHighSentenceRepetition(raw)) return true;
   return false;
 }

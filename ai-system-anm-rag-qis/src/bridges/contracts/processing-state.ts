@@ -21,6 +21,7 @@ import type { CommunicativeElaborationOutput } from "../../14-reasoning-and-gene
 import type { PhilosophicalSelfModelingOutput } from "../../12-metacognitive-layer/philosophical-self-modeling/philosophical-self-modeling.types";
 import type { ObjectiveRationalityEvaluation } from "../../10-reflective-layer/reflective-core/objective-rationality-core/objective-rationality-types";
 import type { GroundedEvidencePacket } from "../../07-knowledge-retrieval-and-research-layer/grounding/grounded-evidence-packet";
+import type { DominantPrinciple, LogicalAudit, LogicalFrame } from "../../cognition/logical-discernment/logical-discernment-types";
 
 export interface InputSignals {
   intent: string;
@@ -166,6 +167,21 @@ export interface PreRouteSignals {
   safetyAction: string;
   tokenCount: number;
   questionCount: number;
+  intentGatePrimaryIntent?: string;
+  intentGateSecondaryIntents?: string[];
+  intentGateMinimalDepth?: string;
+  intentGateRoutingRecommendation?: string;
+  intentGateResponseModeHint?: string;
+  intentGateHasContextDependency?: boolean;
+  intentGateContextDependencyScore?: number;
+  intentGateAmbiguityScore?: number;
+  intentGateSemanticDensityScore?: number;
+  intentGateShouldBypassDeepPipeline?: boolean;
+  intentGateShouldUseRecentConversationContext?: boolean;
+  intentGateShouldEscalateToDeepPipeline?: boolean;
+  intentGateConfidence?: number;
+  intentGateReasoningTags?: string[];
+  intentGateDebugTrace?: string[];
 }
 
 export interface KnowledgeExecutionCacheEntry {
@@ -319,6 +335,25 @@ export interface ExecutionArtifacts {
     dialogicProgressionApplied?: boolean;
     epistemicClarityApplied?: boolean;
     philosophicalConsistencyApplied?: boolean;
+    languageTarget?: string;
+    languageDetected?: string;
+    languageRequested?: string | null;
+    languageSurfaceDetected?: string;
+    languagePolicyApplied?: boolean;
+    languagePolicyReason?: string;
+    responseLayoutShape?: string;
+    responseLayoutComplexity?: string;
+    responseLayoutNotes?: string[];
+    textualAuditScore?: number;
+    textualAuditIssues?: string[];
+    citationStyle?: string;
+    referenceListStyle?: string;
+    presentationWatchdogTriggered?: boolean;
+    presentationWatchdogIssues?: string[];
+    presentationWatchdogSurfaceBefore?: string;
+    presentationWatchdogSurfaceAfter?: string;
+    presentationWatchdogPromptEchoDetected?: boolean;
+    presentationWatchdogMixedLanguageDetected?: boolean;
   };
   errorHandling?: {
     category: string;
@@ -409,6 +444,23 @@ export interface ExecutionArtifacts {
     verbosityReduced: boolean;
     redundancyReduced: boolean;
     sanityChecked: boolean;
+    density?: "compact" | "balanced" | "detailed";
+    forceDetailedDensity?: boolean;
+  };
+  logicalDiscernment?: {
+    dominantPrinciple: DominantPrinciple;
+    score: number;
+    shouldAffectRouting: boolean;
+    shouldAffectRetrieval: boolean;
+    shouldTriggerOutputAudit: boolean;
+    recommendedAction: string | null;
+    flags: string[];
+  };
+  logicalOutputAudit?: {
+    passed: boolean;
+    score: number;
+    issueCount: number;
+    repaired: boolean;
   };
   founderInfluence?: {
     founderName: string;
@@ -494,6 +546,12 @@ export interface ProcessingState {
   academicNormalizationState: AcademicNormalizationState;
   validationReport: ValidationReport;
   deliveryPayload: DeliveryPayload;
+  logicalFrame: LogicalFrame | null;
+  logicalAudit: LogicalAudit | null;
+  logicalDiscernmentScore: number;
+  dominantPrinciple: DominantPrinciple;
+  recommendedPracticalAction: string | null;
+  practicalReasoningFlags: string[];
   trace: ProcessingTraceEvent[];
   timings: Record<string, number>;
   confidenceScores: ConfidenceScores;
@@ -667,6 +725,21 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       safetyAction: "allow",
       tokenCount: 0,
       questionCount: 0,
+      intentGatePrimaryIntent: "react_socially",
+      intentGateSecondaryIntents: [],
+      intentGateMinimalDepth: "minimal",
+      intentGateRoutingRecommendation: "lightweight_answer",
+      intentGateResponseModeHint: "social",
+      intentGateHasContextDependency: false,
+      intentGateContextDependencyScore: 0,
+      intentGateAmbiguityScore: 0,
+      intentGateSemanticDensityScore: 0,
+      intentGateShouldBypassDeepPipeline: false,
+      intentGateShouldUseRecentConversationContext: false,
+      intentGateShouldEscalateToDeepPipeline: false,
+      intentGateConfidence: 0,
+      intentGateReasoningTags: [],
+      intentGateDebugTrace: [],
     },
     executionPlan: {
       mode: "chat",
@@ -800,6 +873,12 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       text: "",
       citations: [],
     },
+    logicalFrame: null,
+    logicalAudit: null,
+    logicalDiscernmentScore: 0,
+    dominantPrinciple: "unknown",
+    recommendedPracticalAction: null,
+    practicalReasoningFlags: [],
     trace: [
       {
         layer: "input",

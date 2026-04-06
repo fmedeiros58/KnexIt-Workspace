@@ -12,6 +12,10 @@ import {
   isConversationalPrompt,
   isNameRecallPrompt,
 } from "../shared/utils/conversation-signals";
+import {
+  hasIntentGateEvaluation,
+  resolveIntentGateRoute,
+} from "../shared/routing/intent-gate-route-resolver";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -43,28 +47,18 @@ function estimateAmbiguityFromSnapshot(snapshot: ReturnType<typeof buildTextAnal
 }
 
 function decideRoute(params: {
-  isConversational: boolean;
-  ambiguity: number;
-  priorScore: number;
-  verifiable: boolean;
-  tokenCount: number;
-  hasQuestion: boolean;
-  quickIntent?: string;
   safetyAction?: string;
 }): PipelineRoute {
   if (params.safetyAction === "caution") return "minimum";
-  if (params.isConversational) return "reflective";
-  if (params.quickIntent === "research" && params.verifiable) return "quantum-state";
-  if (params.quickIntent === "research") return "inferential";
-  if (params.verifiable || params.priorScore >= 0.72) return "quantum-state";
-  if (params.quickIntent === "analysis") return "inferential";
-  if (params.quickIntent === "technical") {
-    if (params.tokenCount <= 5 && !params.hasQuestion) return "reflective";
-    return "inferential";
-  }
-  if (params.priorScore >= 0.55 || params.ambiguity >= 0.52) return "inferential";
-  if (params.priorScore >= 0.40 || params.ambiguity >= 0.34) return "reflective";
-  return "reflective";
+  return "inferential";
+}
+
+function routeRank(route: PipelineRoute): number {
+  return route === "minimum" ? 0 : 1;
+}
+
+function elevateRoute(current: PipelineRoute, floor: PipelineRoute): PipelineRoute {
+  return routeRank(current) >= routeRank(floor) ? current : floor;
 }
 
 export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
@@ -73,6 +67,7 @@ export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
   const snapshot = state.textAnalysisSnapshot ?? buildTextAnalysisSnapshot(focusedMessage);
   state.textAnalysisSnapshot = snapshot;
   const preRoute = state.preRouteSignals;
+  const logicalFrame = state.logicalFrame;
 
   const conversational =
     isConversationalPrompt(focusedMessage) ||
@@ -97,23 +92,33 @@ export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
   const score = conversational ? Math.min(scoreSeed, 0.28) : scoreSeed;
   const finalAmbiguity = conversational ? Math.min(ambiguitySeed, 0.22) : ambiguitySeed;
 
-  state.complexityProfile.score = score;
+  const logicalBias = logicalFrame?.shouldAffectRouting ? Math.max(0, logicalFrame.confidence * 0.18) : 0;
+  state.complexityProfile.score = clamp01(score + logicalBias);
   state.complexityProfile.ambiguity = finalAmbiguity;
-
-  if (preRoute?.greetingFastLaneEligible) return "minimum";
 
   const verifiable =
     !isNameRecallPrompt(focusedMessage) &&
     (snapshot.hasVerifiableSignal || Boolean(preRoute?.hasVerifiableSignal));
 
-  return decideRoute({
-    isConversational: conversational,
-    ambiguity: finalAmbiguity,
-    priorScore: score,
-    verifiable,
-    tokenCount: snapshot.tokenCount,
-    hasQuestion: snapshot.questionCount > 0,
-    quickIntent: preRoute?.quickIntent,
+  if (preRoute?.greetingFastLaneEligible) return "minimum";
+  if (preRoute?.safetyAction === "caution") return "minimum";
+  if (logicalFrame?.shouldAffectRouting) return "inferential";
+
+  const intentGateRoute = resolveIntentGateRoute({
+    routingRecommendation: preRoute?.intentGateRoutingRecommendation,
+    shouldEscalateToDeepPipeline: preRoute?.intentGateShouldEscalateToDeepPipeline,
+    hasVerifiableSignal: verifiable,
+  });
+  const hasIntentGateEvaluationSignal = hasIntentGateEvaluation({
+    intentGateConfidence: preRoute?.intentGateConfidence,
+    intentGateDebugTrace: preRoute?.intentGateDebugTrace,
+  });
+
+  const decidedRoute = decideRoute({
     safetyAction: preRoute?.safetyAction,
   });
+
+  return hasIntentGateEvaluationSignal && intentGateRoute
+    ? elevateRoute(decidedRoute, intentGateRoute)
+    : decidedRoute;
 }

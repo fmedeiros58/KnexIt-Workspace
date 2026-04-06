@@ -25,7 +25,7 @@ spec:
         - "--model"
         - "$(VLLM_MODEL)"
         - "--served-model-name"
-        - "$(ANM_MODEL_NAME)"
+        - "$(AI_SYSTEM_ANM_MODEL_NAME)"
         - "--max-model-len"
         - "$(VLLM_MAX_MODEL_LEN)"
         ports:
@@ -75,3 +75,4 @@ spec:
         hostPath:
           path: /srv/vllm-models
           type: Directory
+

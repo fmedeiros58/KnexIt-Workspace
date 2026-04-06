@@ -5,7 +5,7 @@ import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
 export const runtime = "nodejs";
 
 const IMAGE_BUCKET = (process.env.IDENTITY_RUNTIME_IMAGE_BUCKET || "identity-runtime-images").trim();
-const IDENTITY_SCHEMA = (process.env.ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
+const IDENTITY_SCHEMA = (process.env.AI_SYSTEM_ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
 const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024;
 const DEFAULT_EMBEDDING_BASE_URL = "http://127.0.0.1:8001/v1";
 const DEFAULT_TIMEOUT_MS = 45_000;

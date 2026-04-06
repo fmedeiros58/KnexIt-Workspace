@@ -668,6 +668,14 @@ function buildAssistantIdentityReply(value: string) {
   return `${greetingPrefix}Eu sou a Letícia.`;
 }
 
+function ensureAssistantNameFirst(answer: string) {
+  const raw = `${answer || ""}`.trim();
+  if (!raw) return "Meu nome é Letícia.";
+  const normalized = normalizeIntentText(raw);
+  if (/^(eu sou|meu nome e|eu me chamo|sou a leticia)\b/.test(normalized)) return raw;
+  return `Meu nome é Letícia. ${raw}`;
+}
+
 type AssistantIdentityIntentFamily = "identity" | "name_semantics" | "creator_identity" | null;
 
 function normalizeIntentHistoryWindow(history: RagChatHistoryItem[] | undefined, maxItems = 6) {
@@ -680,16 +688,48 @@ function normalizeIntentHistoryWindow(history: RagChatHistoryItem[] | undefined,
     .join(" ");
 }
 
+function resolveIdentityFamilyFromHistoryAnchor(history: RagChatHistoryItem[] | undefined): AssistantIdentityIntentFamily {
+  if (!Array.isArray(history) || !history.length) return null;
+  const rolePriority: Array<RagChatHistoryItem["role"]> = ["user", "assistant"];
+  for (const role of rolePriority) {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const item = history[index];
+      if (!item || item.role !== role) continue;
+      const content = `${item.content || ""}`.trim();
+      if (!content) continue;
+      const resolved = resolveIdentityFallbackForMessage(content);
+      if (
+        resolved.creatorQuestionDetected ||
+        resolved.founderInfluenceQuestionDetected ||
+        resolved.formationQuestionDetected ||
+        resolved.professionalQuestionDetected
+      ) {
+        return "creator_identity";
+      }
+      if (resolved.nameOriginQuestionDetected) return "name_semantics";
+      if (resolved.identityQuestionDetected) return "identity";
+      const normalized = normalizeIntentText(content);
+      if (/\b(medeiros|francimar|criador|idealizador|fundador)\b/.test(normalized)) return "creator_identity";
+      if (/\b(origem|significado|conceito|definicao|nome leticia|te chamam assim)\b/.test(normalized)) {
+        return "name_semantics";
+      }
+      if (/\b(quem e voce|como voce se chama|seu nome|eu sou a leticia)\b/.test(normalized)) return "identity";
+    }
+  }
+  return null;
+}
+
 function hasAssistantIdentityContext(history: RagChatHistoryItem[] | undefined) {
   const normalized = normalizeIntentHistoryWindow(history);
-  if (!normalized) return false;
+  if (!normalized) return resolveIdentityFamilyFromHistoryAnchor(history) !== null;
   return (
     /\b(eu sou a leticia|meu nome e leticia)\b/.test(normalized) ||
     /\b(qual\s+(?:(?:e|eh|o)\s+)?(?:o\s+)?seu nome|como voce se chama|quem e voce)\b/.test(normalized) ||
     /\b(o que significa leticia|por que voce tem esse nome|de onde vem o nome leticia|de onde surgiu o nome leticia|conceito de leticia|definicao de leticia|base conceitual do nome leticia|como surgiu o nome leticia|ideia por tras do nome leticia)\b/.test(
       normalized,
     ) ||
-    /\b(quem e medeiros|quem e o medeiros)\b/.test(normalized)
+    /\b(quem e medeiros|quem e o medeiros)\b/.test(normalized) ||
+    resolveIdentityFamilyFromHistoryAnchor(history) !== null
   );
 }
 
@@ -728,11 +768,17 @@ function classifyAssistantIdentityIntentFamily(
   const normalized = normalizeIntentText(value);
   if (!normalized) return null;
 
+  const historyAnchorFamily = resolveIdentityFamilyFromHistoryAnchor(history);
+  const hasHistoryAnchorFamily = historyAnchorFamily !== null;
   const hasIdentityContext = hasAssistantIdentityContext(history);
   const hasLeticia = /\bleticia\b/.test(normalized);
   const hasMedeiros = /\bmedeiros\b/.test(normalized);
   const hasTopicShift = hasCompetingTopicShift(normalized);
   const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome|isso|disso|isso ai|disso ai)\b/.test(normalized);
+  const hasContinuationExplainCue =
+    /\b((entao|e entao|ok|certo|beleza|humm?|hum+)\s*,?\s*)?(me\s+)?(explique|explica|detalhe|aprofunde|desenvolva|continue|fale mais|me diga mais|me conte mais)\b/.test(
+      normalized,
+    );
   const hasNameOriginByCalling = /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/.test(normalized);
   const hasCreatorFollowUpCue = /\b(mais\s+informacoes|mais\s+detalhes|fale\s+mais|me\s+diga\s+mais|me\s+conte\s+mais|quero\s+saber\s+mais|sobre\s+ele|sobre\s+esse|desse\s+medeiros|desse\s+mesmo)\b/.test(
     normalized,
@@ -745,7 +791,7 @@ function classifyAssistantIdentityIntentFamily(
     hasDirectIdentityCue ||
     /\b(voce|vc|seu|sua|teu|tua)\b/.test(normalized) ||
     /\b(quem (?:e|eh) (?:voce|vc)|e o seu|e qual (?:e|eh)? o seu)\b/.test(normalized) ||
-    (hasIdentityContext && hasFollowUpReference);
+    ((hasIdentityContext || hasHistoryAnchorFamily) && hasFollowUpReference);
   const directedToUserSelf = /\b(meu|minha)\s+nome\b/.test(normalized);
   if (!directedToAssistant && directedToUserSelf) return null;
   if (hasTopicShift && !hasLeticia && !hasMedeiros && !hasNameOriginByCalling) return null;
@@ -759,6 +805,14 @@ function classifyAssistantIdentityIntentFamily(
   );
   const asksCreatorExpansion = hasMedeiros && hasCreatorFollowUpCue;
   const mentionsName = /\b(nome|chama|chamar|chamam|te chamam|identidade|esse nome|leticia)\b/.test(normalized);
+
+  if ((hasIdentityContext || hasHistoryAnchorFamily) && hasContinuationExplainCue && !hasTopicShift) {
+    return historyAnchorFamily || (hasMedeiros ? "creator_identity" : mentionsName ? "name_semantics" : "identity");
+  }
+
+  if (hasHistoryAnchorFamily && normalized.length <= 90 && !hasTopicShift && /\b(entao|ok|certo|beleza|humm?|hum+|continue|explique|explica|detalhe|aprofunde|isso|disso)\b/.test(normalized)) {
+    return historyAnchorFamily;
+  }
 
   if (
     (asksCreatorIdentity || asksCreatorExpansion) &&
@@ -787,7 +841,7 @@ function classifyAssistantIdentityIntentFamily(
 
 function buildAssistantNameSemanticsReply(value: string) {
   const fallback = resolveIdentityFallbackForMessage(value);
-  if (fallback.shouldHandle) return fallback.shortNarrative;
+  if (fallback.shouldHandle) return ensureAssistantNameFirst(fallback.shortNarrative);
 
   const greetingPrefix = containsGreetingToken(value) ? `${resolveGreetingLead(value)} ` : "";
   return `${greetingPrefix}Eu sou a Letícia.`;
@@ -1234,8 +1288,7 @@ export class RagQueryService {
 
   private shouldUseLocalIntentFastPath() {
     if (parseOptionalBoolean(process.env.RAG_LOCAL_INTENT_FAST_PATH_ENABLED) === false) return false;
-    const llmBridgeAlwaysOn =
-      parseOptionalBoolean(process.env.AI_SYSTEM_LLM_BRIDGE_ALWAYS_ON ?? process.env.ANM_LLM_BRIDGE_ALWAYS_ON) !== false;
+    const llmBridgeAlwaysOn = parseOptionalBoolean(process.env.AI_SYSTEM_LLM_BRIDGE_ALWAYS_ON) !== false;
     const allowWithAlwaysOn = parseOptionalBoolean(process.env.RAG_ALLOW_LOCAL_INTENT_FAST_PATH_WITH_LLM_BRIDGE) === true;
     if (llmBridgeAlwaysOn && !allowWithAlwaysOn) return false;
     return true;

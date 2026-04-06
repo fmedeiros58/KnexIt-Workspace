@@ -9,6 +9,7 @@ import type { PipelineRoute } from "../shared/enums/pipeline-enums";
 export interface RouteExecutionPolicy {
   runInput: true;
   runLanguage: true;
+  runLogicalDiscernment: true;
   runConversation: true;
   runAffectiveSignal: true;
   runContext: true;
@@ -31,6 +32,7 @@ export interface RouteExecutionPolicy {
   runDeliveryProfile: true;
   runLinguisticHumanizer: true;
   runResponseCalibration: true;
+  runLogicalOutputAudit: true;
   validationProfile: "light" | "standard" | "strict";
   runPresentation: true;
   runObservability: true;
@@ -42,6 +44,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
   minimum: {
     runInput: true,
     runLanguage: true,
+    runLogicalDiscernment: true,
     runConversation: true,
     runAffectiveSignal: true,
     runContext: true,
@@ -64,6 +67,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runDeliveryProfile: true,
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
+    runLogicalOutputAudit: true,
     validationProfile: "light",
     runPresentation: true,
     runObservability: true,
@@ -73,6 +77,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
   reflective: {
     runInput: true,
     runLanguage: true,
+    runLogicalDiscernment: true,
     runConversation: true,
     runAffectiveSignal: true,
     runContext: true,
@@ -95,6 +100,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runDeliveryProfile: true,
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
+    runLogicalOutputAudit: true,
     validationProfile: "standard",
     runPresentation: true,
     runObservability: true,
@@ -104,6 +110,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
   inferential: {
     runInput: true,
     runLanguage: true,
+    runLogicalDiscernment: true,
     runConversation: true,
     runAffectiveSignal: true,
     runContext: true,
@@ -126,6 +133,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runDeliveryProfile: true,
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
+    runLogicalOutputAudit: true,
     validationProfile: "standard",
     runPresentation: true,
     runObservability: true,
@@ -135,6 +143,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
   "quantum-state": {
     runInput: true,
     runLanguage: true,
+    runLogicalDiscernment: true,
     runConversation: true,
     runAffectiveSignal: true,
     runContext: true,
@@ -157,6 +166,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runDeliveryProfile: true,
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
+    runLogicalOutputAudit: true,
     validationProfile: "strict",
     runPresentation: true,
     runObservability: true,

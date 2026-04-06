@@ -22,6 +22,7 @@ type AbbreviationRule = {
 
 const CANONICAL_ABBREVIATION_RULES: AbbreviationRule[] = [
   { pattern: /\b(?:vc|vce|vcs|c[eê]|oces)\b/gi, replacement: "voce" },
+  { pattern: /\b(?:t{2,}e|teeh|teh)\b/gi, replacement: "te" },
   { pattern: /\b(?:pq|pk|prq|pqe|pke|porq|porqe)\b/gi, replacement: "porque" },
   { pattern: /\b(?:tbm|tb|tmb|tbn)\b/gi, replacement: "tambem" },
   { pattern: /\b(?:qndo|qdo|qnd)\b/gi, replacement: "quando" },

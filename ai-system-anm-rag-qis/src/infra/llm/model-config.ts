@@ -13,10 +13,10 @@ function resolveDefaultBaseUrl() {
 
 export const modelConfig: ModelConfig = {
   baseUrl:
-    process.env.ANM_VLLM_URL ||
+    process.env.AI_SYSTEM_ANM_VLLM_URL ||
     process.env.LOCAL_LLM_BASE_URL ||
     process.env.VLLM_BASE_URL ||
     resolveDefaultBaseUrl(),
-  modelName: process.env.ANM_MODEL_NAME || "mistral-awq",
-  timeoutMs: Number(process.env.ANM_LLM_TIMEOUT_MS || 45000),
+  modelName: process.env.AI_SYSTEM_ANM_MODEL_NAME || "mistral-awq",
+  timeoutMs: Number(process.env.AI_SYSTEM_ANM_LLM_TIMEOUT_MS || 45000),
 };

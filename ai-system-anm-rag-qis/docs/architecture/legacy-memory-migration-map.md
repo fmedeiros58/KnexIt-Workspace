@@ -4,8 +4,8 @@
 Run the new descending ANM pipeline as the primary response path and keep `anm_backend` as legacy fallback only.
 
 ## Route Policy
-- Primary path: `runPipelineRootBridge` in `app/api/knexai/route.ts`.
-- Legacy path: direct/ANM backend logic only when descending pipeline fails and `KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK=1`.
+- Primary path: `runPipelineRootBridge` in `app/api/ai-system-anm/route.ts`.
+- Legacy path: direct/ai-system-anm backend logic only when descending pipeline fails and `KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK=1`.
 
 ## Watchdog Policy
 - `scripts/watch-knexai-backends.ps1` now monitors only `vLLM` by default.

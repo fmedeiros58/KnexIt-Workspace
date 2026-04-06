@@ -54,6 +54,8 @@ export type ChatRouteHandlerConfig = {
   };
 };
 
+const CANONICAL_AI_SYSTEM_ROUTE = "/api/ai-system-anm";
+
 function normalizeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -132,7 +134,7 @@ function parseOptionalEngineMode(value: unknown): "direct" | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
   if (normalized === "direct") return "direct";
-  if (normalized === "anm" || normalized === "ai-system-anm" || normalized === "ai_system_anm") return "direct";
+  if (normalized === "ai-system-anm" || normalized === "ai_system_anm") return "direct";
   return undefined;
 }
 
@@ -390,7 +392,9 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
       const shouldProxyThroughKnexAi =
         config.proxyThroughKnexAi === true ||
         parseOptionalBoolean(
-          readAnmCompatEnv("AI_SYSTEM_ANM_CHAT_ROUTE_PROXY_TO_KNEXAI", "CHAT_ROUTE_PROXY_TO_KNEXAI"),
+          readAnmCompatEnv(
+            "AI_SYSTEM_ANM_CHAT_ROUTE_PROXY_TO_AI_SYSTEM_ANM",
+          ),
         ) === true;
 
       if (shouldProxyThroughKnexAi) {
@@ -421,7 +425,7 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
           anmFallbackToDirect,
         };
 
-        const proxyResponse = await fetch(`${req.nextUrl.origin}/api/knexai`, {
+        const proxyResponse = await fetch(`${req.nextUrl.origin}${CANONICAL_AI_SYSTEM_ROUTE}`, {
           method: "POST",
           headers: {
             "content-type": "application/json; charset=utf-8",
@@ -438,7 +442,7 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
             throw new RagPipelineError(
               proxyResponse.status || 502,
               "CHAT_ROUTE_PROXY_FAILED",
-              `Falha ao abrir stream via /api/knexai${detail ? ` (${detail})` : ""}.`,
+              `Falha ao abrir stream via ${CANONICAL_AI_SYSTEM_ROUTE}${detail ? ` (${detail})` : ""}.`,
             );
           }
 
@@ -446,7 +450,7 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
             requestId: context.requestId,
             path: context.path,
             streamMode,
-            proxiedTo: "/api/knexai",
+            proxiedTo: CANONICAL_AI_SYSTEM_ROUTE,
           });
 
           const upstreamContentType = proxyResponse.headers.get("content-type") || "";
@@ -467,7 +471,7 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
           throw new RagPipelineError(
             proxyResponse.status || 502,
             "CHAT_ROUTE_PROXY_FAILED",
-            `Falha no proxy para /api/knexai${detail ? ` (${detail})` : ""}.`,
+            `Falha no proxy para ${CANONICAL_AI_SYSTEM_ROUTE}${detail ? ` (${detail})` : ""}.`,
           );
         }
 
@@ -489,7 +493,7 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
 
         logger.info(config.logEvents.success, {
           requestId: context.requestId,
-          proxiedTo: "/api/knexai",
+          proxiedTo: CANONICAL_AI_SYSTEM_ROUTE,
           ...(config.includeAnswerCharsInSuccessLog ? { answerChars: proxiedText.length } : {}),
         });
 
@@ -502,7 +506,7 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
               content: proxiedText,
             },
             metadata: proxiedMetadata,
-            meta: proxiedMeta || { requestId: context.requestId, proxiedTo: "/api/knexai" },
+            meta: proxiedMeta || { requestId: context.requestId, proxiedTo: CANONICAL_AI_SYSTEM_ROUTE },
           },
           200,
           { methods: routeOptions.methods },
@@ -529,7 +533,7 @@ export function createChatRouteHandlers(config: ChatRouteHandlerConfig) {
           temperature,
           seed,
         };
-        const proxyResponse = await fetch(`${req.nextUrl.origin}/api/knexai`, {
+        const proxyResponse = await fetch(`${req.nextUrl.origin}${CANONICAL_AI_SYSTEM_ROUTE}`, {
           method: "POST",
           headers: {
             "content-type": "application/json; charset=utf-8",

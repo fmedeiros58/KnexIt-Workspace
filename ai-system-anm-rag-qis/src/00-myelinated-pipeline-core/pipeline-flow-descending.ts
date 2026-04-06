@@ -27,6 +27,7 @@ import { bumpLayerFailed, createObservabilityMetricsStore } from "../19-observab
 
 import { runInputLayer } from "../01-input-layer/input-layer-bridge";
 import { runLanguageLayer } from "../02-language-layer/language-layer-bridge";
+import { runLogicalDiscernmentLayer } from "../bridges/logical-discernment-layer-bridge";
 import { runConversationLayer } from "../03-conversation-layer/conversation-layer-bridge";
 import { runAffectiveSignalLayer } from "../06b-affective-signal-layer/affective-signal-layer-bridge";
 import { runContextLayer } from "../04-context-and-session-layer/context-layer-bridge";
@@ -50,6 +51,7 @@ import { runProactivityGateLayer } from "../17c-proactivity-gate-layer/proactivi
 import { runDeliveryProfileLayer } from "../17d-delivery-profile-layer/delivery-profile-layer-bridge";
 import { runLinguisticHumanizerLayer } from "../17e-linguistic-humanizer-layer/linguistic-humanizer-layer-bridge";
 import { runResponseCalibrationLayer } from "../17f-response-calibration-layer/response-calibration-layer-bridge";
+import { runLogicalOutputAuditLayer } from "../bridges/logical-output-audit-bridge";
 import { runPresentationLayer } from "../18-presentation-and-delivery-layer/presentation-layer-bridge";
 import { runObservabilityLayer } from "../19-observability-control-and-admin-layer/observability-layer-bridge";
 import { runFeedbackLayer } from "../20-feedback-learning-and-memory-update-layer/feedback-layer-bridge";
@@ -66,6 +68,15 @@ function isFullPipelineAlwaysOn(): boolean {
     .toLowerCase();
   if (!flag) return true;
   return !(flag === "0" || flag === "false" || flag === "off");
+}
+
+function shouldForceDeepRouteExecution(params: {
+  safetyBlocksDeepLayers: boolean;
+  fastBypassDeepEligible: boolean;
+}): boolean {
+  if (params.safetyBlocksDeepLayers) return false;
+  if (params.fastBypassDeepEligible) return false;
+  return true;
 }
 
 function isGreetingFastLaneEligible(state: ProcessingState): boolean {
@@ -89,15 +100,8 @@ function isGreetingFastLaneEligible(state: ProcessingState): boolean {
 }
 
 function isIntentGateBypassEligible(state: ProcessingState): boolean {
-  const pre = state.preRouteSignals;
-  if (!pre?.intentGateShouldBypassDeepPipeline) return false;
-
-  const recommendation = `${pre?.intentGateRoutingRecommendation || ""}`.trim().toLowerCase();
-  if (!recommendation) return false;
-  if (recommendation === "moderate_reasoning" || recommendation === "deep_pipeline_required") return false;
-  if (`${pre?.safetyAction || "allow"}`.trim().toLowerCase() !== "allow") return false;
-
-  return true;
+  void state;
+  return false;
 }
 
 export async function runDescendingFlow(initialState: ProcessingState, route: PipelineRoute): Promise<ProcessingState> {
@@ -160,6 +164,13 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
 
   await runIf(policy.runInput, "input", "input", runInputLayer, "route_policy_disabled");
   await runIf(policy.runLanguage, "language", "language", runLanguageLayer, "route_policy_disabled");
+  await runIf(
+    policy.runLogicalDiscernment,
+    "logical-discernment",
+    "logical-discernment",
+    runLogicalDiscernmentLayer,
+    "route_policy_disabled",
+  );
   await runIf(policy.runConversation, "conversation", "conversation", runConversationLayer, "route_policy_disabled");
   await runIf(
     policy.runAffectiveSignal,
@@ -201,7 +212,12 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
   const fastBypassDeepEligible = greetingFastLaneEligible || intentGateBypassEligible;
   const greetingFastLaneReason = `${state.preRouteSignals?.greetingFastLaneReason || ""}`.trim() || "runtime_guard";
   const intentGateReason = `${state.preRouteSignals?.intentGateRoutingRecommendation || ""}`.trim() || "none";
-  const fullPipelineAlwaysOn = isFullPipelineAlwaysOn() && !fastBypassDeepEligible;
+  const fullPipelineAlwaysOn =
+    shouldForceDeepRouteExecution({
+      safetyBlocksDeepLayers,
+      fastBypassDeepEligible,
+    }) ||
+    (isFullPipelineAlwaysOn() && !fastBypassDeepEligible);
 
   const knowledgeByPolicy = policy.runKnowledge;
   const knowledgeBySteps = shouldRunKnowledgeLayer(state);
@@ -445,6 +461,13 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
     runResponseCalibrationLayer,
     "route_policy_disabled",
   );
+  await runIf(
+    policy.runLogicalOutputAudit,
+    "logical-output-audit",
+    "logical-output-audit",
+    runLogicalOutputAuditLayer,
+    "route_policy_disabled",
+  );
 
   state.executionArtifacts.validationStage = "final";
   await runIf(true, "validation-final", "validation-final", runValidationLayer, "validation_always_required");
@@ -465,7 +488,8 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
         `validationProfile=${policy.validationProfile}; pruning=${policy.pruningMode}; ` +
         `safetyShortCircuit=${safetyShortCircuit.shouldShortCircuit}; safetyReason=${safetyShortCircuit.reason}; ` +
         `greetingFastLaneEligible=${greetingFastLaneEligible}; greetingFastLaneReason=${greetingFastLaneReason}; ` +
-        `intentGateBypassEligible=${intentGateBypassEligible}; intentGateReason=${intentGateReason}`,
+        `intentGateBypassEligible=${intentGateBypassEligible}; intentGateReason=${intentGateReason}; ` +
+        `forceDeepRouteExecution=${fullPipelineAlwaysOn ? "true" : "false"}`,
     }),
   );
 

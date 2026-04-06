@@ -238,7 +238,7 @@ export class ProactiveAssistantOrchestrator {
       });
     }
 
-    const upstream = await fetch(`${input.origin}/api/knexai`, {
+    const upstream = await fetch(`${input.origin}/api/ai-system-anm`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       cache: "no-store",
