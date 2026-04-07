@@ -27,6 +27,7 @@ import {
 import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "./vllm-client";
 import { RagOrchestratorV2 } from "./v2/orchestrator_v2";
 import { resolveIdentityFallbackForMessage } from "../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
+import { textNormalizationService } from "../../ai-system-anm-rag-qis/src/shared/text-processing/text-normalization.service";
 
 type RagLatencyPreset = "default" | "aggressive";
 type QueryComplexity = "simple" | "standard" | "deep";
@@ -527,17 +528,53 @@ type LocalIntentReply = {
     | "DOCUMENT_GROUNDING_REQUIRED";
 };
 
+function resolveTimeZoneForGreeting() {
+  const configured = `${process.env.AI_SYSTEM_TIMEZONE || process.env.TZ || "America/Sao_Paulo"}`.trim();
+  if (!configured) return "America/Sao_Paulo";
+  try {
+    new Intl.DateTimeFormat("pt-BR", { timeZone: configured }).format(new Date());
+    return configured;
+  } catch {
+    return "America/Sao_Paulo";
+  }
+}
+
+function resolveClockGreetingLabel() {
+  const timeZone = resolveTimeZoneForGreeting();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    hour: "2-digit",
+  }).formatToParts(new Date());
+  const hour = Number.parseInt(parts.find((item) => item.type === "hour")?.value || "12", 10);
+  if (hour >= 5 && hour <= 11) return "Bom dia";
+  if (hour >= 12 && hour <= 17) return "Boa tarde";
+  return "Boa noite";
+}
+
+function pickGreetingVariant(value: string, variants: string[]) {
+  if (!variants.length) return "";
+  const normalized = normalizeIntentText(value);
+  const seed = Math.max(0, normalized.length);
+  return variants[seed % variants.length];
+}
+
 function buildGreetingFastReply(value: string) {
   const salutation = resolveGreetingLead(value);
-  return `${salutation} Eu sou a Letícia. Como posso te ajudar agora?`;
+  return pickGreetingVariant(value, [
+    `${salutation} Como posso te ajudar agora?`,
+    `${salutation} Em que posso te ajudar agora?`,
+    `${salutation} Diga como posso te ajudar.`,
+  ]);
 }
 
 function normalizeIntentText(value: string) {
-  return `${value || ""}`
-    .trim()
+  return textNormalizationService
+    .expandContractions(value || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
+    .trim()
     .replace(/[!?.,;:"]/g, " ")
     .replace(/\s+/g, " ");
 }
@@ -603,7 +640,11 @@ function isSmallTalkPrompt(value: string) {
 
 function buildSmallTalkFastReply(value: string) {
   const greetingPrefix = containsGreetingToken(value) ? `${resolveGreetingLead(value)} ` : "";
-  return `${greetingPrefix}Tudo certo por aqui. Como posso te ajudar agora?`;
+  return pickGreetingVariant(value, [
+    `${greetingPrefix}Tudo certo por aqui. Como posso te ajudar agora?`,
+    `${greetingPrefix}Tudo bem por aqui. Como posso te ajudar agora?`,
+    `${greetingPrefix}Tudo tranquilo por aqui. Como posso te ajudar agora?`,
+  ]);
 }
 
 function containsGreetingToken(value: string) {
@@ -614,17 +655,25 @@ function containsGreetingToken(value: string) {
 
 function resolveGreetingLead(value: string) {
   const normalized = normalizeIntentText(value);
-  if (!normalized) return "Oi!";
+  if (!normalized) return `${resolveClockGreetingLabel()}!`;
   if (/\bsaudacoes\b/.test(normalized)) return "Saudações!";
   if (/\bbom dia\b/.test(normalized)) return "Bom dia!";
   if (/\bboa tarde\b/.test(normalized)) return "Boa tarde!";
   if (/\bboa noite\b/.test(normalized)) return "Boa noite!";
-  return "Oi!";
+  return `${resolveClockGreetingLabel()}!`;
 }
 
 function buildAssistantIdentityReply(value: string) {
   const greetingPrefix = containsGreetingToken(value) ? `${resolveGreetingLead(value)} ` : "";
   return `${greetingPrefix}Eu sou a Letícia.`;
+}
+
+function ensureAssistantNameFirst(answer: string) {
+  const raw = `${answer || ""}`.trim();
+  if (!raw) return "Meu nome é Letícia.";
+  const normalized = normalizeIntentText(raw);
+  if (/^(eu sou|meu nome e|eu me chamo|sou a leticia)\b/.test(normalized)) return raw;
+  return `Meu nome é Letícia. ${raw}`;
 }
 
 type AssistantIdentityIntentFamily = "identity" | "name_semantics" | "creator_identity" | null;
@@ -639,16 +688,48 @@ function normalizeIntentHistoryWindow(history: RagChatHistoryItem[] | undefined,
     .join(" ");
 }
 
+function resolveIdentityFamilyFromHistoryAnchor(history: RagChatHistoryItem[] | undefined): AssistantIdentityIntentFamily {
+  if (!Array.isArray(history) || !history.length) return null;
+  const rolePriority: Array<RagChatHistoryItem["role"]> = ["user", "assistant"];
+  for (const role of rolePriority) {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const item = history[index];
+      if (!item || item.role !== role) continue;
+      const content = `${item.content || ""}`.trim();
+      if (!content) continue;
+      const resolved = resolveIdentityFallbackForMessage(content);
+      if (
+        resolved.creatorQuestionDetected ||
+        resolved.founderInfluenceQuestionDetected ||
+        resolved.formationQuestionDetected ||
+        resolved.professionalQuestionDetected
+      ) {
+        return "creator_identity";
+      }
+      if (resolved.nameOriginQuestionDetected) return "name_semantics";
+      if (resolved.identityQuestionDetected) return "identity";
+      const normalized = normalizeIntentText(content);
+      if (/\b(medeiros|francimar|criador|idealizador|fundador)\b/.test(normalized)) return "creator_identity";
+      if (/\b(origem|significado|conceito|definicao|nome leticia|te chamam assim)\b/.test(normalized)) {
+        return "name_semantics";
+      }
+      if (/\b(quem e voce|como voce se chama|seu nome|eu sou a leticia)\b/.test(normalized)) return "identity";
+    }
+  }
+  return null;
+}
+
 function hasAssistantIdentityContext(history: RagChatHistoryItem[] | undefined) {
   const normalized = normalizeIntentHistoryWindow(history);
-  if (!normalized) return false;
+  if (!normalized) return resolveIdentityFamilyFromHistoryAnchor(history) !== null;
   return (
     /\b(eu sou a leticia|meu nome e leticia)\b/.test(normalized) ||
     /\b(qual\s+(?:(?:e|eh|o)\s+)?(?:o\s+)?seu nome|como voce se chama|quem e voce)\b/.test(normalized) ||
     /\b(o que significa leticia|por que voce tem esse nome|de onde vem o nome leticia|de onde surgiu o nome leticia|conceito de leticia|definicao de leticia|base conceitual do nome leticia|como surgiu o nome leticia|ideia por tras do nome leticia)\b/.test(
       normalized,
     ) ||
-    /\b(quem e medeiros|quem e o medeiros)\b/.test(normalized)
+    /\b(quem e medeiros|quem e o medeiros)\b/.test(normalized) ||
+    resolveIdentityFamilyFromHistoryAnchor(history) !== null
   );
 }
 
@@ -687,11 +768,17 @@ function classifyAssistantIdentityIntentFamily(
   const normalized = normalizeIntentText(value);
   if (!normalized) return null;
 
+  const historyAnchorFamily = resolveIdentityFamilyFromHistoryAnchor(history);
+  const hasHistoryAnchorFamily = historyAnchorFamily !== null;
   const hasIdentityContext = hasAssistantIdentityContext(history);
   const hasLeticia = /\bleticia\b/.test(normalized);
   const hasMedeiros = /\bmedeiros\b/.test(normalized);
   const hasTopicShift = hasCompetingTopicShift(normalized);
   const hasFollowUpReference = /\b(esse nome|esse significado|isso sobre o nome|isso do nome|isso|disso|isso ai|disso ai)\b/.test(normalized);
+  const hasContinuationExplainCue =
+    /\b((entao|e entao|ok|certo|beleza|humm?|hum+)\s*,?\s*)?(me\s+)?(explique|explica|detalhe|aprofunde|desenvolva|continue|fale mais|me diga mais|me conte mais)\b/.test(
+      normalized,
+    );
   const hasNameOriginByCalling = /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/.test(normalized);
   const hasCreatorFollowUpCue = /\b(mais\s+informacoes|mais\s+detalhes|fale\s+mais|me\s+diga\s+mais|me\s+conte\s+mais|quero\s+saber\s+mais|sobre\s+ele|sobre\s+esse|desse\s+medeiros|desse\s+mesmo)\b/.test(
     normalized,
@@ -704,7 +791,7 @@ function classifyAssistantIdentityIntentFamily(
     hasDirectIdentityCue ||
     /\b(voce|vc|seu|sua|teu|tua)\b/.test(normalized) ||
     /\b(quem (?:e|eh) (?:voce|vc)|e o seu|e qual (?:e|eh)? o seu)\b/.test(normalized) ||
-    (hasIdentityContext && hasFollowUpReference);
+    ((hasIdentityContext || hasHistoryAnchorFamily) && hasFollowUpReference);
   const directedToUserSelf = /\b(meu|minha)\s+nome\b/.test(normalized);
   if (!directedToAssistant && directedToUserSelf) return null;
   if (hasTopicShift && !hasLeticia && !hasMedeiros && !hasNameOriginByCalling) return null;
@@ -718,6 +805,14 @@ function classifyAssistantIdentityIntentFamily(
   );
   const asksCreatorExpansion = hasMedeiros && hasCreatorFollowUpCue;
   const mentionsName = /\b(nome|chama|chamar|chamam|te chamam|identidade|esse nome|leticia)\b/.test(normalized);
+
+  if ((hasIdentityContext || hasHistoryAnchorFamily) && hasContinuationExplainCue && !hasTopicShift) {
+    return historyAnchorFamily || (hasMedeiros ? "creator_identity" : mentionsName ? "name_semantics" : "identity");
+  }
+
+  if (hasHistoryAnchorFamily && normalized.length <= 90 && !hasTopicShift && /\b(entao|ok|certo|beleza|humm?|hum+|continue|explique|explica|detalhe|aprofunde|isso|disso)\b/.test(normalized)) {
+    return historyAnchorFamily;
+  }
 
   if (
     (asksCreatorIdentity || asksCreatorExpansion) &&
@@ -746,7 +841,7 @@ function classifyAssistantIdentityIntentFamily(
 
 function buildAssistantNameSemanticsReply(value: string) {
   const fallback = resolveIdentityFallbackForMessage(value);
-  if (fallback.shouldHandle) return fallback.shortNarrative;
+  if (fallback.shouldHandle) return ensureAssistantNameFirst(fallback.shortNarrative);
 
   const greetingPrefix = containsGreetingToken(value) ? `${resolveGreetingLead(value)} ` : "";
   return `${greetingPrefix}Eu sou a Letícia.`;
@@ -1009,7 +1104,7 @@ function buildDocumentSelectionPrompt(docs: ScopedDocumentLabel[]) {
 
 function buildClarificationGreetingReply(parentQuestion: string, currentQuestion: string) {
   const salutation = resolveGreetingLead(currentQuestion);
-  const intro = `${salutation} Eu sou a Letícia.`;
+  const intro = `${salutation}`;
   const prompt = normalizeString(parentQuestion);
   if (!prompt) {
     return `${intro} Se quiser, continuo a solicitação anterior. Você quer que eu retome ou prefere um novo assunto?`;
@@ -1193,7 +1288,7 @@ export class RagQueryService {
 
   private shouldUseLocalIntentFastPath() {
     if (parseOptionalBoolean(process.env.RAG_LOCAL_INTENT_FAST_PATH_ENABLED) === false) return false;
-    const llmBridgeAlwaysOn = parseOptionalBoolean(process.env.ANM_LLM_BRIDGE_ALWAYS_ON) !== false;
+    const llmBridgeAlwaysOn = parseOptionalBoolean(process.env.AI_SYSTEM_LLM_BRIDGE_ALWAYS_ON) !== false;
     const allowWithAlwaysOn = parseOptionalBoolean(process.env.RAG_ALLOW_LOCAL_INTENT_FAST_PATH_WITH_LLM_BRIDGE) === true;
     if (llmBridgeAlwaysOn && !allowWithAlwaysOn) return false;
     return true;

@@ -556,7 +556,7 @@ export async function resolveIdentityRuntimeSharedContext(input?: {
     return buildContextDisabled("identity_supabase_not_configured", maxPromptChars);
   }
 
-  const schema = pickFirstNonEmpty(process.env.ANM_IDENTITY_SQL_SCHEMA, DEFAULT_SCHEMA);
+  const schema = pickFirstNonEmpty(process.env.AI_SYSTEM_ANM_IDENTITY_SQL_SCHEMA, DEFAULT_SCHEMA);
   const maxEntities = parseBoundedInt(process.env.IDENTITY_SHARED_MEMORY_MAX_ENTITIES, DEFAULT_MAX_ENTITIES, 1, 20);
   const maxMatches = parseBoundedInt(process.env.IDENTITY_SHARED_MEMORY_MAX_MATCHES, DEFAULT_MAX_MATCHES, 1, 24);
   const maxTargets = parseBoundedInt(process.env.IDENTITY_SHARED_MEMORY_MAX_TARGETS, DEFAULT_MAX_TARGETS, 1, 20);
@@ -566,7 +566,7 @@ export async function resolveIdentityRuntimeSharedContext(input?: {
     1,
     30,
   );
-  const preferredRuntimeKey = pickFirstNonEmpty(process.env.ANM_IDENTITY_RUNTIME_KEY, "default");
+  const preferredRuntimeKey = pickFirstNonEmpty(process.env.AI_SYSTEM_ANM_IDENTITY_RUNTIME_KEY, "default");
 
   try {
     const [runtimeRows, entityRows, matchRows, layerRows, targetRows] = await Promise.all([

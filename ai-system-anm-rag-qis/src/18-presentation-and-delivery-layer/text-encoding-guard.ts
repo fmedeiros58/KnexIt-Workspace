@@ -44,25 +44,192 @@ const MOJIBAKE_REPLACEMENTS: ReadonlyArray<[string, string]> = [
 ];
 
 const PT_DIACRITIC_REPLACEMENTS: ReadonlyArray<[RegExp, string]> = [
-  [/\bcognicao\b/g, "cognição"],
-  [/\binteracao\b/g, "interação"],
-  [/\bassistencia\b/g, "assistência"],
-  [/\btecnica\b/g, "técnica"],
-  [/\bvinculo\b/g, "vínculo"],
-  [/\bdimensao\b/g, "dimensão"],
-  [/\bformulacao\b/g, "formulação"],
-  [/\bcomposicao\b/g, "composição"],
-  [/\bdissertacao\b/g, "dissertação"],
-  [/\bdedicatoria\b/g, "dedicatória"],
-  [/\bprecisao\b/g, "precisão"],
-  [/\binvencoes\b/g, "invenções"],
-  [/\bmitologicas\b/g, "mitológicas"],
-  [/\bnao\b/g, "não"],
-  [/\binformacao\b/g, "informação"],
-  [/\bverificacao\b/g, "verificação"],
-  [/\bvoce\b/g, "você"],
-  [/\bVoce\b/g, "Você"],
+  [/\bleticia\b/g, "let\u00EDcia"],
+  [/\bLeticia\b/g, "Let\u00EDcia"],
+  [/\bLETICIA\b/g, "LET\u00CDCIA"],
+  [/\bcognicao\b/g, "cogni\u00E7\u00E3o"],
+  [/\binteracao\b/g, "intera\u00E7\u00E3o"],
+  [/\bassistencia\b/g, "assist\u00EAncia"],
+  [/\btecnica\b/g, "t\u00E9cnica"],
+  [/\bvinculo\b/g, "v\u00EDnculo"],
+  [/\bdimensao\b/g, "dimens\u00E3o"],
+  [/\bformulacao\b/g, "formula\u00E7\u00E3o"],
+  [/\bcomposicao\b/g, "composi\u00E7\u00E3o"],
+  [/\bdissertacao\b/g, "disserta\u00E7\u00E3o"],
+  [/\bdedicatoria\b/g, "dedicat\u00F3ria"],
+  [/\bprecisao\b/g, "precis\u00E3o"],
+  [/\binvencoes\b/g, "inven\u00E7\u00F5es"],
+  [/\bmitologicas\b/g, "mitol\u00F3gicas"],
+  [/\bproposito\b/g, "prop\u00F3sito"],
+  [/\breune\b/g, "re\u00FAne"],
+  [/\bsintese\b/g, "s\u00EDntese"],
+  [/\bessencia\b/g, "ess\u00EAncia"],
+  [/\brazao\b/g, "raz\u00E3o"],
+  [/\balem\b/g, "al\u00E9m"],
+  [/\bhistoria\b/g, "hist\u00F3ria"],
+  [/\bintencao\b/g, "inten\u00E7\u00E3o"],
+  [/\bdirecao\b/g, "dire\u00E7\u00E3o"],
+  [/\bfuncao\b/g, "fun\u00E7\u00E3o"],
+  [/\bcompreensao\b/g, "compreens\u00E3o"],
+  [/\bcarater\b/g, "car\u00E1ter"],
+  [/\bnao\b/g, "n\u00E3o"],
+  [/\bNao\b/g, "N\u00E3o"],
+  [/\btambem\b/g, "tamb\u00E9m"],
+  [/\bTambem\b/g, "Tamb\u00E9m"],
+  [/\bha\b/g, "h\u00E1"],
+  [/\bHa\b/g, "H\u00E1"],
+  [/\binformacao\b/g, "informa\u00E7\u00E3o"],
+  [/\bverificacao\b/g, "verifica\u00E7\u00E3o"],
+  [/\bvoce\b/g, "voc\u00EA"],
+  [/\bVoce\b/g, "Voc\u00EA"],
+  [/\bpor tras\b/g, "por tr\u00E1s"],
+  [/\bPor tras\b/g, "Por tr\u00E1s"],
 ];
+
+const PT_CONTEXTUAL_REPLACEMENTS: ReadonlyArray<[RegExp, string]> = [
+  [/\b([Mm]eu nome)\s+e\s+/g, "$1 \u00E9 "],
+  [/\b([Oo] nome)\s+e\s+/g, "$1 \u00E9 "],
+  [/\b([Ll]eticia|[Ll]et\u00EDcia)\s+e\s+um\b/g, "$1 \u00E9 um"],
+  [/\b([Ll]eticia|[Ll]et\u00EDcia)\s+e\s+uma\b/g, "$1 \u00E9 uma"],
+  [/\b([Mm]edeiros)\s+e\s+o\b/g, "$1 \u00E9 o"],
+  [/\b([Mm]edeiros)\s+e\s+a\b/g, "$1 \u00E9 a"],
+  [/\b([Ii]sso)\s+e\s+/g, "$1 \u00E9 "],
+];
+
+const PT_QUESTION_COPULA_REPLACEMENTS: ReadonlyArray<[RegExp, string]> = [
+  [/\b([Qq]ual)\s+e\b/g, "$1 \u00E9"],
+  [/\b([Qq]uem)\s+e\b/g, "$1 \u00E9"],
+  [/\b([Cc]omo)\s+e\b/g, "$1 \u00E9"],
+  [/\b([Oo]nde)\s+e\b/g, "$1 \u00E9"],
+  [/\b([Oo]\s+que)\s+e\b/g, "$1 \u00E9"],
+];
+
+const PT_CANONICAL_ACCENT_DICTIONARY: ReadonlyMap<string, string> = new Map<string, string>([
+  ["leticia", "let\u00EDcia"],
+  ["proposito", "prop\u00F3sito"],
+  ["reune", "re\u00FAne"],
+  ["teorico", "te\u00F3rico"],
+  ["teorica", "te\u00F3rica"],
+  ["epistemologico", "epistemol\u00F3gico"],
+  ["epistemologica", "epistemol\u00F3gica"],
+  ["semantico", "sem\u00E2ntico"],
+  ["semantica", "sem\u00E2ntica"],
+  ["ortografico", "ortogr\u00E1fico"],
+  ["ortografica", "ortogr\u00E1fica"],
+  ["linguistico", "lingu\u00EDstico"],
+  ["linguistica", "lingu\u00EDstica"],
+  ["sistemico", "sist\u00EAmico"],
+  ["sistemica", "sist\u00EAmica"],
+  ["logico", "l\u00F3gico"],
+  ["logica", "l\u00F3gica"],
+  ["metodo", "m\u00E9todo"],
+  ["metodos", "m\u00E9todos"],
+  ["criterio", "crit\u00E9rio"],
+  ["criterios", "crit\u00E9rios"],
+  ["estrategia", "estrat\u00E9gia"],
+  ["estrategias", "estrat\u00E9gias"],
+  ["relatorio", "relat\u00F3rio"],
+  ["relatorios", "relat\u00F3rios"],
+  ["numero", "n\u00FAmero"],
+  ["numeros", "n\u00FAmeros"],
+  ["periodo", "per\u00EDodo"],
+  ["periodos", "per\u00EDodos"],
+  ["historico", "hist\u00F3rico"],
+  ["historica", "hist\u00F3rica"],
+  ["academico", "acad\u00EAmico"],
+  ["academica", "acad\u00EAmica"],
+  ["cientifico", "cient\u00EDfico"],
+  ["cientifica", "cient\u00EDfica"],
+  ["biologico", "biol\u00F3gico"],
+  ["biologica", "biol\u00F3gica"],
+  ["psicologico", "psicol\u00F3gico"],
+  ["psicologica", "psicol\u00F3gica"],
+  ["pedagogico", "pedag\u00F3gico"],
+  ["pedagogica", "pedag\u00F3gica"],
+  ["basico", "b\u00E1sico"],
+  ["basica", "b\u00E1sica"],
+  ["tecnico", "t\u00E9cnico"],
+  ["tecnica", "t\u00E9cnica"],
+  ["tecnicos", "t\u00E9cnicos"],
+  ["tecnicas", "t\u00E9cnicas"],
+  ["nao", "n\u00E3o"],
+  ["voce", "voc\u00EA"],
+  ["tambem", "tamb\u00E9m"],
+  ["ha", "h\u00E1"],
+  ["alem", "al\u00E9m"],
+  ["atraves", "atrav\u00E9s"],
+  ["sintese", "s\u00EDntese"],
+  ["essencia", "ess\u00EAncia"],
+  ["razao", "raz\u00E3o"],
+  ["intencao", "inten\u00E7\u00E3o"],
+  ["direcao", "dire\u00E7\u00E3o"],
+  ["funcao", "fun\u00E7\u00E3o"],
+  ["compreensao", "compreens\u00E3o"],
+  ["carater", "car\u00E1ter"],
+  ["informacao", "informa\u00E7\u00E3o"],
+  ["verificacao", "verifica\u00E7\u00E3o"],
+]);
+
+function applyCaseTemplate(source: string, replacement: string): string {
+  if (!source) return replacement;
+  if (source === source.toUpperCase()) return replacement.toUpperCase();
+  const startsUpper = source[0] === source[0].toUpperCase();
+  if (!startsUpper) return replacement;
+  return `${replacement[0]?.toUpperCase() || ""}${replacement.slice(1)}`;
+}
+
+function applyCanonicalAccentDictionary(text: string): string {
+  return `${text || ""}`.replace(/\b[\p{L}]{2,}\b/gu, (word) => {
+    const normalized = word.toLocaleLowerCase("pt-BR");
+    const canonical = PT_CANONICAL_ACCENT_DICTIONARY.get(normalized);
+    if (!canonical) return word;
+    return applyCaseTemplate(word, canonical);
+  });
+}
+
+function mapOutsideCodeFences(text: string, mapper: (segment: string) => string): string {
+  if (!text) return "";
+  const segments = text.split(/(```[\s\S]*?```)/g);
+  return segments
+    .map((segment) => {
+      if (!segment) return segment;
+      if (segment.startsWith("```")) return segment;
+      return mapper(segment);
+    })
+    .join("");
+}
+
+function normalizeSurfaceWhitespace(text: string): string {
+  return `${text || ""}`
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function uppercaseFirstLetter(text: string): string {
+  return `${text || ""}`.replace(/^(\s*)([\p{Ll}])/u, (_match, leading: string, letter: string) => {
+    return `${leading}${letter.toLocaleUpperCase("pt-BR")}`;
+  });
+}
+
+function stripIdentitySelfAddressLead(text: string): string {
+  let updated = `${text || ""}`;
+  updated = updated.replace(
+    /^\s*(?:ol[aá],?\s*)?(?:eu\s+(?:sou|me\s+chamo)\s+a\s+)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s*aqui\b\s*[:\-]\s*/gimu,
+    "",
+  );
+  updated = updated.replace(
+    /^\s*(?:ol[aá],?\s*)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s*aqui\b[.!?]\s*/gimu,
+    "",
+  );
+  updated = updated.replace(
+    /^\s*(?:eu\s+sou\s+a\s+)?(?:ia\s+)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s+aqui\b\s*[:\-]\s*/gimu,
+    "",
+  );
+  return uppercaseFirstLetter(updated.trimStart());
+}
 
 function shouldApplyPortugueseDiacriticRepair(value: string): boolean {
   const normalized = `${value || ""}`
@@ -72,7 +239,7 @@ function shouldApplyPortugueseDiacriticRepair(value: string): boolean {
     .replace(/\s+/g, " ")
     .trim();
   if (!normalized) return false;
-  return /\b(leticia|medeiros|language-engineered technology|cognicao|interacao|assistencia|arquitetura tecnica|vinculo humano)\b/.test(
+  return /\b(leticia|medeiros|language-engineered technology|cognicao|interacao|assistencia|arquitetura tecnica|vinculo humano|nao|voce|tambem|ha|por tras|informacao|verificacao|proposito|reune|sintese|essencia|razao|alem|historia|intencao|direcao|funcao|compreensao|carater)\b/.test(
     normalized,
   );
 }
@@ -86,11 +253,25 @@ export function ensureUtf8Response(text: string): Utf8GuardResult {
     repaired = repaired.split(from).join(to);
   }
   const mojibakeChanged = repaired !== original;
-  if (mojibakeChanged || shouldApplyPortugueseDiacriticRepair(repaired)) {
-    for (const [pattern, replacement] of PT_DIACRITIC_REPLACEMENTS) {
-      repaired = repaired.replace(pattern, replacement);
-    }
+  const shouldApplyPt = mojibakeChanged || shouldApplyPortugueseDiacriticRepair(repaired);
+  if (shouldApplyPt) {
+    repaired = mapOutsideCodeFences(repaired, (segment) => {
+      let updated = segment;
+      for (const [pattern, replacement] of PT_DIACRITIC_REPLACEMENTS) {
+        updated = updated.replace(pattern, replacement);
+      }
+      updated = applyCanonicalAccentDictionary(updated);
+      for (const [pattern, replacement] of PT_CONTEXTUAL_REPLACEMENTS) {
+        updated = updated.replace(pattern, replacement);
+      }
+      for (const [pattern, replacement] of PT_QUESTION_COPULA_REPLACEMENTS) {
+        updated = updated.replace(pattern, replacement);
+      }
+      return updated;
+    });
   }
+  repaired = stripIdentitySelfAddressLead(repaired);
+  repaired = normalizeSurfaceWhitespace(repaired);
 
   return {
     text: repaired,

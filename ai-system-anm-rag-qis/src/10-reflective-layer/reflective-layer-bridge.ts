@@ -87,6 +87,7 @@ export async function runReflectiveLayer(
   }
 
   const reflection = buildCriticalReflection(state);
+  const logicalFrame = state.logicalFrame;
   const communicativeTensions = state.communicativeElaborationState?.tensions || [];
   const communicativeRefinementPoints = state.communicativeElaborationState?.refinement.unresolvedPoints || [];
   const philosophicalQuestions = state.philosophicalSelfModelState?.philosophicalQuestions || [];
@@ -135,6 +136,19 @@ export async function runReflectiveLayer(
         ...state.reflectiveNotes.assumptions,
         ...communicativeRefinementPoints.map((row) => `refinement:${row}`),
       ].slice(0, 16);
+    }
+    if (logicalFrame) {
+      state.reflectiveNotes.assumptions = [
+        ...state.reflectiveNotes.assumptions,
+        `logical_principle:${logicalFrame.dominantPrinciple}`,
+        ...(logicalFrame.primaryGoal ? [`logical_primary_goal:${logicalFrame.primaryGoal}`] : []),
+      ].slice(0, 16);
+      if (logicalFrame.rejectedActions.length > 0) {
+        state.reflectiveNotes.caveats = [
+          ...state.reflectiveNotes.caveats,
+          ...logicalFrame.rejectedActions.slice(0, 2).map((item) => `logical_rejected:${item.reason}`),
+        ].slice(0, 16);
+      }
     }
 
     state.confidenceScores.coherence = Number(

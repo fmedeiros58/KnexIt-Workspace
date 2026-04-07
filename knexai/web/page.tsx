@@ -1227,7 +1227,7 @@ function Composer({
             <span className="text-2xl leading-none">+</span>
           </button>
           <Link
-            href="/knexai/proactive-assistant"
+            href="/ai-system-anm/proactive-assistant"
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100"
             title="Abrir assistente proativo"
             aria-label="Abrir assistente proativo"
@@ -1607,6 +1607,9 @@ export default function KnexAiPage() {
   useEffect(() => {
     let active = true;
     const fetchIdentityQuickStatus = async () => {
+      if (!isIdentityPanelOpen && typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       try {
         const response = await fetch("/api/identity/runtime/status", { cache: "no-store" });
         if (!response.ok) return;
@@ -1622,14 +1625,15 @@ export default function KnexAiPage() {
     };
 
     void fetchIdentityQuickStatus();
+    const intervalMs = isIdentityPanelOpen ? 5_000 : 30_000;
     const intervalId = window.setInterval(() => {
       void fetchIdentityQuickStatus();
-    }, 5000);
+    }, intervalMs);
     return () => {
       active = false;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [isIdentityPanelOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1774,7 +1778,7 @@ export default function KnexAiPage() {
       `left=${left}`,
       `top=${top}`,
     ].join(",");
-    const popup = window.open("/knexai/identity-runtime", "knexai-identity-panel-window", features);
+    const popup = window.open("/ai-system-anm/identity-runtime", "ai-system-anm-identity-panel-window", features);
     if (popup) {
       popup.focus();
       closeIdentityPanel();
@@ -3892,7 +3896,7 @@ export default function KnexAiPage() {
               Modo escrita
             </button>
             <Link
-              href="/knexai/ingest"
+              href="/ai-system-anm/ingest"
               className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-zinc-200"
             >
               <Upload size={16} />
@@ -5154,7 +5158,7 @@ export default function KnexAiPage() {
             ) : (
               <iframe
                 title="Painel de identificacao"
-                src="/knexai/identity-runtime?embedded=1"
+                src="/ai-system-anm/identity-runtime?embedded=1"
                 className="h-full w-full flex-1 border-0 bg-[#05070d]"
                 allow="camera; microphone"
               />

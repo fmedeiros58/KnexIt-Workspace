@@ -52,7 +52,7 @@ const IMPERATIVE_HINT_PATTERN =
   /\b(faca|crie|gere|liste|explique|resuma|mostre|ajuste|corrija|implemente|build|create|generate|list|explain|summarize|show|fix|adjust|implement)\b/gi;
 
 const GREETING_PATTERN =
-  /\b(oi|ola|saudacoes|saudações|bom dia|boa tarde|boa noite|hello|hi|hey)\b/gi;
+  /\b(oi+|oie+|ola+|opa+|fala+|salve+|saudacoes|saudacao|bom dia|boa tarde|boa noite|boa madrugada|boa manha|alo|alou|e ai|eae|hello|hi|hey|yo)\b/gi;
 
 const RECENCY_PATTERN =
   /\b(atual|latest|today|hoje|agora|this week|neste mes|recent|recente|recentemente)\b/gi;
@@ -141,3 +141,4 @@ export function buildTextAnalysisSnapshot(text: string): TextAnalysisSnapshot {
     hasGreetingSignal: greetingCount > 0,
   };
 }
+

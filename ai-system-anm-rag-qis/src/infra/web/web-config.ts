@@ -15,8 +15,8 @@ function parseProviders(value: string): string[] {
 }
 
 export const webConfig: WebConfig = {
-  providers: parseProviders(process.env.RAG_WEB_SEARCH_PROVIDERS || process.env.ANM_WEB_PROVIDERS || ""),
-  timeoutMs: Math.max(1200, Number(process.env.ANM_WEB_TIMEOUT_MS || 8000)),
+  providers: parseProviders(process.env.RAG_WEB_SEARCH_PROVIDERS || process.env.AI_SYSTEM_ANM_WEB_PROVIDERS || ""),
+  timeoutMs: Math.max(1200, Number(process.env.AI_SYSTEM_ANM_WEB_TIMEOUT_MS || 8000)),
   maxResults: Math.max(2, Number(process.env.KNEXAI_AUTO_WEB_SEARCH_MAX_RESULTS || 8)),
-  providerTimeoutMs: Math.max(1200, Number(process.env.ANM_WEB_PROVIDER_TIMEOUT_MS || 12000)),
+  providerTimeoutMs: Math.max(1200, Number(process.env.AI_SYSTEM_ANM_WEB_PROVIDER_TIMEOUT_MS || 12000)),
 };

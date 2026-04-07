@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function Page() {
-  redirect("/landing-produtos/knexai");
+  redirect("/ai-system-anm");
 }

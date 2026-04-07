@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
+import { readConfiguredAiSystemAnmBaseUrl, resolveReachableAiSystemAnmBaseUrl } from "@/app/api/_shared/ai-system-anm-endpoint";
 
 export const runtime = "nodejs";
 
@@ -18,9 +18,21 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   return "";
 }
 
+function readAnmCompatEnv(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function readProxyConfig() {
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAiSystemAnmBaseUrl(
+    pickFirstNonEmpty(readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL"), DEFAULT_ANM_BASE_URL),
+  );
+  const parsedTimeout = Number(
+    readAnmCompatEnv("AI_SYSTEM_ANM_API_TIMEOUT_MS") || DEFAULT_ANM_TIMEOUT_MS,
+  );
   const timeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, timeoutMs };
 }
@@ -40,7 +52,7 @@ async function proxyWriteRequest(req: NextRequest, context: RouteContext) {
   const method = req.method.toUpperCase();
   const segments = context.params.path || [];
   const { anmBaseUrl, timeoutMs } = readProxyConfig();
-  const anmResolution = await resolveReachableAnmBaseUrl({
+  const anmResolution = await resolveReachableAiSystemAnmBaseUrl({
     configuredBaseUrl: anmBaseUrl,
     timeoutMs: Math.min(2_000, timeoutMs),
     healthPath: "/healthz",

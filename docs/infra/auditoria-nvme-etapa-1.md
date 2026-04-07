@@ -5,7 +5,7 @@ Escopo: repositorio `knexit-workspace` inteiro, com foco na implementacao recent
 
 ## 1) Resumo executivo
 
-- O projeto principal roda em `Next.js 14` com API routes no proprio app, usando `@supabase/supabase-js` para persistencia e auth ([package.json:44](../../package.json), [package.json:29](../../package.json), [app/api/knexai/_store.ts:1](../../app/api/knexai/_store.ts)).
+- O projeto principal roda em `Next.js 14` com API routes no proprio app, usando `@supabase/supabase-js` para persistencia e auth ([package.json:44](../../package.json), [package.json:29](../../package.json), [app/api/ai-system-anm/_store.ts:1](../../app/api/ai-system-anm/_store.ts)).
 - Ha backends adicionais no monorepo:
   - `ANM backend` em `FastAPI` ([anm_backend/main.py:17](../../anm_backend/main.py), [anm_backend/requirements.txt:1](../../anm_backend/requirements.txt)).
   - `auth service` em `Express` ([auth/src/index.ts:1](../../auth/src/index.ts), [auth/package.json:14](../../auth/package.json)).
@@ -35,7 +35,7 @@ Escopo: repositorio `knexit-workspace` inteiro, com foco na implementacao recent
 
 ## 3.1 Aplicacao principal
 - Next.js + React: [package.json:44](../../package.json), [package.json:47](../../package.json).
-- API no proprio app (`app/api/*`), exemplo KnexAI store: [app/api/knexai/_store.ts:1](../../app/api/knexai/_store.ts).
+- API no proprio app (`app/api/*`), exemplo KnexAI store: [app/api/ai-system-anm/_store.ts:1](../../app/api/ai-system-anm/_store.ts).
 
 ## 3.2 Backends adicionais
 - ANM FastAPI: [anm_backend/main.py:17](../../anm_backend/main.py), [anm_backend/main.py:68](../../anm_backend/main.py).
@@ -96,13 +96,13 @@ Observacao:
 
 | Variavel | Onde aparece | Funcao |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | [.env.example:2](../../.env.example), [app/api/knexai/_store.ts:3](../../app/api/knexai/_store.ts) | Endpoint do Supabase para app e APIs |
-| `SUPABASE_SERVICE_ROLE_KEY` | [.env.example:4](../../.env.example), [app/api/knexai/_store.ts:4](../../app/api/knexai/_store.ts) | Chave admin para persistencia server-side |
+| `NEXT_PUBLIC_SUPABASE_URL` | [.env.example:2](../../.env.example), [app/api/ai-system-anm/_store.ts:3](../../app/api/ai-system-anm/_store.ts) | Endpoint do Supabase para app e APIs |
+| `SUPABASE_SERVICE_ROLE_KEY` | [.env.example:4](../../.env.example), [app/api/ai-system-anm/_store.ts:4](../../app/api/ai-system-anm/_store.ts) | Chave admin para persistencia server-side |
 | `NEXT_PUBLIC_IDENTITY_SUPABASE_URL` | [.env.example:8](../../.env.example), [lib/identitySupabaseClient.ts:8](../../lib/identitySupabaseClient.ts) | Endpoint Supabase de identidade |
 | `IDENTITY_SUPABASE_SERVICE_ROLE_KEY` | [.env.example:10](../../.env.example), [lib/identitySupabaseAdmin.ts:10](../../lib/identitySupabaseAdmin.ts) | Chave admin projeto identidade |
-| `LOCAL_LLM_MODEL` | [.env.example:23](../../.env.example), [app/api/knexai/route.ts:126](../../app/api/knexai/route.ts), [anm_backend/adapters/engine_client.py:46](../../anm_backend/adapters/engine_client.py) | Caminho do modelo local (path de disco) |
+| `LOCAL_LLM_MODEL` | [.env.example:23](../../.env.example), [app/api/ai-system-anm/route.ts:126](../../app/api/ai-system-anm/route.ts), [anm_backend/adapters/engine_client.py:46](../../anm_backend/adapters/engine_client.py) | Caminho do modelo local (path de disco) |
 | `LOCAL_LLM_BASE_URL` / `LLM_BASE_URL` / `VLLM_BASE_URL` | [.env.example:21](../../.env.example), [.env.example:25](../../.env.example), [.env.example:33](../../.env.example) | Endpoints do motor LLM |
-| `ANM_API_BASE_URL` | [.env.example:59](../../.env.example), [app/api/knexai/route.ts:173](../../app/api/knexai/route.ts) | Endpoint do backend ANM |
+| `ANM_API_BASE_URL` | [.env.example:59](../../.env.example), [app/api/ai-system-anm/route.ts:173](../../app/api/ai-system-anm/route.ts) | Endpoint do backend ANM |
 | `DATABASE_URL` | [core/database/client.ts:9](../../core/database/client.ts) | URL de banco do modulo core |
 | `NEXT_DIST_DIR` | [next.config.mjs:2](../../next.config.mjs) | Path de build output Next |
 | `ANM_VENV_DIR` | [scripts/serve-anm.sh:12](../../scripts/serve-anm.sh) | Path do virtualenv ANM |

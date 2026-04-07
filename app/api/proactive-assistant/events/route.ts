@@ -4,8 +4,20 @@ import { readIdentityRuntimeStatus, resolveRequestOrigin, type IdentityRuntimeSn
 
 export const runtime = "nodejs";
 
-const POLL_INTERVAL_MS = 1_200;
+const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const PING_INTERVAL_MS = 15_000;
+
+function readPollIntervalMs() {
+  const parsed = Number(
+    process.env.AI_SYSTEM_PROACTIVE_IDENTITY_POLL_MS ||
+      process.env.AI_SYSTEM_ANM_PROACTIVE_IDENTITY_POLL_MS ||
+      DEFAULT_POLL_INTERVAL_MS,
+  );
+  if (!Number.isFinite(parsed)) return DEFAULT_POLL_INTERVAL_MS;
+  return Math.max(1_000, Math.min(15_000, Math.round(parsed)));
+}
+
+const POLL_INTERVAL_MS = readPollIntervalMs();
 
 function encodeSse(event: string, payload: unknown) {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;

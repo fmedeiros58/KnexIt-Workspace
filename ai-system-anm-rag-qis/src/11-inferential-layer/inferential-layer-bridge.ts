@@ -27,17 +27,26 @@ export async function runInferentialLayer(state: ProcessingState): Promise<Proce
   }
 
   const inferentialMap = runInferenceEngine(state);
+  const logicalFrame = state.logicalFrame;
   const communicativeBranches = state.communicativeElaborationState?.hypothesisBranches || [];
   const ontologicalHooks = state.philosophicalSelfModelState?.ontologyStatements || [];
   const enrichedInferentialMap = {
     implications: [
       ...inferentialMap.implications,
       ...communicativeBranches.map((row) => `implicacao_da_hipotese: ${row.claim}`),
+      ...(logicalFrame?.feasibleActions.length
+        ? logicalFrame.feasibleActions.slice(0, 3).map((action) =>
+            `acao_viavel: ${action.label} (custo_marginal=${(action.estimatedMarginalCost ?? 0.5).toFixed(2)})`,
+          )
+        : []),
       ...(ontologicalHooks.length > 0
         ? [`enquadramento_ontologico: ${ontologicalHooks.slice(0, 2).map((row) => row.claim).join(" | ")}`]
         : []),
     ].slice(0, 18),
-    scenarios: inferentialMap.scenarios,
+    scenarios: [
+      ...inferentialMap.scenarios,
+      ...(logicalFrame?.recommendedAction ? [`cenario_recomendado: ${logicalFrame.recommendedAction}`] : []),
+    ].slice(0, 12),
     secondOrderEffects: inferentialMap.secondOrderEffects,
   };
   const nodular = state.memorySnapshot.nodularState;

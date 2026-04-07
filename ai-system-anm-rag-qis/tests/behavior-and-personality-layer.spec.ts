@@ -1,4 +1,4 @@
-import {
+﻿import {
   composeBehavioralStyle,
 } from "../src/17b-response-behavior-layer/behavioral-style-composer";
 import {
@@ -9,6 +9,7 @@ import {
 } from "../src/17b-response-behavior-layer/memory-opportunity-detector";
 import {
   resolveAiIdentityProfile,
+  resolveIdentityFallbackForMessage,
 } from "../src/17b-response-behavior-layer/ai-identity-regulator";
 import {
   shapeEmpathicResponse,
@@ -37,6 +38,7 @@ import {
 import {
   generateMicroVariation,
 } from "../src/17b-response-behavior-layer/micro-variation-engine";
+import { ensureUtf8Response } from "../src/18-presentation-and-delivery-layer/text-encoding-guard";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -312,8 +314,57 @@ function scenarioAiNameOriginGrounding(): void {
     "identity narrative should include LETICIA conceptual expansion",
   );
   assert(
-    aiIdentity.identityGroundingFacts.some((fact) => /homenagem.+medeiros.+filha leticia/i.test(fact)),
+    aiIdentity.identityGroundingFacts.some((fact) => {
+      const normalized = `${fact || ""}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      return /homenagem.+medeiros.+filha leticia/.test(normalized);
+    }),
     "identity grounding facts should include affective tribute context",
+  );
+}
+
+function scenarioAiNameOriginContractedFollowUpGrounding(): void {
+  const { aiIdentity } = runStack(
+    createInput({
+      interactionType: "follow_up",
+      taskType: "general",
+      formalityNeed: 0.5,
+      contextualSignals: {
+        normalizedMessage: "e pq vc se chama assim? tbm queria entender",
+        activeTopic: "identidade",
+        needsClarification: false,
+        continuityScore: 0.62,
+        rapportScore: 0.6,
+        detectedConfusion: 0.12,
+        recentOpenings: ["Eu me chamo Leticia, com muito gosto."],
+      },
+    }),
+  );
+  assert(
+    aiIdentity.nameOriginQuestionDetected,
+    "identity regulator should detect contracted follow-up name-origin family",
+  );
+}
+
+function scenarioAiNameOriginTypoFollowUpGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("e pq tte chamam assim?");
+  assert(fallback.shouldHandle, "identity fallback should handle typo variation of name-origin question");
+  assert(fallback.nameOriginQuestionDetected, "name-origin family should survive typo in short pronoun token");
+  assert(
+    /let[ií]cia|language-engineered|homenagem|medeiros/i.test(fallback.shortNarrative),
+    "name-origin typo should still route to identity-grounded narrative",
+  );
+}
+
+function scenarioAiNameOriginEmotionalBaseFollowUpGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("e na base emocional, de onde susrgiu?");
+  assert(fallback.shouldHandle, "identity fallback should handle emotional-base follow-up with typo");
+  assert(fallback.nameOriginQuestionDetected, "emotional-base follow-up should stay in name-origin family");
+  assert(
+    /let[ií]cia|language-engineered|homenagem|medeiros/i.test(fallback.shortNarrative),
+    "emotional-base follow-up should preserve identity-grounded narrative",
   );
 }
 
@@ -388,6 +439,47 @@ function scenarioAiCreatorFamilyGrounding(): void {
   );
 }
 
+function scenarioAiCreatorNamingQuestionGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("e quem deu esse nome a vc");
+  assert(fallback.shouldHandle, "identity fallback should handle creator naming question");
+  assert(fallback.creatorQuestionDetected, "creator-question family must be detected for naming-origin author");
+  assert(
+    /medeiros/i.test(fallback.shortNarrative),
+    "creator naming question should route through Medeiros identity narrative",
+  );
+}
+
+function scenarioAiWhoIsMedeirosGrounding(): void {
+  const fallback = resolveIdentityFallbackForMessage("mas entao, quem e medeiros?");
+  assert(fallback.shouldHandle, "identity fallback should handle who-is Medeiros question");
+  assert(fallback.creatorQuestionDetected, "who-is Medeiros question should be routed as creator family context");
+  assert(
+    /francimar de lima medeiros|fundador epistemol[oó]gico|idealizador|refer[êe]ncia humana|origem da let[ií]cia/i.test(
+      fallback.shortNarrative,
+    ),
+    "who-is Medeiros answer should identify him directly, not only restate creator framing",
+  );
+}
+
+function scenarioIdentityUtf8RepairForNameOrigin(): void {
+  const fallback = resolveIdentityFallbackForMessage("e pq vc se chama assim?");
+  assert(fallback.shouldHandle, "identity fallback should handle contracted name-origin question");
+  assert(fallback.nameOriginQuestionDetected, "name-origin family must be detected");
+  assert(/Let\u00EDcia/.test(fallback.shortNarrative), "identity fallback should preserve UTF-8 accent in Letícia");
+  assert(!/\bpor tras\b/i.test(fallback.shortNarrative), "identity fallback should repair 'por trás' accent");
+  assert(!/\breune\b/i.test(fallback.shortNarrative), "identity fallback should repair 'reúne' accent");
+  assert(!/\bproposito\b/i.test(fallback.shortNarrative), "identity fallback should repair 'propósito' accent");
+  assert(!/Ãƒ|Ã‚|ï¿½/.test(fallback.shortNarrative), "identity fallback should not return mojibake artifacts");
+}
+
+function scenarioGlobalPortugueseOrthographyRepair(): void {
+  const sample =
+    "Leticia e um nome que, no contexto desta IA, reune proposito conceitual e sentido afetivo.";
+  const repaired = ensureUtf8Response(sample).text;
+  assert(repaired.includes("Letícia é um nome"), "global output guard should repair copula accent");
+  assert(repaired.includes("reúne propósito"), "global output guard should repair lexical accents");
+}
+
 scenarioObjectiveTechnical();
 scenarioFrustratedPractical();
 scenarioInformalSimple();
@@ -398,11 +490,16 @@ scenarioProactiveBlockedSensitive();
 scenarioProactiveBlockedByFrequency();
 scenarioAiIdentityConsistency();
 scenarioAiNameOriginGrounding();
+scenarioAiNameOriginContractedFollowUpGrounding();
+scenarioAiNameOriginTypoFollowUpGrounding();
+scenarioAiNameOriginEmotionalBaseFollowUpGrounding();
 scenarioAiNameMeaningGrounding();
 scenarioAiNameConceptDefinitionGrounding();
 scenarioAiCreatorFamilyGrounding();
+scenarioAiCreatorNamingQuestionGrounding();
+scenarioAiWhoIsMedeirosGrounding();
+scenarioIdentityUtf8RepairForNameOrigin();
+scenarioGlobalPortugueseOrthographyRepair();
+assert(true, "bootstrap assertions executed");
 
-test("bootstrap assertions executed", () => {
-  expect(true).toBe(true);
-});
 

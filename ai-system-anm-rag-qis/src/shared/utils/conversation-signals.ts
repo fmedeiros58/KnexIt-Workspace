@@ -5,12 +5,11 @@
  * - Extrair ultima fala util do usuario para reduzir contaminacao por artefatos internos.
  */
 import type { ProcessingState } from "../../bridges/contracts/processing-state";
+import { textNormalizationService } from "../text-processing/text-normalization.service";
 
 function normalize(value: string): string {
-  return `${value || ""}`
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
+  return textNormalizationService
+    .expandContractions(value || "")
     .replace(/[^\p{L}\p{N}\s?!]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -20,11 +19,111 @@ function matchesAnyPattern(value: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(value));
 }
 
-const GREETING_PATTERNS: RegExp[] = [
-  /^(oi+|ola+|oie+|oii+|opa|fala|salve|saudacoes|e ai|eae|hey|hello|hi|yo)(?: leticia)?\??$/,
-  /^(bom dia|boa tarde|boa noite)(?: leticia)?\??$/,
-  /^(boa trde|boa tardee|boa tardee)(?: leticia)?\??$/,
+export type GreetingFamilyId =
+  | "greeting_open"
+  | "greeting_timebound"
+  | "greeting_reentry"
+  | "greeting_formal"
+  | "greeting_courtesy_ping"
+  | "greeting_checkin";
+
+export interface GreetingFamilyDetection {
+  detected: boolean;
+  family: GreetingFamilyId | null;
+  confidence: number;
+  canonicalText: string;
+}
+
+const GREETING_VOCATIVE_SEGMENT =
+  "(?:\\s+(?:leticia|ia|assistente|amiga|amigo|bot|pessoal|galera|time|gente|equipe))*";
+
+const GREETING_TASK_SIGNAL =
+  /\b(preciso|quero|ajuda|ajudar|ajuste|corrija|corrigir|crie|gere|pesquise|busque|explique|resuma|analise|compare|implemente|codigo|modulo|arquivo|pipeline|sql|api|prompt)\b/;
+
+const GREETING_OPEN_PATTERNS: RegExp[] = [
+  new RegExp(`^(?:oi+|oie+|ola+|opa+|fala+|salve+|alo+|alou+|hello+|hi+|hey+|yo+|e ai+|e ae+|eae+|saudacoes|saudacao)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:iae+|iaeh+|iae\\s+mano|iae\\s+pessoal|ola\\s+pessoal|ola\\s+time|oi\\s+pessoal|oi\\s+time|opa\\s+pessoal|ola\\s+gente|oi\\s+gente)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:bom\\s+te\\s+ver|que\\s+bom\\s+te\\s+ver|quanto\\s+tempo|fala\\s+ai|fala\\s+comigo)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:hello there|hi there|hey there)${GREETING_VOCATIVE_SEGMENT}$`),
 ];
+
+const GREETING_TIMEBOUND_PATTERNS: RegExp[] = [
+  new RegExp(`^(?:bom dia+|boa tarde+|boa noite+|boa madrugada+|boa manha+|boa tardee|boa trde)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:bomdia+|boatarde+|boanoite+|boamadrugada+|boamanha+)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:otimo dia+|excelente dia+|tenha um bom dia+|tenha uma boa tarde+|tenha uma boa noite+)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:bom inicio de dia|bom comeco de dia|otima tarde|excelente noite)${GREETING_VOCATIVE_SEGMENT}$`),
+];
+
+const GREETING_REENTRY_PATTERNS: RegExp[] = [
+  new RegExp(`^(?:voltei+|to de volta|estou de volta|retornei+|cheguei de volta|apareci de novo|de volta)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:voltei aqui|to aqui de novo|estou aqui de novo|retornando|retornei agora|apareci novamente|de novo eu)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:oi+|ola+|opa+)\\s+(?:de novo|novamente|voltei+)${GREETING_VOCATIVE_SEGMENT}$`),
+];
+
+const GREETING_FORMAL_PATTERNS: RegExp[] = [
+  new RegExp(`^(?:cordiais saudacoes|meus cumprimentos|cumprimentos|saudacoes cordiais|prezado(?:s)?(?: bom dia| boa tarde| boa noite)?)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:respeitosas saudacoes|saudacoes respeitosas|atenciosos cumprimentos|cordialmente|prezado(?:s)?|caro(?:s)? colega(?:s)?)${GREETING_VOCATIVE_SEGMENT}$`),
+];
+
+const GREETING_COURTESY_PING_PATTERNS: RegExp[] = [
+  new RegExp(`^(?:tem alguem ai|alguem ai|alguem por ai|esta ai|ta ai|alo tem alguem ai|esta me ouvindo|ta me ouvindo|consegue me ouvir)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:tem alguem online|alguem disponivel|tem alguem por aqui|esta online|ta online|voce esta ai|vc ta ai|ta por ai)${GREETING_VOCATIVE_SEGMENT}$`),
+];
+
+const GREETING_CHECKIN_PATTERNS: RegExp[] = [
+  new RegExp(`^(?:oi+|ola+|opa+|saudacoes|bom dia|boa tarde|boa noite)\\s+(?:tudo bem|tudo certo|tudo tranquilo|como vai|como esta|como voce esta|que tal)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo|como vai|como esta|como voce esta|que tal)${GREETING_VOCATIVE_SEGMENT}$`),
+  new RegExp(`^(?:como c ta|como ce ta|como vc ta|blz|beleza|de boa|suave|tranquilo ai|tranquilo por ai)${GREETING_VOCATIVE_SEGMENT}$`),
+];
+
+function compactGreetingText(value: string): string {
+  return `${value || ""}`
+    .replace(/[?!]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function classifyGreetingByPatterns(compact: string): GreetingFamilyId | null {
+  if (!compact) return null;
+
+  const tokenCount = compact.split(" ").filter(Boolean).length;
+  if (tokenCount > 3 && GREETING_TASK_SIGNAL.test(compact)) return null;
+
+  if (matchesAnyPattern(compact, GREETING_REENTRY_PATTERNS)) return "greeting_reentry";
+  if (matchesAnyPattern(compact, GREETING_TIMEBOUND_PATTERNS)) return "greeting_timebound";
+  if (matchesAnyPattern(compact, GREETING_FORMAL_PATTERNS)) return "greeting_formal";
+  if (matchesAnyPattern(compact, GREETING_COURTESY_PING_PATTERNS)) return "greeting_courtesy_ping";
+  if (matchesAnyPattern(compact, GREETING_CHECKIN_PATTERNS)) return "greeting_checkin";
+  if (matchesAnyPattern(compact, GREETING_OPEN_PATTERNS)) return "greeting_open";
+
+  return null;
+}
+
+function confidenceByGreetingFamily(family: GreetingFamilyId | null): number {
+  if (!family) return 0;
+  if (family === "greeting_checkin") return 0.88;
+  if (family === "greeting_courtesy_ping") return 0.86;
+  if (family === "greeting_reentry") return 0.92;
+  if (family === "greeting_formal") return 0.93;
+  if (family === "greeting_timebound") return 0.95;
+  return 0.94;
+}
+
+export function classifyGreetingFamily(text: string): GreetingFamilyId | null {
+  const compact = compactGreetingText(normalize(text));
+  return classifyGreetingByPatterns(compact);
+}
+
+export function resolveGreetingFamily(text: string): GreetingFamilyDetection {
+  const compact = compactGreetingText(normalize(text));
+  const family = classifyGreetingByPatterns(compact);
+  return {
+    detected: family != null,
+    family,
+    confidence: confidenceByGreetingFamily(family),
+    canonicalText: compact,
+  };
+}
 
 const SMALL_TALK_PATTERNS: RegExp[] = [
   /^(tudo bem(?: com (?:vc|voce|ce))?|td bem|tudo certo|tudo tranquilo)(?: leticia)?\??$/,
@@ -55,6 +154,7 @@ const ASSISTANT_IDENTITY_PATTERNS: RegExp[] = [
 const ASSISTANT_NAME_ORIGIN_PATTERNS: RegExp[] = [
   /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+(?:tem|usa)\s+(esse\s+)?nome)\b/i,
   /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+leticia)\b/i,
+  /\b((por que|porque|pq)\s+(?:voce|vc|ce)\s+se\s+chama\s+assim|se\s+chama\s+assim)\b/i,
   /\b((por que|porque|pq)\s+te\s+chamam\s+assim|te\s+chamam\s+assim)\b/i,
   /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome)\b/i,
   /\b(o que significa leticia|qual o significado(?: do nome)?(?: de)? leticia|leticia significa o que|o que quer dizer leticia)\b/i,
@@ -70,6 +170,7 @@ const ASSISTANT_CREATOR_PATTERNS: RegExp[] = [
   /\b(quem (?:e|eh) (?:o\s+)?medeiros|quem e esse medeiros)\b/i,
   /\b(quem te criou|quem criou voce|quem e seu criador|quem desenvolveu voce)\b/i,
   /\b(quem idealizou (?:voce|o projeto)|quem te batizou)\b/i,
+  /\b(foi ele que te criou|ele te criou|voce e (?:filha|filho) dele|vc e (?:filha|filho) dele)\b/i,
 ];
 
 function hasReferentialFactualCue(normalized: string): boolean {
@@ -156,13 +257,13 @@ export function toDisplayName(value: string): string {
 }
 
 export function isGreetingMessage(text: string): boolean {
-  const normalized = normalize(text);
-  return matchesAnyPattern(normalized, GREETING_PATTERNS);
+  return resolveGreetingFamily(text).detected;
 }
 
 export function isSmallTalkMessage(text: string): boolean {
   const normalized = normalize(text);
-  return isGreetingMessage(normalized) || matchesAnyPattern(normalized, SMALL_TALK_PATTERNS);
+  const greetingFamily = classifyGreetingByPatterns(compactGreetingText(normalized));
+  return greetingFamily === "greeting_checkin" || greetingFamily != null || matchesAnyPattern(normalized, SMALL_TALK_PATTERNS);
 }
 
 export function isNameSharePrompt(text: string): boolean {

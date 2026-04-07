@@ -17,9 +17,14 @@ export function jsonBlockSerializer(input: JsonBlockSerializerInput): JsonBlockS
     bubble: model.bubble,
     codeBlocks: model.codeBlocks,
     citations: model.citations,
+    referenceList: model.referenceList,
+    referenceEntries: model.referenceEntries,
+    citationRequestContext: model.citationRequestContext,
     documents: model.documents,
     media: model.media,
     confidence: model.confidence,
+    responseLayoutPlan: model.responseLayoutPlan,
+    textualAudit: model.textualAudit,
   };
 
   const text = JSON.stringify(payload, null, 2);

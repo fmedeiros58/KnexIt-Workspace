@@ -106,7 +106,7 @@ export function loadPathConfig(raw: PathEnv = process.env) {
     resolvePathWithNvme(raw.EXPORTS_BASE_PATH, nvmeBasePath, DEFAULTS.exportsBasePath),
   );
   const anmCheckpointDir = normalizePath(
-    resolvePathWithNvme(raw.ANM_CHECKPOINT_DIR, nvmeBasePath, DEFAULTS.anmCheckpointDir),
+    resolvePathWithNvme(raw.AI_SYSTEM_ANM_CHECKPOINT_DIR, nvmeBasePath, DEFAULTS.anmCheckpointDir),
   );
   const ragRawDocumentsPath = normalizePath(
     pickFirstNonEmpty(raw.RAG_RAW_DOCUMENTS_PATH, joinPosix(storageBasePath, "rag/raw")),

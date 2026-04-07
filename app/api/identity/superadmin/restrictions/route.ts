@@ -3,7 +3,7 @@ import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
 
 export const runtime = "nodejs";
 
-const IDENTITY_SCHEMA = (process.env.ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
+const IDENTITY_SCHEMA = (process.env.AI_SYSTEM_ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
 const RUNTIME_TABLE = "identity_runtime_config";
 const SUPERADMIN_RUNTIME_KEY = "superadmin_restrictions";
 const DEFAULT_MAX_PROMPT_CHARS = 4_800;

@@ -6,10 +6,12 @@ import { progressiveRevealManager } from "./streaming-controller/progressive-rev
 import { sentenceBuffering } from "./streaming-controller/sentence-buffering";
 import { streamRecoveryManager } from "./streaming-controller/stream-recovery-manager";
 import { tokenStreamManager } from "./streaming-controller/token-stream-manager";
+import type { ResponseLayoutPlan } from "./textual-layout-engine/response-layout-types";
 
 export interface PresentationStreamBridgeInput {
   text: string;
   channel: DeliveryChannel;
+  layoutPlan?: ResponseLayoutPlan;
 }
 
 export interface PresentationStreamBridgeOutput {
@@ -20,9 +22,9 @@ export interface PresentationStreamBridgeOutput {
 
 export function buildPresentationStream(input: PresentationStreamBridgeInput): PresentationStreamBridgeOutput {
   const tokens = tokenStreamManager({ text: input.text });
-  const sentences = sentenceBuffering({ tokens: tokens.tokens });
-  const paragraphs = paragraphFlushLogic({ sentences: sentences.sentences });
-  const reveal = progressiveRevealManager({ paragraphs: paragraphs.paragraphs });
+  const sentences = sentenceBuffering({ tokens: tokens.tokens, layoutPlan: input.layoutPlan });
+  const paragraphs = paragraphFlushLogic({ sentences: sentences.sentences, layoutPlan: input.layoutPlan });
+  const reveal = progressiveRevealManager({ paragraphs: paragraphs.paragraphs, layoutPlan: input.layoutPlan });
   const recovered = streamRecoveryManager({
     chunks: reveal.chunks,
     fallbackText: input.text,

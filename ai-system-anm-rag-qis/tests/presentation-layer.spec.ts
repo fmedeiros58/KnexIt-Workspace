@@ -61,5 +61,178 @@ async function shouldRespectSseChannelOverride() {
   }
 }
 
+async function shouldNotLeakInternalEpistemicMarkers() {
+  const state = createInitialProcessingState("teste");
+  state.executionPlan.selectedRoute = "inferential";
+  state.structuredResponse = "Resposta principal objetiva para o usuario com contexto suficiente.";
+  state.epistemicAuditState = {
+    claimCount: 3,
+    claimKinds: {
+      fact: 1,
+      inference: 1,
+      hypothesis: 1,
+      speculation: 0,
+      open_question: 0,
+    },
+    overclaimRisk: 0.1,
+    uncertaintySignals: ["incerteza_controlada"],
+    confidence: 0.82,
+  };
+
+  const result = await runPresentationLayer(state);
+  assert(
+    !/sinal epistemico:\s*incerteza_controlada/i.test(result.deliveryPayload.text),
+    "presentation should not leak internal epistemic marker",
+  );
+}
+
+async function shouldForcePortugueseWhenDetectedLanguageIsPtBr() {
+  const state = createInitialProcessingState("eu não me refiro no sentido literal e biológico, mas sim num sentido de criação");
+  state.language = "pt-BR";
+  state.structuredResponse =
+    "Based on the context you have provided multiple times, I, Letícia the AI, understand that you are not referring to it in a literal or biological sense.";
+
+  const result = await runPresentationLayer(state);
+  assert(!/based on the context/i.test(result.deliveryPayload.text), "english leak should be removed in pt-BR target");
+  assert(
+    /eu|não|letícia|medeiros/i.test(result.deliveryPayload.text),
+    "pt-BR output should contain portuguese surface markers",
+  );
+}
+
+async function shouldApplyExplicitLanguageDirectiveAfterRecognition() {
+  const state = createInitialProcessingState("responda em inglês: quem criou você?");
+  state.language = "pt-BR";
+  state.structuredResponse = "No contexto deste projeto, Medeiros é o idealizador da Letícia.";
+
+  const result = await runPresentationLayer(state);
+  assert(
+    /^i will continue in english/i.test(result.deliveryPayload.text),
+    "explicit language directive should override detected language when command is explicit",
+  );
+}
+
+async function shouldStripGreetingLeakInFollowUpTurns() {
+  const state = createInitialProcessingState("então me explique melhor");
+  state.language = "pt-BR";
+  state.conversationState.turnCount = 3;
+  state.recentTurns = [
+    { role: "user", content: "quem te criou?" },
+    { role: "assistant", content: "Medeiros idealizou a Letícia." },
+  ];
+  state.structuredResponse = "Olá, usuário carinho! Posso explicar melhor: Medeiros idealizou a Letícia.";
+
+  const result = await runPresentationLayer(state);
+  assert(
+    !/^ol[aá],?\s*usu[aá]rio/i.test(result.deliveryPayload.text),
+    "follow-up responses should not leak greeting vocative prefixes",
+  );
+}
+
+async function shouldStripGreetingLeakWithoutTurnCounterWhenPromptIsNotGreeting() {
+  const state = createInitialProcessingState("pode me dizer quem criou você?");
+  state.language = "pt-BR";
+  state.conversationState.turnCount = 0;
+  state.recentTurns = [];
+  state.structuredResponse = "Olá, usuário carinho! Medeiros é o idealizador da Letícia.";
+
+  const result = await runPresentationLayer(state);
+  assert(
+    !/^ol[aá],?\s*usu[aá]rio/i.test(result.deliveryPayload.text),
+    "non-greeting prompts must not expose greeting vocative leaks, even without turn counter",
+  );
+  assert(/medeiros/i.test(result.deliveryPayload.text), "semantic payload should remain preserved after sanitization");
+}
+
+async function shouldRewriteContextArtifactPhrases() {
+  const state = createInitialProcessingState("quem é medeiros?");
+  state.language = "pt-BR";
+  state.structuredResponse = "No contexto desta IA, Medeiros é o idealizador do projeto.";
+
+  const result = await runPresentationLayer(state);
+  assert(
+    !/\bno contexto desta ia\b/i.test(result.deliveryPayload.text),
+    "presentation should rewrite backend-like context artifact phrases",
+  );
+  assert(
+    /\bmedeiros\b/i.test(result.deliveryPayload.text),
+    "sanitization must preserve semantic core of the answer",
+  );
+}
+
+async function shouldHardBanContextoLexemeInFinalDelivery() {
+  const state = createInitialProcessingState("explique de forma direta");
+  state.language = "pt-BR";
+  state.structuredResponse =
+    "Nesse contexto, a resposta depende do contexto técnico e do contexto atual.";
+
+  const result = await runPresentationLayer(state);
+  assert(
+    !/\bcontexto\b/i.test(result.deliveryPayload.text),
+    "final presentation should hard-ban the lexeme 'contexto'",
+  );
+  assert(
+    /\bcenario\b/i.test(result.deliveryPayload.text),
+    "hard-ban should replace with a neutral public-safe lexeme",
+  );
+}
+
+async function shouldApplyPresentationWatchdogAgainstEchoAndMixedLanguageLeak() {
+  const prompt =
+    "Considere um sistema social idealizado com tres principios normativos obrigatorios e analise o conflito formalmente sem repetir o enunciado.";
+  const state = createInitialProcessingState(prompt);
+  state.language = "pt-BR";
+  state.structuredResponse = [
+    "Consider a hypothetical social system with three obligatory normative principles.",
+    "(1) no decisão coletiva can reduce the basic freedom of an innocent individual;",
+    "(2) every decisão coletiva must maximize bem-estar agregado;",
+    "(3) every decisão coletiva must be justifiable by a universal rule that can be applied sem exceção.",
+    "To address the question, let's first clarify some concepts.",
+  ].join(" ");
+
+  const result = await runPresentationLayer(state);
+  const answer = result.deliveryPayload.text;
+  assert(!/\bconsider a hypothetical social system\b/i.test(answer), "watchdog should remove english prompt echo lead");
+  assert(!/\bdecis[aã]o coletiva can\b/i.test(answer), "watchdog should remove mixed-language sentence fragments");
+  assert(
+    !/\bto address the question\b/i.test(answer),
+    "watchdog should repair english scaffolding to target language",
+  );
+  assert(
+    /[a-zá-ú]/i.test(answer) && /\b(responder|portugu[eê]s|direta)\b/i.test(answer),
+    "watchdog output should keep portuguese surface and explicit recovery",
+  );
+  assert(
+    result.executionArtifacts.presentation?.presentationWatchdogTriggered === true,
+    "watchdog telemetry should indicate intervention",
+  );
+}
+
+async function shouldStripTranscriptTailArtifactInShortIdentityReply() {
+  const prompt = "pode me dizer seu nome?";
+  const state = createInitialProcessingState(prompt);
+  state.language = "pt-BR";
+  state.structuredResponse = [
+    "Sim, eu sou Letícia.",
+    "Usuário: Obrigado. Agora, considere um sistema social idealizado com três princípios normativos obrigatórios.",
+    "I will be happy to help you. However, before addressing your question, let me clarify some concepts.",
+  ].join(" ");
+
+  const result = await runPresentationLayer(state);
+  const answer = result.deliveryPayload.text;
+  assert(!/\busu[aá]rio\s*:/i.test(answer), "transcript role tail should be removed");
+  assert(!/\blet me clarify some concepts\b/i.test(answer), "echoed transcript tail should be removed");
+  assert(/\blet[ií]cia\b/i.test(answer), "identity answer should remain after cleaning");
+}
+
 await shouldBuildCompletePresentationArtifacts();
 await shouldRespectSseChannelOverride();
+await shouldNotLeakInternalEpistemicMarkers();
+await shouldForcePortugueseWhenDetectedLanguageIsPtBr();
+await shouldApplyExplicitLanguageDirectiveAfterRecognition();
+await shouldStripGreetingLeakInFollowUpTurns();
+await shouldStripGreetingLeakWithoutTurnCounterWhenPromptIsNotGreeting();
+await shouldRewriteContextArtifactPhrases();
+await shouldHardBanContextoLexemeInFinalDelivery();
+await shouldApplyPresentationWatchdogAgainstEchoAndMixedLanguageLeak();
+await shouldStripTranscriptTailArtifactInShortIdentityReply();

@@ -13,6 +13,7 @@ import {
   isConversationalPrompt,
   isNameRecallPrompt,
 } from "../shared/utils/conversation-signals";
+import { runIntentGate } from "./02-intent-gate-core/intent-gate-bridge";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -85,6 +86,16 @@ export function runInputPreRouteScan(state: ProcessingState): ProcessingState {
   const quickSafety = detectQuickSafety(focusedIntentCanonical);
   const quickComplexity = estimateQuickComplexity(snapshot);
   const quickAmbiguity = estimateQuickAmbiguity(snapshot);
+  const intentGate = runIntentGate({
+    text: focusedIntentCanonical,
+    snapshot,
+    quickIntent,
+    quickComplexity,
+    quickAmbiguity,
+    safetyAction: quickSafety.safetyAction,
+    recentTurns: state.recentTurns || [],
+  });
+  const greetingFastLane = intentGate.greetingDecision;
 
   state.textAnalysisSnapshot = snapshot;
   state.preRouteSignals = {
@@ -92,13 +103,32 @@ export function runInputPreRouteScan(state: ProcessingState): ProcessingState {
     quickUrgency,
     quickComplexity,
     quickAmbiguity,
-    hasGreetingSignal: snapshot.hasGreetingSignal,
+    hasGreetingSignal: snapshot.hasGreetingSignal || greetingFastLane.detected,
+    greetingFamily: greetingFastLane.family || "none",
+    greetingConfidence: greetingFastLane.confidence,
+    greetingFastLaneEligible: greetingFastLane.eligible,
+    greetingFastLaneReason: greetingFastLane.reason,
     hasVerifiableSignal: snapshot.hasVerifiableSignal && !isNameRecallPrompt(focused),
     hasRecencySignal: snapshot.hasRecencySignal,
     hasSafetyRisk: quickSafety.hasSafetyRisk,
     safetyAction: quickSafety.safetyAction,
     tokenCount: snapshot.tokenCount,
     questionCount: snapshot.questionCount,
+    intentGatePrimaryIntent: intentGate.primaryIntent,
+    intentGateSecondaryIntents: intentGate.secondaryIntents,
+    intentGateMinimalDepth: intentGate.minimalDepth,
+    intentGateRoutingRecommendation: intentGate.routingRecommendation,
+    intentGateResponseModeHint: intentGate.responseModeHint,
+    intentGateHasContextDependency: intentGate.hasContextDependency,
+    intentGateContextDependencyScore: intentGate.contextDependencyScore,
+    intentGateAmbiguityScore: intentGate.ambiguityScore,
+    intentGateSemanticDensityScore: intentGate.semanticDensityScore,
+    intentGateShouldBypassDeepPipeline: intentGate.shouldBypassDeepPipeline,
+    intentGateShouldUseRecentConversationContext: intentGate.shouldUseRecentConversationContext,
+    intentGateShouldEscalateToDeepPipeline: intentGate.shouldEscalateToDeepPipeline,
+    intentGateConfidence: intentGate.confidence,
+    intentGateReasoningTags: intentGate.reasoningTags,
+    intentGateDebugTrace: intentGate.debugTrace,
   };
 
   state.complexityProfile.score = Math.max(state.complexityProfile.score || 0, quickComplexity);

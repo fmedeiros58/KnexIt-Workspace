@@ -1,10 +1,13 @@
-﻿import { normalizeText } from "../presentation-contracts";
+import { normalizeText } from "../presentation-contracts";
 import type { ChatBubbleView } from "../presentation-contracts";
+import type { ResponseLayoutPlan } from "../textual-layout-engine/response-layout-types";
+import { mergeParagraphsByPlan } from "../textual-layout-engine/paragraph-merge-decider";
 
 export interface ChatBubbleAdapterInput {
   text: string;
   role?: "assistant";
   maxParagraphs?: number;
+  layoutPlan?: ResponseLayoutPlan;
 }
 
 export interface ChatBubbleAdapterOutput {
@@ -26,18 +29,25 @@ export function chatBubbleAdapter(input: ChatBubbleAdapterInput): ChatBubbleAdap
   const maxParagraphs = Number.isFinite(input.maxParagraphs)
     ? Math.max(1, Math.trunc(input.maxParagraphs as number))
     : 24;
-  const paragraphs = splitParagraphs(text).slice(0, maxParagraphs);
+
+  let paragraphs = splitParagraphs(text);
+  if (input.layoutPlan && paragraphs.length > 1) {
+    paragraphs = mergeParagraphsByPlan(paragraphs, input.layoutPlan);
+  }
+  paragraphs = paragraphs.slice(0, maxParagraphs);
   const fallbackParagraphs = paragraphs.length ? paragraphs : (text ? [text] : []);
+  const bubbleText = fallbackParagraphs.join("\n\n").trim();
+
   const bubble: ChatBubbleView = {
     role: input.role || "assistant",
-    text,
+    text: bubbleText,
     paragraphs: fallbackParagraphs,
     paragraphCount: fallbackParagraphs.length,
-    charCount: text.length,
+    charCount: bubbleText.length,
   };
 
   const paragraphDensity =
-    bubble.paragraphCount > 0 ? Math.min(1, bubble.charCount / (bubble.paragraphCount * 180)) : 0;
+    bubble.paragraphCount > 0 ? Math.min(1, bubble.charCount / (bubble.paragraphCount * 210)) : 0;
   const score = Math.max(0.5, Math.min(0.98, 0.66 + paragraphDensity * 0.24));
 
   return {

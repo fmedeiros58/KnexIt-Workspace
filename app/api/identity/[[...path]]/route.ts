@@ -1,10 +1,27 @@
 import { NextRequest } from "next/server";
-import { readConfiguredAnmBaseUrl, resolveReachableAnmBaseUrl } from "@/app/api/_shared/anm-endpoint";
+import { readConfiguredAiSystemAnmBaseUrl, resolveReachableAiSystemAnmBaseUrl } from "@/app/api/_shared/ai-system-anm-endpoint";
 
 export const runtime = "nodejs";
 
 const DEFAULT_ANM_BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_ANM_TIMEOUT_MS = 45_000;
+const STATUS_FAST_PATHS = new Set(["runtime/status", "panel"]);
+const DEFAULT_STATUS_FAST_TIMEOUT_MS = 1_200;
+const DEFAULT_STATUS_CACHE_TTL_MS = 1_500;
+
+type StatusFastCacheEntry = {
+  status: number;
+  bodyText: string;
+  contentType: string;
+  requestId: string | null;
+  upstreamError: boolean;
+  fallback: boolean;
+  baseUrl: string;
+  expiresAt: number;
+};
+
+const statusFastCache = new Map<string, StatusFastCacheEntry>();
+const statusFastInFlight = new Map<string, Promise<void>>();
 
 type RouteContext = {
   params: Promise<{ path?: string[] }> | { path?: string[] };
@@ -107,11 +124,136 @@ function pickFirstNonEmpty(...values: Array<string | undefined | null>) {
   return "";
 }
 
+function readAnmCompatEnv(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function readProxyConfig() {
-  const anmBaseUrl = readConfiguredAnmBaseUrl(pickFirstNonEmpty(process.env.ANM_API_BASE_URL, DEFAULT_ANM_BASE_URL));
-  const parsedTimeout = Number(process.env.ANM_API_TIMEOUT_MS || DEFAULT_ANM_TIMEOUT_MS);
+  const anmBaseUrl = readConfiguredAiSystemAnmBaseUrl(
+    pickFirstNonEmpty(readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL"), DEFAULT_ANM_BASE_URL),
+  );
+  const parsedTimeout = Number(
+    readAnmCompatEnv("AI_SYSTEM_ANM_API_TIMEOUT_MS") || DEFAULT_ANM_TIMEOUT_MS,
+  );
   const timeoutMs = Number.isFinite(parsedTimeout) ? Math.max(2_000, Math.round(parsedTimeout)) : DEFAULT_ANM_TIMEOUT_MS;
   return { anmBaseUrl, timeoutMs };
+}
+
+function readStatusFastPathConfig() {
+  const parsedTimeout = Number(
+    readAnmCompatEnv("AI_SYSTEM_IDENTITY_STATUS_TIMEOUT_MS", "AI_SYSTEM_ANM_IDENTITY_STATUS_TIMEOUT_MS") ||
+      DEFAULT_STATUS_FAST_TIMEOUT_MS,
+  );
+  const fastTimeoutMs = Number.isFinite(parsedTimeout)
+    ? Math.max(300, Math.min(5_000, Math.round(parsedTimeout)))
+    : DEFAULT_STATUS_FAST_TIMEOUT_MS;
+  const parsedCacheTtl = Number(
+    readAnmCompatEnv("AI_SYSTEM_IDENTITY_STATUS_CACHE_TTL_MS", "AI_SYSTEM_ANM_IDENTITY_STATUS_CACHE_TTL_MS") ||
+      DEFAULT_STATUS_CACHE_TTL_MS,
+  );
+  const cacheTtlMs = Number.isFinite(parsedCacheTtl)
+    ? Math.max(0, Math.min(10_000, Math.round(parsedCacheTtl)))
+    : DEFAULT_STATUS_CACHE_TTL_MS;
+  return { fastTimeoutMs, cacheTtlMs };
+}
+
+function normalizeProxyPath(segments: string[]) {
+  return segments
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join("/");
+}
+
+function isStatusFastPathRequest(method: string, normalizedPath: string) {
+  return method === "GET" && STATUS_FAST_PATHS.has(normalizedPath);
+}
+
+function buildStatusFastCacheKey(normalizedPath: string, search: string) {
+  const raw = `${search || ""}`.trim();
+  if (!raw) return normalizedPath;
+
+  const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
+  const ignoredKeys = new Set(["_", "t", "ts", "timestamp", "cb", "cachebust", "cache_bust", "v"]);
+  const canonicalPairs = Array.from(params.entries())
+    .filter(([key]) => !ignoredKeys.has(`${key || ""}`.trim().toLowerCase()))
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  if (!canonicalPairs.length) return normalizedPath;
+  const normalizedParams = new URLSearchParams();
+  for (const [key, value] of canonicalPairs) {
+    normalizedParams.append(key, value);
+  }
+  const canonicalSearch = normalizedParams.toString();
+  return canonicalSearch ? `${normalizedPath}?${canonicalSearch}` : normalizedPath;
+}
+
+function getStatusFastCacheEntry(cacheKey: string) {
+  const cached = statusFastCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    statusFastCache.delete(cacheKey);
+    return null;
+  }
+  return cached;
+}
+
+function setStatusFastCacheEntry(cacheKey: string, entry: Omit<StatusFastCacheEntry, "expiresAt">, cacheTtlMs: number) {
+  if (cacheTtlMs <= 0) {
+    statusFastCache.delete(cacheKey);
+    return;
+  }
+  statusFastCache.set(cacheKey, {
+    ...entry,
+    expiresAt: Date.now() + cacheTtlMs,
+  });
+}
+
+function buildStatusFastResponse(entry: StatusFastCacheEntry, cacheHit: boolean) {
+  const headers = new Headers({
+    "content-type": entry.contentType || "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "x-identity-status-fast-path": "1",
+    "x-identity-status-cache": cacheHit ? "hit" : "miss",
+    "x-anm-base-url": entry.baseUrl,
+  });
+  if (entry.requestId) headers.set("x-request-id", entry.requestId);
+  if (entry.upstreamError) headers.set("x-identity-upstream-error", "1");
+  if (entry.fallback) headers.set("x-identity-fallback", "1");
+  return new Response(entry.bodyText, {
+    status: entry.status,
+    headers,
+  });
+}
+
+async function cacheStatusFastResponse(input: {
+  cacheKey: string;
+  cacheTtlMs: number;
+  baseUrl: string;
+  response: Response;
+  fallback?: boolean;
+}) {
+  const bodyText = await input.response.text();
+  const entry: Omit<StatusFastCacheEntry, "expiresAt"> = {
+    status: input.response.status,
+    bodyText,
+    contentType: input.response.headers.get("content-type") || "application/json; charset=utf-8",
+    requestId: input.response.headers.get("x-request-id"),
+    upstreamError: input.response.headers.get("x-identity-upstream-error") === "1",
+    fallback: Boolean(input.fallback || input.response.headers.get("x-identity-fallback") === "1"),
+    baseUrl: input.response.headers.get("x-anm-base-url") || input.baseUrl,
+  };
+  setStatusFastCacheEntry(input.cacheKey, entry, input.cacheTtlMs);
+  return buildStatusFastResponse(
+    {
+      ...entry,
+      expiresAt: Date.now() + Math.max(0, input.cacheTtlMs),
+    },
+    false,
+  );
 }
 
 function nowIso() {
@@ -467,32 +609,139 @@ function buildTargetUrl(req: NextRequest, segments: string[], anmBaseUrl: string
   return `${anmBaseUrl}${basePath}${search}`;
 }
 
+function normalizeOriginHostname(hostname: string) {
+  const normalized = `${hostname || ""}`.trim().toLowerCase();
+  return normalized.replace(/^\[(.*)\]$/, "$1");
+}
+
+function normalizeOriginPort(url: URL) {
+  if (url.port) return url.port;
+  return url.protocol === "https:" ? "443" : "80";
+}
+
+function isLoopbackOriginHostname(hostname: string) {
+  const normalized = normalizeOriginHostname(hostname);
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "0.0.0.0" ||
+    normalized === "::1" ||
+    normalized === "::ffff:127.0.0.1"
+  );
+}
+
+function isEquivalentLocalOrigin(left: URL, right: URL) {
+  if (left.protocol !== right.protocol) return false;
+  if (normalizeOriginPort(left) !== normalizeOriginPort(right)) return false;
+  const leftHost = normalizeOriginHostname(left.hostname);
+  const rightHost = normalizeOriginHostname(right.hostname);
+  if (leftHost === rightHost) return true;
+  return isLoopbackOriginHostname(leftHost) && isLoopbackOriginHostname(rightHost);
+}
+
+function isSameOriginAsCurrentApi(req: NextRequest, baseUrl: string) {
+  try {
+    const upstream = new URL(baseUrl);
+    const current = new URL(req.url);
+    if (upstream.origin === current.origin) return true;
+    return isEquivalentLocalOrigin(upstream, current);
+  } catch {
+    return false;
+  }
+}
+
 async function proxyIdentityRequest(req: NextRequest, context: RouteContext) {
   const method = req.method.toUpperCase();
   const resolvedParams = await context.params;
   const segments = Array.isArray(resolvedParams?.path) ? resolvedParams.path : [];
+  const normalizedPath = normalizeProxyPath(segments);
   const { anmBaseUrl, timeoutMs } = readProxyConfig();
-  const anmResolution = await resolveReachableAnmBaseUrl({
-    configuredBaseUrl: anmBaseUrl,
-    timeoutMs: Math.min(2_000, timeoutMs),
-    healthPath: "/healthz",
-  });
-  const targetUrl = buildTargetUrl(req, segments, anmResolution.baseUrl);
-  const hasBody = !["GET", "HEAD"].includes(method);
-  const body = hasBody ? await req.arrayBuffer() : undefined;
+  const { fastTimeoutMs, cacheTtlMs } = readStatusFastPathConfig();
+  const statusFastPath = isStatusFastPathRequest(method, normalizedPath);
+  const statusFastCacheKey = statusFastPath ? buildStatusFastCacheKey(normalizedPath, req.nextUrl.search || "") : "";
+  let releaseStatusFastLock = () => {};
+  if (statusFastPath) {
+    const cached = getStatusFastCacheEntry(statusFastCacheKey);
+    if (cached) return buildStatusFastResponse(cached, true);
 
-  const headers = new Headers();
-  const contentType = req.headers.get("content-type");
-  if (contentType) headers.set("content-type", contentType);
-  const accept = req.headers.get("accept");
-  if (accept) headers.set("accept", accept);
-  const xRequestId = req.headers.get("x-request-id");
-  if (xRequestId) headers.set("x-request-id", xRequestId);
+    const pending = statusFastInFlight.get(statusFastCacheKey);
+    if (pending) {
+      await pending.catch(() => null);
+      const cachedAfterPending = getStatusFastCacheEntry(statusFastCacheKey);
+      if (cachedAfterPending) return buildStatusFastResponse(cachedAfterPending, true);
+    }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
+    let resolveLock: (() => void) | null = null;
+    const lockPromise = new Promise<void>((resolve) => {
+      resolveLock = resolve;
+    });
+    statusFastInFlight.set(statusFastCacheKey, lockPromise);
+    releaseStatusFastLock = () => {
+      statusFastInFlight.delete(statusFastCacheKey);
+      if (resolveLock) resolveLock();
+      resolveLock = null;
+    };
+  }
   try {
+    const anmResolution = await resolveReachableAiSystemAnmBaseUrl({
+      configuredBaseUrl: anmBaseUrl,
+      timeoutMs: statusFastPath ? Math.min(800, fastTimeoutMs) : Math.min(2_000, timeoutMs),
+      healthPath: "/healthz",
+    });
+    const targetUrl = buildTargetUrl(req, segments, anmResolution.baseUrl);
+    const hasBody = !["GET", "HEAD"].includes(method);
+    const body = hasBody ? await req.arrayBuffer() : undefined;
+    if (statusFastPath && !anmResolution.reachable) {
+      const fallback = fallbackIdentityResponse(method, segments, body);
+      if (fallback) {
+        return cacheStatusFastResponse({
+          cacheKey: statusFastCacheKey,
+          cacheTtlMs,
+          baseUrl: anmResolution.baseUrl,
+          response: fallback,
+          fallback: true,
+        });
+      }
+    }
+
+    const headers = new Headers();
+    const contentType = req.headers.get("content-type");
+    if (contentType) headers.set("content-type", contentType);
+    const accept = req.headers.get("accept");
+    if (accept) headers.set("accept", accept);
+    const xRequestId = req.headers.get("x-request-id");
+    if (xRequestId) headers.set("x-request-id", xRequestId);
+
+    const controller = new AbortController();
+    const effectiveTimeoutMs = statusFastPath ? Math.min(timeoutMs, fastTimeoutMs) : timeoutMs;
+    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
+
+    try {
+    if (isSameOriginAsCurrentApi(req, anmResolution.baseUrl)) {
+      const fallback = fallbackIdentityResponse(method, segments, body);
+      if (fallback) {
+        if (statusFastPath) {
+          return cacheStatusFastResponse({
+            cacheKey: statusFastCacheKey,
+            cacheTtlMs,
+            baseUrl: anmResolution.baseUrl,
+            response: fallback,
+            fallback: true,
+          });
+        }
+        return fallback;
+      }
+      return Response.json(
+        {
+          ok: false,
+          code: "IDENTITY_PROXY_LOOP_GUARD",
+          message:
+            "Identity upstream base URL aponta para o próprio Next API sem backend externo de identidade.",
+        },
+        { status: 503 },
+      );
+    }
+
     const upstream = await fetch(targetUrl, {
       method,
       headers,
@@ -503,12 +752,30 @@ async function proxyIdentityRequest(req: NextRequest, context: RouteContext) {
     if (upstream.status === 404) {
       const fallback = fallbackIdentityResponse(method, segments, body);
       if (fallback) {
+        if (statusFastPath) {
+          return cacheStatusFastResponse({
+            cacheKey: statusFastCacheKey,
+            cacheTtlMs,
+            baseUrl: anmResolution.baseUrl,
+            response: fallback,
+            fallback: true,
+          });
+        }
         return fallback;
       }
     }
     if (upstream.status === 503 && segments.join("/").trim() === "frame/analyze") {
       const fallback = fallbackIdentityResponse(method, segments, body);
       if (fallback) {
+        if (statusFastPath) {
+          return cacheStatusFastResponse({
+            cacheKey: statusFastCacheKey,
+            cacheTtlMs,
+            baseUrl: anmResolution.baseUrl,
+            response: fallback,
+            fallback: true,
+          });
+        }
         return fallback;
       }
     }
@@ -521,32 +788,56 @@ async function proxyIdentityRequest(req: NextRequest, context: RouteContext) {
       responseHeaders.set("x-identity-upstream-error", "1");
     }
     responseHeaders.set("x-anm-base-url", anmResolution.baseUrl);
+    if (statusFastPath) {
+      const statusFastUpstreamResponse = new Response(await upstream.text(), {
+        status: upstream.status,
+        headers: responseHeaders,
+      });
+      return cacheStatusFastResponse({
+        cacheKey: statusFastCacheKey,
+        cacheTtlMs,
+        baseUrl: anmResolution.baseUrl,
+        response: statusFastUpstreamResponse,
+      });
+    }
 
     return new Response(await upstream.arrayBuffer(), {
       status: upstream.status,
       headers: responseHeaders,
     });
-  } catch (error) {
-    const fallback = fallbackIdentityResponse(method, segments, body);
-    if (fallback) {
-      return fallback;
+    } catch (error) {
+      const fallback = fallbackIdentityResponse(method, segments, body);
+      if (fallback) {
+        if (statusFastPath) {
+          return cacheStatusFastResponse({
+            cacheKey: statusFastCacheKey,
+            cacheTtlMs,
+            baseUrl: anmResolution.baseUrl,
+            response: fallback,
+            fallback: true,
+          });
+        }
+        return fallback;
+      }
+      const message =
+        error instanceof DOMException && error.name === "AbortError"
+          ? "IDENTITY_PROXY_TIMEOUT"
+          : error instanceof Error
+            ? error.message || "IDENTITY_PROXY_ERROR"
+            : "IDENTITY_PROXY_ERROR";
+      return Response.json(
+        {
+          ok: false,
+          code: "IDENTITY_PROXY_ERROR",
+          message: `${message}; ANM=${anmResolution.baseUrl}; tentados=${anmResolution.attemptedBaseUrls.join(",")}`,
+        },
+        { status: 502 },
+      );
+    } finally {
+      clearTimeout(timeoutId);
     }
-    const message =
-      error instanceof DOMException && error.name === "AbortError"
-        ? "IDENTITY_PROXY_TIMEOUT"
-        : error instanceof Error
-          ? error.message || "IDENTITY_PROXY_ERROR"
-          : "IDENTITY_PROXY_ERROR";
-    return Response.json(
-      {
-        ok: false,
-        code: "IDENTITY_PROXY_ERROR",
-        message: `${message}; ANM=${anmResolution.baseUrl}; tentados=${anmResolution.attemptedBaseUrls.join(",")}`,
-      },
-      { status: 502 },
-    );
   } finally {
-    clearTimeout(timeoutId);
+    releaseStatusFastLock();
   }
 }
 

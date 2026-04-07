@@ -34,5 +34,29 @@ describe("enforceResponseStructure", () => {
     expect(output).toMatch(/^Estou pronta para ajudar\.?$/i);
     expect(output).not.toMatch(/^resposta\s*:/i);
   });
-});
 
+  it("remove saudacao e autoapresentacao redundantes em continuidade", () => {
+    const output = enforceResponseStructure(
+      "Olá, meu nome é Letícia. Sobre isso: Medeiros é o idealizador da Letícia no ai-system-anm. Se você precisar, estou por aqui.",
+      {
+        state: BASE_STATE,
+        complexity: "short",
+      },
+    );
+    expect(output).toMatch(/^Sobre isso:\s*Medeiros é o idealizador da Letícia/i);
+    expect(output).not.toMatch(/^Olá,/i);
+    expect(output).not.toMatch(/\bmeu nome é letícia\b/i);
+    expect(output).not.toMatch(/\bse você precisar\b/i);
+  });
+
+  it("preserva autoidentificacao quando o turno substitui contexto", () => {
+    const output = enforceResponseStructure("Meu nome é Letícia.", {
+      state: {
+        ...BASE_STATE,
+        continuity_mode: "replace",
+      },
+      complexity: "short",
+    });
+    expect(output).toMatch(/^Meu nome é Letícia\.?$/i);
+  });
+});

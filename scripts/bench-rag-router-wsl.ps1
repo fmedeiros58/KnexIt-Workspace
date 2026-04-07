@@ -35,7 +35,7 @@ if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $WorkspacePath = $env:NEXT_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
-  $WorkspacePath = $env:ANM_WSL_WORKSPACE_DIR
+  $WorkspacePath = $env:AI_SYSTEM_ANM_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $repoRootWindows = $repoRoot.Path.Replace("\", "/")
@@ -50,7 +50,7 @@ if ([string]::IsNullOrWhiteSpace($Distro)) {
   $Distro = $env:NEXT_WSL_DISTRO
 }
 if ([string]::IsNullOrWhiteSpace($Distro)) {
-  $Distro = $env:ANM_WSL_DISTRO
+  $Distro = $env:AI_SYSTEM_ANM_WSL_DISTRO
 }
 if ([string]::IsNullOrWhiteSpace($Distro)) {
   $Distro = $env:WSL_DISTRO_NAME
@@ -59,7 +59,7 @@ if ([string]::IsNullOrWhiteSpace($User)) {
   $User = $env:NEXT_WSL_USER
 }
 if ([string]::IsNullOrWhiteSpace($User)) {
-  $User = $env:ANM_WSL_USER
+  $User = $env:AI_SYSTEM_ANM_WSL_USER
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
@@ -93,3 +93,4 @@ Invoke-WslBash $command
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
+

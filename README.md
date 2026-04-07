@@ -1,4 +1,4 @@
-﻿# KnexIT - Ecossistema central / autenticaÃ§Ã£o / billing / painel Ãºnico
+# KnexIT - Ecossistema central / autenticaÃ§Ã£o / billing / painel Ãºnico
 
 Template com Next.js 14 + Tailwind + Supabase para autenticaÃ§Ã£o (senha, OTP de 6 dÃ­gitos e OAuth), pÃ¡ginas base e componentes de vÃ­deo e questÃµes.
 
@@ -36,7 +36,7 @@ Template com Next.js 14 + Tailwind + Supabase para autenticaÃ§Ã£o (senha, OT
 - O watchdog canônico agora está no `ai-system-anm-rag-qis/scripts` (os scripts na raiz são wrappers de compatibilidade).
 - Alerta simples de restart: quando o watchdog aciona recuperacao automatica, grava log em `%LOCALAPPDATA%\\KnexIT\\watchdog-backends-alert.log` e exibe popup rapido no desktop.
 - Webhook opcional de restart: configure `KNEXIT_WATCHDOG_WEBHOOK_URL` (Discord/Slack incoming webhook) e opcionalmente `KNEXIT_WATCHDOG_WEBHOOK_PROVIDER=auto|discord|slack`. O watchdog busca essa configuracao por parametro, variavel de ambiente do sistema ou `.env.local`.
-- `npm run bench:rag:router:wsl`: roda benchmark do roteador usando `/api/chat` no proprio WSL (`127.0.0.1:<porta>`), evitando falso 5xx por rota Windows↔WSL.
+- `npm run bench:rag:router:wsl`: roda benchmark do roteador usando `/api/chat` no proprio WSL (`127.0.0.1:<porta>`), evitando falso 5xx por rota Windows/WSL.
 - `npm run dev:knexai`: abre automaticamente `http://localhost:3004/knexai` e inicia o Next em 3004.
 - `npm run dev:supadrive`: abre `http://localhost:3005/supadrive` e inicia Next em 3005.
 - `npm run dev:vioclass`: abre `http://localhost:3006/vioclass` e inicia Next em 3006.
@@ -54,11 +54,11 @@ Padroes de paths NVMe/NVMe2:
 - Runbook: `docs/infra/runbook-nvme.md`.
 - Checklist de reproducao: `docs/infra/checklist-reproducao-nvme.md`.
 - ADR: `docs/adr/ADR-001-persistencia-em-nvme.md`.
-- Variaveis de path em `.env`: `NVME_BASE_PATH`, `MIGRATIONS_PATH`, `KNEXAI_MIGRATION_FILE`, `VECTOR_MIGRATION_FILE`, `VECTOR_HNSW_MIGRATION_FILE`, `STORAGE_BASE_PATH`, `DOCUMENTS_BASE_PATH`, `EMBEDDINGS_BASE_PATH`, `TEMP_WORKDIR_PATH`, `EXPORTS_BASE_PATH`, `IDENTITY_MIGRATIONS_POLICY`, `ANM_CHECKPOINT_RETENTION_DAYS`, `EXPORTS_RETENTION_DAYS`.
+- Variaveis de path em `.env`: `NVME_BASE_PATH`, `MIGRATIONS_PATH`, `KNEXAI_MIGRATION_FILE`, `VECTOR_MIGRATION_FILE`, `VECTOR_HNSW_MIGRATION_FILE`, `STORAGE_BASE_PATH`, `DOCUMENTS_BASE_PATH`, `EMBEDDINGS_BASE_PATH`, `TEMP_WORKDIR_PATH`, `EXPORTS_BASE_PATH`, `IDENTITY_MIGRATIONS_POLICY`, `AI_SYSTEM_ANM_CHECKPOINT_RETENTION_DAYS`, `EXPORTS_RETENTION_DAYS`.
 - Variaveis do banco vetorial: `VECTOR_DATABASE_URL`, `VECTOR_DB_HOST`, `VECTOR_DB_PORT`, `VECTOR_DB_NAME`, `VECTOR_DB_USER`, `VECTOR_DB_PASSWORD`, `VECTOR_DB_SSL`, `EMBEDDING_DIMENSION`, `VECTOR_DISTANCE_STRATEGY`, `VECTOR_SEARCH_TOP_K_DEFAULT`, `VECTOR_SEARCH_TOP_K_MAX`.
 - Variaveis de ingestao RAG: `RAG_RAW_DOCUMENTS_PATH`, `RAG_EXTRACTED_TEXT_PATH`, `RAG_ADMIN_BULK_BASE_PATH`, `RAG_MAX_FILE_SIZE_BYTES`, `RAG_CHUNK_SIZE_CHARS`, `RAG_CHUNK_OVERLAP_CHARS`, `RAG_MAX_CHUNKS_PER_DOC`, `RAG_INGEST_ADMIN_TOKEN`.
 - Para evitar processos "invisiveis" (rodando em outro usuario/distro WSL), fixe tambem:
-  - `ANM_WSL_DISTRO`, `ANM_WSL_USER`
+  - `AI_SYSTEM_ANM_WSL_DISTRO`, `AI_SYSTEM_ANM_WSL_USER`
   - `VLLM_WSL_DISTRO`, `VLLM_WSL_USER`
   - `NEXT_WSL_DISTRO`, `NEXT_WSL_USER`
 
@@ -98,7 +98,7 @@ Para testar cada produto basta abrir o URL correspondente depois que o `npm run 
 
 ## Leticia (chat) - engine real
 
-- O endpoint `/api/knexai` nao usa mais modo mock.
+- O endpoint `/api/ai-system-anm` nao usa mais modo mock.
 - Para responder no chat, rode `npm run serve:vllm:wsl`.
 
 ## Login local
@@ -208,5 +208,6 @@ Documentacao:
 Smoke tests:
 - `npm run smoke:api`
 - `npm run smoke:rag`
+
 
 

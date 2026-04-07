@@ -14,7 +14,11 @@ import { controlResponseForm } from "./response-form-controller";
 import { polishFinalText } from "./final-text-polisher";
 import { filterInternalArtifacts } from "./internal-artifact-filter";
 import { handoffStructureToAcademicNormalization } from "./structure-to-academic-normalization-bridge";
-import { isConversationalPrompt } from "../shared/utils/conversation-signals";
+import {
+  isConversationalPrompt,
+  isGreetingMessage,
+  isSmallTalkMessage,
+} from "../shared/utils/conversation-signals";
 
 function sanitizeFallbackText(value: string): string {
   return `${value || ""}`
@@ -33,20 +37,112 @@ function sanitizeFallbackText(value: string): string {
 }
 
 function buildStructureFallback(state: ProcessingState, preferredText: string): string {
+  const deepFallbackComposition = buildDeepFallbackComposition(state);
+  if (deepFallbackComposition) return deepFallbackComposition;
+
+  const sectionComposite = state.draftResponse.sections
+    .map((section) => `${section.title}: ${section.content}`)
+    .join("\n");
+  const promptFocus = sanitizeFallbackText(state.normalizedMessage || state.rawMessage);
+  const deepTurn = isDeepFallbackTurn(state);
   const candidates = [
     preferredText,
+    sectionComposite,
     state.collapsedTruth.summary,
-    state.normalizedMessage,
-    state.rawMessage,
   ];
 
   for (const candidate of candidates) {
     const cleaned = sanitizeFallbackText(candidate);
     if (!cleaned) continue;
+    if (deepTurn && isPromptEcho(cleaned, promptFocus)) continue;
     return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`;
   }
 
   return "Nao foi possivel estruturar a resposta com seguranca.";
+}
+
+function isDeepFallbackTurn(state: ProcessingState): boolean {
+  const prompt = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  if (!prompt) return false;
+  if (state.preRouteSignals?.greetingFastLaneEligible) return false;
+  if (isGreetingMessage(prompt) || isSmallTalkMessage(prompt)) return false;
+  return true;
+}
+
+function isLowSignalText(value: string): boolean {
+  const normalized = `${value || ""}`.toLowerCase();
+  if (!normalized) return true;
+  return (
+    /ausencia de implicacoes/.test(normalized) ||
+    /nao ha evidencias suficientes/.test(normalized) ||
+    /sem implicacoes/.test(normalized) ||
+    normalized.length < 60
+  );
+}
+
+function normalizeEchoText(value: string): string {
+  return `${value || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isPromptEcho(candidate: string, prompt: string): boolean {
+  const a = normalizeEchoText(candidate);
+  const b = normalizeEchoText(prompt);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+
+  const aTokens = new Set(a.split(" ").filter(Boolean));
+  const bTokens = new Set(b.split(" ").filter(Boolean));
+  if (!aTokens.size || !bTokens.size) return false;
+
+  let overlap = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) overlap += 1;
+  }
+  const ratio = overlap / Math.max(aTokens.size, bTokens.size);
+  return ratio >= 0.82;
+}
+
+function buildDeepFallbackComposition(state: ProcessingState): string {
+  if (!isDeepFallbackTurn(state)) return "";
+
+  const promptFocus = sanitizeFallbackText(state.normalizedMessage || state.rawMessage);
+  const summary = sanitizeFallbackText(state.collapsedTruth.summary || "");
+  const implications = state.inferentialMap.implications
+    .map((item) => sanitizeFallbackText(item))
+    .filter((item) => item.length > 24 && !isLowSignalText(item) && !isPromptEcho(item, promptFocus))
+    .slice(0, 2);
+  const caveats = state.criticalCaveats
+    .map((item) => sanitizeFallbackText(item))
+    .filter((item) => item.length > 16)
+    .slice(0, 1);
+  const summaryIsPromptEcho = isPromptEcho(summary, promptFocus);
+
+  const anchor = !isLowSignalText(summary) && !summaryIsPromptEcho
+    ? summary
+    : `Sobre o pedido (${promptFocus}), a resposta precisa integrar base conceitual, encadeamento inferencial e validação de consistência.`;
+
+  const inferentialLine = implications.length > 0
+    ? `Em termos inferenciais, ${implications.join(" ")}`
+    : "Em termos inferenciais, é necessário explicitar premissas, consequências e critérios de validade antes de concluir.";
+
+  const epistemicLine = caveats.length > 0
+    ? `Do ponto de vista epistêmico, ${caveats[0]}`
+    : "";
+
+  const composed = [anchor, inferentialLine, epistemicLine]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return /[.!?]$/.test(composed) ? composed : `${composed}.`;
 }
 
 export async function runStructureLayer(state: ProcessingState): Promise<ProcessingState> {
@@ -64,10 +160,15 @@ export async function runStructureLayer(state: ProcessingState): Promise<Process
   });
 
   const polished = polishFinalText(shaped);
-  const fallbackUsed = !polished.trim();
-  state.structuredResponse = fallbackUsed
+  const polishedText = polished.trim();
+  const fallbackUsed = !polishedText;
+  const shallowDeepRecovery =
+    !fallbackUsed &&
+    isDeepFallbackTurn(state) &&
+    isLowSignalText(polishedText);
+  state.structuredResponse = (fallbackUsed || shallowDeepRecovery)
     ? buildStructureFallback(state, artifactFilter.text || state.draftResponse.text)
-    : polished;
+    : polishedText;
   if (artifactFilter.removedCount > 0) {
     state.activeConstraints = [
       ...state.activeConstraints,
@@ -77,6 +178,9 @@ export async function runStructureLayer(state: ProcessingState): Promise<Process
   }
   if (fallbackUsed) {
     state.activeConstraints = [...state.activeConstraints, "structure_empty_recovered"].slice(-32);
+  }
+  if (shallowDeepRecovery) {
+    state.activeConstraints = [...state.activeConstraints, "structure_shallow_deep_recovered"].slice(-32);
   }
   state.userProfile = {
     ...state.userProfile,
@@ -94,7 +198,7 @@ export async function runStructureLayer(state: ProcessingState): Promise<Process
       latencyMs: Date.now() - startedAt,
       detail:
         `paragraphs=${analyzed.paragraphs.length}; sentences=${analyzed.sentenceCount}; ` +
-        `artifactsRemoved=${artifactFilter.removedCount}; fallbackUsed=${fallbackUsed}`,
+        `artifactsRemoved=${artifactFilter.removedCount}; fallbackUsed=${fallbackUsed}; shallowDeepRecovery=${shallowDeepRecovery}`,
     }),
   );
   return handoffStructureToAcademicNormalization(state);

@@ -4,7 +4,7 @@ import { identitySupabaseAdmin } from "@/lib/identitySupabaseAdmin";
 
 export const runtime = "nodejs";
 
-const IDENTITY_SCHEMA = (process.env.ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
+const IDENTITY_SCHEMA = (process.env.AI_SYSTEM_ANM_IDENTITY_SQL_SCHEMA || "knex_identity_runtime").trim();
 
 type RecognitionLayerInput = {
   layer_key?: string;

@@ -16,7 +16,7 @@ Escopo: concluir revisao e consolidacao da implementacao de paths/persistencia N
 - Runtime/app:
   - `anm_backend/main.py` (guardas de NVMe e leitura/escrita de checkpoint).
   - `anm_backend/adapters/engine_client.py` (fallback de modelo local e paths por env).
-  - `app/api/knexai/route.ts` (uso de config central de paths no Node).
+  - `app/api/ai-system-anm/route.ts` (uso de config central de paths no Node).
 - Config central:
   - `core/config/paths.ts` (resolucao padronizada de paths com fallback).
 - Scripts de operacao/verificacao:
@@ -61,7 +61,7 @@ Escopo: concluir revisao e consolidacao da implementacao de paths/persistencia N
 - Runtime:
   - `anm_backend/main.py`
   - `anm_backend/adapters/engine_client.py`
-  - `app/api/knexai/route.ts`
+  - `app/api/ai-system-anm/route.ts`
 - Migrations:
   - `supabase/migrations/20260302195000_create_knexai_unified_local.sql`
   - `supabase/migrations_legacy/...`

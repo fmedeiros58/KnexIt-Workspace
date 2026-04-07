@@ -8,6 +8,10 @@ import type { ProcessingState } from "../bridges/contracts/processing-state";
 import type { PipelineRoute } from "../shared/enums/pipeline-enums";
 import { mergeConstraints, toConstraint } from "../shared/state/constraint-utils";
 import { makeTraceEvent } from "../shared/utils/trace-utils";
+import {
+  hasIntentGateEvaluation,
+  resolveIntentGateRoute,
+} from "../shared/routing/intent-gate-route-resolver";
 
 export type DecisionGuardStage = "pre_branch" | "post_orchestration";
 
@@ -24,10 +28,11 @@ export interface DecisionGuardDecision {
 }
 
 function routeRank(route: PipelineRoute) {
-  if (route === "minimum") return 0;
-  if (route === "reflective") return 1;
-  if (route === "inferential") return 2;
-  return 3;
+  return route === "minimum" ? 0 : 1;
+}
+
+function elevateRoute(current: PipelineRoute, floor: PipelineRoute): PipelineRoute {
+  return routeRank(current) >= routeRank(floor) ? current : floor;
 }
 
 function inferLatestDomainAnchor(state: ProcessingState): string {
@@ -49,10 +54,35 @@ function detectSignals(state: ProcessingState) {
   const snapshot = state.textAnalysisSnapshot;
   const pre = state.preRouteSignals;
   const latestAnchor = inferLatestDomainAnchor(state);
+  const hasIntentGateEvaluationSignal = hasIntentGateEvaluation({
+    intentGateConfidence: pre.intentGateConfidence,
+    intentGateDebugTrace: pre.intentGateDebugTrace,
+  });
+  const greetingFastLaneEligible = Boolean(pre.greetingFastLaneEligible);
+  const intentGateRoute = hasIntentGateEvaluationSignal
+    ? resolveIntentGateRoute({
+        routingRecommendation: pre.intentGateRoutingRecommendation,
+        shouldEscalateToDeepPipeline: pre.intentGateShouldEscalateToDeepPipeline,
+        hasVerifiableSignal: pre.hasVerifiableSignal || snapshot.hasVerifiableSignal,
+      })
+    : null;
 
   const hasSafetyBlock =
     pre.safetyAction === "caution" ||
     state.inputSignals.safetyFlags.some((flag) => /block|malicious|harmful|prompt_injection/i.test(flag));
+
+  if (greetingFastLaneEligible && !hasSafetyBlock) {
+    return {
+      text,
+      routeFloor: "minimum" as PipelineRoute,
+      requiredSteps: [],
+      reasonTags: ["greeting_fast_lane_top_gate"],
+      requiresKnowledge: false,
+      requiresWeb: false,
+      followUpDependency: false,
+      blockedBySafety: false,
+    };
+  }
 
   const hasFactualEntityCue =
     /\b(presidente|governador|prefeito|ceo|capital|cotacao|indice|taxa|mandato|eleit[oa]|posse|data|ano|numero|percentual|lei|norma|resolucao|preco|dose|mg|ml)\b/i.test(
@@ -100,10 +130,12 @@ function detectSignals(state: ProcessingState) {
   if (latestAnchor) reasonTags.push(`anchor:${latestAnchor}`);
   if (hasSafetyBlock) reasonTags.push("safety_block");
 
-  const routeFloor: PipelineRoute =
-    requiresKnowledge
-      ? (requiresWeb ? "quantum-state" : "inferential")
-      : "reflective";
+  let routeFloor: PipelineRoute = "inferential";
+
+  if (intentGateRoute) {
+    routeFloor = elevateRoute(routeFloor, intentGateRoute);
+    reasonTags.push(`intent_gate_floor:${intentGateRoute}`);
+  }
 
   const requiredSteps = requiresKnowledge
     ? [

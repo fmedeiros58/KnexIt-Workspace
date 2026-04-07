@@ -14,8 +14,8 @@ const technical = createInitialProcessingState("verifique os normalizer");
 technical.executionPlan.selectedRoute = "minimum";
 const technicalDecision = applyPipelineDecisionGuard(technical, "pre_branch");
 assert(
-  technicalDecision.routeFloor === "minimum",
-  "generic technical 'verifique' prompt must not be forced to factual/web route",
+  technicalDecision.routeFloor === "inferential",
+  "non-greeting prompts should default to deep inferential route",
 );
 assert(!technicalDecision.requiresWeb, "generic technical prompt should not require web");
 
@@ -23,7 +23,7 @@ const factual = createInitialProcessingState("verifique com fontes quem e o pres
 factual.executionPlan.selectedRoute = "minimum";
 const factualDecision = applyPipelineDecisionGuard(factual, "pre_branch");
 assert(
-  factualDecision.routeFloor === "quantum-state",
-  "factual verifiable prompt should still be escalated to quantum-state",
+  factualDecision.routeFloor === "inferential",
+  "factual verifiable prompt should be routed to deep inferential pipeline",
 );
 assert(factualDecision.requiresWeb, "factual verifiable prompt should require web");

@@ -8,6 +8,8 @@ import { enforceResponseStructure } from "@/core/chat/perception/response-struct
 import type { ConversationPerceptionState } from "@/core/chat/perception/types";
 import type { RagQueryService } from "@/core/rag/rag-query-service";
 import { resolveIdentityFallbackForMessage } from "../../../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
+import { ensureUtf8Response } from "../../../../ai-system-anm-rag-qis/src/18-presentation-and-delivery-layer/text-encoding-guard";
+import { textNormalizationService } from "../../../../ai-system-anm-rag-qis/src/shared/text-processing/text-normalization.service";
 
 const CTA_MIN_CHARS = 120;
 const DEFAULT_REPAIR_PASSES = 1;
@@ -81,10 +83,8 @@ function shouldApplyPortugueseDiacriticRepair(value: string) {
 }
 
 function normalize(value: string) {
-  return `${value || ""}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
+  return textNormalizationService
+    .expandContractions(value || "")
     .trim();
 }
 
@@ -279,7 +279,7 @@ function repairUtf8Mojibake(value: string) {
       repaired = repaired.replace(pattern, replacement);
     }
   }
-  return repaired;
+  return ensureUtf8Response(repaired).text;
 }
 
 function isAuthorYearGroundingQuestion(value: string) {
@@ -487,6 +487,43 @@ function hasPersonaPolicyLeak(text: string) {
       normalized,
     )
   );
+}
+
+function hasIdentityEntitySplitSignal(text: string) {
+  const normalized = normalizeFold(text);
+  if (!normalized) return false;
+  return (
+    /\b(eu e a (?:inteligencia artificial|ia)\s+leticia)\b/.test(normalized) ||
+    /\b(voce e o assistente interno(?: da plataforma knexit)?\b.*\bleticia\b)\b/.test(normalized) ||
+    /\b(assistente interno da plataforma knexit)\b/.test(normalized) ||
+    /\b(programa executor)\b/.test(normalized)
+  );
+}
+
+function buildIdentitySingularReply(ctx: PipelineContext) {
+  const languageFamily = resolveLanguageFamily(ctx);
+  const fallback = resolveIdentityFallbackForMessage(ctx.userMessage || "");
+  if (languageFamily !== "en" && fallback.shouldHandle) {
+    return fallback.shortNarrative || "Eu sou a Letícia, a IA do ai-system-anm.";
+  }
+  if (languageFamily === "en") return "I am Letícia, the AI of ai-system-anm.";
+  return "Eu sou a Letícia, a IA do ai-system-anm.";
+}
+
+function enforceIdentityEntityConsistencyGuard(ctx: PipelineContext, text: string) {
+  const raw = `${text || ""}`.trim();
+  if (!raw) return raw;
+  const fallback = resolveIdentityFallbackForMessage(ctx.userMessage || "");
+  const normalizedPrompt = normalizeFold(ctx.userMessage || "");
+  const likelyIdentityTurn =
+    fallback.shouldHandle ||
+    /\b(leticia|nome|origem|significado|criador|criou|medeiros|ia)\b/.test(normalizedPrompt);
+
+  if (!likelyIdentityTurn) return raw;
+  if (hasIdentityEntitySplitSignal(raw) || hasPersonaPolicyLeak(raw)) {
+    return buildIdentitySingularReply(ctx);
+  }
+  return raw;
 }
 
 function buildMissingWebVerificationReply(ctx: PipelineContext) {
@@ -760,6 +797,7 @@ function createVerifiableGuardedChatStream(stream: ReadableStream<Uint8Array>, c
         text += decoder.decode();
         let finalText = enforceChatResponseStructure(ctx, text);
         finalText = enforceConversationalSemanticGuard(ctx, finalText);
+        finalText = enforceIdentityEntityConsistencyGuard(ctx, finalText);
         finalText = enforceVerifiableWebGuard(ctx, finalText);
         finalText = enforceDocumentGroundingClarification(ctx, finalText);
         finalText = enforceIdentityClarificationGuard(ctx, finalText);
@@ -825,10 +863,8 @@ type MicroConversationalIntent =
   | "assistant_creator";
 
 function normalizeMicroIntentText(value: string) {
-  return `${value || ""}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
+  return textNormalizationService
+    .expandContractions(value || "")
     .replace(/[!?.,;:"]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -842,11 +878,17 @@ const MICRO_CREATOR_PATTERNS: RegExp[] = [
   /\b(quem (?:e|eh)\s+(?:o\s+)?medeiros|e quem (?:e|eh)\s+medeiros|quem (?:e|eh)\s+esse\s+medeiros)\b/,
   /\b(quem te criou|quem criou voce|quem e seu criador|quem desenvolveu voce)\b/,
   /\b(quem idealizou (?:voce|o projeto)|quem te batizou)\b/,
+  /\b(quem te deu (?:esse\s+)?nome|quem (?:deu|escolheu|definiu) (?:esse\s+)?nome (?:a|para) (?:voce|vc|ce|ti))\b/,
+  /\b(quem escolheu (?:o\s+)?seu nome|quem te chamou de leticia|quem deu esse nome pra vc)\b/,
+  /\b(foi ele que te criou|ele te criou|voce e (?:filha|filho) dele|vc e (?:filha|filho) dele)\b/,
 ];
 
 const MICRO_NAME_ORIGIN_PATTERNS: RegExp[] = [
   /\b((por que|porque|pq)\s+(voce|vc|ce)\s+(tem|usa)\s+(esse\s+)?nome)\b/,
   /\b((por que|porque|pq)\s+(voce|vc|ce)\s+se\s+chama\s+leticia)\b/,
+  /\b((por que|porque|pq)\s+(voce|vc|ce)\s+se\s+chama\s+assim|se\s+chama\s+assim)\b/,
+  /\b((por que|porque|pq)\s+(?:te|tte)\s+chamam?\s+assim)\b/,
+  /\b((por que|porque|pq)\s+te\s+chamam?\s+assim|te\s+chamam?\s+assim)\b/,
   /\b(qual(?:\s+(?:e|eh))?\s+a\s+origem\s+do\s+seu\s+nome|de onde vem o nome leticia|de onde veio seu nome|por que o nome leticia)\b/,
   /\b(o que significa leticia|qual o significado(?:\s+do\s+nome)?(?:\s+de)?\s+leticia|leticia significa o que|esse nome significa o que)\b/,
   /\b(o que quer dizer leticia|qual o sentido do nome leticia)\b/,
@@ -914,13 +956,37 @@ function isMicroSocialPrompt(value: string) {
   return detectMicroConversationalIntent(value) !== null;
 }
 
+function resolveMicroGreetingTimeZone() {
+  const configured = `${process.env.AI_SYSTEM_TIMEZONE || process.env.TZ || "America/Sao_Paulo"}`.trim();
+  if (!configured) return "America/Sao_Paulo";
+  try {
+    new Intl.DateTimeFormat("pt-BR", { timeZone: configured }).format(new Date());
+    return configured;
+  } catch {
+    return "America/Sao_Paulo";
+  }
+}
+
+function resolveClockGreetingLead() {
+  const timeZone = resolveMicroGreetingTimeZone();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    hour: "2-digit",
+  }).formatToParts(new Date());
+  const hour = Number.parseInt(parts.find((item) => item.type === "hour")?.value || "12", 10);
+  if (hour >= 5 && hour <= 11) return "Bom dia!";
+  if (hour >= 12 && hour <= 17) return "Boa tarde!";
+  return "Boa noite!";
+}
+
 function resolveGreetingLeadFromMessage(value: string) {
   const normalized = normalizeMicroIntentText(value);
   if (/\bsaudac(?:oes|oes)?\b/.test(normalized) || /^saudac/.test(normalized)) return "Saudações!";
   if (/\bbom dia\b/.test(normalized)) return "Bom dia!";
   if (/\bboa tarde\b/.test(normalized)) return "Boa tarde!";
   if (/\bboa noite\b/.test(normalized)) return "Boa noite!";
-  return "Oi!";
+  return resolveClockGreetingLead();
 }
 
 function hasHighSentenceRepetition(text: string) {
@@ -947,6 +1013,15 @@ function hasConversationalSemanticAnomaly(text: string) {
     return true;
   }
   if (/\b(minha nome|pelo prazer|sem sintese disponivel|sem ressalva dominante|sem ressalvas dominantes?)\b/.test(normalized)) return true;
+  if (
+    /\b(eu e a (?:inteligencia artificial|ia)\s+leticia)\b/.test(normalized) ||
+    /\b(voce e o assistente interno(?: da plataforma knexit)?\b.*\bleticia\b)\b/.test(normalized) ||
+    /\b(assistente interno da plataforma knexit)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (/\b(ola[, ]+usuario carinho|ol[aá],?\s+usu[aá]rio carinho|usuario carinho)\b/.test(normalized)) return true;
+  if (/\b(eu sou apenas leticia|sou apenas leticia)\b/.test(normalized)) return true;
   if (hasHighSentenceRepetition(raw)) return true;
   return false;
 }
@@ -1023,7 +1098,7 @@ function buildCanonicalMicroConversationalReply(ctx: PipelineContext, intent: Mi
     if (intent === "assistant_identity") return "I am Letícia.";
     if (intent === "wellbeing_check") return "I am doing well. How can I help you now?";
     if (intent === "gratitude") return "You are welcome. I am here to help with whatever you need next.";
-    return "Hi! I am Letícia. How can I help you now?";
+    return "Hi! How can I help you now?";
   }
   if (intent === "assistant_creator") {
     return (
@@ -1039,7 +1114,7 @@ function buildCanonicalMicroConversationalReply(ctx: PipelineContext, intent: Mi
   if (intent === "assistant_identity") return "Eu sou a Letícia.";
   if (intent === "wellbeing_check") return "Tudo certo por aqui. Como posso te ajudar agora?";
   if (intent === "gratitude") return "De nada. Eu sigo com você no que precisar.";
-  return `${resolveGreetingLeadFromMessage(ctx.userMessage)} Eu sou a Letícia. Como posso te ajudar agora?`;
+  return `${resolveGreetingLeadFromMessage(ctx.userMessage)} Como posso te ajudar agora?`;
 }
 
 function enforceConversationalSemanticGuard(ctx: PipelineContext, text: string) {
@@ -1175,6 +1250,7 @@ export class PostprocessStage implements Stage {
     if (ctx.mode === "chat") {
       finalText = enforceChatResponseStructure(ctx, finalText);
       finalText = enforceConversationalSemanticGuard(ctx, finalText);
+      finalText = enforceIdentityEntityConsistencyGuard(ctx, finalText);
       finalText = enforceVerifiableWebGuard(ctx, finalText);
       finalText = enforceDocumentGroundingClarification(ctx, finalText);
       finalText = enforceIdentityClarificationGuard(ctx, finalText);

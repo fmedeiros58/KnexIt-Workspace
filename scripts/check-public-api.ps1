@@ -70,7 +70,7 @@ if ([string]::IsNullOrWhiteSpace($resolvedBaseUrl)) {
 $resolvedBaseUrl = Normalize-BaseUrl $resolvedBaseUrl
 $resolvedAnmBaseUrl = Pick-FirstNonEmpty @(
   $AnmBaseUrl,
-  $env:ANM_API_BASE_URL
+  $env:AI_SYSTEM_ANM_API_BASE_URL
 )
 $resolvedAnmBaseUrl = if ([string]::IsNullOrWhiteSpace($resolvedAnmBaseUrl)) { "" } else { Normalize-BaseUrl $resolvedAnmBaseUrl }
 $resolvedApiKey = Pick-FirstNonEmpty @(
@@ -120,3 +120,4 @@ if ($chat.StatusCode -ne 200) {
 }
 
 Write-Host "Smoke de API publica concluido com sucesso." -ForegroundColor Green
+

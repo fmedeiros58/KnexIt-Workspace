@@ -101,6 +101,7 @@ const PROACTIVE_COOLDOWN_MS = 45_000;
 const PROACTIVE_USER_GRACE_MS = 20_000;
 const VOICE_PROFILE_STORAGE_KEY = "knexai.proactive.voice.profile.v1";
 const CONVERSATION_KEY_STORAGE_KEY = "knexai.proactive.conversation.v1";
+const PROACTIVE_MESSAGES_STORAGE_KEY = "knexai.proactive.messages.v1";
 const BACKGROUND_VISION_STORAGE_KEY = "knexai.proactive.background-vision.v1";
 const CAMERA_PREVIEW_STORAGE_KEY = "knexai.proactive.camera-preview.v1";
 const MAX_ASSISTANT_VOLUME = 1;
@@ -221,7 +222,13 @@ async function parseErrorMessage(response: Response) {
     if (code) return code;
     return "";
   }
-  return (await response.text().catch(() => "")).trim();
+  if (contentType.includes("text/html")) {
+    if (response.status === 404) {
+      return "Endpoint nao encontrado (404). Verifique /api/proactive-assistant/chat e /api/ai-system-anm.";
+    }
+    return `Falha de backend (HTTP ${response.status}) com retorno HTML inesperado.`;
+  }
+  return (await response.text().catch(() => "")).trim().slice(0, 300);
 }
 
 function buildHistoryForApi(messages: AssistantMessage[]) {
@@ -232,6 +239,45 @@ function buildHistoryForApi(messages: AssistantMessage[]) {
       content: row.content,
     }))
     .slice(-16);
+}
+
+function normalizeStoredAssistantMessage(item: unknown): AssistantMessage | null {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  const row = item as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  const role = row.role;
+  const content = typeof row.content === "string" ? row.content.trim() : "";
+  const createdAtRaw = Number(row.createdAt);
+  const source = row.source;
+  const locale = row.locale;
+  if (!id || (role !== "user" && role !== "assistant" && role !== "system") || !content) return null;
+  const createdAt = Number.isFinite(createdAtRaw) ? Math.max(0, Math.round(createdAtRaw)) : Date.now();
+  const normalized: AssistantMessage = {
+    id,
+    role,
+    content,
+    createdAt,
+  };
+  if (source === "user" || source === "proactive" || source === "event") normalized.source = source;
+  if (locale === "pt-BR" || locale === "en-US" || locale === "es-ES") normalized.locale = locale;
+  return normalized;
+}
+
+function readStoredMessagesByConversationKey(conversationKey: string): AssistantMessage[] {
+  if (typeof window === "undefined") return [];
+  const key = `${PROACTIVE_MESSAGES_STORAGE_KEY}:${conversationKey}`;
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizeStoredAssistantMessage(item))
+      .filter((item): item is AssistantMessage => Boolean(item))
+      .slice(-80);
+  } catch {
+    return [];
+  }
 }
 
 function normalizeMicrophoneError(error: unknown) {
@@ -395,6 +441,7 @@ export default function ProactiveAssistantPage() {
   const [assistantVoiceError, setAssistantVoiceError] = useState("");
   const [assistantSpeaking, setAssistantSpeaking] = useState(false);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(DEFAULT_VOICE_PROFILE);
+  const [conversationKey, setConversationKey] = useState("");
   const [composerFocused, setComposerFocused] = useState(false);
   const [inactiveComposerBlinkOn, setInactiveComposerBlinkOn] = useState(true);
   const [stageLoadingDotIndex, setStageLoadingDotIndex] = useState(0);
@@ -405,6 +452,7 @@ export default function ProactiveAssistantPage() {
   const assistantVoiceEnabledRef = useRef(assistantVoiceEnabled);
   const voiceProfileRef = useRef<VoiceProfile>(voiceProfile);
   const conversationKeyRef = useRef("");
+  const messagesHydratedRef = useRef(false);
   const lastProactiveAtRef = useRef(0);
   const lastUserInteractionAtRef = useRef(0);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
@@ -457,8 +505,28 @@ export default function ProactiveAssistantPage() {
     const stored = window.localStorage.getItem(CONVERSATION_KEY_STORAGE_KEY)?.trim() || "";
     const next = stored || makeConversationKey();
     conversationKeyRef.current = next;
+    setConversationKey(next);
     window.localStorage.setItem(CONVERSATION_KEY_STORAGE_KEY, next);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !conversationKey) return;
+    const restored = readStoredMessagesByConversationKey(conversationKey);
+    if (restored.length > 0) {
+      setMessages(restored);
+    }
+    messagesHydratedRef.current = true;
+  }, [conversationKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !conversationKey || !messagesHydratedRef.current) return;
+    const storageKey = `${PROACTIVE_MESSAGES_STORAGE_KEY}:${conversationKey}`;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(messages.slice(-80)));
+    } catch {
+      // Ignore local cache write errors.
+    }
+  }, [conversationKey, messages]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1287,6 +1355,7 @@ export default function ProactiveAssistantPage() {
       if (normalized === "/clear") {
         const nextConversationKey = makeConversationKey();
         conversationKeyRef.current = nextConversationKey;
+        setConversationKey(nextConversationKey);
         if (typeof window !== "undefined") {
           window.localStorage.setItem(CONVERSATION_KEY_STORAGE_KEY, nextConversationKey);
         }
@@ -1675,7 +1744,7 @@ export default function ProactiveAssistantPage() {
               >
                 <iframe
                   title="Streaming de camera para identificacao"
-                  src="/knexai/identity-runtime?embedded=1&view=stream"
+                  src="/ai-system-anm/identity-runtime?embedded=1&view=stream"
                   className="block h-full w-full border-0 bg-black outline-none ring-0 shadow-none"
                   allow="camera; microphone; autoplay; clipboard-read; clipboard-write"
                   scrolling="no"
@@ -1798,7 +1867,7 @@ export default function ProactiveAssistantPage() {
           <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Link
-                href="/knexai/web"
+                href="/ai-system-anm/web"
                 className="inline-flex items-center gap-2 bg-black px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.12em] text-white/85 hover:text-white md:text-base"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />

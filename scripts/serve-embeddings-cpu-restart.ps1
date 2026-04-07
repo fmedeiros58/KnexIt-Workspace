@@ -18,7 +18,7 @@ if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $WorkspacePath = $env:EMBEDDING_CPU_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
-  $WorkspacePath = $env:ANM_WSL_WORKSPACE_DIR
+  $WorkspacePath = $env:AI_SYSTEM_ANM_WSL_WORKSPACE_DIR
 }
 if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
   $repoRootWindows = $repoRoot.Path.Replace("\", "/")
@@ -36,3 +36,4 @@ Write-Output "[INFO] Encerrando servidor de embeddings em CPU antigo (se existir
 
 Write-Output "[INFO] Subindo servidor de embeddings em CPU..."
 & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "serve-embeddings-cpu-wsl.ps1") -WorkspacePath $WorkspacePath
+

@@ -11,6 +11,7 @@ import {
   isMedeirosFounderInfluenceQuestion,
   isMedeirosIdentityQuestion,
   isMedeirosProfessionalQuestion,
+  isMedeirosWhoIsQuestion,
   normalizeMedeirosText,
 } from "./medeiros-question-patterns";
 import type {
@@ -37,26 +38,41 @@ function resolveMedeirosNarrative(mode: MedeirosNarrativeMode, message: string):
   const seedBase = hashString(normalized || "medeiros-default-seed");
 
   const creatorQuestionDetected = isMedeirosCreatorQuestion(normalized);
+  const whoIsQuestionDetected = isMedeirosWhoIsQuestion(normalized);
   const identityQuestionDetected = isMedeirosIdentityQuestion(normalized);
   const founderInfluenceQuestionDetected = isMedeirosFounderInfluenceQuestion(normalized);
   const formationQuestionDetected = isMedeirosFormationQuestion(normalized);
   const professionalQuestionDetected = isMedeirosProfessionalQuestion(normalized);
 
+  if (whoIsQuestionDetected && mode === "short") {
+    return pickOne(MEDEIROS_NARRATIVE_BANK.whoIsAnswersShort, seedBase + 1);
+  }
+
+  if (whoIsQuestionDetected && mode === "long") {
+    return [
+      pickOne(MEDEIROS_NARRATIVE_BANK.openings, seedBase + 2),
+      "Medeiros é Francimar de Lima Medeiros, idealizador da Letícia no ai-system-anm e referência fundadora de origem epistemológica do sistema.",
+      "Sua trajetória integra formação em Letras, Medicina e Educação, com atuação em docência, coordenação pedagógica e assessoramento educacional.",
+      "No contexto da Letícia, ele não é tratado apenas como autor técnico, mas como eixo de coerência conceitual, identitária e existencial.",
+      pickOne(MEDEIROS_NARRATIVE_BANK.closings, seedBase + 3),
+    ].join(" ");
+  }
+
   if (formationQuestionDetected && mode === "short") {
-    return "Medeiros tem uma formacao interdisciplinar que inclui Letras, Medicina e Mestrado em Educacao, alem de especializacoes em Lingua Portuguesa e Literatura e Educacao Especial Inclusiva Avancada.";
+    return "Medeiros tem uma formação interdisciplinar que inclui Letras, Medicina e Mestrado em Educação, além de especializações em Língua Portuguesa e Literatura e Educação Especial Inclusiva Avançada.";
   }
 
   if (professionalQuestionDetected && mode === "short") {
-    return "Profissionalmente, Medeiros atua na educacao basica e no NIEAD/UFAC, com experiencia em docencia, coordenacao pedagogica, ensino superior e formacao docente.";
+    return "Profissionalmente, Medeiros atua na educação básica e no NIEAD/UFAC, com experiência em docência, coordenação pedagógica, ensino superior e formação docente.";
   }
 
   if (formationQuestionDetected && mode === "long") {
     return [
       pickOne(MEDEIROS_NARRATIVE_BANK.openings, seedBase + 1),
-      "Sua formacao combina graduacao em Letras pela UFAC, bacharelado em Medicina pela Universidad Privada Abierta Latinoamericana e Mestrado em Educacao pela UFAC.",
-      "Tambem inclui pos-graduacao em Lingua Portuguesa e Literatura e pos-graduacao lato sensu em Educacao Especial Inclusiva Avancada.",
-      "No percurso profissional, essa base se conecta com docencia, formacao docente e atuacao institucional no ensino superior, na educacao basica e no NIEAD/UFAC.",
-      "No ai-system-anm, essa formacao interdisciplinar influencia a origem epistemologica da Leticia e sua leitura nao reducionista do humano.",
+      "Sua formação combina graduação em Letras pela UFAC, bacharelado em Medicina pela Universidad Privada Abierta Latinoamericana e Mestrado em Educação pela UFAC.",
+      "Também inclui pós-graduação em Língua Portuguesa e Literatura e pós-graduação lato sensu em Educação Especial Inclusiva Avançada.",
+      "No percurso profissional, essa base se conecta com docência, formação docente e atuação institucional no ensino superior, na educação básica e no NIEAD/UFAC.",
+      "No ai-system-anm, essa formação interdisciplinar influencia a origem epistemológica da Letícia e sua leitura não reducionista do humano.",
       pickOne(MEDEIROS_NARRATIVE_BANK.closings, seedBase + 2),
     ].join(" ");
   }
@@ -64,10 +80,10 @@ function resolveMedeirosNarrative(mode: MedeirosNarrativeMode, message: string):
   if (professionalQuestionDetected && mode === "long") {
     return [
       pickOne(MEDEIROS_NARRATIVE_BANK.openings, seedBase + 3),
-      "Profissionalmente, Medeiros atua como professor da Educacao Basica da Secretaria de Educacao do Estado do Acre e como assessor pedagogico da Coordenacao Pedagogica do NIEAD/UFAC.",
-      "Sua trajetoria inclui docencia em Linguistica e Lingua Portuguesa no ensino superior, atuacao na pos-graduacao em Didatica e experiencia em Lingua Inglesa, Quimica e Fisica no ensino medio.",
-      "Tambem inclui coordenacao pedagogica, coordenacao de ensino, PDE/escola e coordenacao do Nucleo da UFAC em Porto Walter.",
-      "Esse conjunto de experiencia educacional e institucional reforca sua influencia na origem da Leticia dentro do ai-system-anm.",
+      "Profissionalmente, Medeiros atua como professor da Educação Básica da Secretaria de Educação do Estado do Acre e como assessor pedagógico da Coordenação Pedagógica do NIEAD/UFAC.",
+      "Sua trajetória inclui docência em Linguística e Língua Portuguesa no ensino superior, atuação na pós-graduação em Didática e experiência em Língua Inglesa, Química e Física no ensino médio.",
+      "Também inclui coordenação pedagógica, coordenação de ensino, PDE/escola e coordenação do Núcleo da UFAC em Porto Walter.",
+      "Esse conjunto de experiência educacional e institucional reforça sua influência na origem da Letícia dentro do ai-system-anm.",
       pickOne(MEDEIROS_NARRATIVE_BANK.closings, seedBase + 4),
     ].join(" ");
   }
@@ -100,6 +116,7 @@ function resolveMedeirosNarrative(mode: MedeirosNarrativeMode, message: string):
 
 export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentityProfile {
   const normalized = normalizeMedeirosText(message);
+  const whoIsQuestionDetected = isMedeirosWhoIsQuestion(normalized);
   const identityQuestionDetected = isMedeirosIdentityQuestion(normalized);
   const creatorQuestionDetected = isMedeirosCreatorQuestion(normalized);
   const founderInfluenceQuestionDetected = isMedeirosFounderInfluenceQuestion(normalized);
@@ -107,6 +124,7 @@ export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentit
   const professionalQuestionDetected = isMedeirosProfessionalQuestion(normalized);
 
   const shouldExplainMedeiros =
+    whoIsQuestionDetected ||
     creatorQuestionDetected ||
     identityQuestionDetected ||
     founderInfluenceQuestionDetected ||
@@ -123,6 +141,7 @@ export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentit
     "evitar_invencoes_biograficas",
     "quando_relevante_mencionar_nome_completo_francimar_de_lima_medeiros",
     "quando_relevante_mencionar_citacao_bibliografica_medeiros_f_l",
+    "quando_perguntarem_quem_e_medeiros_priorizar_identificacao_biografica_direta",
     "quando_perguntarem_sobre_formacao_de_medeiros_responder_com_base_interdisciplinar",
     "quando_perguntarem_sobre_atuacao_profissional_de_medeiros_incluir_docencia_niead_e_formacao_docente",
     "explicar_que_a_trajectoria_de_medeiros_influencia_a_leticia_tambem_pela_experiencia_educacional_e_institucional",
@@ -132,6 +151,7 @@ export function resolveMedeirosIdentityProfile(message: string): MedeirosIdentit
     canonicalName: MEDEIROS_BASE_PROFILE.canonicalName,
     systemRole: MEDEIROS_BASE_PROFILE.systemRole,
     preferredReference: MEDEIROS_BASE_PROFILE.preferredReference,
+    whoIsQuestionDetected,
     identityQuestionDetected,
     creatorQuestionDetected,
     founderInfluenceQuestionDetected,

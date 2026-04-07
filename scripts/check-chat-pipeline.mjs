@@ -129,6 +129,135 @@ function toPrintableError(error) {
   return String(error);
 }
 
+async function readResponseBody(response) {
+  const contentType = normalizeString(response.headers.get("content-type")).toLowerCase();
+  const rawBody = await response.text();
+  if (!contentType.includes("application/json")) {
+    return {
+      contentType,
+      rawBody,
+      payload: null,
+      replyText: normalizeString(rawBody),
+    };
+  }
+
+  let payload = null;
+  try {
+    payload = rawBody ? JSON.parse(rawBody) : null;
+  } catch {
+    payload = null;
+  }
+
+  const replyText = normalizeString(
+    payload?.reply?.content ||
+      payload?.content ||
+      payload?.message ||
+      rawBody,
+  );
+
+  return { contentType, rawBody, payload, replyText };
+}
+
+function normalizeForGuard(value) {
+  return normalizeString(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function countMarkerHits(normalized, markers) {
+  let total = 0;
+  for (const marker of markers) {
+    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`\\b${escaped}\\b`, "g");
+    const matches = normalized.match(pattern);
+    if (matches?.length) total += matches.length;
+  }
+  return total;
+}
+
+function detectSurfaceLanguage(text) {
+  const normalized = normalizeForGuard(text);
+  if (!normalized) return "unknown";
+  const pt = countMarkerHits(normalized, ["voce", "nao", "como", "porque", "resposta", "pergunta"]);
+  const en = countMarkerHits(normalized, [
+    "based on the context",
+    "the problem statement",
+    "please do the following",
+    "let me clarify",
+    "in this context",
+  ]);
+  const es = countMarkerHits(normalized, ["responde", "usted", "por favor", "en espanol"]);
+  const ranked = [
+    { language: "pt", score: pt },
+    { language: "en", score: en },
+    { language: "es", score: es },
+  ].sort((a, b) => b.score - a.score);
+  if (ranked[0].score < 2) return "unknown";
+  if (ranked[0].score - ranked[1].score < 1) return "unknown";
+  return ranked[0].language;
+}
+
+function hasMixedLanguageLeak(text) {
+  const normalized = normalizeForGuard(text);
+  if (!normalized) return false;
+
+  const directPatterns = [
+    /\bdecisao coletiva can\b/,
+    /\bevery decisao coletiva\b/,
+    /\bmust maximize bem estar agregado\b/,
+    /\buniversal rule .* sem excecao\b/,
+    /\blet me clarify\b/,
+    /\bplease do the following\b/,
+  ];
+  if (directPatterns.some((pattern) => pattern.test(normalized))) return true;
+
+  const pt = countMarkerHits(normalized, ["decisao", "coletiva", "liberdade", "bem estar", "resposta", "pergunta"]);
+  const en = countMarkerHits(normalized, ["must", "should", "can", "consider", "system", "principles", "question"]);
+  const tokenCount = normalized.split(" ").filter(Boolean).length;
+  if (tokenCount < 12) return false;
+  return pt >= 4 && en >= 4 && Math.min(pt, en) / Math.max(pt, en) >= 0.45;
+}
+
+function hasLogicalSurfaceLabelLeak(text) {
+  const normalized = normalizeForGuard(text);
+  if (!normalized) return false;
+  return /\b(?:leitura|sintese)\s+logico-?pratica\s*:/.test(normalized);
+}
+
+function isPromptEcho(answer, prompt) {
+  const normalizedAnswer = normalizeForGuard(answer);
+  const normalizedPrompt = normalizeForGuard(prompt);
+  if (!normalizedAnswer || !normalizedPrompt) return false;
+
+  if (
+    /\b(the problem statement describes|please do the following|let me clarify some terms before proceeding)\b/i.test(
+      answer,
+    )
+  ) {
+    return true;
+  }
+
+  const promptSlice = normalizedPrompt.slice(0, Math.min(260, normalizedPrompt.length));
+  if (promptSlice.length >= 120 && normalizedAnswer.includes(promptSlice)) return true;
+
+  const promptTokens = normalizedPrompt.split(" ").filter((token) => token.length >= 4);
+  const answerTokens = normalizedAnswer.split(" ").filter((token) => token.length >= 4);
+  if (promptTokens.length < 12 || answerTokens.length < 12) return false;
+  const promptSet = new Set(promptTokens);
+  const answerSet = new Set(answerTokens);
+  let overlap = 0;
+  for (const token of promptSet) {
+    if (answerSet.has(token)) overlap += 1;
+  }
+  const coverage = overlap / Math.max(1, promptSet.size);
+  const lengthRatio = normalizedAnswer.length / Math.max(1, normalizedPrompt.length);
+  return coverage >= 0.72 && lengthRatio >= 0.7 && lengthRatio <= 1.9;
+}
+
 const report = {
   startedAt: new Date().toISOString(),
   host: process.env.COMPUTERNAME || process.env.HOSTNAME || "unknown-host",
@@ -227,12 +356,12 @@ await runStep("vector-db", "Conexao com banco vetorial", async () => {
   throw new Error(`sem conexao no banco vetorial: ${errors.join(" | ")}`);
 });
 
-await runStep("api-knexai", "API /api/knexai ativa", async () => {
+await runStep("api-ai-system-anm", "API /api/ai-system-anm ativa", async () => {
   const candidates = buildApiBaseCandidates(process.env);
   const errors = [];
   for (const baseUrl of candidates) {
     try {
-      const response = await withTimeout(fetch(`${baseUrl}/api/knexai`, { method: "GET" }), 8000, "api timeout");
+      const response = await withTimeout(fetch(`${baseUrl}/api/ai-system-anm`, { method: "GET" }), 20000, "api timeout");
       const text = await response.text();
       const payload = text ? JSON.parse(text) : {};
       if (!response.ok) {
@@ -241,7 +370,7 @@ await runStep("api-knexai", "API /api/knexai ativa", async () => {
       }
       runtime.apiBaseUrl = baseUrl;
       return {
-        message: `${baseUrl}/api/knexai respondeu HTTP ${response.status}`,
+        message: `${baseUrl}/api/ai-system-anm respondeu HTTP ${response.status}`,
         engineMode: payload?.engineMode || null,
         provider: payload?.provider || null,
       };
@@ -250,6 +379,243 @@ await runStep("api-knexai", "API /api/knexai ativa", async () => {
     }
   }
   throw new Error(`API indisponivel: ${errors.join(" | ")}`);
+});
+
+await runStep("canonical-watchdog", "Nao-saudacao exige descending + watchdog", async () => {
+  if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
+  const prompt = "Explique em duas frases o objetivo deste healthcheck tecnico.";
+  const response = await withTimeout(
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        message: prompt,
+        history: [],
+        stream: false,
+      }),
+    }),
+    effectiveChatTimeoutMs,
+    "canonical watchdog timeout",
+  );
+
+  const pipeline = normalizeString(response.headers.get("x-knexai-pipeline")).toLowerCase();
+  const watchdog = normalizeString(response.headers.get("x-knexai-watchdog")).toLowerCase();
+  const generationLlmUsed = normalizeString(response.headers.get("x-knexai-generation-llm-used"));
+  const body = await readResponseBody(response);
+
+  if (!response.ok) {
+    throw new Error(body?.replyText || body?.rawBody || `falha no watchdog (HTTP ${response.status})`);
+  }
+  if (pipeline !== "descending") {
+    throw new Error(`watchdog falhou: pipeline esperado=descending, obtido=${pipeline || "vazio"}`);
+  }
+  if (watchdog !== "canonical-descending-enforced") {
+    throw new Error(
+      `watchdog falhou: cabecalho x-knexai-watchdog esperado=canonical-descending-enforced, obtido=${watchdog || "vazio"}`,
+    );
+  }
+  if (generationLlmUsed !== "1") {
+    throw new Error(`watchdog falhou: x-knexai-generation-llm-used esperado=1, obtido=${generationLlmUsed || "vazio"}`);
+  }
+  if (!body.replyText) {
+    throw new Error("watchdog respondeu vazio");
+  }
+
+  return {
+    message: "watchdog canonicamente aplicado",
+    pipeline,
+    watchdog,
+    generationLlmUsed,
+    replyPreview: body.replyText.slice(0, 140),
+  };
+});
+
+await runStep("pt-no-echo", "Prompt em PT nao pode vazar eco em ingles", async () => {
+  if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
+  const prompt =
+    "Sem repetir meu enunciado, responda em portugues em duas frases qual e o conflito entre liberdade e bem-estar agregado.";
+  const response = await withTimeout(
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        message: prompt,
+        history: [],
+        stream: false,
+      }),
+    }),
+    effectiveChatTimeoutMs,
+    "pt-no-echo timeout",
+  );
+
+  const body = await readResponseBody(response);
+  if (!response.ok) {
+    throw new Error(body?.replyText || body?.rawBody || `falha no teste PT anti-echo (HTTP ${response.status})`);
+  }
+  if (!body.replyText) {
+    throw new Error("resposta vazia no teste PT anti-echo");
+  }
+
+  const surface = detectSurfaceLanguage(body.replyText);
+  if (surface === "en") {
+    throw new Error("resposta retornou em ingles para prompt em portugues");
+  }
+  if (isPromptEcho(body.replyText, prompt)) {
+    throw new Error("resposta ecoou/parafraseou o enunciado em vez de responder");
+  }
+  if (hasMixedLanguageLeak(body.replyText)) {
+    throw new Error("resposta apresentou vazamento de idiomas mistos (pt/en) no mesmo bloco");
+  }
+  if (hasLogicalSurfaceLabelLeak(body.replyText)) {
+    throw new Error("resposta vazou rotulo interno de leitura/sintese logico-pratica");
+  }
+
+  return {
+    message: "resposta em PT sem eco validada",
+    surface,
+    replyPreview: body.replyText.slice(0, 140),
+  };
+});
+
+await runStep("en-no-mixed", "Prompt em EN nao pode retornar saida mista PT/EN", async () => {
+  if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
+  const prompt =
+    "Without repeating my prompt, explain in two concise sentences why three normative principles can conflict in hard cases.";
+  const response = await withTimeout(
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        message: prompt,
+        history: [],
+        stream: false,
+      }),
+    }),
+    effectiveChatTimeoutMs,
+    "en-no-mixed timeout",
+  );
+
+  const body = await readResponseBody(response);
+  if (!response.ok) {
+    throw new Error(body?.replyText || body?.rawBody || `falha no teste EN mixed-leak (HTTP ${response.status})`);
+  }
+  if (!body.replyText) {
+    throw new Error("resposta vazia no teste EN mixed-leak");
+  }
+
+  if (hasMixedLanguageLeak(body.replyText)) {
+    throw new Error("resposta em ingles apresentou vazamento de idioma misto");
+  }
+  if (hasLogicalSurfaceLabelLeak(body.replyText)) {
+    throw new Error("resposta em ingles vazou rotulo interno de leitura/sintese logico-pratica");
+  }
+
+  return {
+    message: "resposta em EN sem mistura PT/EN validada",
+    surface: detectSurfaceLanguage(body.replyText),
+    replyPreview: body.replyText.slice(0, 140),
+  };
+});
+
+await runStep("identity-no-transcript-tail", "Pergunta curta de identidade nao pode vazar transcricao antiga", async () => {
+  if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
+  const history = [
+    { role: "user", content: "obrigado" },
+    {
+      role: "assistant",
+      content:
+        "Considere um sistema social idealizado com tres principios normativos obrigatorios e analise o conflito formalmente.",
+    },
+  ];
+  const prompt = "pode me dizer seu nome?";
+  const response = await withTimeout(
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        message: prompt,
+        history,
+        stream: false,
+      }),
+    }),
+    effectiveChatTimeoutMs,
+    "identity-no-transcript-tail timeout",
+  );
+
+  const body = await readResponseBody(response);
+  if (!response.ok) {
+    throw new Error(body?.replyText || body?.rawBody || `falha no teste identity-tail (HTTP ${response.status})`);
+  }
+  if (!body.replyText) throw new Error("resposta vazia no teste identity-tail");
+  if (/\b(usuario|user|assistant|assistente)\s*:/i.test(body.replyText)) {
+    throw new Error("resposta vazou transcricao de papeis (usuario:/assistant:)");
+  }
+  if (isPromptEcho(body.replyText, history[1].content)) {
+    throw new Error("resposta curta de identidade ecoou historico longo anterior");
+  }
+
+  return {
+    message: "resposta curta de identidade sem vazamento de transcricao",
+    replyPreview: body.replyText.slice(0, 140),
+  };
+});
+
+await runStep("identity-name-variant", "Pergunta mista curta de identidade nao pode abrir resposta longa/eco", async () => {
+  if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
+  const history = [
+    { role: "user", content: "obrigado" },
+    {
+      role: "assistant",
+      content:
+        "Agora, considere um sistema social idealizado com tres principios normativos obrigatorios: (1) nenhuma decisao coletiva pode reduzir a liberdade basica de um individuo inocente; (2) toda decisao coletiva deve maximizar o bem-estar agregado; (3) toda decisao coletiva deve ser justificavel por uma regra universal que possa ser aplicada sem excecao. Faca analise formal completa em etapas.",
+    },
+  ];
+  const prompt = "o que esta acontecendo? pode me dizer seu nome?";
+  const response = await withTimeout(
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        message: prompt,
+        history,
+        stream: false,
+      }),
+    }),
+    effectiveChatTimeoutMs,
+    "identity-name-variant timeout",
+  );
+
+  const body = await readResponseBody(response);
+  if (!response.ok) {
+    throw new Error(body?.replyText || body?.rawBody || `falha no teste identity-name-variant (HTTP ${response.status})`);
+  }
+  if (!body.replyText) throw new Error("resposta vazia no teste identity-name-variant");
+
+  const normalized = body.replyText.toLowerCase();
+  if (/\b(usuario|user|assistant|assistente)\s*:/i.test(body.replyText)) {
+    throw new Error("resposta vazou transcricao de papeis (usuario:/assistant:)");
+  }
+  if (
+    /considere um sistema social idealizado|let me clarify|without initially referring|do the following/.test(normalized)
+  ) {
+    throw new Error("resposta curta de identidade reabriu o enunciado longo anterior");
+  }
+  if (hasLogicalSurfaceLabelLeak(body.replyText)) {
+    throw new Error("resposta curta de identidade vazou rotulo interno de leitura/sintese logico-pratica");
+  }
+  if (body.replyText.length > 420) {
+    throw new Error("resposta curta de identidade ficou longa demais para consulta simples de nome");
+  }
+
+  return {
+    message: "variante de identidade validada sem eco/reabertura",
+    replyPreview: body.replyText.slice(0, 140),
+  };
 });
 
 await runStep("ingest", "Ingestao de documento de teste", async () => {
@@ -321,13 +687,13 @@ await runStep("document", "Documento indexado e consultavel", async () => {
   );
 });
 
-await runStep("chat", "Chat recupera token do documento", async () => {
+await runStep("chat", "Chat em escopo documental mantem watchdog", async () => {
   if (!runtime.apiBaseUrl || !runtime.documentId || !runtime.validationToken) {
     throw new Error("estado incompleto para teste de chat");
   }
   const prompt = `Com base somente no documento anexado, responda apenas com o token de validacao exato.`;
   const response = await withTimeout(
-    fetch(`${runtime.apiBaseUrl}/api/knexai`, {
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -346,23 +712,38 @@ await runStep("chat", "Chat recupera token do documento", async () => {
     effectiveChatTimeoutMs,
     "chat timeout",
   );
-  const payload = await response.json().catch(() => null);
-  if (!response.ok || !payload?.ok) {
-    throw new Error(payload?.message || `falha no chat (HTTP ${response.status})`);
+  const body = await readResponseBody(response);
+  if (!response.ok) {
+    throw new Error(body?.replyText || body?.rawBody || `falha no chat (HTTP ${response.status})`);
   }
-  const rawReply = `${payload?.reply?.content || ""}`.trim();
+  const rawReply = body.replyText;
   if (!rawReply) throw new Error("chat retornou resposta vazia");
+
+  const pipeline = normalizeString(response.headers.get("x-knexai-pipeline")).toLowerCase();
+  const watchdog = normalizeString(response.headers.get("x-knexai-watchdog")).toLowerCase();
+  if (pipeline && pipeline !== "descending") {
+    throw new Error(`chat em rota incorreta: esperado descending, obtido ${pipeline}`);
+  }
+  if (watchdog && watchdog !== "canonical-descending-enforced") {
+    throw new Error(`chat sem watchdog canonico: obtido ${watchdog}`);
+  }
 
   const normalizedReply = rawReply.toLowerCase();
   const normalizedToken = runtime.validationToken.toLowerCase();
   const tokenMatched = normalizedReply.includes(normalizedToken);
-  if (!tokenMatched) {
-    throw new Error(`chat nao recuperou token esperado (${runtime.validationToken}). resposta: ${rawReply}`);
+
+  if (rawReply.length < 12) {
+    throw new Error("chat retornou conteudo insuficiente para validacao de escopo documental");
   }
+
   return {
-    message: "token recuperado com sucesso",
+    message: tokenMatched
+      ? "token recuperado com sucesso"
+      : "token nao identificado literalmente, mas watchdog e resposta documental ativos",
     replyPreview: rawReply.slice(0, 200),
     tokenMatched,
+    pipeline: pipeline || null,
+    watchdog: watchdog || null,
   };
 });
 
