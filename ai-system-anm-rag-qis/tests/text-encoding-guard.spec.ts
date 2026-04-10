@@ -27,5 +27,20 @@ describe("ensureUtf8Response", () => {
     expect(output).toContain("Fora do codigo: Let\u00EDcia \u00E9 um nome.");
     expect(output).toContain("const sample = 'leticia e um nome';");
   });
-});
 
+  it("corrige mojibake com replacement char em texto corrido apresentado ao usuario", () => {
+    const input =
+      "Intelig\uFFFDncia \u00E9 a capacidade de aprender. A intelig\uFFFDncia artificial reconhece padr\uFFFDes, faz infer\uFFFDncias e usa mem\uFFFDria, percep\uFFFD\uFFFDo e racioc\uFFFDnio l\uFFFDgico. J\uFFFD a intelig\uFFFDncia animal refere-se \uFFFDs habilidades de adapta\uFFFD\uFFFDo.";
+    const output = ensureUtf8Response(input).text;
+
+    expect(output).toContain("Inteligência é a capacidade de aprender.");
+    expect(output).toContain("padrões");
+    expect(output).toContain("inferências");
+    expect(output).toContain("memória");
+    expect(output).toContain("percepção");
+    expect(output).toContain("raciocínio lógico");
+    expect(output).toContain("Já");
+    expect(output).toContain("às habilidades de adaptação");
+    expect(output).not.toContain("\uFFFD");
+  });
+});

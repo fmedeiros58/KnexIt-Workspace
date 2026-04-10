@@ -6,6 +6,7 @@
  */
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const ROOT = process.cwd();
@@ -44,8 +45,9 @@ const tsxBin = path.resolve(
   ROOT,
   process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx",
 );
+const testGlobalsSetup = pathToFileURL(path.resolve(ROOT, "scripts/test-globals.mjs")).href;
 
-const result = spawnSync(tsxBin, ["--test", ...testFiles], {
+const result = spawnSync(tsxBin, ["--import", testGlobalsSetup, "--test", ...testFiles], {
   stdio: "inherit",
   cwd: ROOT,
   shell: process.platform === "win32",

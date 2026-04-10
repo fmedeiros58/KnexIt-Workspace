@@ -14,6 +14,7 @@ export function restDelivery(input: RestDeliveryInput): DeliveryBuildResult {
     payload: {
       mode: "rest",
       format: input.serialized.format,
+      text: input.serialized.text,
       body: input.serialized.text,
       serializedPayload: input.serialized.payload,
       citations: input.citations,

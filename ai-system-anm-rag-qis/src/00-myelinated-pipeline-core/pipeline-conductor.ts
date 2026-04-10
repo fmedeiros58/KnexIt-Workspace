@@ -42,7 +42,7 @@ export async function runPipelineConductor(input: PipelineBootstrapInput): Promi
     state.executionPlan.selectedRoute = initialRoute;
     applyPipelineDecisionGuard(state, "pre_branch");
     const guardedRoute = state.executionPlan.selectedRoute;
-    state.executionPlan.maxDepth = regulatePipelineDepth(guardedRoute);
+    state.executionPlan.maxDepth = regulatePipelineDepth(guardedRoute, state);
 
     applyLatencyBudget(state);
     appendPipelineTrace(state, "route_selected", "orchestration", 0, guardedRoute);

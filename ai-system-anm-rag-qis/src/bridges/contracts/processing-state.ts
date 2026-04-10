@@ -1,3 +1,17 @@
+/**
+ * ANM ARCHITECTURAL SPEC
+ * Layer: bridges/contracts
+ * Module: processing-state
+ * Responsibility: Define the canonical pipeline state shared across the descending ANM architecture.
+ * Primary Inputs: Normalized user input, layer handoffs, adaptive orchestration decisions.
+ * Primary Outputs: ProcessingState and createInitialProcessingState.
+ * Upstream Dependencies: shared types, layer-local typed artifacts, adaptive contract types.
+ * Downstream Dependencies: Entire descending pipeline.
+ * Invariants: ProcessingState remains the single shared state root; adaptive orchestration augments but does not replace it.
+ * Failure Modes: Missing adaptive data must fall back to safe empty objects instead of breaking execution.
+ * Audit Events: state_initialized, adaptive_contract_attached, orchestrator_audit_recorded
+ * Notes: New adaptive orchestration fields are attached here to avoid hidden side channels in userProfile or executionArtifacts.
+ */
 import type { DeliveryChannel, DeliveryFormat } from "../../shared/enums/delivery-enums";
 import type { EpistemicStatus } from "../../shared/enums/epistemic-status-enums";
 import type { InteractionMode } from "../../shared/enums/mode-enums";
@@ -22,6 +36,14 @@ import type { PhilosophicalSelfModelingOutput } from "../../12-metacognitive-lay
 import type { ObjectiveRationalityEvaluation } from "../../10-reflective-layer/reflective-core/objective-rationality-core/objective-rationality-types";
 import type { GroundedEvidencePacket } from "../../07-knowledge-retrieval-and-research-layer/grounding/grounded-evidence-packet";
 import type { DominantPrinciple, LogicalAudit, LogicalFrame } from "../../cognition/logical-discernment/logical-discernment-types";
+import type {
+  DeliberativeTaskState,
+  GeneralTaskDeliberationState,
+} from "../../05b-deliberative-task-contract-layer/deliberative-task-contract-types";
+import type { AdaptivePipelineContract } from "./adaptive-pipeline-contract";
+import type { MotorRoutingAnalysis } from "./motor-routing-analysis";
+import type { ProfileSelectionResult } from "./profile-selection-result";
+import type { OrchestratorAuditRecord } from "./orchestrator-audit-record";
 
 export interface InputSignals {
   intent: string;
@@ -149,6 +171,7 @@ export interface DeliveryPayload {
   format: DeliveryFormat;
   text: string;
   citations: string[];
+  payload?: Record<string, unknown>;
 }
 
 export interface PreRouteSignals {
@@ -192,6 +215,14 @@ export interface KnowledgeExecutionCacheEntry {
 }
 
 export interface ExecutionArtifacts {
+  inputSanitization?: {
+    rawLength: number;
+    normalizedLength: number;
+    mojibakeRepaired: boolean;
+    transcriptExtracted: boolean;
+    whitespaceCollapsed: boolean;
+    strippedEmptyFallbackUsed: boolean;
+  };
   activeFamilies?: string[];
   generationRuntime?: {
     provider: string;
@@ -208,6 +239,29 @@ export interface ExecutionArtifacts {
     normalizationSteps: string[];
     validation: unknown;
   };
+  conversation?: {
+    operatorMode: string;
+    localContinuity: number;
+    localTopicShift: boolean;
+    carryoverAllowed: boolean;
+    candidateTopic: string;
+    reasons: string[];
+  };
+  context?: {
+    operatorMode: string;
+    prunedContextCount: number;
+    primaryFocus: string;
+    sessionOperatingMode: string;
+    sessionOperatingModeChanged: boolean;
+  };
+  memory?: {
+    operatorMode: string;
+    pressureScore: number;
+    pressureBand: string;
+    readIntensity: string;
+    shouldWrite: boolean;
+    selectedTopK: number;
+  };
   orchestration?: {
     selectedMode: string;
     planningRoute: string;
@@ -223,6 +277,13 @@ export interface ExecutionArtifacts {
     fallbackStrategy: string;
     steps: string[];
     activeFamilies?: string[];
+    motorRoutingUsed?: boolean;
+    motorRoutingCacheHit?: boolean;
+    motorRoutingFallbackUsed?: boolean;
+    recommendedProfiles?: string[];
+    resolvedLayerModes?: Record<string, string>;
+    adaptiveContractVersion?: string;
+    budgetClass?: string;
   };
   decisionGuard?: {
     enforced: boolean;
@@ -239,9 +300,13 @@ export interface ExecutionArtifacts {
     familyId?: string;
     lowSignal: boolean;
     score: number;
+    mode?: string;
+    depth?: string;
     assumptionsCount: number;
     caveatsCount: number;
     tensionsCount: number;
+    critiqueCount?: number;
+    alternativeCount?: number;
     communicativeTensionCount?: number;
     philosophicalQuestionCount?: number;
     objectiveRationality?: ObjectiveRationalityEvaluation;
@@ -251,9 +316,12 @@ export interface ExecutionArtifacts {
     familyId?: string;
     lowSignal: boolean;
     score: number;
+    mode?: string;
+    depth?: string;
     implicationsCount: number;
     scenariosCount: number;
     secondOrderCount: number;
+    expandedHypothesisCount?: number;
     communicativeHypothesisCount?: number;
     ontologicalHooksCount?: number;
   };
@@ -262,6 +330,9 @@ export interface ExecutionArtifacts {
     lastQuerySignature: string;
     lastUsedCache: boolean;
     activatedFamilies?: string[];
+    retrievalIntensity?: string;
+    localRetrievalNeeded?: boolean;
+    contradictionSignals?: string[];
     deliberativeGrounding?: GroundedEvidencePacket;
     iterativeAcquisition?: {
       requestId: string;
@@ -301,6 +372,9 @@ export interface ExecutionArtifacts {
     uncertaintySignals: string[];
     confidence: number;
     boundaryFlags: string[];
+    evidenceConfidence?: number;
+    claimSupportCount?: number;
+    consolidatedConflictCount?: number;
     iterativeAcquisitionRounds?: number;
     iterativeSufficiency?: number | null;
   };
@@ -346,6 +420,20 @@ export interface ExecutionArtifacts {
     responseLayoutNotes?: string[];
     textualAuditScore?: number;
     textualAuditIssues?: string[];
+    longFormActive?: boolean;
+    longFormPendingObligations?: number;
+    longFormCompletedObligations?: number;
+    longFormParagraphHistory?: number;
+    longFormUsesWorkingMemory?: boolean;
+    responseCompletionShouldContinue?: boolean;
+    responseCompletionScore?: number;
+    responseCompletionPendingCritical?: number;
+    responseCompletionPendingParagraphs?: number;
+    responseCompletionCanSafelyTerminate?: boolean;
+    responseCompletionContinuationApplied?: boolean;
+    responseCompletionTerminationBlockReasons?: string[];
+    antiFragmentationGateTriggered?: boolean;
+    antiMonoblockGateTriggered?: boolean;
     citationStyle?: string;
     referenceListStyle?: string;
     presentationWatchdogTriggered?: boolean;
@@ -373,6 +461,25 @@ export interface ExecutionArtifacts {
     fallbackStrategies: Record<string, number>;
     errorCategories: Record<string, number>;
     activeFamilies?: string[];
+    traceSnapshot?: {
+      traceTail: ProcessingTraceEvent[];
+      orchestratorAuditTail: OrchestratorAuditRecord[];
+    };
+    profileSelectionAudit?: {
+      primaryProfileId: string;
+      selectedProfileIds: string[];
+      weights: Record<string, number>;
+      dominantSignals: string[];
+    } | null;
+    motorRoutingAudit?: {
+      source: string;
+      primaryIntent: string;
+      complexityBand: string;
+      fallbackUsed: boolean;
+      cacheHit: boolean;
+      errors: string[];
+    } | null;
+    layerActivationAudit?: Record<string, string> | null;
   };
   behavior?: {
     targetWarmth: number;
@@ -462,6 +569,55 @@ export interface ExecutionArtifacts {
     issueCount: number;
     repaired: boolean;
   };
+  deliberativeTaskContract?: {
+    active: boolean;
+    argumentativeDepthScore: number;
+    obligations: number;
+    taskArchetypes?: string[];
+    cognitiveDemands?: string[];
+    reasoningIntensity?: number;
+    structuralComplexity?: number;
+    requiresFormalization: boolean;
+    requiresCounterObjection: boolean;
+    requiresAssumptionAudit: boolean;
+    responseArchitecture: string;
+    minCoverageThreshold: number;
+  };
+  deliberativeCoverageGate?: {
+    gateLevel: "pass" | "soft_fail" | "hard_fail";
+    expected: number;
+    satisfied: number;
+    missing: string[];
+    weaklySatisfied: string[];
+    blockingIssues: string[];
+    repairAttempts: number;
+  };
+  taskExecutionState?: {
+    detectedObligations: string[];
+    obligationSatisfactionScores: Array<{
+      obligationId: string;
+      score: number;
+      passed: boolean;
+      issues: string[];
+    }>;
+    promptConstraints: string[];
+    premiseLedger: string[];
+    noveltyMetrics: {
+      inputOverlapScore: number;
+      noveltyScore: number;
+      restatementRisk: number;
+    };
+    integrityChecks: {
+      isTruncated: boolean;
+      hasAbruptEnding: boolean;
+      missingSections: string[];
+      issues: string[];
+    };
+    finalExecutionGate: {
+      shouldBlock: boolean;
+      blockReasons: string[];
+    };
+  };
   founderInfluence?: {
     founderName: string;
     founderRole: string;
@@ -493,6 +649,42 @@ export interface ObservabilityMetrics {
   fallbackStrategies: Record<string, number>;
   errorCategories: Record<string, number>;
   familyMetrics: Record<string, number>;
+}
+
+export interface LongFormDiscourseState {
+  isActive: boolean;
+  globalThesis: string;
+  currentArgumentThread: string;
+  completedObligations: string[];
+  pendingObligations: string[];
+  establishedDefinitions: string[];
+  paragraphPlan: Array<{
+    id: string;
+    focus: string;
+    targetSentences: number;
+    status: "pending" | "in_progress" | "completed";
+  }>;
+  paragraphHistory: string[];
+  transitionPlan: string[];
+  antiRepetitionLedger: string[];
+  cohesionNotes: string[];
+  densityProfile: "compact" | "balanced" | "dense" | "deep";
+  rhetoricalShape: string;
+  usesWorkingMemory: boolean;
+  memoryAnchors: string[];
+}
+
+export interface ResponseCompletionState {
+  shouldContinue: boolean;
+  completionScore: number;
+  pendingCriticalObligations: string[];
+  pendingParagraphs: string[];
+  hasOpenSection: boolean;
+  hasClosedConclusion: boolean;
+  canSafelyTerminate: boolean;
+  terminationBlockReasons: string[];
+  continuationApplied: boolean;
+  continuationIterations: number;
 }
 
 export interface ProcessingState {
@@ -552,6 +744,14 @@ export interface ProcessingState {
   dominantPrinciple: DominantPrinciple;
   recommendedPracticalAction: string | null;
   practicalReasoningFlags: string[];
+  deliberativeTaskState: DeliberativeTaskState;
+  generalTaskDeliberationState: GeneralTaskDeliberationState;
+  motorRoutingAnalysis: MotorRoutingAnalysis | null;
+  profileSelectionResult: ProfileSelectionResult | null;
+  adaptivePipelineContract: AdaptivePipelineContract | null;
+  orchestratorAuditTrail: OrchestratorAuditRecord[];
+  longFormDiscourseState: LongFormDiscourseState;
+  responseCompletionState: ResponseCompletionState;
   trace: ProcessingTraceEvent[];
   timings: Record<string, number>;
   confidenceScores: ConfidenceScores;
@@ -559,9 +759,157 @@ export interface ProcessingState {
   observabilityMetrics: ObservabilityMetrics;
 }
 
+type ReplacementRule = readonly [RegExp, string];
+
+const UTF8_MOJIBAKE_RULES: readonly ReplacementRule[] = [
+  [/Ã¡/g, "á"],
+  [/Ã /g, "à"],
+  [/Ã¢/g, "â"],
+  [/Ã£/g, "ã"],
+  [/Ã¤/g, "ä"],
+  [/Ã©/g, "é"],
+  [/Ã¨/g, "è"],
+  [/Ãª/g, "ê"],
+  [/Ã«/g, "ë"],
+  [/Ã­/g, "í"],
+  [/Ã¬/g, "ì"],
+  [/Ã®/g, "î"],
+  [/Ã¯/g, "ï"],
+  [/Ã³/g, "ó"],
+  [/Ã²/g, "ò"],
+  [/Ã´/g, "ô"],
+  [/Ãµ/g, "õ"],
+  [/Ã¶/g, "ö"],
+  [/Ãº/g, "ú"],
+  [/Ã¹/g, "ù"],
+  [/Ã»/g, "û"],
+  [/Ã¼/g, "ü"],
+  [/Ã§/g, "ç"],
+  [/Ã\u0081/g, "Á"],
+  [/Ã\u0080/g, "À"],
+  [/Ã\u0082/g, "Â"],
+  [/Ã\u0083/g, "Ã"],
+  [/Ã\u0089/g, "É"],
+  [/Ã\u008A/g, "Ê"],
+  [/Ã\u008D/g, "Í"],
+  [/Ã\u0093/g, "Ó"],
+  [/Ã\u0094/g, "Ô"],
+  [/Ã\u0095/g, "Õ"],
+  [/Ã\u009A/g, "Ú"],
+  [/Ã\u0087/g, "Ç"],
+];
+
+const OBSERVED_PORTUGUESE_FALLBACK_RULES: readonly ReplacementRule[] = [
+  [/intelig[\uFFFD]ncia/gi, "inteligencia"],
+  [/informa[\uFFFD]{1,2}es/gi, "informacoes"],
+  [/fa[\uFFFD]a/gi, "faca"],
+  [/d[\uFFFD]vida/gi, "duvida"],
+  [/n[\uFFFD]o/gi, "nao"],
+  [/o que [\uFFFD]/gi, "o que e"],
+  [/let[\uFFFD]cia/gi, "Leticia"],
+  [/usu[\uFFFD]rio/gi, "Usuario"],
+];
+
+function applyReplacementRules(value: string, rules: readonly ReplacementRule[]): string {
+  let current = value;
+  for (const [pattern, replacement] of rules) {
+    current = current.replace(pattern, replacement);
+  }
+  return current;
+}
+
+function repairCommonMojibake(value: string): { text: string; changed: boolean } {
+  const repairedUtf8 = applyReplacementRules(value, UTF8_MOJIBAKE_RULES);
+  const repairedObserved = applyReplacementRules(repairedUtf8, OBSERVED_PORTUGUESE_FALLBACK_RULES);
+  const strippedReplacementChars = repairedObserved.replace(/\uFFFD+/g, "");
+  return {
+    text: strippedReplacementChars,
+    changed: strippedReplacementChars !== value,
+  };
+}
+
+function collapseWhitespace(value: string): { text: string; changed: boolean } {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  return {
+    text: collapsed,
+    changed: collapsed !== value,
+  };
+}
+
+function extractLastUserTurnFromTranscript(value: string): { text: string; changed: boolean } {
+  const labelPattern =
+    /(Usu[aá]rio|Usuario|Let[ií]cia|Leticia|Let[\uFFFD]cia|Assistente|Assistant)\s*:/gi;
+
+  const matches = Array.from(value.matchAll(labelPattern));
+  if (matches.length === 0) {
+    return { text: value, changed: false };
+  }
+
+  let lastUserSegment = "";
+  let lastMeaningfulSegment = "";
+
+  for (let index = 0; index < matches.length; index += 1) {
+    const current = matches[index];
+    const next = matches[index + 1];
+    const segmentStart = (current.index ?? 0) + current[0].length;
+    const segmentEnd = next?.index ?? value.length;
+    const segment = value
+      .slice(segmentStart, segmentEnd)
+      .trim()
+      .replace(/^["'“”]+|["'“”]+$/g, "");
+
+    if (!segment) {
+      continue;
+    }
+
+    lastMeaningfulSegment = segment;
+
+    const label = current[1].toLowerCase();
+    if (label.includes("usu")) {
+      lastUserSegment = segment;
+    }
+  }
+
+  const extracted = (lastUserSegment || lastMeaningfulSegment || value).trim();
+  return {
+    text: extracted,
+    changed: extracted !== value,
+  };
+}
+
+function sanitizeInitialMessage(rawMessage: string): {
+  normalizedMessage: string;
+  audit: ExecutionArtifacts["inputSanitization"];
+} {
+  const rawTrimmed = rawMessage.trim();
+
+  const mojibakeRepair = repairCommonMojibake(rawTrimmed);
+  const transcriptExtraction = extractLastUserTurnFromTranscript(mojibakeRepair.text);
+  const whitespaceCollapse = collapseWhitespace(transcriptExtraction.text);
+
+  const normalizedCandidate = whitespaceCollapse.text.trim();
+  const fallbackUsed = !normalizedCandidate && rawTrimmed.length > 0;
+
+  const fallbackCollapsed = fallbackUsed ? collapseWhitespace(rawTrimmed).text : rawTrimmed;
+  const normalizedMessage = fallbackUsed ? fallbackCollapsed.trim() : normalizedCandidate;
+
+  return {
+    normalizedMessage,
+    audit: {
+      rawLength: rawTrimmed.length,
+      normalizedLength: normalizedMessage.length,
+      mojibakeRepaired: mojibakeRepair.changed,
+      transcriptExtracted: transcriptExtraction.changed,
+      whitespaceCollapsed: whitespaceCollapse.changed,
+      strippedEmptyFallbackUsed: fallbackUsed,
+    },
+  };
+}
+
 export function createInitialProcessingState(rawMessage: string): ProcessingState {
   const now = new Date().toISOString();
-  const normalizedMessage = rawMessage.trim();
+  const { normalizedMessage, audit } = sanitizeInitialMessage(rawMessage);
+
   return {
     rawMessage,
     normalizedMessage,
@@ -872,6 +1220,7 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       format: "plain-text",
       text: "",
       citations: [],
+      payload: {},
     },
     logicalFrame: null,
     logicalAudit: null,
@@ -879,6 +1228,133 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
     dominantPrinciple: "unknown",
     recommendedPracticalAction: null,
     practicalReasoningFlags: [],
+    deliberativeTaskState: {
+      isActive: false,
+      taskArchetypes: [],
+      cognitiveDemands: [],
+      reasoningIntensity: 0,
+      structuralComplexity: 0,
+      answerFormatNeeds: [],
+      argumentativeDepthScore: 0,
+      requiresFormalization: false,
+      requiresCoverageAudit: false,
+      obligationGraph: [],
+      reasoningContract: null,
+      proofSkeleton: null,
+      solutionModels: [],
+      assumptionLedger: [],
+      coverageReport: {
+        expected: 0,
+        satisfied: 0,
+        missing: [],
+        weaklySatisfied: [],
+        needsRevision: false,
+      },
+      taskExecutionState: {
+        detectedObligations: [],
+        obligationExecutionPlan: [],
+        obligationSatisfactionScores: [],
+        promptConstraints: [],
+        premiseLedger: [],
+        noveltyMetrics: {
+          inputOverlapScore: 0,
+          noveltyScore: 1,
+          restatementRisk: 0,
+        },
+        demonstrationChecks: [],
+        integrityChecks: {
+          isTruncated: false,
+          hasAbruptEnding: false,
+          missingSections: [],
+          issues: [],
+        },
+        finalExecutionGate: {
+          shouldBlock: false,
+          blockReasons: [],
+        },
+      },
+      strongestSelfObjection: null,
+    },
+    generalTaskDeliberationState: {
+      isActive: false,
+      taskArchetypes: [],
+      cognitiveDemands: [],
+      reasoningIntensity: 0,
+      structuralComplexity: 0,
+      answerFormatNeeds: [],
+      argumentativeDepthScore: 0,
+      requiresFormalization: false,
+      requiresCoverageAudit: false,
+      obligationGraph: [],
+      reasoningContract: null,
+      proofSkeleton: null,
+      solutionModels: [],
+      assumptionLedger: [],
+      coverageReport: {
+        expected: 0,
+        satisfied: 0,
+        missing: [],
+        weaklySatisfied: [],
+        needsRevision: false,
+      },
+      taskExecutionState: {
+        detectedObligations: [],
+        obligationExecutionPlan: [],
+        obligationSatisfactionScores: [],
+        promptConstraints: [],
+        premiseLedger: [],
+        noveltyMetrics: {
+          inputOverlapScore: 0,
+          noveltyScore: 1,
+          restatementRisk: 0,
+        },
+        demonstrationChecks: [],
+        integrityChecks: {
+          isTruncated: false,
+          hasAbruptEnding: false,
+          missingSections: [],
+          issues: [],
+        },
+        finalExecutionGate: {
+          shouldBlock: false,
+          blockReasons: [],
+        },
+      },
+      strongestSelfObjection: null,
+    },
+    motorRoutingAnalysis: null,
+    profileSelectionResult: null,
+    adaptivePipelineContract: null,
+    orchestratorAuditTrail: [],
+    longFormDiscourseState: {
+      isActive: false,
+      globalThesis: "",
+      currentArgumentThread: "",
+      completedObligations: [],
+      pendingObligations: [],
+      establishedDefinitions: [],
+      paragraphPlan: [],
+      paragraphHistory: [],
+      transitionPlan: [],
+      antiRepetitionLedger: [],
+      cohesionNotes: [],
+      densityProfile: "balanced",
+      rhetoricalShape: "single_compact_paragraph",
+      usesWorkingMemory: false,
+      memoryAnchors: [],
+    },
+    responseCompletionState: {
+      shouldContinue: false,
+      completionScore: 1,
+      pendingCriticalObligations: [],
+      pendingParagraphs: [],
+      hasOpenSection: false,
+      hasClosedConclusion: true,
+      canSafelyTerminate: true,
+      terminationBlockReasons: [],
+      continuationApplied: false,
+      continuationIterations: 0,
+    },
     trace: [
       {
         layer: "input",
@@ -898,6 +1374,7 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       final: 0,
     },
     executionArtifacts: {
+      inputSanitization: audit,
       activeFamilies: [],
       knowledge: {
         cache: {},
@@ -915,4 +1392,3 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
     },
   };
 }
-

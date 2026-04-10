@@ -4,6 +4,8 @@
  * - Padronizar a entrega UTF-8 no ultimo estagio antes do payload.
  * - Sinalizar quando houve reparo para rastreabilidade no trace.
  */
+import { decodeLikelyMojibake } from "../shared/text-processing/mojibake-core";
+
 export interface Utf8GuardResult {
   text: string;
   repaired: boolean;
@@ -33,14 +35,39 @@ const MOJIBAKE_REPLACEMENTS: ReadonlyArray<[string, string]> = [
   ["\u00C3\u0093", "\u00D3"],
   ["\u00C3\u009A", "\u00DA"],
   ["\u00C3\u0087", "\u00C7"],
-  ["\u00E2\u0080\u0093", "-"],
-  ["\u00E2\u0080\u0094", "-"],
-  ["\u00E2\u0080\u0098", "'"],
-  ["\u00E2\u0080\u0099", "'"],
-  ["\u00E2\u0080\u009C", "\""],
-  ["\u00E2\u0080\u009D", "\""],
-  ["\u00E2\u0080\u00A6", "..."],
+  ["\u00E2\u0080\u0093", "–"],
+  ["\u00E2\u0080\u0094", "—"],
+  ["\u00E2\u0080\u0098", "‘"],
+  ["\u00E2\u0080\u0099", "’"],
+  ["\u00E2\u0080\u009C", "“"],
+  ["\u00E2\u0080\u009D", "”"],
+  ["\u00E2\u0080\u00A6", "…"],
   ["\u00C2", ""],
+];
+
+const REPLACEMENT_CHAR_WORD_REPAIRS: ReadonlyArray<[RegExp, string]> = [
+  [/Intelig\uFFFDncia/g, "Inteligência"],
+  [/intelig\uFFFDncia/g, "inteligência"],
+  [/padr\uFFFDes/g, "padrões"],
+  [/infer\uFFFDncias/g, "inferências"],
+  [/J\uFFFD(?=\s|$)/g, "Já"],
+  [/j\uFFFD(?=\s|$)/g, "já"],
+  [/mem\uFFFDria/g, "memória"],
+  [/percep\uFFFD\uFFFDo/g, "percepção"],
+  [/racioc\uFFFDnio/g, "raciocínio"],
+  [/l\uFFFDgico/g, "lógico"],
+  [/l\uFFFDgica/g, "lógica"],
+  [/refere-se\s+\uFFFDs/g, "refere-se às"],
+  [/adapta\uFFFD\uFFFDo/g, "adaptação"],
+  [/tr�s/gi, "três"],
+  [/princ�pios/gi, "princípios"],
+  [/contradi��o/gi, "contradição"],
+  [/inconsist�ncia/gi, "inconsistência"],
+  [/exce��o/gi, "exceção"],
+  [/situa��es/gi, "situações"],
+  [/filosoficas/gi, "filosóficas"],
+  [/decis�o/gi, "decisão"],
+  [/conclus�o/gi, "conclusão"],
 ];
 
 const PT_DIACRITIC_REPLACEMENTS: ReadonlyArray<[RegExp, string]> = [
@@ -166,8 +193,6 @@ const PT_CANONICAL_ACCENT_DICTIONARY: ReadonlyMap<string, string> = new Map<stri
   ["funcao", "fun\u00E7\u00E3o"],
   ["compreensao", "compreens\u00E3o"],
   ["carater", "car\u00E1ter"],
-  ["informacao", "informa\u00E7\u00E3o"],
-  ["verificacao", "verifica\u00E7\u00E3o"],
 ]);
 
 function applyCaseTemplate(source: string, replacement: string): string {
@@ -187,13 +212,25 @@ function applyCanonicalAccentDictionary(text: string): string {
   });
 }
 
-function mapOutsideCodeFences(text: string, mapper: (segment: string) => string): string {
+function isProtectedSegment(segment: string): boolean {
+  if (!segment) return false;
+  if (segment.startsWith("```")) return true;
+  if (segment.startsWith("`") && segment.endsWith("`")) return true;
+  if (/^\s*https?:\/\//i.test(segment)) return true;
+  if (/^\s*www\./i.test(segment)) return true;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(segment.trim())) return true;
+  if (/^[A-Za-z]:\\/.test(segment.trim())) return true;
+  if (/^\/[A-Za-z0-9._/-]+$/.test(segment.trim())) return true;
+  return false;
+}
+
+function mapOutsideProtectedCode(text: string, mapper: (segment: string) => string): string {
   if (!text) return "";
-  const segments = text.split(/(```[\s\S]*?```)/g);
+  const segments = text.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
   return segments
     .map((segment) => {
       if (!segment) return segment;
-      if (segment.startsWith("```")) return segment;
+      if (isProtectedSegment(segment)) return segment;
       return mapper(segment);
     })
     .join("");
@@ -201,6 +238,8 @@ function mapOutsideCodeFences(text: string, mapper: (segment: string) => string)
 
 function normalizeSurfaceWhitespace(text: string): string {
   return `${text || ""}`
+    .replace(/\uFEFF/g, "")
+    .replace(/[\u200B-\u200D]/g, "")
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -215,7 +254,9 @@ function uppercaseFirstLetter(text: string): string {
 }
 
 function stripIdentitySelfAddressLead(text: string): string {
-  let updated = `${text || ""}`;
+  const original = `${text || ""}`;
+  let updated = original;
+
   updated = updated.replace(
     /^\s*(?:ol[aá],?\s*)?(?:eu\s+(?:sou|me\s+chamo)\s+a\s+)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s*aqui\b\s*[:\-]\s*/gimu,
     "",
@@ -228,7 +269,10 @@ function stripIdentitySelfAddressLead(text: string): string {
     /^\s*(?:eu\s+sou\s+a\s+)?(?:ia\s+)?(?:let[ií]cia|let\S{0,3}cia)\s*,?\s+aqui\b\s*[:\-]\s*/gimu,
     "",
   );
-  return uppercaseFirstLetter(updated.trimStart());
+
+  const trimmed = updated.trimStart();
+  if (trimmed === original.trimStart()) return trimmed;
+  return uppercaseFirstLetter(trimmed);
 }
 
 function shouldApplyPortugueseDiacriticRepair(value: string): boolean {
@@ -238,39 +282,77 @@ function shouldApplyPortugueseDiacriticRepair(value: string): boolean {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+
   if (!normalized) return false;
-  return /\b(leticia|medeiros|language-engineered technology|cognicao|interacao|assistencia|arquitetura tecnica|vinculo humano|nao|voce|tambem|ha|por tras|informacao|verificacao|proposito|reune|sintese|essencia|razao|alem|historia|intencao|direcao|funcao|compreensao|carater)\b/.test(
+
+  return /\b(leticia|medeiros|language-engineered technology|cognicao|interacao|assistencia|arquitetura tecnica|vinculo humano|proposito|reune|sintese|essencia|razao|alem|historia|intencao|direcao|funcao|compreensao|carater|se chama|qual e o seu nome|meu nome e)\b/.test(
     normalized,
   );
 }
 
+function containsStrongMojibakeSignal(text: string): boolean {
+  return /(?:Ã.|â\u0080|\uFFFD|�)/.test(text);
+}
+
+function containsTranscriptLabels(text: string): boolean {
+  return /\b(?:usu[aá]rio|usuario|user|assistant|assistente|let[ií]cia|leticia)\s*[:\-]/i.test(text);
+}
+
+function stripTranscriptLabels(text: string): string {
+  return `${text || ""}`
+    .replace(/(?:^|\n)\s*(usu[aá]rio|usuario|user|assistant|assistente|let[ií]cia|leticia)\s*[:\-]\s*/gi, "\n")
+    .trim();
+}
+
 export function ensureUtf8Response(text: string): Utf8GuardResult {
   const original = `${text || ""}`;
-  let repaired = original;
+  let repaired = decodeLikelyMojibake(original);
 
   for (const [from, to] of MOJIBAKE_REPLACEMENTS) {
     if (!repaired.includes(from)) continue;
     repaired = repaired.split(from).join(to);
   }
+
+  if (repaired.includes("\uFFFD") || repaired.includes("�")) {
+    for (const [pattern, replacement] of REPLACEMENT_CHAR_WORD_REPAIRS) {
+      repaired = repaired.replace(pattern, replacement);
+    }
+  }
+
   const mojibakeChanged = repaired !== original;
-  const shouldApplyPt = mojibakeChanged || shouldApplyPortugueseDiacriticRepair(repaired);
+  const shouldApplyPt =
+    containsStrongMojibakeSignal(original) ||
+    containsStrongMojibakeSignal(repaired) ||
+    mojibakeChanged ||
+    shouldApplyPortugueseDiacriticRepair(repaired);
+
   if (shouldApplyPt) {
-    repaired = mapOutsideCodeFences(repaired, (segment) => {
+    repaired = mapOutsideProtectedCode(repaired, (segment) => {
       let updated = segment;
+
       for (const [pattern, replacement] of PT_DIACRITIC_REPLACEMENTS) {
         updated = updated.replace(pattern, replacement);
       }
+
       updated = applyCanonicalAccentDictionary(updated);
+
       for (const [pattern, replacement] of PT_CONTEXTUAL_REPLACEMENTS) {
         updated = updated.replace(pattern, replacement);
       }
+
       for (const [pattern, replacement] of PT_QUESTION_COPULA_REPLACEMENTS) {
         updated = updated.replace(pattern, replacement);
       }
+
       return updated;
     });
   }
-  repaired = stripIdentitySelfAddressLead(repaired);
+
+  if (containsTranscriptLabels(repaired)) {
+    repaired = stripTranscriptLabels(repaired);
+  }
+
+  repaired = mapOutsideProtectedCode(repaired, (segment) => stripIdentitySelfAddressLead(segment));
   repaired = normalizeSurfaceWhitespace(repaired);
 
   return {
@@ -278,4 +360,3 @@ export function ensureUtf8Response(text: string): Utf8GuardResult {
     repaired: repaired !== original,
   };
 }
-

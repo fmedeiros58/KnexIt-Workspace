@@ -21,6 +21,7 @@ function requiresMarginalCostSignal(frame: LogicalFrame): boolean {
 
 function buildRepairBlock(frame: LogicalFrame): string {
   const lines = [
+    "Sintese logico-pratica:",
     `- Objetivo principal: ${frame.primaryGoal || "nao explicitado com precisao"}.`,
     `- Principio dominante: ${frame.dominantPrinciple}.`,
   ];

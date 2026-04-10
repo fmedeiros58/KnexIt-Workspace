@@ -220,9 +220,77 @@ async function shouldStripTranscriptTailArtifactInShortIdentityReply() {
 
   const result = await runPresentationLayer(state);
   const answer = result.deliveryPayload.text;
+  const normalizedAnswer = answer
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
   assert(!/\busu[aá]rio\s*:/i.test(answer), "transcript role tail should be removed");
   assert(!/\blet me clarify some concepts\b/i.test(answer), "echoed transcript tail should be removed");
-  assert(/\blet[ií]cia\b/i.test(answer), "identity answer should remain after cleaning");
+  assert(
+    /\bleticia\b/i.test(normalizedAnswer),
+    `identity answer should remain after cleaning: ${answer}`,
+  );
+}
+
+async function shouldBindLongFormDiscourseStateInDeepPresentation() {
+  const state = createInitialProcessingState("analise em profundidade os trade-offs e conclua");
+  state.executionPlan.selectedRoute = "inferential";
+  state.deliberativeTaskState.isActive = true;
+  state.generalTaskDeliberationState.isActive = true;
+  state.deliberativeTaskState.obligationGraph = [
+    {
+      obligationId: "o1",
+      label: "demonstrar conflito",
+      type: "demonstration",
+      priority: 100,
+      dependencies: [],
+      satisfactionCriteria: [],
+      minimumExpectedDepth: 0.7,
+    },
+    {
+      obligationId: "o2",
+      label: "comparar modelos",
+      type: "comparison",
+      priority: 90,
+      dependencies: [],
+      satisfactionCriteria: [],
+      minimumExpectedDepth: 0.6,
+    },
+  ];
+  state.deliberativeTaskState.taskExecutionState.detectedObligations = ["demonstrar conflito", "comparar modelos"];
+  state.structuredResponse = Array.from({ length: 10 })
+    .map(
+      () =>
+        "A analise precisa manter continuidade, cobrir obrigacoes, preservar premissas e concluir com justificativa explicita.",
+    )
+    .join(" ");
+
+  const result = await runPresentationLayer(state);
+  assert(result.longFormDiscourseState.isActive, "deep turn should activate long-form discourse state");
+  assert(
+    result.executionArtifacts.presentation?.longFormUsesWorkingMemory !== undefined,
+    "presentation diagnostics should expose long-form memory binding",
+  );
+}
+
+async function shouldRestoreParagraphBreaksForLongStructuredAnalyticalOutput() {
+  const state = createInitialProcessingState("analise em profundidade e responda item por item");
+  state.executionPlan.selectedRoute = "inferential";
+  state.deliberativeTaskState.isActive = true;
+  state.generalTaskDeliberationState.isActive = true;
+  state.structuredResponse = [
+    "(a) Seja o problema definido por criterios concorrentes e restricoes de decisao. A analise precisa mostrar a estrutura do conflito em vez de apenas anuncia-la.",
+    "(b) A distincao entre contradicao formal e falha de aplicacao depende de separar incompatibilidade logica de insatisfazibilidade pratica.",
+    "(c) Modelo 1: usar limite de dano com otimizacao condicionada. Modelo 2: usar decisao multicriterio com revisao periodica e pesos transparentes.",
+    "Conclusao: a resposta precisa fechar com sintese e nao parar no meio.",
+  ].join(" ");
+
+  const result = await runPresentationLayer(state);
+  const answer = result.deliveryPayload.text;
+  const paragraphCount = answer.split(/\n{2,}/g).map((item) => item.trim()).filter(Boolean).length;
+
+  assert(paragraphCount >= 3, "presentation should restore structured analytical output into multiple paragraphs");
+  assert(/\n\n\(b\)/.test(answer) || /\n\n\(c\)/.test(answer) || /\n\nConclusao:/i.test(answer), "structured analytical markers should become visible paragraph boundaries");
 }
 
 await shouldBuildCompletePresentationArtifacts();
@@ -236,3 +304,5 @@ await shouldRewriteContextArtifactPhrases();
 await shouldHardBanContextoLexemeInFinalDelivery();
 await shouldApplyPresentationWatchdogAgainstEchoAndMixedLanguageLeak();
 await shouldStripTranscriptTailArtifactInShortIdentityReply();
+await shouldBindLongFormDiscourseStateInDeepPresentation();
+await shouldRestoreParagraphBreaksForLongStructuredAnalyticalOutput();

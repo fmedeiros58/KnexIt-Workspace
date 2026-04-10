@@ -2,7 +2,9 @@
  * Responsabilidade do arquivo:
  * - Derivar route hint de alto nivel para a orchestracao.
  * - Combinar sinais de preRouteScan, complexidade e verificabilidade.
- * - Evitar rotas profundas em situacoes de risco/safety.
+ * - Evitar rotas profundas em situacoes de risco, transcript contaminado
+ *   e perguntas simples que nao exigem pipeline inferencial.
+ * - Separar prompts simples de identidade de prompts profundos sobre identidade.
  */
 import type { ProcessingState } from "../bridges/contracts/processing-state";
 import type { PipelineRoute } from "../shared/enums/pipeline-enums";
@@ -13,36 +15,36 @@ import {
 } from "../shared/routing/intent-gate-route-resolver";
 
 const THRESHOLDS = {
-  inferentialScore: 0.50,
+  inferentialScore: 0.5,
   inferentialAmbiguity: 0.48,
 };
 
-function normalize(value: string) {
-  return textNormalizationService
-    .expandContractions(value || "")
-    .trim();
+function normalize(value: string): string {
+  return textNormalizationService.expandContractions(value || "").trim();
 }
 
-export function isCommunicativeElaborationPrompt(message: string) {
+export function isCommunicativeElaborationPrompt(message: string): boolean {
   const normalized = normalize(message);
-  return /\b(refine|refinar|aprofundar|explorar|elaborar|desenvolver|co construir|co-construir|debater|analise|analitico|analitica|resenha|critica|dissertacao|dissertação)\b/.test(normalized);
+  return /\b(refine|refinar|aprofundar|explorar|elaborar|desenvolver|co construir|co-construir|debater|analise|analitico|analitica|resenha|critica|dissertacao|dissertação)\b/.test(
+    normalized,
+  );
 }
 
-export function isEpistemicAuditPrompt(message: string) {
+export function isEpistemicAuditPrompt(message: string): boolean {
   const normalized = normalize(message);
   return /\b(evidencia|evidencias|fonte|fontes|lastro|fato|hipotese|especulacao|incerteza|validar|validacao)\b/.test(
     normalized,
   );
 }
 
-export function isPhilosophicalSelfModelingPrompt(message: string) {
+export function isPhilosophicalSelfModelingPrompt(message: string): boolean {
   const normalized = normalize(message);
   return /\b(quem e voce|quem e vc|origem|criador|autoria|existencia|consciencia|limites ontologicos|quem sou eu|quem e leticia)\b/.test(
     normalized,
   );
 }
 
-export function isAssistantIdentityFamilyPrompt(message: string) {
+export function isAssistantIdentityFamilyPrompt(message: string): boolean {
   const normalized = normalize(message).replace(/[!?.,;:"]/g, " ");
   const identityFamilies: RegExp[] = [
     /\b(qual(?: (?:e|eh))? (?:o )?(seu|teu) nome|me diga (?:o )?seu nome|me diz (?:o )?seu nome|diga (?:o )?seu nome)\b/,
@@ -56,19 +58,38 @@ export function isAssistantIdentityFamilyPrompt(message: string) {
   return identityFamilies.some((pattern) => pattern.test(normalized));
 }
 
-function isAssistantIdentityChallengePrompt(message: string) {
+function isAssistantIdentityChallengePrompt(message: string): boolean {
   const normalized = normalize(message);
   const hasChallengeMarker =
     /\b(mas|porem|porém|so que|só que|nao concordo|não concordo|nao faz sentido|não faz sentido|contradiz|contradicao|contradição|inconsistente|tem certeza|certeza disso|explique melhor|aprofunde|detalhe melhor|justifique)\b/.test(
       normalized,
     );
-  if (!hasChallengeMarker) return false;
+
+  if (!hasChallengeMarker) {
+    return false;
+  }
 
   const hasIdentityAnchor =
     isAssistantIdentityFamilyPrompt(message) ||
-    /\b(leticia|medeiros|nome da ia|origem do nome|se chama assim|quem te criou)\b/.test(normalized);
+    /\b(leticia|medeiros|nome da ia|origem do nome|se chama assim|quem te criou)\b/.test(
+      normalized,
+    );
 
   return hasIdentityAnchor;
+}
+
+function isSimpleAssistantIdentityPrompt(message: string): boolean {
+  const normalized = normalize(message).replace(/[!?.,;:"]/g, " ");
+  return /\b(qual(?: (?:e|eh))? (?:o )?(seu|teu) nome|me diga (?:o )?seu nome|me diz (?:o )?seu nome|diga (?:o )?seu nome|como (?:voce|vc|ce) se chama)\b/.test(
+    normalized,
+  );
+}
+
+function hasTranscriptContamination(message: string): boolean {
+  const normalized = normalize(message);
+  return /\b(usuario\s*:|usuário\s*:|leticia\s*:|assistente\s*:|assistant\s*:)\b/i.test(
+    normalized,
+  );
 }
 
 function requiresRepositoryOrDataAccess(message: string): boolean {
@@ -77,14 +98,20 @@ function requiresRepositoryOrDataAccess(message: string): boolean {
     /\b(rag|reposit[oó]rio|repositorio|repo|sql|database|banco de dados|db|nvme|lattes|fonte|fontes|evidencia|evidencias|documento|documentos|cache|memoria)\b/.test(
       normalized,
     );
-  if (!hasDataCue) return false;
+
+  if (!hasDataCue) {
+    return false;
+  }
 
   const hasAccessVerb =
     /\b(busque|buscar|consulte|consulta|recupere|recuperar|verifique|verificar|puxe|puxar|carregue|carregar|query|select|lookup|checar)\b/.test(
       normalized,
     );
+
   const hasDirective =
-    /\b(preciso|necessario|necessária|necessario|quero|me diga|me mostre|diga)\b/.test(normalized);
+    /\b(preciso|necessario|necessária|necessario|quero|me diga|me mostre|diga)\b/.test(
+      normalized,
+    );
 
   return hasAccessVerb || hasDirective;
 }
@@ -94,48 +121,125 @@ export function routeRequest(state: ProcessingState): PipelineRoute {
   const urgency = state.inputSignals.urgency || state.preRouteSignals?.quickUrgency || "low";
   const safetyFlags = state.inputSignals.safetyFlags || [];
   const score = state.complexityProfile.score || state.preRouteSignals?.quickComplexity || 0;
-  const ambiguity = state.complexityProfile.ambiguity || state.preRouteSignals?.quickAmbiguity || 0;
+  const ambiguity =
+    state.complexityProfile.ambiguity || state.preRouteSignals?.quickAmbiguity || 0;
+
   const message = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
   const snapshot = state.textAnalysisSnapshot;
-  const hasVerifiableSignal = snapshot?.hasVerifiableSignal || Boolean(state.preRouteSignals?.hasVerifiableSignal);
+  const hasVerifiableSignal =
+    snapshot?.hasVerifiableSignal || Boolean(state.preRouteSignals?.hasVerifiableSignal);
+
   const intentGateRoute = resolveIntentGateRoute({
     routingRecommendation: state.preRouteSignals?.intentGateRoutingRecommendation,
-    shouldEscalateToDeepPipeline: state.preRouteSignals?.intentGateShouldEscalateToDeepPipeline,
+    shouldEscalateToDeepPipeline:
+      state.preRouteSignals?.intentGateShouldEscalateToDeepPipeline,
     hasVerifiableSignal,
   });
+
   const communicativeCue = isCommunicativeElaborationPrompt(message);
   const epistemicCue = isEpistemicAuditPrompt(message);
   const philosophicalCue = isPhilosophicalSelfModelingPrompt(message);
   const identityFamilyCue = isAssistantIdentityFamilyPrompt(message);
+  const identityChallengeCue = isAssistantIdentityChallengePrompt(message);
+  const simpleIdentityCue = isSimpleAssistantIdentityPrompt(message);
   const repositoryOrDataAccessCue = requiresRepositoryOrDataAccess(message);
+  const transcriptContaminationCue = hasTranscriptContamination(message);
+
   const hasSafetyRestriction =
     state.preRouteSignals?.safetyAction === "caution" ||
     safetyFlags.some((flag) => /block|malicious|prompt_injection|harmful/i.test(flag));
+
   const greetingFastLaneEligible = Boolean(state.preRouteSignals?.greetingFastLaneEligible);
-  const deepDefaultRoute: PipelineRoute = "inferential";
+
   const hasIntentGateEvaluationSignal = hasIntentGateEvaluation({
     intentGateConfidence: state.preRouteSignals?.intentGateConfidence,
     intentGateDebugTrace: state.preRouteSignals?.intentGateDebugTrace,
   });
-  const normalizedIntentGateRoute =
-    intentGateRoute === "minimum" ? "minimum" : intentGateRoute ? "inferential" : null;
+
   const logicalFrame = state.logicalFrame;
 
-  if (hasSafetyRestriction) return "minimum";
-  if (greetingFastLaneEligible) return "minimum";
-  if (logicalFrame?.shouldAffectRouting) return "inferential";
-  if (hasIntentGateEvaluationSignal && normalizedIntentGateRoute === "inferential") return "inferential";
-  if (repositoryOrDataAccessCue) return deepDefaultRoute;
-  if (philosophicalCue) return deepDefaultRoute;
-  if (identityFamilyCue) return deepDefaultRoute;
-  if (epistemicCue && hasVerifiableSignal) return deepDefaultRoute;
-  if (communicativeCue) return "inferential";
-  if (intent === "research") return "inferential";
-  if (intent === "analysis") return "inferential";
-  if (intent === "technical") return "inferential";
-  if (hasVerifiableSignal) return "inferential";
-  if (ambiguity >= THRESHOLDS.inferentialAmbiguity || score >= THRESHOLDS.inferentialScore || urgency !== "low") {
+  if (hasSafetyRestriction) {
+    return "minimum";
+  }
+
+  // Evita aprofundar entradas que ja chegam contaminadas com transcript bruto.
+  if (transcriptContaminationCue) {
+    return "minimum";
+  }
+
+  if (greetingFastLaneEligible) {
+    return "minimum";
+  }
+
+  // Perguntas simples de identidade nao precisam cair na rota profunda.
+  if (simpleIdentityCue && !identityChallengeCue) {
+    return "minimum";
+  }
+
+  // Frames logicos explicitamente marcados ainda podem exigir profundidade.
+  if (logicalFrame?.shouldAffectRouting) {
     return "inferential";
   }
-  return "inferential";
+
+  // Se o gate explicito decidir por rota minima, respeitar.
+  if (hasIntentGateEvaluationSignal && intentGateRoute === "minimum") {
+    return "minimum";
+  }
+
+  // Se o gate explicito pedir escalonamento, respeitar.
+  if (hasIntentGateEvaluationSignal && intentGateRoute) {
+    return "inferential";
+  }
+
+  if (repositoryOrDataAccessCue) {
+    return "inferential";
+  }
+
+  if (philosophicalCue) {
+    return "inferential";
+  }
+
+  if (identityChallengeCue) {
+    return "inferential";
+  }
+
+  // Mantem prompts identitarios profundos na rota inferencial,
+  // mas sem punir perguntas simples ja tratadas acima.
+  if (identityFamilyCue && !simpleIdentityCue) {
+    return "inferential";
+  }
+
+  if (epistemicCue && hasVerifiableSignal) {
+    return "inferential";
+  }
+
+  if (communicativeCue) {
+    return "inferential";
+  }
+
+  if (intent === "research") {
+    return "inferential";
+  }
+
+  if (intent === "analysis") {
+    return "inferential";
+  }
+
+  if (intent === "technical") {
+    return "inferential";
+  }
+
+  if (hasVerifiableSignal) {
+    return "inferential";
+  }
+
+  if (
+    ambiguity >= THRESHOLDS.inferentialAmbiguity ||
+    score >= THRESHOLDS.inferentialScore ||
+    urgency !== "low"
+  ) {
+    return "inferential";
+  }
+
+  return "minimum";
 }

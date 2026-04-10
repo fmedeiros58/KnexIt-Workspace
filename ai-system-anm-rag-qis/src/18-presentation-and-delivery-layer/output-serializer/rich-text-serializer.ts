@@ -53,6 +53,7 @@ export function richTextSerializer(input: RichTextSerializerInput): RichTextSeri
     responseLayoutPlan: model.responseLayoutPlan,
     textualAudit: model.textualAudit,
     citationRequestContext: model.citationRequestContext,
+    longFormDiscourse: model.longFormDiscourse,
   };
 
   return {

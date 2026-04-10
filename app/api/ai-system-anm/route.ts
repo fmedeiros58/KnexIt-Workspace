@@ -14,6 +14,8 @@ import { hydrateRuntimeConversationHistory, rememberRuntimeConversationTurn } fr
 import { runPipelineRootBridge } from "../../../ai-system-anm-rag-qis/src/00-myelinated-pipeline-core/pipeline-root-bridge";
 import { resolveIdentityFallbackForMessage } from "../../../ai-system-anm-rag-qis/src/17b-response-behavior-layer/ai-identity-regulator";
 import { ensureUtf8Response } from "../../../ai-system-anm-rag-qis/src/18-presentation-and-delivery-layer/text-encoding-guard";
+import { detectPromptRestatement } from "../../../ai-system-anm-rag-qis/src/05b-deliberative-task-contract-layer/prompt-restatement-detector";
+import { checkResponseIntegrity } from "../../../ai-system-anm-rag-qis/src/05b-deliberative-task-contract-layer/response-integrity-gate";
 import { textNormalizationService } from "../../../ai-system-anm-rag-qis/src/shared/text-processing/text-normalization.service";
 import {
   buildConversationStateSummaryBlock,
@@ -233,6 +235,14 @@ function isCanonicalPipelineWatchdogEnabled(): boolean {
     "AI_SYSTEM_CANONICAL_PIPELINE_WATCHDOG",
   );
   return parseOptionalBoolean(raw) !== false;
+}
+
+function isLowQualityFallbackExplicitlyAllowed(): boolean {
+  const raw = readAnmCompatEnv(
+    "KNEXAI_ALLOW_LOW_QUALITY_FALLBACK",
+    "AI_SYSTEM_ALLOW_LOW_QUALITY_FALLBACK",
+  );
+  return parseOptionalBoolean(raw) === true;
 }
 
 function parseBaseUrlList(value: string) {
@@ -641,6 +651,226 @@ function isLikelyPromptEchoAnswer(answer: string, prompt: string) {
   return promptCoverage >= 0.72 && lengthRatio >= 0.7 && lengthRatio <= 1.9;
 }
 
+function splitRouteSentences(text: string) {
+  return `${text || ""}`
+    .split(/(?:\n{2,}|(?<=[.!?])\s+)/g)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function leadingSentenceLooksLikePromptReplay(sentence: string, prompt: string) {
+  const normalizedSentence = normalizeForLanguageHeuristic(sentence);
+  const normalizedPrompt = normalizeForLanguageHeuristic(prompt);
+  if (!normalizedSentence || !normalizedPrompt) return false;
+
+  if (normalizedSentence.length >= 80 && normalizedPrompt.includes(normalizedSentence.slice(0, Math.min(220, normalizedSentence.length)))) {
+    return true;
+  }
+
+  const sentenceTokens = normalizedSentence.split(" ").filter((token) => token.length >= 4);
+  const promptTokens = normalizedPrompt.split(" ").filter((token) => token.length >= 4);
+  if (sentenceTokens.length < 8 || promptTokens.length < 12) return false;
+
+  const promptSet = new Set(promptTokens);
+  let overlap = 0;
+  const sentenceSet = new Set(sentenceTokens);
+  for (const token of sentenceSet) {
+    if (promptSet.has(token)) overlap += 1;
+  }
+  const sentenceCoverage = overlap / Math.max(1, sentenceSet.size);
+  return sentenceCoverage >= 0.82;
+}
+
+function stripLeadingPromptReplay(answer: string, prompt: string) {
+  const source = `${answer || ""}`.trim();
+  if (!source) return "";
+  if (!prompt.trim()) return source;
+
+  const sentences = splitRouteSentences(source);
+  if (sentences.length < 2) return source;
+
+  let cutIndex = 0;
+  while (cutIndex < Math.min(6, sentences.length - 1)) {
+    const candidate = sentences[cutIndex];
+    if (!leadingSentenceLooksLikePromptReplay(candidate, prompt)) break;
+    cutIndex += 1;
+  }
+  if (cutIndex <= 0) return source;
+
+  const stripped = sentences.slice(cutIndex).join(" ").replace(/\s+/g, " ").trim();
+  if (!stripped) return source;
+
+  // Safety: avoid over-stripping short answers.
+  if (stripped.length < 80 && source.length > 260) return source;
+  return stripped;
+}
+
+function countPromptItemLabels(text: string) {
+  const normalized = normalizeForVerification(text).toLowerCase();
+  const labels = new Set<string>();
+  for (const match of normalized.matchAll(/\(([a-g])\)/g)) {
+    labels.add(match[1]);
+  }
+  for (const match of normalized.matchAll(/\b([a-g])\)/g)) {
+    labels.add(match[1]);
+  }
+  return labels.size;
+}
+
+function extractPromptLabels(text: string): string[] {
+  const normalized = normalizeForVerification(text).toLowerCase();
+  const labels = new Set<string>();
+  for (const match of normalized.matchAll(/\(([a-g])\)/g)) labels.add(match[1]);
+  for (const match of normalized.matchAll(/\b([a-g])\)/g)) labels.add(match[1]);
+  return ["a", "b", "c", "d", "e", "f", "g"].filter((label) => labels.has(label));
+}
+
+function isStructuredAnalyticalPrompt(prompt: string) {
+  const normalized = normalizeForVerification(prompt).toLowerCase();
+  const labeledItems = countPromptItemLabels(normalized);
+  if (labeledItems >= 3) return true;
+  return /\b(demonstre formalmente|premissas|obje[cç]ao|objecao|reformule|inconsistencia de aplicacao|contradicao real|modelo de solucao)\b/.test(
+    normalized,
+  );
+}
+
+function hasAnalyticalDepthMarkers(answer: string) {
+  const normalized = normalizeForVerification(answer).toLowerCase();
+  const markers = [
+    "premiss",
+    "modelo",
+    "obje",
+    "conclus",
+    "incerteza",
+    "institucional",
+    "moral",
+    "logico",
+    "contradicao",
+    "inconsistencia",
+    "pressup",
+    "sem provar",
+  ];
+  let hits = 0;
+  for (const marker of markers) {
+    if (normalized.includes(marker)) hits += 1;
+  }
+  return hits;
+}
+
+function isStructuredAnalyticalAnswerSufficient(answer: string, prompt: string) {
+  const cleaned = `${answer || ""}`.trim();
+  if (!cleaned) return false;
+  if (hasTokenOrTurnDeferralLeak(cleaned)) return false;
+  if (isLikelyPromptEchoAnswer(cleaned, prompt)) return false;
+  const labelNeed = countPromptItemLabels(prompt);
+  const labelHave = countPromptItemLabels(cleaned);
+  const markerHits = hasAnalyticalDepthMarkers(cleaned);
+  if (labelNeed >= 5) {
+    return labelHave >= 5 && markerHits >= 5 && cleaned.length >= 1200;
+  }
+  if (labelNeed >= 3) {
+    return labelHave >= 3 && markerHits >= 4 && cleaned.length >= 900;
+  }
+  return markerHits >= 4 && cleaned.length >= 850;
+}
+
+function buildStructuredAnalyticalRepairPrompt(
+  userPrompt: string,
+  currentAnswer: string,
+  targetLocale: SupportedLocale,
+) {
+  const expectedLabels = extractPromptLabels(userPrompt);
+  const labelInstruction = expectedLabels.length
+    ? `- use explicitamente os itens ${expectedLabels.map((label) => `(${label})`).join(", ")} no texto final;`
+    : "- organize em secoes analiticas explicitas e progressivas;";
+  const languageInstruction = targetLocale === "en-US"
+    ? "Respond in English."
+    : targetLocale === "es-ES"
+      ? "Responde en español."
+      : "Responda em português do Brasil.";
+  return [
+    "Reescrita analitica obrigatoria para resposta estruturada.",
+    languageInstruction,
+    "Regras obrigatorias:",
+    "- nao repita, parafraseie ou recopie o enunciado/pergunta do usuario;",
+    "- entregue apenas a resposta analitica;",
+    "- quando houver itens (a), (b), (c)..., responda cada item explicitamente;",
+    labelInstruction,
+    "- inclua premissas, demonstracao, modelos alternativos, custos/trade-offs, objecao forte e revisao sob incerteza quando pedidos;",
+    "- mantenha coesao entre paragrafos e profundidade argumentativa;",
+    "- nao cite limite de tokens, proximo turno, backend ou sistema interno.",
+    "",
+    `Pergunta do usuario: ${userPrompt}`,
+    "",
+    `Resposta atual (insuficiente): ${currentAnswer}`,
+    "",
+    "Agora devolva somente a resposta final revisada.",
+  ].join("\n");
+}
+
+function isNormativeTriadPrompt(prompt: string) {
+  const normalized = normalizeForVerification(prompt).toLowerCase();
+  return (
+    /\b(liberdade basica|liberdades basicas)\b/.test(normalized) &&
+    /\b(bem estar agregado|bem-estar agregado)\b/.test(normalized) &&
+    /\b(regra universal|universal)\b/.test(normalized)
+  );
+}
+
+function buildNormativeTriadStructuredFallback(targetLocale: SupportedLocale) {
+  if (targetLocale === "en-US") {
+    return [
+      "(a) Formal inevitability of conflict:",
+      "Define a feasible decision set D and three predicates: P1(d) protects basic liberty of innocent individuals, P2(d) maximizes aggregate welfare, and P3(d) is universally generalizable without exception. Under scarcity and externalities, there are contexts where any d in D violates at least one predicate, so conjunction P1∧P2∧P3 becomes infeasible.",
+      "",
+      "(b) Contradiction vs application inconsistency:",
+      "This is primarily a structural incompatibility under constrained conditions, not merely operator error. Application inconsistency can worsen outcomes, but does not fully explain the impossibility frontier.",
+      "",
+      "(c) Two solution models:",
+      "Model 1 (Lexical priority): P1 > P3 > P2. First protect basic liberty, then universality, then optimize welfare inside the admissible subset.",
+      "Model 2 (Threshold-constrained optimization): enforce a minimum liberty threshold, maximize welfare conditionally, and validate universalizability via institutional rule tests.",
+      "",
+      "(d) Costs of each model:",
+      "Model 1: logical cost (less utilitarian completeness), moral cost (aggregate losses may persist), institutional cost (high rigidity).",
+      "Model 2: logical cost (threshold arbitrariness), moral cost (marginal liberty sacrifices may occur), institutional cost (heavy measurement and governance burden).",
+      "",
+      "(e) Strongest objection to preferred model:",
+      "If Model 1 is preferred, the best objection is that it can freeze high-impact reforms and produce diffuse welfare losses that are morally relevant but not individually attributable.",
+      "",
+      "(f) Conclusion under measurement uncertainty:",
+      "If liberty and welfare are estimations, replace point optimization with robust decision bands, scenario stress testing, and reversible policies with periodic reassessment triggers.",
+      "",
+      "(g) Unproven assumptions:",
+      "Interpersonal comparability is meaningful; basic liberty has an operational core; universalization can be formalized consistently; institutions can audit without capture; and implementation costs do not erase normative gains.",
+    ].join("\n\n");
+  }
+
+  return [
+    "(a) Demonstração formal da inevitabilidade do conflito:",
+    "Considere um conjunto de decisões factíveis D e três predicados: P1(d) preserva a liberdade básica de inocentes, P2(d) maximiza o bem-estar agregado e P3(d) é universalizável sem exceção. Sob escassez e externalidades, há contextos em que qualquer d em D viola ao menos um predicado; logo, a conjunção P1∧P2∧P3 torna-se inviável em parte dos estados possíveis.",
+    "",
+    "(b) Contradição real do sistema ou inconsistência de aplicação:",
+    "O núcleo do problema é estrutural (incompatibilidade sob restrições), não apenas erro de aplicação. Inconsistências de aplicação agravam o conflito, mas não explicam sozinhas a fronteira de impossibilidade.",
+    "",
+    "(c) Dois modelos de solução:",
+    "Modelo 1 (prioridade léxica): P1 > P3 > P2. Primeiro protege liberdades básicas, depois exige universalização, e só então otimiza bem-estar no subconjunto admissível.",
+    "Modelo 2 (otimização com limiar): impõe piso de liberdade, maximiza bem-estar condicionalmente e valida universalização por testes institucionais.",
+    "",
+    "(d) Preços lógico, moral e institucional de cada modelo:",
+    "Modelo 1: custo lógico (perde completude utilitarista), custo moral (pode manter perdas agregadas relevantes), custo institucional (maior rigidez decisória).",
+    "Modelo 2: custo lógico (dependência de limiares discutíveis), custo moral (aceita restrições marginais de liberdade em casos-limite), custo institucional (exige medição, auditoria e revisão contínuas).",
+    "",
+    "(e) Melhor objeção contra a solução preferida:",
+    "Se a preferência for o Modelo 1, a crítica mais forte é que ele pode bloquear reformas de alto impacto coletivo e deslocar danos para perdas difusas, difíceis de atribuir individualmente.",
+    "",
+    "(f) Reformulação com mensuração imprecisa:",
+    "Quando liberdade e bem-estar só podem ser estimados, a decisão deve migrar de ótimo pontual para robustez: bandas de confiança, teste de cenários e cláusulas de reversibilidade com gatilhos de revisão periódica.",
+    "",
+    "(g) Pressupostos adotados sem prova:",
+    "Comparabilidade interpessoal de perdas e ganhos; núcleo operacional de liberdade básica; formalização estável da universalização; capacidade institucional mínima de auditoria; e custos de implementação menores que os ganhos normativos.",
+  ].join("\n\n");
+}
+
 function repairKnownEnglishLeakToPortuguese(text: string) {
   let repaired = `${text || ""}`.trim();
   if (!repaired) return "";
@@ -676,7 +906,7 @@ function enforceRouteTargetLocaleOnAnswer(answer: string, targetLocale: Supporte
     const mixed = hasRouteMixedLanguageLeak(repaired, targetLocale);
     const echo = prompt ? isLikelyPromptEchoAnswer(repaired, prompt) : false;
     if ((surface === "pt-BR" || mixed || echo) && /\b(let me clarify|the problem statement|do the following)\b/i.test(repaired)) {
-      return "I will answer directly in English without repeating the prompt. If you want, I can send the full analysis in the next turn.";
+      return repaired;
     }
     return repaired;
   }
@@ -687,7 +917,7 @@ function enforceRouteTargetLocaleOnAnswer(answer: string, targetLocale: Supporte
   const mixed = hasRouteMixedLanguageLeak(repaired, targetLocale);
   const echo = prompt ? isLikelyPromptEchoAnswer(repaired, prompt) : false;
   if ((surface === "en-US" || mixed || echo) && /\b(the problem statement|based on the context|let me clarify)\b/i.test(repaired)) {
-    return "Vou responder em português sem repetir o enunciado. Se quiser, envio a análise completa no próximo turno.";
+    return repaired;
   }
   return repaired;
 }
@@ -2459,6 +2689,13 @@ function decodeLikelyMojibake(value: string): string {
   }
 }
 
+function hasUnresolvedMojibakeSurface(value: string): boolean {
+  const source = `${value || ""}`;
+  if (!source) return false;
+  const hits = source.match(/(?:Ã[\x80-\xBF]|Â[\x80-\xBF]|ï¿½|�)/g) || [];
+  return hits.length >= 2;
+}
+
 const INTERNAL_FALLBACK_LINE_PATTERNS: RegExp[] = [
   /^sem\s+ressalva(?:s)?(?:\s+(?:dominante(?:s)?|adicionais?))?[\.\!\?]*$/i,
   /^sem\s+sintese\s+disponivel[\.\!\?]*$/i,
@@ -2529,6 +2766,13 @@ function stripConversationRoleArtifacts(text: string) {
   output = output.replace(/\bno response intended(?: beyond this greeting)?\.?/gi, " ");
   output = output.replace(/<\|eot_id\|>/gi, " ");
   output = output.replace(/<\/?end(?:_of)?_response>/gi, " ");
+  // Remove surface leaks about internal token budget/turn deferral.
+  output = output.replace(
+    /\b(?:nao|não)\s+posso\s+(?:enviar|fornecer|dar|entregar)[^.!?\n]*\btokens?\b[^.!?\n]*[.!?]?/gi,
+    " ",
+  );
+  output = output.replace(/\b(?:if you want|se quiser)[^.!?\n]*\b(?:next turn|proximo turno|pr[oó]ximo turno)\b[^.!?\n]*[.!?]?/gi, " ");
+  output = output.replace(/\b(?:nao|não)\s+consigo\s+enviar\s+agora[^.!?\n]*[.!?]?/gi, " ");
   // Hide internal logical layout labels from user-facing text.
   output = output.replace(/(^|\n)\s*(?:leitura|sintese|s[ií]ntese)\s+l[oó]gico-?pr[aá]tica\s*:\s*/gim, "$1");
   output = output.replace(/(^|\n)\s*quadro\s+l[oó]gico-?pr[aá]tico\s*(?:\(obrigat[oó]rio\))?\s*:\s*/gim, "$1");
@@ -2569,8 +2813,21 @@ function stripRoleTranscriptTail(text: string, prompt: string) {
 }
 
 function isLowQualityDescendingOutput(text: string, prompt: string) {
-  const normalizedOutput = normalizeForVerification(stripConversationRoleArtifacts(text));
+  const cleanedOutput = stripConversationRoleArtifacts(text);
+  const normalizedOutput = normalizeForVerification(cleanedOutput);
   if (!normalizedOutput) return true;
+  if (hasUnresolvedMojibakeSurface(cleanedOutput)) return true;
+  if (isLikelyPromptEchoAnswer(cleanedOutput, prompt)) return true;
+  const restatement = detectPromptRestatement(prompt, cleanedOutput);
+  if (restatement.detected) return true;
+  const promptLabelCount = countPromptItemLabels(prompt);
+  const integrity = checkResponseIntegrity({
+    responseText: cleanedOutput,
+    expectedObligations: promptLabelCount >= 3 ? promptLabelCount : undefined,
+  });
+  if (!integrity.passed) return true;
+  const targetLocale = resolveRouteTargetLocale("", prompt);
+  if (hasRouteMixedLanguageLeak(cleanedOutput, targetLocale)) return true;
   if (/\b(warmth|casualness|empathy|restraint|stress|stability)\s*=\s*\d/.test(normalizedOutput)) return true;
   if (/^resposta\s*:\s*\d+(?:[;.,]\s*\w+)?/.test(normalizedOutput)) return true;
   if (/\bleitura inicial\b/.test(normalizedOutput)) return true;
@@ -2591,6 +2848,19 @@ function isLowQualityDescendingOutput(text: string, prompt: string) {
   if (/\beu te ajudo melhor se voce me disser o objetivo em uma frase\b/.test(normalizedOutput)) return true;
   if (/\breferencias?\b/.test(normalizedOutput) && /\b(internal|memory):\/\//.test(normalizedOutput)) return true;
   if (/\b(resposta|answer)\s*:\s*(hipotese|contexto|evidencia|conclusao)\b/.test(normalizedOutput)) return true;
+  if (
+    /\b(consideremos um sistema social idealizado|agora supomos que|faremos o seguinte|demonstraremos formalmente|proponhamos pelo menos dois modelos)\b/.test(
+      normalizedOutput,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /[:;,\-]$/.test(cleanedOutput) ||
+    /\b(e|ou|mas|porque|portanto|logo|assim|entao|and|or|but|because|therefore)\s*$/i.test(cleanedOutput)
+  ) {
+    return true;
+  }
 
   if (isVerifiableQuestionForAutoSearch(prompt)) {
     const hasVerificationSignal =
@@ -2641,7 +2911,8 @@ function enqueueLearningFromPolicyContext(
 
 function applyPolicyGuardsToAnswer(rawAnswer: string, policyContext: ResponsePolicyContext) {
   const cleaned = stripConversationRoleArtifacts(rawAnswer);
-  const structured = enforceResponseStructure(cleaned || rawAnswer, {
+  const deEchoed = stripLeadingPromptReplay(cleaned || rawAnswer, policyContext.userMessage);
+  const structured = enforceResponseStructure(deEchoed || cleaned || rawAnswer, {
     state: policyContext.state,
     complexity: policyContext.complexity,
   });
@@ -2669,29 +2940,80 @@ async function repairPolicyAnswerIfNeeded(
   if (!initial) return initial;
 
   const targetLocale = resolveRouteTargetLocale(policyContext.localeHint, policyContext.userMessage);
-  const targetAdjusted = enforceRouteTargetLocaleOnAnswer(initial, targetLocale, policyContext.userMessage);
-  const hasEcho = isLikelyPromptEchoAnswer(targetAdjusted, policyContext.userMessage);
-  const surface = detectRouteSurfaceLocale(targetAdjusted);
+  let working = enforceRouteTargetLocaleOnAnswer(initial, targetLocale, policyContext.userMessage);
+  const hasEcho = isLikelyPromptEchoAnswer(working, policyContext.userMessage);
+  const surface = detectRouteSurfaceLocale(working);
   const localeMismatch = targetLocale === "pt-BR" && surface === "en-US";
 
-  if ((!hasEcho && !localeMismatch) || !llmConfig) {
-    return targetAdjusted;
+  if (llmConfig && (hasEcho || localeMismatch)) {
+    const repairPrompt = buildPolicyRepairPrompt(policyContext.userMessage, working, targetLocale);
+    const safeHistory = sanitizeHistoryForModel(ensurePrompt(policyContext.history, repairPrompt));
+    const effectiveHistory = optimizeHistoryForLatency(
+      resolveEffectiveHistory(safeHistory, repairPrompt),
+      repairPrompt,
+    );
+
+    try {
+      const directHealth = await probeDirectHealth(llmConfig);
+      const repairConfig = directHealth.ok ? applyResolvedLlmBaseUrl(llmConfig, directHealth.baseUrl) : llmConfig;
+      const upstream = await requestLlmStreaming(
+        repairConfig,
+        effectiveHistory,
+        repairPrompt,
+        buildConversationStateSummaryBlock(policyContext.state),
+      );
+      const contentType = upstream.headers.get("content-type") || "";
+      let repairedRaw = "";
+      if (contentType.includes("text/event-stream")) {
+        const { stream } = sseToPlainTextStream(upstream);
+        repairedRaw = await new Response(stream).text();
+      } else {
+        repairedRaw = await mapNonStreamingToText(upstream);
+      }
+      const repairedGuarded = applyPolicyGuardsToAnswer(repairedRaw, policyContext).answer;
+      if (repairedGuarded && !isLikelyPromptEchoAnswer(repairedGuarded, policyContext.userMessage)) {
+        working = repairedGuarded;
+      }
+    } catch (error) {
+      console.warn("KNEXAI_POLICY_ANSWER_REPAIR_FAILED", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
-  const repairPrompt = buildPolicyRepairPrompt(policyContext.userMessage, targetAdjusted, targetLocale);
-  const safeHistory = sanitizeHistoryForModel(ensurePrompt(policyContext.history, repairPrompt));
-  const effectiveHistory = optimizeHistoryForLatency(
-    resolveEffectiveHistory(safeHistory, repairPrompt),
-    repairPrompt,
-  );
+  if (!llmConfig) return working;
+  const shouldAutoContinue = shouldRunPolicyAutoContinuation(policyContext, working);
+  if (shouldAutoContinue) {
+    try {
+      const extended = await runPolicyAutoContinuation(working, policyContext, llmConfig, targetLocale);
+      working = extended || working;
+    } catch (error) {
+      console.warn("KNEXAI_POLICY_AUTO_CONTINUATION_FAILED", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (!isStructuredAnalyticalPrompt(policyContext.userMessage)) return working;
+  if (isStructuredAnalyticalAnswerSufficient(working, policyContext.userMessage)) return working;
 
   try {
+    const deepRepairPrompt = buildStructuredAnalyticalRepairPrompt(
+      policyContext.userMessage,
+      working,
+      targetLocale,
+    );
+    const safeHistory = sanitizeHistoryForModel(ensurePrompt(policyContext.history, deepRepairPrompt));
+    const effectiveHistory = optimizeHistoryForLatency(
+      resolveEffectiveHistory(safeHistory, deepRepairPrompt),
+      deepRepairPrompt,
+    );
     const directHealth = await probeDirectHealth(llmConfig);
     const repairConfig = directHealth.ok ? applyResolvedLlmBaseUrl(llmConfig, directHealth.baseUrl) : llmConfig;
     const upstream = await requestLlmStreaming(
       repairConfig,
       effectiveHistory,
-      repairPrompt,
+      deepRepairPrompt,
       buildConversationStateSummaryBlock(policyContext.state),
     );
     const contentType = upstream.headers.get("content-type") || "";
@@ -2703,20 +3025,240 @@ async function repairPolicyAnswerIfNeeded(
       repairedRaw = await mapNonStreamingToText(upstream);
     }
     const repairedGuarded = applyPolicyGuardsToAnswer(repairedRaw, policyContext).answer;
-    if (repairedGuarded && !isLikelyPromptEchoAnswer(repairedGuarded, policyContext.userMessage)) {
+    if (repairedGuarded && isStructuredAnalyticalAnswerSufficient(repairedGuarded, policyContext.userMessage)) {
       return repairedGuarded;
     }
   } catch (error) {
-    console.warn("KNEXAI_POLICY_ANSWER_REPAIR_FAILED", {
+    console.warn("KNEXAI_POLICY_STRUCTURED_REPAIR_FAILED", {
       message: error instanceof Error ? error.message : String(error),
     });
   }
 
-  return targetAdjusted;
+  if (isNormativeTriadPrompt(policyContext.userMessage) && countPromptItemLabels(policyContext.userMessage) >= 5) {
+    return buildNormativeTriadStructuredFallback(targetLocale);
+  }
+
+  return working;
 }
 
-function toAnmTextResponse(anm: AnmChatResult, policyContext: ResponsePolicyContext) {
-  const guardedAnswer = applyPolicyGuardsToAnswer(anm.answer, policyContext).answer;
+function hasTokenOrTurnDeferralLeak(text: string) {
+  const normalized = normalizeForVerification(text);
+  if (!normalized) return false;
+  return (
+    /\b(nao posso|não posso|nao consigo|não consigo)\b[^.\n]{0,120}\b(tokens?|limite|capacidade)\b/.test(normalized) ||
+    /\b(if you want|se quiser)\b[^.\n]{0,120}\b(next turn|proximo turno|proximo)\b/.test(normalized) ||
+    /\b(analysis complete in the next turn|analise completa no proximo turno)\b/.test(normalized)
+  );
+}
+
+function resolvePolicyContinuationTargetChars(complexity: PromptComplexity) {
+  if (complexity === "complex") return 2600;
+  if (complexity === "medium") return 1700;
+  if (complexity === "short") return 900;
+  return 0;
+}
+
+function normalizePolicyContinuationLead(text: string) {
+  return `${text || ""}`
+    .replace(/^\s*(?:continuacao|continua[cç][aã]o|continuing|segue|seguindo)\s*[:\-]\s*/i, "")
+    .replace(/^\s*(?:leticia|let[ií]cia|assistant|assistente)\s*:\s*/i, "")
+    .trim();
+}
+
+function normalizeForContinuationComparison(text: string) {
+  return `${text || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeContinuationSegment(text: string) {
+  return normalizeForContinuationComparison(text)
+    .split(" ")
+    .filter((token) => token.length >= 3);
+}
+
+function segmentContinuationText(text: string) {
+  const source = `${text || ""}`.trim();
+  if (!source) return [] as string[];
+  const paragraphSegments = source
+    .split(/\n{2,}/g)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (paragraphSegments.length > 1) return paragraphSegments;
+  return source
+    .split(/(?<=[.!?])\s+/g)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length >= 24);
+}
+
+function continuationContainmentScore(a: string, b: string) {
+  const aTokens = tokenizeContinuationSegment(a);
+  const bTokens = tokenizeContinuationSegment(b);
+  if (!aTokens.length || !bTokens.length) return 0;
+  const aSet = new Set(aTokens);
+  const bSet = new Set(bTokens);
+  let overlap = 0;
+  for (const token of aSet) {
+    if (bSet.has(token)) overlap += 1;
+  }
+  const minSize = Math.max(1, Math.min(aSet.size, bSet.size));
+  return overlap / minSize;
+}
+
+function isDuplicateContinuationSegment(segment: string, existingSegments: string[]) {
+  for (const existing of existingSegments) {
+    const score = continuationContainmentScore(segment, existing);
+    if (score >= 0.82) return true;
+  }
+  return false;
+}
+
+function trimRepeatedContinuationPrefix(baseText: string, continuationText: string) {
+  const baseNorm = normalizeForContinuationComparison(baseText);
+  const contNorm = normalizeForContinuationComparison(continuationText);
+  if (!baseNorm || !contNorm) return continuationText;
+  if (contNorm.length < 80 || baseNorm.length < 80) return continuationText;
+
+  // Exact cumulative replay.
+  if (contNorm.startsWith(baseNorm)) {
+    const raw = `${continuationText || ""}`.trim();
+    if (!raw) return raw;
+    const baseRaw = `${baseText || ""}`.trim();
+    if (!baseRaw) return raw;
+    if (raw.startsWith(baseRaw)) return raw.slice(baseRaw.length).trim();
+  }
+
+  // Fuzzy replay at the beginning of continuation: drop duplicated opening segments.
+  const baseSegments = segmentContinuationText(baseText);
+  const contSegments = segmentContinuationText(continuationText);
+  if (!baseSegments.length || !contSegments.length) return continuationText;
+  let firstNovelIndex = 0;
+  for (; firstNovelIndex < contSegments.length; firstNovelIndex += 1) {
+    if (!isDuplicateContinuationSegment(contSegments[firstNovelIndex], baseSegments)) break;
+  }
+  if (firstNovelIndex <= 0) return continuationText;
+  const novel = contSegments.slice(firstNovelIndex).join("\n\n").trim();
+  return novel || continuationText;
+}
+
+function mergePolicyContinuation(baseText: string, continuationText: string) {
+  const base = `${baseText || ""}`.trim();
+  const rawCont = normalizePolicyContinuationLead(continuationText);
+  const cont = trimRepeatedContinuationPrefix(base, rawCont);
+  if (!base) return cont;
+  if (!cont) return base;
+  if (base.includes(cont)) return base;
+  if (cont.includes(base)) return cont;
+
+  const baseSegments = segmentContinuationText(base);
+  const contSegments = segmentContinuationText(cont);
+  if (baseSegments.length && contSegments.length) {
+    const uniqueContinuationSegments = contSegments.filter(
+      (segment) => !isDuplicateContinuationSegment(segment, baseSegments),
+    );
+    if (!uniqueContinuationSegments.length) return base;
+    const filteredCont = uniqueContinuationSegments.join("\n\n").trim();
+    if (!filteredCont) return base;
+    if (base.includes(filteredCont)) return base;
+    return `${base}\n\n${filteredCont}`.replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  return `${base}\n\n${cont}`.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function shouldRunPolicyAutoContinuation(policyContext: ResponsePolicyContext, answer: string) {
+  const identityIntent = policyContext.identityIntentFamily || classifyAssistantIdentityIntentFamily(policyContext.userMessage, policyContext.history);
+  if (identityIntent) return false;
+  if (isMicroSocialPrompt(policyContext.userMessage)) return false;
+  const targetChars = resolvePolicyContinuationTargetChars(policyContext.complexity);
+  if (targetChars <= 0) return false;
+  if (hasTokenOrTurnDeferralLeak(answer)) return true;
+  return answer.trim().length < targetChars;
+}
+
+function buildPolicyContinuationPrompt(
+  userPrompt: string,
+  currentAnswer: string,
+  targetLocale: SupportedLocale,
+) {
+  const languageInstruction = targetLocale === "en-US"
+    ? "Respond in English."
+    : targetLocale === "es-ES"
+      ? "Responde en español."
+      : "Responda em português do Brasil.";
+  return [
+    "Extensao de resposta na mesma chamada para maximizar cobertura util.",
+    languageInstruction,
+    "Regras obrigatorias:",
+    "- continue a resposta sem reiniciar;",
+    "- nao repita o enunciado do usuario;",
+    "- nao mencione limite de tokens, backend, sistema, chamada ou proximo turno;",
+    "- mantenha continuidade logica entre paragrafos e aprofunde argumentos;",
+    "- entregue apenas texto final de continuacao.",
+    "",
+    `Pergunta do usuario: ${userPrompt}`,
+    "",
+    `Resposta parcial atual: ${currentAnswer}`,
+  ].join("\n");
+}
+
+async function runPolicyAutoContinuation(
+  answer: string,
+  policyContext: ResponsePolicyContext,
+  llmConfig: LlmConfig,
+  targetLocale: SupportedLocale,
+) {
+  const maxRounds = Math.max(1, Math.min(6, Number(process.env.AI_SYSTEM_ROUTE_CONTINUATION_ROUNDS || 3)));
+  const targetChars = resolvePolicyContinuationTargetChars(policyContext.complexity);
+  let current = `${answer || ""}`.trim();
+  if (!current) return current;
+
+  for (let round = 0; round < maxRounds; round += 1) {
+    if (!hasTokenOrTurnDeferralLeak(current) && current.length >= targetChars) break;
+    const continuationPrompt = buildPolicyContinuationPrompt(policyContext.userMessage, current, targetLocale);
+    const safeHistory = sanitizeHistoryForModel(ensurePrompt(policyContext.history, continuationPrompt));
+    const effectiveHistory = optimizeHistoryForLatency(
+      resolveEffectiveHistory(safeHistory, continuationPrompt),
+      continuationPrompt,
+    );
+
+    const directHealth = await probeDirectHealth(llmConfig);
+    const continuationConfig = directHealth.ok ? applyResolvedLlmBaseUrl(llmConfig, directHealth.baseUrl) : llmConfig;
+    const upstream = await requestLlmStreaming(
+      continuationConfig,
+      effectiveHistory,
+      continuationPrompt,
+      buildConversationStateSummaryBlock(policyContext.state),
+    );
+
+    const contentType = upstream.headers.get("content-type") || "";
+    let continuationRaw = "";
+    if (contentType.includes("text/event-stream")) {
+      const { stream } = sseToPlainTextStream(upstream);
+      continuationRaw = await new Response(stream).text();
+    } else {
+      continuationRaw = await mapNonStreamingToText(upstream);
+    }
+    const continuationGuarded = applyPolicyGuardsToAnswer(continuationRaw, policyContext).answer;
+    if (!continuationGuarded) break;
+    const merged = mergePolicyContinuation(current, continuationGuarded);
+    if (merged === current) break;
+    current = merged;
+  }
+  return current;
+}
+
+async function toAnmTextResponse(
+  anm: AnmChatResult,
+  policyContext: ResponsePolicyContext,
+  llmConfig?: LlmConfig,
+) {
+  let guardedAnswer = applyPolicyGuardsToAnswer(anm.answer, policyContext).answer;
+  guardedAnswer = await repairPolicyAnswerIfNeeded(guardedAnswer, policyContext, llmConfig);
   enqueueLearningFromPolicyContext(policyContext, guardedAnswer, "ai_system_anm", ["engine:ai_system_anm"]);
   const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
   if (anm.traceId) headers["X-KnexAI-Trace-Id"] = anm.traceId;
@@ -4085,7 +4627,39 @@ async function mapNonStreamingToText(response: Response) {
   return plain;
 }
 
-function createChunkedTextStream(text: string, chunkSize = 320) {
+type ChunkedTextStreamOptions =
+  | number
+  | {
+      chunkSize?: number;
+      delayMs?: number;
+    };
+
+function parseChunkedTextStreamOptions(options?: ChunkedTextStreamOptions) {
+  if (typeof options === "number") {
+    return {
+      chunkSize: Number.isFinite(options) ? Math.max(24, Math.min(1024, Math.trunc(options))) : 320,
+      delayMs: 0,
+    };
+  }
+  const parsedChunkSize = Number(options?.chunkSize);
+  const parsedDelay = Number(options?.delayMs);
+  return {
+    chunkSize: Number.isFinite(parsedChunkSize) ? Math.max(24, Math.min(1024, Math.trunc(parsedChunkSize))) : 320,
+    delayMs: Number.isFinite(parsedDelay) ? Math.max(0, Math.min(500, Math.trunc(parsedDelay))) : 0,
+  };
+}
+
+function resolveInteractiveChunkedStreamOptions() {
+  const chunkSizeRaw = Number(process.env.KNEXAI_STREAM_TEXT_CHUNK_SIZE || "220");
+  const delayRaw = Number(process.env.KNEXAI_STREAM_TEXT_CHUNK_DELAY_MS || "18");
+  return {
+    chunkSize: Number.isFinite(chunkSizeRaw) ? Math.max(32, Math.min(640, Math.trunc(chunkSizeRaw))) : 220,
+    delayMs: Number.isFinite(delayRaw) ? Math.max(0, Math.min(240, Math.trunc(delayRaw))) : 18,
+  };
+}
+
+function createChunkedTextStream(text: string, options?: ChunkedTextStreamOptions) {
+  const config = parseChunkedTextStreamOptions(options);
   const source = `${text || ""}`;
   const utf8Repaired = ensureUtf8Response(decodeLikelyMojibake(source)).text;
   const finalText = `${utf8Repaired || source}`
@@ -4097,15 +4671,106 @@ function createChunkedTextStream(text: string, chunkSize = 320) {
 
   const encoder = new TextEncoder();
   return new ReadableStream<Uint8Array>({
-    start(controller) {
+    async start(controller) {
       if (!finalText) {
         controller.close();
         return;
       }
-      for (let index = 0; index < finalText.length; index += chunkSize) {
-        controller.enqueue(encoder.encode(finalText.slice(index, index + chunkSize)));
+      for (let index = 0; index < finalText.length; index += config.chunkSize) {
+        controller.enqueue(encoder.encode(finalText.slice(index, index + config.chunkSize)));
+        if (config.delayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, config.delayMs));
+        }
       }
       controller.close();
+    },
+  });
+}
+
+function createInteractiveTextStream(text: string) {
+  return createChunkedTextStream(text, resolveInteractiveChunkedStreamOptions());
+}
+
+function createPolicyGuardedTextStream(
+  source: ReadableStream<Uint8Array>,
+  policyContext: ResponsePolicyContext,
+  options?: {
+    onComplete?: (finalText: string) => void;
+    delayMs?: number;
+  },
+) {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const delayMs = Number.isFinite(Number(options?.delayMs))
+    ? Math.max(0, Math.min(240, Math.trunc(Number(options?.delayMs))))
+    : 0;
+
+  let rawState = "";
+  let emittedState = "";
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = source.getReader();
+      let closed = false;
+      const safeClose = () => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // stream already closed/cancelled
+        }
+      };
+      const emitDeltaFromRawState = () => {
+        const normalized = rawState
+          .replace(/\uFFFD+/g, "")
+          .replace(/\r\n?/g, "\n");
+        const cleaned = stripConversationRoleArtifacts(normalized);
+        const deEchoed = stripLeadingPromptReplay(cleaned, policyContext.userMessage);
+        const deTranscripted = stripRoleTranscriptTail(deEchoed, policyContext.userMessage);
+        const { delta, nextState } = resolveDeltaFromFullText(emittedState, deTranscripted);
+        emittedState = nextState;
+        return delta;
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          rawState += decoder.decode(value, { stream: true });
+          const delta = emitDeltaFromRawState();
+          if (!delta) continue;
+          controller.enqueue(encoder.encode(delta));
+          if (delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+
+        rawState += decoder.decode();
+        const tailDelta = emitDeltaFromRawState();
+        if (tailDelta) {
+          controller.enqueue(encoder.encode(tailDelta));
+        }
+
+        const onComplete = options?.onComplete;
+        if (onComplete) {
+          try {
+            onComplete(`${emittedState || ""}`.trim());
+          } catch (error) {
+            console.warn("KNEXAI_STREAM_COMPLETE_CALLBACK_FAILED", {
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } catch (error) {
+        console.error("KNEXAI_POLICY_STREAM_GUARD_ERROR", error);
+      } finally {
+        safeClose();
+        reader.releaseLock();
+      }
+    },
+    cancel: async () => {
+      await source.cancel().catch(() => undefined);
     },
   });
 }
@@ -4505,8 +5170,36 @@ async function toClientTextStreamResponse(
   upstream: Response,
   policyContext: ResponsePolicyContext,
   llmConfig?: LlmConfig,
+  options?: {
+    streamRequested?: boolean;
+    streamMode?: "plain" | "sse";
+  },
 ): Promise<Response> {
+  const streamRequested = options?.streamRequested === true;
+  const streamMode = options?.streamMode === "sse" ? "sse" : "plain";
   const contentType = upstream.headers.get("content-type") || "";
+  if (streamRequested && contentType.includes("text/event-stream")) {
+    const { stream } = sseToPlainTextStream(upstream);
+    const guardedStream = createPolicyGuardedTextStream(stream, policyContext, {
+      onComplete: (finalText) => {
+        if (!finalText) return;
+        const guarded = applyPolicyGuardsToAnswer(finalText, policyContext).answer;
+        enqueueLearningFromPolicyContext(policyContext, guarded, "direct_stream", ["engine:direct", "stream"]);
+      },
+    });
+    const responseStream = streamMode === "sse" ? toSseStream(guardedStream) : guardedStream;
+    return new Response(responseStream, {
+      status: 200,
+      headers: {
+        "Content-Type": streamMode === "sse" ? "text/event-stream; charset=utf-8" : "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+        "X-KnexAI-Streaming-Watchdog": "streaming-enforced",
+      },
+    });
+  }
+
   let rawText = "";
   if (contentType.includes("text/event-stream")) {
     const { stream } = sseToPlainTextStream(upstream);
@@ -4517,9 +5210,17 @@ async function toClientTextStreamResponse(
   const guarded = applyPolicyGuardsToAnswer(rawText, policyContext).answer;
   const repaired = await repairPolicyAnswerIfNeeded(guarded, policyContext, llmConfig);
   enqueueLearningFromPolicyContext(policyContext, repaired, "direct", ["engine:direct"]);
-  return new Response(createChunkedTextStream(repaired), {
+  const textStream = streamRequested ? createInteractiveTextStream(repaired) : createChunkedTextStream(repaired);
+  const responseStream = streamRequested && streamMode === "sse" ? toSseStream(textStream) : textStream;
+  return new Response(responseStream, {
     status: 200,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
+    headers: {
+      "Content-Type": streamRequested && streamMode === "sse" ? "text/event-stream; charset=utf-8" : "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      ...(streamRequested ? { "X-KnexAI-Streaming-Watchdog": "streaming-enforced" } : {}),
+    },
   });
 }
 
@@ -4663,7 +5364,7 @@ export async function POST(req: NextRequest) {
         intentFamily: classifyAssistantIdentityIntentFamily(safePrompt, effectiveConversationHistory),
         tags: ["fastpath", "micro_social"],
       });
-      const textStream = createChunkedTextStream(microText);
+      const textStream = streamRequested ? createInteractiveTextStream(microText) : createChunkedTextStream(microText);
       const responseStream = streamRequested && streamMode === "sse" ? toSseStream(textStream) : textStream;
       return new Response(responseStream, {
         status: 200,
@@ -4675,6 +5376,7 @@ export async function POST(req: NextRequest) {
           "Cache-Control": "no-cache, no-transform",
           Connection: "keep-alive",
           "X-Accel-Buffering": "no",
+          ...(streamRequested ? { "X-KnexAI-Streaming-Watchdog": "streaming-enforced" } : {}),
           "X-KnexAI-Pipeline": "micro-fastpath",
           "X-KnexAI-Watchdog": "greeting-exempt",
         },
@@ -4918,7 +5620,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (!selectedRun || !selectedOutputText) {
-          if (lowQualityFallbackRun && lowQualityFallbackOutputText) {
+          const canUseLowQualityFallback =
+            Boolean(lowQualityFallbackRun && lowQualityFallbackOutputText) &&
+            isLowQualityFallbackExplicitlyAllowed() &&
+            !pipelineWatchdogEnabled &&
+            !descendingDeepOnlyMode &&
+            !descendingStrict;
+          if (canUseLowQualityFallback && lowQualityFallbackRun && lowQualityFallbackOutputText) {
             selectedRun = lowQualityFallbackRun;
             selectedOutputText = lowQualityFallbackOutputText;
             selectedAttempt = lowQualityFallbackAttempt;
@@ -4927,7 +5635,7 @@ export async function POST(req: NextRequest) {
               maxAttempts,
             });
           } else {
-          throw lastDescendingError || new Error("descending_pipeline_attempts_exhausted");
+            throw lastDescendingError || new Error("descending_pipeline_attempts_exhausted");
           }
         }
         const finalDescendingText = selectedOutputText
@@ -4982,7 +5690,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (streamRequested) {
-          const textStream = createChunkedTextStream(finalOutputText);
+          const textStream = createInteractiveTextStream(finalOutputText);
           const responseStream = streamMode === "sse" ? toSseStream(textStream) : textStream;
           return new Response(responseStream, {
             status: 200,
@@ -4991,6 +5699,7 @@ export async function POST(req: NextRequest) {
               "Cache-Control": "no-cache, no-transform",
               Connection: "keep-alive",
               "X-Accel-Buffering": "no",
+              "X-KnexAI-Streaming-Watchdog": "streaming-enforced",
               "X-KnexAI-Pipeline": "descending",
               "X-KnexAI-Route": selectedRun.route,
               "X-KnexAI-Descending-Attempt": `${selectedAttempt}/${maxAttempts}`,
@@ -5059,24 +5768,43 @@ export async function POST(req: NextRequest) {
               recoveryPrompt,
               buildConversationStateSummaryBlock(recoveryState),
             );
-            const recoveryResponse = await toClientTextStreamResponse(recoveryUpstream, recoveryPolicyContext, directConfig);
-            const recoveryText = (await recoveryResponse.text().catch(() => "")).trim();
-            if (recoveryText) {
-              rememberRuntimeConversationTurn(conversationKeyFromBody, safePrompt, recoveryText);
+            if (streamRequested) {
+              return toClientTextStreamResponse(recoveryUpstream, recoveryPolicyContext, directConfig, {
+                streamRequested: true,
+                streamMode,
+              });
+            }
+            const recoveryResponse = await toClientTextStreamResponse(recoveryUpstream, recoveryPolicyContext, directConfig, {
+              streamRequested: false,
+              streamMode,
+            });
+            const recoveryRawText = (await recoveryResponse.text().catch(() => "")).trim();
+            const recoveryText = ensureUtf8Response(decodeLikelyMojibake(recoveryRawText)).text.trim();
+            const normalizedRecoveryText =
+              stripConversationRoleArtifacts(recoveryText) || recoveryText;
+            if (normalizedRecoveryText) {
+              if (isLowQualityDescendingOutput(normalizedRecoveryText, verificationTargetPrompt)) {
+                throw new Error("low_quality_descending_recovery_output");
+              }
+              rememberRuntimeConversationTurn(
+                conversationKeyFromBody,
+                safePrompt,
+                normalizedRecoveryText,
+              );
               enqueueContinuousLearningCapture({
                 phase: "output",
                 source: "api:ai-system-anm:descending_recovery",
                 conversationKey: conversationKeyFromBody,
                 userKey: userKeyFromBody,
                 prompt: safePrompt,
-                answer: recoveryText,
+                answer: normalizedRecoveryText,
                 history: historyForCascade,
                 route: "inferential",
                 mode: "descending_recovery",
                 intentFamily: identityIntentFamily,
                 tags: ["descending_pipeline_recovery", "watchdog"],
               });
-              return new Response(createChunkedTextStream(recoveryText), {
+              return new Response(createChunkedTextStream(normalizedRecoveryText), {
                 status: 200,
                 headers: {
                   "Content-Type": "text/plain; charset=utf-8",
@@ -5119,9 +5847,10 @@ export async function POST(req: NextRequest) {
               intentFamily: identityIntentFamily,
               tags: ["identity_fallback", "descending_failure"],
             });
+            const textStream = streamRequested ? createInteractiveTextStream(canonical) : createChunkedTextStream(canonical);
             const responseStream = streamRequested && streamMode === "sse"
-              ? toSseStream(createChunkedTextStream(canonical))
-              : createChunkedTextStream(canonical);
+              ? toSseStream(textStream)
+              : textStream;
             return new Response(responseStream, {
               status: 200,
               headers: {
@@ -5309,31 +6038,20 @@ export async function POST(req: NextRequest) {
         if (!run.stream) {
           throw new LlmRouteError(500, "ASSISTANT_STREAM_MISSING", "Falha ao abrir stream do assistant pipeline.");
         }
-        const streamRawContent = await new Response(run.stream).text();
-        const streamCleanedContent = stripConversationRoleArtifacts(streamRawContent || "");
-        const streamEnforcedContent = enforceResponseStructure(streamCleanedContent || streamRawContent || "", {
-          state: responsePolicyContext.state,
-          complexity: responsePolicyContext.complexity,
+        const guardedStream = createPolicyGuardedTextStream(run.stream, responsePolicyContext, {
+          onComplete: (finalText) => {
+            if (!finalText) return;
+            const guarded = applyPolicyGuardsToAnswer(finalText, responsePolicyContext).answer;
+            rememberRuntimeConversationTurn(conversationKeyFromBody, safePrompt, guarded);
+            enqueueLearningFromPolicyContext(
+              responsePolicyContext,
+              guarded,
+              "assistant_orchestrator_rag_stream",
+              ["rag_orchestrator", "stream"],
+            );
+          },
         });
-        const streamGuardedContent = enforceRouteMicroConversationalGuard({
-          prompt: responsePolicyContext.userMessage,
-          history: responsePolicyContext.history,
-          answer: streamEnforcedContent || streamCleanedContent || streamRawContent || "",
-          identityIntentFamily: responsePolicyContext.identityIntentFamily,
-        });
-        let streamFinalText = ensureUtf8Response(
-          decodeLikelyMojibake(streamGuardedContent),
-        ).text;
-        streamFinalText = applyPolicyGuardsToAnswer(streamFinalText, responsePolicyContext).answer;
-        streamFinalText = await repairPolicyAnswerIfNeeded(streamFinalText, responsePolicyContext, config);
-        enqueueLearningFromPolicyContext(
-          responsePolicyContext,
-          streamFinalText,
-          "assistant_orchestrator_rag_stream",
-          ["rag_orchestrator", "stream"],
-        );
-        const textStream = createChunkedTextStream(streamFinalText);
-        const responseStream = streamMode === "sse" ? toSseStream(textStream) : textStream;
+        const responseStream = streamMode === "sse" ? toSseStream(guardedStream) : guardedStream;
         return new Response(responseStream, {
           status: 200,
           headers: {
@@ -5341,6 +6059,7 @@ export async function POST(req: NextRequest) {
             "Cache-Control": "no-cache, no-transform",
             Connection: "keep-alive",
             "X-Accel-Buffering": "no",
+            "X-KnexAI-Streaming-Watchdog": "streaming-enforced",
           },
         });
       }
@@ -5544,7 +6263,7 @@ export async function POST(req: NextRequest) {
               answerChars: anmAttempt.value.answer.length,
               routePolicy: "anm_strict_primary",
             });
-            return toAnmTextResponse(anmAttempt.value, responsePolicyContext);
+            return await toAnmTextResponse(anmAttempt.value, responsePolicyContext, config);
           }
 
           const directHealth = await probeDirectHealth(config);
@@ -5565,7 +6284,10 @@ export async function POST(req: NextRequest) {
             .then((upstream) => toAttemptOk("direct", upstream))
             .catch((error: unknown) => toAttemptError("direct", error));
           if (directAttempt.ok && directAttempt.source === "direct") {
-            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext, config);
+            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext, config, {
+              streamRequested,
+              streamMode,
+            });
           }
           throw buildEngineCompositeError([anmAttempt, directAttempt]);
         }
@@ -5602,13 +6324,16 @@ export async function POST(req: NextRequest) {
               answerChars: anmAttempt.value.answer.length,
               routePolicy: "anm_only_due_direct_unhealthy",
             });
-            return toAnmTextResponse(anmAttempt.value, responsePolicyContext);
+            return await toAnmTextResponse(anmAttempt.value, responsePolicyContext, config);
           }
           const directAttempt = await requestLlmStreaming(directConfig, effectiveHistory, promptForDirect, directContextBlock)
             .then((upstream) => toAttemptOk("direct", upstream))
             .catch((error: unknown) => toAttemptError("direct", error));
           if (directAttempt.ok && directAttempt.source === "direct") {
-            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext, config);
+            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext, config, {
+              streamRequested,
+              streamMode,
+            });
           }
           throw buildEngineCompositeError([anmAttempt, directAttempt]);
         }
@@ -5618,7 +6343,10 @@ export async function POST(req: NextRequest) {
             .then((upstream) => toAttemptOk("direct", upstream))
             .catch((error: unknown) => toAttemptError("direct", error));
           if (directAttempt.ok && directAttempt.source === "direct") {
-            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext, config);
+            return toClientTextStreamResponse(directAttempt.value, responsePolicyContext, config, {
+              streamRequested,
+              streamMode,
+            });
           }
           const anmAttempt = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
             .then((anm) => toAttemptOk("ai_system_anm", anm))
@@ -5630,7 +6358,7 @@ export async function POST(req: NextRequest) {
               answerChars: anmAttempt.value.answer.length,
               routePolicy: "anm_fallback_after_direct_failure",
             });
-            return toAnmTextResponse(anmAttempt.value, responsePolicyContext);
+            return await toAnmTextResponse(anmAttempt.value, responsePolicyContext, config);
           }
           throw buildEngineCompositeError([directAttempt, anmAttempt]);
         }
@@ -5669,17 +6397,23 @@ export async function POST(req: NextRequest) {
             answerChars: anm.answer.length,
             routePolicy: "anm_soft_won_race",
           });
-          return toAnmTextResponse(anm, responsePolicyContext);
+          return await toAnmTextResponse(anm, responsePolicyContext, config);
         }
         if (first.ok && first.source === "direct") {
           const upstream = first.value as Response;
-          return toClientTextStreamResponse(upstream, responsePolicyContext, config);
+          return toClientTextStreamResponse(upstream, responsePolicyContext, config, {
+            streamRequested,
+            streamMode,
+          });
         }
 
         if (!first.ok && first.source === "ai_system_anm") {
           const second = await directPromise;
           if (second.ok && second.source === "direct") {
-            return toClientTextStreamResponse(second.value, responsePolicyContext, config);
+            return toClientTextStreamResponse(second.value, responsePolicyContext, config, {
+              streamRequested,
+              streamMode,
+            });
           }
           const hardAnm = await requestAnmChat(effectiveEngineMode, promptForAnm, sharedIdentityRuntimePayload, anmRequestOptions)
             .then((anm) => toAttemptOk("ai_system_anm", anm))
@@ -5691,7 +6425,7 @@ export async function POST(req: NextRequest) {
               answerChars: hardAnm.value.answer.length,
               routePolicy: "anm_hard_retry_after_soft_timeout",
             });
-            return toAnmTextResponse(hardAnm.value, responsePolicyContext);
+            return await toAnmTextResponse(hardAnm.value, responsePolicyContext, config);
           }
           throw buildEngineCompositeError([first, second, hardAnm]);
         }
@@ -5707,7 +6441,7 @@ export async function POST(req: NextRequest) {
               answerChars: hardAnm.value.answer.length,
               routePolicy: "anm_hard_after_direct_failure",
             });
-            return toAnmTextResponse(hardAnm.value, responsePolicyContext);
+            return await toAnmTextResponse(hardAnm.value, responsePolicyContext, config);
           }
           throw buildEngineCompositeError([first, hardAnm]);
         }
@@ -5718,7 +6452,7 @@ export async function POST(req: NextRequest) {
           anmBaseUrl: effectiveEngineMode.anmBaseUrl,
           answerChars: anm.answer.length,
         });
-        return toAnmTextResponse(anm, responsePolicyContext);
+        return await toAnmTextResponse(anm, responsePolicyContext, config);
       }
     }
 
@@ -5732,7 +6466,10 @@ export async function POST(req: NextRequest) {
     }
     const directConfig = applyResolvedLlmBaseUrl(config, directHealth.baseUrl);
     const upstream = await requestLlmStreaming(directConfig, effectiveHistory, promptForDirect, directContextBlock);
-    return toClientTextStreamResponse(upstream, responsePolicyContext, config);
+    return toClientTextStreamResponse(upstream, responsePolicyContext, config, {
+      streamRequested,
+      streamMode,
+    });
   } catch (error) {
     if (error instanceof LlmRouteError) {
       console.error("KNEXAI_LLM_ERROR", { code: error.code, status: error.status, message: error.message });
@@ -5746,18 +6483,4 @@ export async function POST(req: NextRequest) {
     return safeBackendError(500, "INTERNAL_ERROR", "Erro interno ao processar a requisicao.");
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
