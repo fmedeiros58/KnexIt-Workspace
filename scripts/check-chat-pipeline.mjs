@@ -158,6 +158,62 @@ async function readResponseBody(response) {
   return { contentType, rawBody, payload, replyText };
 }
 
+async function readPlainTextStreamWithTimeline(response, timeoutMs = 90000) {
+  if (!response.body) {
+    throw new Error("response sem body stream");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const startedAt = Date.now();
+  const chunks = [];
+  let firstChunkAt = null;
+  let lastChunkAt = null;
+  let fullText = "";
+
+  while (true) {
+    const race = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve({ __timeout: true }), timeoutMs);
+      reader
+        .read()
+        .then((result) => {
+          clearTimeout(timer);
+          resolve(result);
+        })
+        .catch((error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
+    if (race && typeof race === "object" && "__timeout" in race) {
+      throw new Error(`stream timeout apos ${timeoutMs}ms`);
+    }
+
+    const { done, value } = race;
+    if (done) break;
+
+    const chunkText = decoder.decode(value, { stream: true });
+    if (!chunkText) continue;
+
+    const now = Date.now();
+    if (firstChunkAt === null) firstChunkAt = now;
+    lastChunkAt = now;
+    chunks.push({
+      t: now - startedAt,
+      size: chunkText.length,
+    });
+    fullText += chunkText;
+  }
+
+  fullText += decoder.decode();
+  return {
+    fullText: normalizeString(fullText),
+    chunkCount: chunks.length,
+    firstChunkAtMs: firstChunkAt === null ? null : firstChunkAt - startedAt,
+    lastChunkAtMs: lastChunkAt === null ? null : lastChunkAt - startedAt,
+    totalElapsedMs: Date.now() - startedAt,
+  };
+}
+
 function normalizeForGuard(value) {
   return normalizeString(value)
     .toLowerCase()
@@ -226,6 +282,23 @@ function hasLogicalSurfaceLabelLeak(text) {
   const normalized = normalizeForGuard(text);
   if (!normalized) return false;
   return /\b(?:leitura|sintese)\s+logico-?pratica\s*:/.test(normalized);
+}
+
+function hasMojibakeLeak(text) {
+  const raw = normalizeString(text);
+  if (!raw) return false;
+  const hits = raw.match(/(?:Ã[\x80-\xBF]|Â[\x80-\xBF]|ï¿½|�)/g) || [];
+  return hits.length >= 2;
+}
+
+function hasAbruptEnding(text) {
+  const normalized = normalizeString(text);
+  if (!normalized) return false;
+  if (/[.!?)]$/.test(normalized)) return false;
+  if (/[:;,\-]$/.test(normalized)) return true;
+  return /\b(e|ou|mas|porque|portanto|logo|assim|entao|and|or|but|because|therefore)\s*$/i.test(
+    normalized,
+  );
 }
 
 function isPromptEcho(answer, prompt) {
@@ -431,6 +504,63 @@ await runStep("canonical-watchdog", "Nao-saudacao exige descending + watchdog", 
   };
 });
 
+await runStep("streaming-watchdog", "Streaming textual progressivo sem regressao", async () => {
+  if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
+  const prompt =
+    "Explique em quatro frases como equilibrar liberdade e bem-estar agregado em decisoes coletivas.";
+  const response = await withTimeout(
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/plain",
+      },
+      body: JSON.stringify({
+        prompt,
+        message: prompt,
+        history: [],
+        stream: true,
+        streamMode: "plain",
+      }),
+    }),
+    effectiveChatTimeoutMs,
+    "streaming-watchdog timeout",
+  );
+
+  if (!response.ok) {
+    const body = await readResponseBody(response);
+    throw new Error(body?.replyText || body?.rawBody || `falha no stream watchdog (HTTP ${response.status})`);
+  }
+  const streamingWatchdogHeader = normalizeString(response.headers.get("x-knexai-streaming-watchdog")).toLowerCase();
+  if (streamingWatchdogHeader !== "streaming-enforced") {
+    throw new Error(
+      `stream watchdog header ausente/invalido (x-knexai-streaming-watchdog=${streamingWatchdogHeader || "vazio"})`,
+    );
+  }
+
+  const timeline = await readPlainTextStreamWithTimeline(response, effectiveChatTimeoutMs);
+  if (!timeline.fullText) {
+    throw new Error("stream watchdog retornou texto vazio");
+  }
+  if (timeline.chunkCount < 2) {
+    throw new Error(`stream watchdog falhou: chunks insuficientes (${timeline.chunkCount})`);
+  }
+  if ((timeline.lastChunkAtMs || 0) < 40) {
+    throw new Error(
+      `stream watchdog falhou: entrega nao progressiva (lastChunkAtMs=${timeline.lastChunkAtMs ?? "null"})`,
+    );
+  }
+
+  return {
+    message: "streaming progressivo validado",
+    chunkCount: timeline.chunkCount,
+    firstChunkAtMs: timeline.firstChunkAtMs,
+    lastChunkAtMs: timeline.lastChunkAtMs,
+    preview: timeline.fullText.slice(0, 140),
+    streamingWatchdogHeader,
+  };
+});
+
 await runStep("pt-no-echo", "Prompt em PT nao pode vazar eco em ingles", async () => {
   if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
   const prompt =
@@ -476,6 +606,77 @@ await runStep("pt-no-echo", "Prompt em PT nao pode vazar eco em ingles", async (
     message: "resposta em PT sem eco validada",
     surface,
     replyPreview: body.replyText.slice(0, 140),
+  };
+});
+
+await runStep("deep-pt-no-echo-no-trunc", "Prompt deliberativo longo em PT sem eco/truncamento/mojibake", async () => {
+  if (!runtime.apiBaseUrl) throw new Error("apiBaseUrl ausente");
+  const prompt =
+    "Considere um sistema social idealizado com tres principios normativos obrigatorios: (1) nenhuma decisao coletiva pode reduzir a liberdade basica de um individuo inocente; (2) toda decisao coletiva deve maximizar o bem-estar agregado; (3) toda decisao coletiva deve ser justificavel por uma regra universal sem excecao. Sem repetir o enunciado, responda com analise completa cobrindo demonstracao formal, distincao conceitual, modelos, custos, objecao, reformulacao sob incerteza e pressupostos finais.";
+
+  const response = await withTimeout(
+    fetch(`${runtime.apiBaseUrl}/api/ai-system-anm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        message: prompt,
+        history: [],
+        stream: false,
+      }),
+    }),
+    effectiveChatTimeoutMs,
+    "deep-pt-no-echo-no-trunc timeout",
+  );
+
+  const body = await readResponseBody(response);
+  if (!response.ok) {
+    throw new Error(body?.replyText || body?.rawBody || `falha no teste deliberativo longo PT (HTTP ${response.status})`);
+  }
+  if (!body.replyText) {
+    throw new Error("resposta vazia no teste deliberativo longo PT");
+  }
+  if (isPromptEcho(body.replyText, prompt)) {
+    throw new Error("resposta deliberativa longa ecoou/parafraseou o enunciado");
+  }
+  if (hasMixedLanguageLeak(body.replyText)) {
+    throw new Error("resposta deliberativa longa vazou mistura de idiomas");
+  }
+  if (hasMojibakeLeak(body.replyText)) {
+    throw new Error("resposta deliberativa longa apresentou mojibake");
+  }
+  if (hasAbruptEnding(body.replyText)) {
+    throw new Error("resposta deliberativa longa terminou de forma abrupta/truncada");
+  }
+  if (body.replyText.length < 900) {
+    throw new Error(`resposta deliberativa longa curta demais (${body.replyText.length} chars)`);
+  }
+  const paragraphCount = body.replyText
+    .split(/\n{2,}/g)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+  if (paragraphCount < 3) {
+    throw new Error(`resposta deliberativa longa com paragrafos insuficientes (${paragraphCount})`);
+  }
+  const normalized = normalizeForGuard(body.replyText);
+  if (
+    /\b(deliberative task contract|secoes obrigatorias|transicoes obrigatorias|nivel minimo de prova|modo obrigatorio)\b/.test(
+      normalized,
+    )
+  ) {
+    throw new Error("resposta deliberativa longa vazou scaffold interno");
+  }
+  if (!/\b(objecao|objeccao|critica forte|steelman)\b/.test(normalized)) {
+    throw new Error("resposta deliberativa longa nao apresentou objecao forte");
+  }
+  if (!/\b(pressupost|premissa|sem provar)\b/.test(normalized)) {
+    throw new Error("resposta deliberativa longa nao explicitou pressupostos");
+  }
+
+  return {
+    message: "resposta deliberativa longa validada sem eco/truncamento/mojibake",
+    replyChars: body.replyText.length,
+    preview: body.replyText.slice(0, 180),
   };
 });
 

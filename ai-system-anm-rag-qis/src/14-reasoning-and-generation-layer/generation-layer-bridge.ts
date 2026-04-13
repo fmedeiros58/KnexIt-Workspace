@@ -41,6 +41,10 @@ import { buildTransitions } from "./response-assembly-core/transition-builder";
 import { buildConclusion } from "./response-assembly-core/conclusion-builder";
 import { handoffGenerationToStructure } from "./generation-to-structure-bridge";
 import { runCommunicativeElaborationBridge } from "../bridges/communicative-elaboration.bridge";
+import { detectAssertionVsProofGap } from "../05b-deliberative-task-contract-layer/assertion-vs-proof-detector";
+import { detectPromptRestatement } from "../05b-deliberative-task-contract-layer/prompt-restatement-detector";
+import { detectProofVsIllustration } from "../05b-deliberative-task-contract-layer/proof-vs-illustration-detector";
+import { checkResponseIntegrity } from "../05b-deliberative-task-contract-layer/response-integrity-gate";
 import {
   isAssistantCreatorPrompt,
   isAssistantIdentityPrompt,
@@ -139,7 +143,7 @@ function buildCurrentDateAnswer(timeZone = "America/Sao_Paulo"): string {
     year: "numeric",
     timeZone,
   }).format(now);
-  return `Hoje é ${capitalizeFirst(weekday)}, ${fullDate}.`;
+  return `Hoje e ${capitalizeFirst(weekday)}, ${fullDate}.`;
 }
 
 function resolveReflectiveObjectiveFinalAnswer(state: ProcessingState): string | null {
@@ -175,152 +179,7 @@ function normalizeForDeepFallback(text: string): string {
     .trim();
 }
 
-function isComplexDecisionPrompt(text: string): boolean {
-  const normalized = normalizeForDeepFallback(text);
-  if (!normalized) return false;
-  const scoreTerms = [
-    /\b(analise|analisar|avaliar)\b/,
-    /\b(sistema complexo|complexo)\b/,
-    /\b(criterio|criterios|pesos?)\b/,
-    /\b(alternativa|alternativas|priorizacao)\b/,
-    /\b(risco|riscos|curto prazo|longo prazo)\b/,
-    /\b(orcamento|recursos limitados|corte)\b/,
-  ];
-  const hits = scoreTerms.reduce((acc, pattern) => acc + (pattern.test(normalized) ? 1 : 0), 0);
-  return hits >= 3;
-}
-
-function extractDecisionOptions(text: string): string[] {
-  const raw = `${text || ""}`;
-  const fromPriorities = raw.match(/prioridades?\s*:\s*([^\n.]+)/i)?.[1] || "";
-  const fromBetween = raw.match(/entre\s+([^\n.]+)/i)?.[1] || "";
-  const candidateSegment = `${fromPriorities || fromBetween}`.trim();
-  if (!candidateSegment) return [];
-
-  const items = candidateSegment
-    .split(/\s*,\s*|\s+ou\s+/i)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 6)
-    .map((item) => item.replace(/\s+/g, " "));
-
-  return Array.from(new Set(items)).slice(0, 4);
-}
-
-function classifyDecisionOption(option: string): "assistencia" | "pesquisa" | "digital" | "geral" {
-  const normalized = normalizeForDeepFallback(option);
-  if (/\b(assistencia|estudantil|permanencia|bolsa|auxilio)\b/.test(normalized)) return "assistencia";
-  if (/\b(pesquisa|biodiversidade|laboratorio|cientifica|cientifico)\b/.test(normalized)) return "pesquisa";
-  if (/\b(digital|infraestrutura|ensino|tecnologia|plataforma|rede)\b/.test(normalized)) return "digital";
-  return "geral";
-}
-
-function sanitizeDecisionOption(option: string): string {
-  return `${option || ""}`
-    .replace(/^[“"'`]+/g, "")
-    .replace(/[”"'`]+$/g, "")
-    .replace(/[.;:!?]+$/g, "")
-    .trim();
-}
-
-function buildComplexDecisionFallback(state: ProcessingState): string {
-  const prompt = `${state.rawMessage || state.normalizedMessage || ""}`.trim();
-  const extracted = extractDecisionOptions(prompt).map(sanitizeDecisionOption).filter(Boolean);
-  const defaults = [
-    "ampliar assistencia estudantil",
-    "investir em pesquisa aplicada",
-    "modernizar infraestrutura digital do ensino",
-  ];
-  const options: string[] = [];
-  const seen = new Set<string>();
-  for (const candidate of [...extracted, ...defaults]) {
-    const key = normalizeForDeepFallback(candidate)
-      .replace(/\b(a|o|de|do|da|e|ou)\b/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    options.push(candidate);
-    if (options.length >= 3) break;
-  }
-  const optionA = options[0] || defaults[0];
-  const optionB = options[1] || defaults[1];
-  const optionC = options[2] || defaults[2];
-
-  const roleA = classifyDecisionOption(optionA);
-  const roleB = classifyDecisionOption(optionB);
-  const roleC = classifyDecisionOption(optionC);
-
-  const immediateImpactOption =
-    roleA === "assistencia" ? optionA : roleB === "assistencia" ? optionB : roleC === "assistencia" ? optionC : optionA;
-  const longTermKnowledgeOption = (() => {
-    if (roleA === "pesquisa" && optionA !== immediateImpactOption) return optionA;
-    if (roleB === "pesquisa" && optionB !== immediateImpactOption) return optionB;
-    if (roleC === "pesquisa" && optionC !== immediateImpactOption) return optionC;
-    if (optionB !== immediateImpactOption) return optionB;
-    return optionC;
-  })();
-  const enablementOption = (() => {
-    if (roleA === "digital" && optionA !== immediateImpactOption && optionA !== longTermKnowledgeOption) return optionA;
-    if (roleB === "digital" && optionB !== immediateImpactOption && optionB !== longTermKnowledgeOption) return optionB;
-    if (roleC === "digital" && optionC !== immediateImpactOption && optionC !== longTermKnowledgeOption) return optionC;
-    if (optionC !== immediateImpactOption && optionC !== longTermKnowledgeOption) return optionC;
-    if (optionB !== immediateImpactOption && optionB !== longTermKnowledgeOption) return optionB;
-    return optionA;
-  })();
-
-  return [
-    "- A decisao nao e linear: permanencia estudantil, capacidade cientifica e infraestrutura de ensino se reforcam e tambem competem por caixa no curto prazo.",
-    "",
-    "Premissas explicitas:",
-    "1. O orcamento e restrito no horizonte de 12 meses.",
-    "2. Evasao estudantil cresce quando suporte financeiro e psicossocial fica abaixo do minimo.",
-    "3. Pesquisa aplicada em biodiversidade e vetor de captacao futura (editais, convenios, inovacao regional).",
-    "4. Infraestrutura digital afeta eficiencia docente, alcance e qualidade avaliativa.",
-    "5. A universidade precisa equilibrar impacto social imediato com sustentabilidade academica de longo prazo.",
-    "",
-    "Variaveis centrais:",
-    "- taxa de evasao e retencao;",
-    "- producao cientifica com potencial de transferencia;",
-    "- maturidade digital do ensino (acesso, plataforma, dados, suporte);",
-    "- capacidade de execucao institucional;",
-    "- alavancagem de financiamento externo;",
-    "- risco reputacional e legitimidade publica.",
-    "",
-    "Criterios de decisao com pesos justificados:",
-    "1. Impacto social imediato e permanencia (peso 0,30): protege alunos vulneraveis e reduz evasao no curto prazo.",
-    "2. Retorno academico e inovacao regional (peso 0,25): gera vantagem estrategica e novas fontes de recurso.",
-    "3. Viabilidade de execucao em 12 meses (peso 0,20): evita plano ambicioso sem entrega real.",
-    "4. Efeito multiplicador entre areas (peso 0,15): prioriza investimentos que melhoram mais de um subsistema.",
-    "5. Risco de atraso e descontinuidade (peso 0,10): controla perda de impacto por gargalo operacional.",
-    "",
-    "Alternativa 1 (equilibrio orientado a permanencia):",
-    `- 45% em ${immediateImpactOption}; 35% em ${enablementOption}; 20% em ${longTermKnowledgeOption}.`,
-    "- Racional: segura evasao agora, melhora operacao didatica e preserva nucleo de pesquisa.",
-    "",
-    "Alternativa 2 (crescimento cientifico orientado a captacao):",
-    `- 45% em ${longTermKnowledgeOption}; 30% em ${enablementOption}; 25% em ${immediateImpactOption}.`,
-    "- Racional: acelera projetos com potencial de receita futura, com risco social maior no curto prazo.",
-    "",
-    "Recomendacao:",
-    "- Adotar a Alternativa 1 no ciclo atual, com gatilhos trimestrais de revisao (evasao, execucao orcamentaria, captacao externa e desempenho academico).",
-    "",
-    "Riscos e consequencias:",
-    "- Curto prazo (positivo): menor evasao e maior estabilidade academica.",
-    "- Curto prazo (risco): pesquisa pode perder ritmo competitivo em alguns grupos.",
-    "- Longo prazo (positivo): base social preservada e infraestrutura mais preparada para expansao.",
-    "- Longo prazo (risco): sem governanca de projetos, a fatia digital pode virar despesa operacional sem ganho estrutural.",
-    "",
-    "Critica mais forte contra a recomendacao:",
-    "- Priorizar permanencia agora pode subfinanciar pesquisa de alta relevancia estrategica e reduzir a chance de captar recursos maiores no proximo ciclo.",
-    "",
-    "Reformulacao com corte de 40% no orcamento:",
-    `- 55% em ${immediateImpactOption} (piso de permanencia), 30% em ${enablementOption} (somente itens criticos), 15% em ${longTermKnowledgeOption} (projetos com maior potencial de financiamento externo).`,
-    "- Congelar iniciativas de baixa alavancagem, concentrar em entregas de alto impacto e revisar metas a cada 90 dias.",
-  ].join("\n");
-}
-
 function buildGenericDeepFallback(state: ProcessingState): string {
-  const normalizedMessage = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
   const complexity = Math.max(state.complexityProfile.score || 0, state.preRouteSignals?.quickComplexity || 0);
   const depthLabel = complexity >= 0.65 ? "alto" : complexity >= 0.45 ? "medio-alto" : "medio";
   return [
@@ -333,101 +192,14 @@ function buildGenericDeepFallback(state: ProcessingState): string {
     "",
     "Metodo aplicado:",
     "- decompor o problema em variaveis,",
-    "- comparar cenarios com pesos explicitos,",
+    "- comparar cenarios com criterios explicitos,",
     "- explicitar riscos de curto e longo prazo,",
-    "- revisar a propria recomendacao por critica forte.",
+    "- revisar a propria recomendacao por critica forte quando necessario.",
     "",
     `Nivel de profundidade aplicado: ${depthLabel}.`,
     "",
     "Resposta objetiva:",
-    `- Para a pergunta: "${normalizedMessage.slice(0, 180)}${normalizedMessage.length > 180 ? "..." : ""}", recomendo tratar a decisao por matriz multicriterio com revisao periodica e controle de risco, evitando resposta unica sem justificativa de pesos.`,
-  ].join("\n");
-}
-
-function isEliteNormativeConflictPrompt(text: string): boolean {
-  const normalized = normalizeForDeepFallback(text);
-  if (!normalized) return false;
-
-  const hasLiberdade = /\b(liberdade basica|liberdades basicas|nenhuma decisao coletiva pode reduzir a liberdade)\b/.test(normalized);
-  const hasBemEstar = /\b(bem-estar agregado|bem estar agregado|maximizar o bem-estar|maximizar o bem estar)\b/.test(normalized);
-  const hasRegraUniversal = /\b(regra universal|justificavel por uma regra universal|universalizavel|sem excecao)\b/.test(normalized);
-  const hasStructuredDemand = /\b(\(a\)|\(b\)|\(c\)|\(d\)|\(e\)|\(f\)|\(g\)|demonstre formalmente|melhor objecao|premissas escondidas|explicite o que)\b/.test(
-    normalized,
-  );
-
-  return hasLiberdade && hasBemEstar && hasRegraUniversal && hasStructuredDemand;
-}
-
-function isAbstractNormativePrompt(text: string): boolean {
-  const normalized = normalizeForDeepFallback(text);
-  if (!normalized) return false;
-  return /\b(principios normativos|liberdade basica|bem-estar agregado|bem estar agregado|regra universal|contradicao real|inconsistencia de aplicacao|premissas escondidas)\b/.test(
-    normalized,
-  );
-}
-
-function buildEliteNormativeFallback(state: ProcessingState): string {
-  const message = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
-  const hasMeasurementUncertainty = /\b(nao podem ser medidos com precisao|apenas estimados|estimados)\b/i.test(message);
-  const uncertaintyComplement = hasMeasurementUncertainty
-    ? "Com mensuracao imprecisa, a recomendacao precisa migrar de otimo unico para governanca adaptativa por faixas de confianca."
-    : "Se depois assumirmos mensuracao imprecisa, a recomendacao precisa migrar de otimo unico para governanca adaptativa por faixas de confianca.";
-
-  return [
-    "Definicoes operacionais (sem apelo inicial a autores):",
-    "1. Liberdade basica: conjunto minimo de acoes que um inocente pode exercer sem coercao coletiva arbitraria.",
-    "2. Bem-estar agregado: soma social dos estados de beneficio e dano, com regra de comparacao entre individuos.",
-    "3. Regra universal: criterio decisorio aplicavel a todos os casos equivalentes sem excecao ad hoc.",
-    "4. Inocente: agente sem violacao previa que justifique restricao por sancao.",
-    "",
-    "(a) Por que o conflito pode ser inevitavel:",
-    "- Seja D o conjunto de decisoes possiveis.",
-    "- P1(d): d nao reduz liberdade basica de nenhum inocente.",
-    "- P2(d): d maximiza bem-estar agregado.",
-    "- P3(d): d decorre de regra universal sem excecao.",
-    "- Em problemas com escassez e externalidades, ha pares d1 e d2 em D tais que:",
-    "  P1(d1) verdadeiro e P2(d1) falso; P2(d2) verdadeiro e P1(d2) falso.",
-    "- Se, alem disso, a regra universal que preserva P1 em todos os casos impede maximizacao em parte dos estados, e a regra que maximiza P2 exige excecoes contra inocentes em outros estados, nao existe d em D com P1 ∧ P2 ∧ P3.",
-    "- Logo, a colisao nao depende de erro retorico; pode emergir da propria estrutura de restricoes.",
-    "",
-    "(b) Contradicao real do sistema ou inconsistência de aplicacao?",
-    "- Nucleo: tensao estrutural, nao mera ma aplicacao.",
-    "- Ha, sim, possiveis inconsistencias de aplicacao (metricas ruins, vies institucional), mas mesmo com aplicacao perfeita pode restar impossibilidade conjuntiva.",
-    "",
-    "(c) Dois modelos de solucao preservando maximo dos tres principios:",
-    "Modelo 1 - Hierarquia Lexica:",
-    "- Ordem: P1 > P3 > P2.",
-    "- Primeiro elimina decisoes que violem liberdade basica de inocentes; depois aplica universalizacao; por fim otimiza bem-estar no subconjunto restante.",
-    "",
-    "Modelo 2 - Otimizacao com Restricoes e Limiar:",
-    "- P1 vira restricao forte (threshold de liberdade minima), P2 e objetivo de maximizacao condicional, P3 atua como teste de generalizacao institucional.",
-    "- Aceita perda de maximo global de P2 para evitar violacao grave de P1.",
-    "",
-    "(d) Preco logico, moral e institucional:",
-    "Modelo 1:",
-    "- Logico: sacrifica completude utilitarista (nao busca maximo global de bem-estar).",
-    "- Moral: protege inocentes com robustez, mas pode tolerar perdas agregadas relevantes.",
-    "- Institucional: exige tribunais/regras de bloqueio forte e pode gerar rigidez decisoria.",
-    "Modelo 2:",
-    "- Logico: depende de calibragem de limiares (zona cinzenta).",
-    "- Moral: reduz danos agregados, mas admite restricoes marginais de liberdade sob condicoes estritas.",
-    "- Institucional: requer aparato de mensuracao, auditoria e revisao continua.",
-    "",
-    "(e) Melhor objecao contra minha solucao preferida (Modelo 1):",
-    "- Ao tornar P1 lexical, o sistema pode blindar status quo ineficiente, impedir politicas de alto ganho coletivo e transferir custo moral para grupos difusos sem violacao individual identificavel.",
-    "",
-    "(f) Reformulacao sob incerteza de mensuracao (liberdade e bem-estar apenas estimados):",
-    "- Substituir ponto unico por intervalos de confianca.",
-    "- Adotar decisao robusta: escolher alternativas que minimizem arrependimento maximo sob cenarios plausiveis.",
-    "- Incluir clausula de reversibilidade institucional: monitoramento, gatilhos de revisao e correcao iterativa.",
-    `- ${uncertaintyComplement}`,
-    "",
-    "(g) Premissas que a resposta usou sem provar:",
-    "1. Comparabilidade parcial entre danos e beneficios interindividuais.",
-    "2. Existencia de um nucleo identificavel de liberdade basica.",
-    "3. Possibilidade de formalizar universalizacao sem ambiguidade total.",
-    "4. Boa-fe institucional minima para executar auditoria e revisao.",
-    "5. Que custos de implementacao nao anulam o ganho normativo do modelo escolhido.",
+    `- Recomendo tratar o problema por matriz multicriterio com revisao periodica e controle de risco, evitando resposta unica sem justificativa.`,
   ].join("\n");
 }
 
@@ -435,7 +207,6 @@ function buildLogicalFrameDeepFallback(state: ProcessingState): string {
   const frame = state.logicalFrame;
   if (!frame) return "";
   const message = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
-  if (isAbstractNormativePrompt(message)) return "";
   if (frame.dominantPrinciple === "unknown" && frame.confidence < 0.45) return "";
   if (!frame.shouldAffectRouting && !frame.shouldAffectRetrieval && frame.confidence < 0.55) return "";
   if (!frame.primaryGoal && !frame.recommendedAction && frame.feasibleActions.length === 0) return "";
@@ -444,14 +215,14 @@ function buildLogicalFrameDeepFallback(state: ProcessingState): string {
   const topRejected = frame.rejectedActions.slice(0, 2);
 
   const lines: string[] = [
-    `- Objetivo principal: ${frame.primaryGoal || "não explicitado com precisão"}.`,
-    `- Princípio dominante: ${frame.dominantPrinciple}.`,
-    ...(frame.secondaryGoals.length ? [`- Objetivos secundários: ${frame.secondaryGoals.join("; ")}.`] : []),
-    ...(frame.constraints.length ? [`- Restrições relevantes: ${frame.constraints.slice(0, 4).join("; ")}.`] : []),
-    ...(frame.realWorldConditions.length ? [`- Condições do mundo real: ${frame.realWorldConditions.slice(0, 4).join("; ")}.`] : []),
+    `- Objetivo principal: ${frame.primaryGoal || "nao explicitado com precisao"}.`,
+    `- Principio dominante: ${frame.dominantPrinciple}.`,
+    ...(frame.secondaryGoals.length ? [`- Objetivos secundarios: ${frame.secondaryGoals.join("; ")}.`] : []),
+    ...(frame.constraints.length ? [`- Restricoes relevantes: ${frame.constraints.slice(0, 4).join("; ")}.`] : []),
+    ...(frame.realWorldConditions.length ? [`- Condicoes do mundo real: ${frame.realWorldConditions.slice(0, 4).join("; ")}.`] : []),
     ...(frame.relevantCosts.length ? [`- Custos relevantes: ${frame.relevantCosts.join(", ")}.`] : []),
     "",
-    "Ações factíveis:",
+    "Acoes factiveis:",
   ];
 
   if (topFeasible.length > 0) {
@@ -460,11 +231,11 @@ function buildLogicalFrameDeepFallback(state: ProcessingState): string {
       lines.push(`- ${action.label}: ${action.rationale}${marginal}.`);
     }
   } else {
-    lines.push("- Ainda sem ações suficientemente factíveis com os dados atuais.");
+    lines.push("- Ainda sem acoes suficientemente factiveis com os dados atuais.");
   }
 
   if (topRejected.length > 0) {
-    lines.push("", "Ações rejeitadas:");
+    lines.push("", "Acoes rejeitadas:");
     for (const rejected of topRejected) {
       lines.push(`- ${rejected.label}: ${rejected.reason}.`);
     }
@@ -472,12 +243,12 @@ function buildLogicalFrameDeepFallback(state: ProcessingState): string {
 
   lines.push(
     "",
-    "Recomendação:",
+    "Recomendacao:",
     frame.recommendedAction
-      ? `- Melhor ação prática: ${frame.recommendedAction}.`
-      : "- Melhor ação prática: ainda indefinida com confiança adequada.",
-    `- Justificativa: ${frame.recommendationReason || "melhor relação entre objetivo principal, restrições e custo marginal."}`,
-    `- Confiança do quadro lógico: ${frame.confidence.toFixed(2)}.`,
+      ? `- Melhor acao pratica: ${frame.recommendedAction}.`
+      : "- Melhor acao pratica: ainda indefinida com confianca adequada.",
+    `- Justificativa: ${frame.recommendationReason || "melhor relacao entre objetivo principal, restricoes e custo marginal."}`,
+    `- Confianca do quadro logico: ${frame.confidence.toFixed(2)}.`,
   );
 
   return lines.join("\n");
@@ -486,8 +257,57 @@ function buildLogicalFrameDeepFallback(state: ProcessingState): string {
 function buildDeterministicDeepFallback(state: ProcessingState): string {
   const message = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
   if (!message) return "";
-  if (isEliteNormativeConflictPrompt(message)) return buildEliteNormativeFallback(state);
-  if (isComplexDecisionPrompt(message)) return buildComplexDecisionFallback(state);
+  const deliberative = state.generalTaskDeliberationState || state.deliberativeTaskState;
+  if (deliberative?.isActive && deliberative.reasoningContract) {
+    const obligationTypes = new Set(deliberative.obligationGraph.map((item) => item.type));
+    const requiredExecutions: string[] = [];
+    if (obligationTypes.has("demonstration")) requiredExecutions.push("demonstracao com premissas, condicoes e derivacao");
+    if (obligationTypes.has("distinction")) requiredExecutions.push("distincao conceitual entre categorias proximas");
+    if (obligationTypes.has("proposal") || obligationTypes.has("comparison") || obligationTypes.has("decision")) {
+      requiredExecutions.push("comparacao de modelos com mecanismo interno explicito");
+    }
+    if (obligationTypes.has("evaluation")) requiredExecutions.push("avaliacao de custos logicos, morais e institucionais");
+    if (obligationTypes.has("objection")) requiredExecutions.push("objecao steelman contra a opcao preferida");
+    if (obligationTypes.has("reformulation")) requiredExecutions.push("reformulacao sob incerteza e dados incompletos");
+    if (obligationTypes.has("assumption_audit")) requiredExecutions.push("ledger de pressupostos nao demonstrados");
+    const paragraph1 = [
+      deliberative.taskArchetypes.length > 0
+        ? `A tarefa exige operacoes como ${deliberative.taskArchetypes.join(", ")}.`
+        : "A tarefa exige execucao analitica completa.",
+      deliberative.cognitiveDemands.length > 0
+        ? `Isso pede demandas de raciocinio como ${deliberative.cognitiveDemands.join(", ")}.`
+        : "",
+      requiredExecutions.length > 0
+        ? `Portanto, a resposta precisa cobrir ${requiredExecutions.join(", ")} antes de encerrar.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const paragraph2 = deliberative.solutionModels.length > 0
+      ? `Os modelos considerados incluem ${deliberative.solutionModels
+          .slice(0, 3)
+          .map((model) => `${model.title}, cujo nucleo normativo e ${model.normativeCore}`)
+          .join("; ")}. A comparacao entre eles deve explicitar mecanismo, principio menos sacrificado e risco dominante.`
+      : "A resposta precisa comparar alternativas com mecanismo interno, trade-offs e criterio de escolha explicito.";
+
+    const paragraph3 = [
+      deliberative.strongestSelfObjection
+        ? `A critica mais forte a enfrentar e: ${deliberative.strongestSelfObjection}.`
+        : "A conclusao so e robusta se enfrentar a melhor objecao disponivel.",
+      deliberative.assumptionLedger.length > 0
+        ? `Ao final, ainda precisam ser expostos pressupostos e limites como ${deliberative.assumptionLedger
+            .slice(0, 4)
+            .map((item) => item.statement)
+            .join("; ")}.`
+        : "",
+      "O fechamento deve sintetizar a resposta sem repetir o enunciado e deixando os trade-offs explicitos.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    return [paragraph1, paragraph2, paragraph3].filter(Boolean).join("\n\n");
+  }
   const logicalFrameFallback = buildLogicalFrameDeepFallback(state);
   if (logicalFrameFallback) return logicalFrameFallback;
   return buildGenericDeepFallback(state);
@@ -505,6 +325,71 @@ function isCollapsedSummaryPromptReplay(state: ProcessingState, summary: string)
   if (!normalizedSummary || !normalizedPrompt) return false;
   const promptHead = normalizedPrompt.slice(0, Math.min(160, normalizedPrompt.length));
   return promptHead.length > 40 && normalizedSummary.includes(promptHead);
+}
+
+function hasDeclarativeExecutionScaffold(text: string): boolean {
+  const normalized = normalizeForDeepFallback(text);
+  if (!normalized) return false;
+  return /\b(demonstraremos|mostraremos|proponhamos|diremos|faremos o seguinte|nesta resposta vou|vou demonstrar|vou mostrar|i will demonstrate|i will show|let me demonstrate|let me clarify|we will show)\b/.test(
+    normalized,
+  );
+}
+
+function hasPromptReplayLead(text: string): boolean {
+  const normalized = normalizeForDeepFallback(text);
+  if (!normalized) return false;
+  return /^(consideremos|considere)\b/.test(normalized) ||
+    /\b(agora suponha|imagine agora|sem recorrer inicialmente|follow these steps|do the following)\b/.test(normalized);
+}
+
+function hasDeliberativeExecutionGap(state: ProcessingState, draft: string): boolean {
+  const cleanedDraft = `${draft || ""}`.trim();
+  if (!cleanedDraft) return true;
+
+  const prompt = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  const deliberative = state.generalTaskDeliberationState || state.deliberativeTaskState;
+  const expectedObligations = deliberative?.obligationGraph?.length || 0;
+
+  const restatement = detectPromptRestatement(prompt, cleanedDraft);
+  if (
+    restatement.detected &&
+    (
+      restatement.score >= 0.38 ||
+      restatement.issues.includes("meta_restatement_lead") ||
+      restatement.issues.includes("portuguese_prompt_replay_lead") ||
+      restatement.issues.includes("first_paragraph_prompt_replay")
+    )
+  ) {
+    return true;
+  }
+
+  const integrity = checkResponseIntegrity({
+    responseText: cleanedDraft,
+    expectedObligations,
+    satisfiedObligations: 0,
+  });
+  if (integrity.isTruncated || integrity.hasAbruptEnding) {
+    return true;
+  }
+
+  if (hasDeclarativeExecutionScaffold(cleanedDraft) || hasPromptReplayLead(cleanedDraft)) {
+    return true;
+  }
+
+  const requiresDemonstration = Boolean(
+    deliberative?.obligationGraph?.some((item) => item.type === "demonstration"),
+  );
+  if (requiresDemonstration) {
+    const proofVsIllustration = detectProofVsIllustration(cleanedDraft, {
+      requiresDemonstration: true,
+    });
+    const assertionVsProof = detectAssertionVsProofGap(cleanedDraft);
+    if (!proofVsIllustration.passed || !assertionVsProof.passed) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function resolveSafeSummary(state: ProcessingState): string {
@@ -556,25 +441,28 @@ function shouldRejectLowDepthLlmDraft(state: ProcessingState, draft: string): bo
   if (!cleanedDraft) return true;
   const normalizedDraft = normalizeForDeepFallback(cleanedDraft);
   const normalizedPrompt = normalizeForDeepFallback(`${state.normalizedMessage || state.rawMessage || ""}`);
+  const deliberative = state.generalTaskDeliberationState || state.deliberativeTaskState;
+  const deliberativeCoverage = deliberative?.coverageReport;
 
   const focusReference = resolveConversationFocus(state.normalizedMessage);
   if (isEchoLike(cleanedDraft, state.normalizedMessage) || isEchoLike(cleanedDraft, focusReference)) {
     return true;
   }
-
-  if (/^\s*(ol[aá]|oi+|opa+)\b/i.test(cleanedDraft)) return true;
-  if (/^\s*(?:leticia:)?\s*ol[aá],?\s+usu[aá]rio\b/i.test(cleanedDraft)) return true;
-  if (/\b(pipeline|modulo|m[oó]dulo|telemetria|trace|execution plan|selectedroute)\b/i.test(cleanedDraft)) return true;
-  if (/\b(?:based on the context|i understand that|literal or biological|metaphorical|figurative sense)\b/i.test(cleanedDraft)) {
+  if (hasDeliberativeExecutionGap(state, cleanedDraft)) {
     return true;
   }
-  if (/\bcontexto atual\b/i.test(cleanedDraft)) return true;
+  const promptRestatement = detectPromptRestatement(`${state.normalizedMessage || state.rawMessage || ""}`, cleanedDraft);
+  if (promptRestatement.detected && (promptRestatement.score >= 0.5 || promptRestatement.overlapRatio >= 0.72)) {
+    return true;
+  }
 
-  const complexity = Math.max(
-    state.complexityProfile.score || 0,
-    state.preRouteSignals?.quickComplexity || 0,
-  );
-  const minChars = complexity >= 0.6 ? 240 : complexity >= 0.4 ? 160 : 120;
+  if (/^\s*(ola|oi+|opa+)\b/i.test(normalizedDraft)) return true;
+  if (/^\s*(?:leticia:)?\s*ola,\s+usuario\b/i.test(normalizedDraft)) return true;
+  if (/\b(pipeline|modulo|telemetria|trace|execution plan|selectedroute)\b/i.test(normalizedDraft)) return true;
+  if (/\b(?:based on the context|literal or biological|metaphorical|figurative sense)\b/i.test(normalizedDraft)) return true;
+
+  const complexity = Math.max(state.complexityProfile.score || 0, state.preRouteSignals?.quickComplexity || 0);
+  const minChars = complexity >= 0.6 ? 260 : complexity >= 0.4 ? 180 : 130;
   if (cleanedDraft.length < minChars) return true;
 
   const sentenceCount = cleanedDraft
@@ -584,45 +472,87 @@ function shouldRejectLowDepthLlmDraft(state: ProcessingState, draft: string): bo
   if (sentenceCount < 2) return true;
 
   const likelyPortuguesePrompt =
-    /\b(que|como|porque|por que|qual|quem|entre|com|para|linguagem|cognicao|identidade|leticia|voce|não|nao)\b/.test(
+    /\b(que|como|porque|por que|qual|quem|entre|com|para|linguagem|cognicao|identidade|leticia|voce|nao)\b/.test(
       normalizedPrompt,
     );
   const englishFunctionHits = (normalizedDraft.match(/\b(the|and|is|are|with|between|through|firstly|however|therefore|will|can)\b/g) || [])
     .length;
   if (likelyPortuguesePrompt && englishFunctionHits >= 5) return true;
 
-  if (isComplexDecisionPrompt(normalizedPrompt)) {
-    const hasExpectedStructure =
-      /\bpremissas explicitas\b/.test(normalizedDraft) &&
-      /\balternativa 1\b/.test(normalizedDraft) &&
-      /\balternativa 2\b/.test(normalizedDraft);
-    if (!hasExpectedStructure) return true;
-  }
-
-  if (isEliteNormativeConflictPrompt(normalizedPrompt)) {
-    const hasExpectedStructure =
-      normalizedDraft.includes("(a)") &&
-      normalizedDraft.includes("(b)") &&
-      normalizedDraft.includes("(c)") &&
-      normalizedDraft.includes("(d)") &&
-      normalizedDraft.includes("(e)") &&
-      normalizedDraft.includes("(f)") &&
-      normalizedDraft.includes("(g)");
-    if (!hasExpectedStructure) return true;
-  }
-
   const logicalFrame = state.logicalFrame;
   if (logicalFrame?.shouldAffectRouting && logicalFrame.recommendedAction) {
     const recommendedHead = normalizeForDeepFallback(logicalFrame.recommendedAction).split(" ").slice(0, 6).join(" ");
-    if (recommendedHead && !normalizedDraft.includes(recommendedHead)) {
-      return true;
-    }
+    if (recommendedHead && !normalizedDraft.includes(recommendedHead)) return true;
   }
   if (/\b(criador|quem te criou|origem do nome|medeiros)\b/.test(normalizedPrompt)) {
     if (/\b(nao possuo criador|nao tenho criador|sem criador)\b/.test(normalizedDraft)) return true;
   }
 
+  if (deliberative?.isActive) {
+    if (
+      deliberativeCoverage &&
+      deliberativeCoverage.gateLevel !== "hard_fail" &&
+      !deliberativeCoverage.executionDiagnostics?.finalExecutionGate.shouldBlock &&
+      (deliberativeCoverage.missing || []).length === 0 &&
+      (deliberativeCoverage.blockingIssues || []).length === 0
+    ) {
+      return false;
+    }
+
+    const obligationCount = deliberative.obligationGraph.length;
+    const minDeliberativeChars = Math.max(520, 140 * Math.max(2, obligationCount));
+    if (cleanedDraft.length < minDeliberativeChars) return true;
+    if (obligationCount >= 6 && !/\b(conclusao|sintese final|fechamento)\b/.test(normalizedDraft)) return true;
+
+    const needsObjection = deliberative.obligationGraph.some((item) => item.type === "objection");
+    if (needsObjection && !/\b(obje[cç]ao|objecao|steelman|contra argumento)\b/.test(normalizedDraft)) return true;
+
+    const needsAssumptionAudit = deliberative.obligationGraph.some((item) => item.type === "assumption_audit");
+    if (needsAssumptionAudit && !/\b(pressupostos|premissas? nao provad|sem provar|limites)\b/.test(normalizedDraft)) {
+      return true;
+    }
+
+    const needsAlternatives = deliberative.obligationGraph.some(
+      (item) => item.type === "proposal" || item.type === "comparison" || item.type === "decision",
+    );
+    if (needsAlternatives && !/\b(alternativa|modelo|opcao|cenario)\b/.test(normalizedDraft)) return true;
+  }
+
   return false;
+}
+function buildDeliberativeContractInjection(state: ProcessingState): string {
+  const deliberative = state.generalTaskDeliberationState || state.deliberativeTaskState;
+  if (!deliberative?.isActive || !deliberative.reasoningContract) return "";
+  const obligationTypes = new Set(deliberative.obligationGraph.map((item) => item.type));
+  const directives = [
+    "Deliberative execution requirements:",
+    "- Keep the response in natural pt-BR and do not mirror the prompt.",
+    "- Do not expose internal contract metadata, section names, counters or scores.",
+    "- Deliver the answer as continuous reasoning, not as a visible checklist.",
+  ];
+
+  if (obligationTypes.has("demonstration")) {
+    directives.push("- When formal support is needed, derive the conclusion from premises or conditions instead of merely asserting it.");
+  }
+  if (obligationTypes.has("distinction")) {
+    directives.push("- Separate close categories explicitly before advancing the conclusion.");
+  }
+  if (
+    obligationTypes.has("proposal") ||
+    obligationTypes.has("comparison") ||
+    obligationTypes.has("planning") ||
+    obligationTypes.has("decision")
+  ) {
+    directives.push("- When alternatives are required, explain mechanism, trade-offs and the final choice rationale.");
+  }
+  if (obligationTypes.has("objection")) {
+    directives.push("- Include the strongest objection against the preferred solution before the final closure.");
+  }
+  if (obligationTypes.has("assumption_audit")) {
+    directives.push("- End by exposing assumptions and limits that were used without proof when that is required.");
+  }
+
+  return directives.join("\n");
 }
 
 function buildPrompt(state: ProcessingState): string {
@@ -639,6 +569,7 @@ function buildPrompt(state: ProcessingState): string {
   return [
     buildSystemPrompt(),
     buildTaskPrompt(state),
+    buildDeliberativeContractInjection(state),
     buildContextInjection(state),
     buildMemoryInjection(state),
     buildEvidenceInjection(state),

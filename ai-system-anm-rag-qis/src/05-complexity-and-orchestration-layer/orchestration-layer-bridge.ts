@@ -1,9 +1,18 @@
 /**
- * Responsabilidade do arquivo:
- * - Planejar rota, steps e parametros de execucao usando snapshot textual compartilhado.
- * - Atualizar executionPlan com rota efetiva e controles operacionais.
- * - Registrar trace detalhado de planejamento para auditabilidade.
+ * ANM ARCHITECTURAL SPEC
+ * Layer: 05-complexity-and-orchestration-layer
+ * Module: orchestration-layer-bridge
+ * Responsibility: Execute the hybrid orchestration flow: local heuristics, short motor read, fusion, profile selection, activation matrix and adaptive contract construction.
+ * Primary Inputs: ProcessingState after context/session consolidation.
+ * Primary Outputs: Updated execution plan, motor routing analysis, profile selection result and adaptive pipeline contract.
+ * Upstream Dependencies: complexity scorers, mode selectors, request-router, llm-routing, 05b adaptive contract builder
+ * Downstream Dependencies: memory layer and the remaining descending pipeline
+ * Invariants: The short motor call never produces the final user answer; final generation stays in layer 14.
+ * Failure Modes: Motor timeout or schema failure degrade to heuristic fallback without blocking the pipeline.
+ * Audit Events: heuristic_scan, motor_routing, fusion_completed, profiles_selected, adaptive_contract_built
+ * Notes: This bridge strengthens orchestration without breaking the descending ANM spine.
  */
+import type { InteractionMode } from "../shared/enums/mode-enums";
 import type { PipelineRoute } from "../shared/enums/pipeline-enums";
 import type { ProcessingState } from "../bridges/contracts/processing-state";
 import { resolveActiveFamilyIds } from "../shared/families/family-runtime-resolver";
@@ -41,6 +50,20 @@ import { fallbackStrategyManager } from "./execution-coordinator/fallback-strate
 import { handoffOrchestrationToMemory } from "./orchestration-to-memory-bridge";
 import { applyPipelineDecisionGuard } from "../00-myelinated-pipeline-core/pipeline-decision-guard";
 import { isConversationalPrompt } from "../shared/utils/conversation-signals";
+import { argumentativeDepthDetector } from "../05b-deliberative-task-contract-layer/argumentative-depth-detector";
+import { classifyCognitiveDemand } from "../05b-deliberative-task-contract-layer/cognitive-demand-classifier";
+import { runMotorRoutingClient } from "./llm-routing/motor-routing-client";
+import { buildMotorRoutingAuditRecord } from "./llm-routing/motor-routing-audit";
+import { fuseMotorAnalysis } from "./llm-routing/motor-analysis-fusion";
+import type { HeuristicRoutingSnapshot } from "./llm-routing/routing-analysis-types";
+import { selectExecutionProfileIds } from "./execution-profiles/profile-selector";
+import { composeExecutionProfiles } from "./execution-profiles/profile-composer";
+import { buildLayerActivationMatrix } from "./activation-policy/layer-activation-matrix";
+import { summarizeLayerActivations } from "./activation-policy/activation-audit";
+import { buildAdaptivePipelineContract } from "../05b-deliberative-task-contract-layer/adaptive-pipeline-contract-builder";
+import { recordOrchestratorAudit } from "./orchestrator-audit-recorder";
+
+type TurnRole = "user" | "assistant";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -75,8 +98,122 @@ function hasDirectAnswerCue(text: string) {
   );
 }
 
+function resolveModeFromAdaptiveSignals(
+  currentMode: InteractionMode,
+  primaryProfileId: string,
+  taskType: string,
+): InteractionMode {
+  const normalizedTaskType = `${taskType || ""}`.toLowerCase();
+  if (primaryProfileId === "technical-implementation-profile" || primaryProfileId === "technical-analysis-profile") {
+    return "technical";
+  }
+  if (primaryProfileId === "architecture-audit-profile" || primaryProfileId === "debug-correction-profile") {
+    return "analysis";
+  }
+  if (primaryProfileId === "research-exploration-profile" || primaryProfileId === "retrieval-augmented-profile") {
+    return "research";
+  }
+  if (primaryProfileId === "teaching-guidance-profile" || primaryProfileId === "pedagogical-explanation-profile") {
+    return "teaching";
+  }
+  if (primaryProfileId === "summary-synthesis-profile") return "summary";
+  if (primaryProfileId === "writing-composition-profile") return "writing";
+  if (normalizedTaskType.includes("research")) return "research";
+  if (normalizedTaskType.includes("implement")) return "technical";
+  if (normalizedTaskType.includes("audit") || normalizedTaskType.includes("analysis")) return "analysis";
+  return currentMode;
+}
+
+function repairCommonMojibake(value: string): string {
+  return `${value || ""}`
+    .replace(/Ã¡/g, "á")
+    .replace(/Ã /g, "à")
+    .replace(/Ã¢/g, "â")
+    .replace(/Ã£/g, "ã")
+    .replace(/Ã¤/g, "ä")
+    .replace(/Ã©/g, "é")
+    .replace(/Ã¨/g, "è")
+    .replace(/Ãª/g, "ê")
+    .replace(/Ã­/g, "í")
+    .replace(/Ã³/g, "ó")
+    .replace(/Ã´/g, "ô")
+    .replace(/Ãµ/g, "õ")
+    .replace(/Ãº/g, "ú")
+    .replace(/Ã§/g, "ç")
+    .replace(/Ã\u0081/g, "Á")
+    .replace(/Ã\u0089/g, "É")
+    .replace(/Ã\u008D/g, "Í")
+    .replace(/Ã\u0093/g, "Ó")
+    .replace(/Ã\u009A/g, "Ú")
+    .replace(/Ã\u0087/g, "Ç")
+    .replace(/intelig[\uFFFD]ncia/gi, "inteligencia")
+    .replace(/informa[\uFFFD]{1,2}es/gi, "informacoes")
+    .replace(/fa[\uFFFD]a/gi, "faca")
+    .replace(/d[\uFFFD]vida/gi, "duvida")
+    .replace(/o que [\uFFFD]/gi, "o que e")
+    .replace(/let[\uFFFD]cia/gi, "Leticia")
+    .replace(/usu[\uFFFD]rio/gi, "Usuario")
+    .replace(/\uFFFD+/g, "");
+}
+
+function collapseWhitespace(value: string): string {
+  return `${value || ""}`.replace(/\s+/g, " ").trim();
+}
+
+function stripDialogueLabels(value: string): string {
+  return `${value || ""}`
+    .replace(/(?:^|\n)\s*(usu[aá]rio|usuario|user|assistant|assistente|let[ií]cia|leticia)\s*:\s*/gi, "\n")
+    .replace(/(?:^|\n)\s*(usu[aá]rio|usuario|user|assistant|assistente|let[ií]cia|leticia)\s*-\s*/gi, "\n")
+    .trim();
+}
+
+function sanitizeOrchestrationText(value: string): string {
+  return collapseWhitespace(stripDialogueLabels(repairCommonMojibake(value)));
+}
+
+function sanitizeStringArray(values: string[], limit: number): string[] {
+  return (values || [])
+    .map((item) => sanitizeOrchestrationText(item))
+    .filter(Boolean)
+    .slice(-limit);
+}
+
+function sanitizeRecentTurns(
+  turns: Array<{ role: "user" | "assistant"; content: string }>,
+  limit = 12,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const sanitized: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  for (const turn of turns || []) {
+    const role: TurnRole = turn.role === "assistant" ? "assistant" : "user";
+    const content = sanitizeOrchestrationText(turn.content);
+
+    if (!content) continue;
+
+    sanitized.push({
+      role,
+      content,
+    });
+  }
+
+  return sanitized.slice(-limit);
+}
+
 export async function runOrchestrationLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
+
+  const sanitizedText = sanitizeOrchestrationText(state.normalizedMessage || state.rawMessage);
+  const sanitizedRecentTurns = sanitizeRecentTurns(state.recentTurns);
+  const sanitizedActiveContext = sanitizeStringArray(state.activeContext, 16);
+  const sanitizedActiveConstraints = sanitizeStringArray(state.activeConstraints, 32);
+
+  if (sanitizedText) {
+    state.normalizedMessage = sanitizedText;
+  }
+  state.recentTurns = sanitizedRecentTurns;
+  state.activeContext = sanitizedActiveContext;
+  state.activeConstraints = sanitizedActiveConstraints;
+
   const text = state.normalizedMessage || state.rawMessage;
   const snapshot = state.textAnalysisSnapshot ?? buildTextAnalysisSnapshot(text);
   state.textAnalysisSnapshot = snapshot;
@@ -92,24 +229,20 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
 
   const baseComplexityScore = clamp01(
     (lengthScore.score * 0.42) +
-    (semanticScore.score * 0.40) +
-    (ambiguity.score * 0.18),
+      (semanticScore.score * 0.4) +
+      (ambiguity.score * 0.18),
   );
 
   const memoryComplexityBias = clamp01(
     (nodular.attention * 0.32) +
-    (nodular.priming * 0.22) +
-    (regulatory.stressLoad * 0.18) -
-    (regulatory.contextStability * 0.10),
+      (nodular.priming * 0.22) +
+      (regulatory.stressLoad * 0.18) -
+      (regulatory.contextStability * 0.1),
   );
 
-  let complexityScore = clamp01(
-    (baseComplexityScore * 0.84) +
-    (memoryComplexityBias * 0.16),
-  );
+  let complexityScore = clamp01((baseComplexityScore * 0.84) + (memoryComplexityBias * 0.16));
 
-  const conversationalPrompt =
-    isConversationalPrompt(text) || snapshot.hasGreetingSignal;
+  const conversationalPrompt = isConversationalPrompt(text) || snapshot.hasGreetingSignal;
   const directAnswerCue = hasDirectAnswerCue(text);
   const communicativeElaborationCue = isCommunicativeElaborationPrompt(text);
   const epistemicAuditCue = isEpistemicAuditPrompt(text);
@@ -126,17 +259,22 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   if (philosophicalSelfCue) {
     semanticModes.push("philosophical_self_modeling");
   }
+
   const hasSemanticRoutingDemand =
     semanticModes.length > 0 ||
     communicativeElaborationCue ||
     epistemicAuditCue ||
     philosophicalSelfCue;
+
   const hasSafetyRestriction =
     state.preRouteSignals?.safetyAction === "caution" ||
     state.inputSignals.safetyFlags.some((flag) => /block|malicious|prompt_injection|harmful/i.test(flag));
+
   const greetingFastLaneEligible = Boolean(state.preRouteSignals?.greetingFastLaneEligible);
   const intentGateBypassDeepPipeline = false;
   const logicalFrame = state.logicalFrame;
+  const deliberativeDepth = argumentativeDepthDetector(text);
+  const demandProfile = classifyCognitiveDemand(text);
   const logicalRoutingBias = logicalFrame?.shouldAffectRouting ? Math.max(0, logicalFrame.confidence * 0.22) : 0;
   const logicalRetrievalBias = Boolean(logicalFrame?.shouldAffectRetrieval);
 
@@ -145,6 +283,12 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   }
   if (!hasSafetyRestriction && !greetingFastLaneEligible && logicalRoutingBias > 0) {
     complexityScore = clamp01(complexityScore + logicalRoutingBias);
+  }
+  if (!hasSafetyRestriction && !greetingFastLaneEligible && deliberativeDepth.requiresDeliberativeContract) {
+    complexityScore = clamp01(Math.max(complexityScore, 0.72));
+  }
+  if (!hasSafetyRestriction && !greetingFastLaneEligible && demandProfile.requiresDeliberativeContract) {
+    complexityScore = clamp01(Math.max(complexityScore, 0.7));
   }
 
   const modeCandidates = [
@@ -158,22 +302,174 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   ];
 
   let selectedMode = modeCandidates.sort((a, b) => b.score - a.score)[0]?.mode ?? "chat";
-  if (conversationalPrompt && !hasSemanticRoutingDemand) selectedMode = "chat";
+  if (conversationalPrompt && !hasSemanticRoutingDemand) {
+    selectedMode = "chat";
+  }
+
+  const retrievalDemandByIntent = ["research", "analysis", "technical"].includes(state.inputSignals.intent);
+  const retrievalDemandBySignal =
+    snapshot.hasVerifiableSignal ||
+    snapshot.hasRecencySignal ||
+    semanticModes.includes("epistemic_audit");
+
+  const provisionalNeedsRetrieval =
+    !greetingFastLaneEligible &&
+    !hasSafetyRestriction &&
+    !directAnswerCue &&
+    (
+      retrievalDemandByIntent ||
+      retrievalDemandBySignal ||
+      deliberativeDepth.requiresDeliberativeContract ||
+      demandProfile.requiresDeliberativeContract ||
+      logicalRetrievalBias ||
+      complexityScore >= 0.52
+    );
+
+  const provisionalNeedsWebSearch =
+    !greetingFastLaneEligible &&
+    !directAnswerCue &&
+    (state.inputSignals.intent === "research" || snapshot.hasRecencySignal);
+
+  const provisionalNeedMemoryReinforcement =
+    regulatory.stressLoad >= 0.62 ||
+    nodular.priming >= 0.58 ||
+    legacyRuntimeTop.some((name) => name === "working_memory" || name === "memory_manager");
+
+  const heuristicRiskLevel =
+    hasSafetyRestriction || ambiguity.score >= 0.68
+      ? "high"
+      : ambiguity.score >= 0.42 || snapshot.hasVerifiableSignal
+        ? "medium"
+        : "low";
+
+  const heuristicValidationNeed =
+    hasSafetyRestriction || semanticModes.includes("epistemic_audit")
+      ? "heavy"
+      : ambiguity.score >= 0.42
+        ? "standard"
+        : "light";
+
+  const heuristicReflectionNeed =
+    philosophicalSelfCue || deliberativeDepth.requiresDeliberativeContract
+      ? "heavy"
+      : communicativeElaborationCue || demandProfile.requiresSelfObjection
+        ? "standard"
+        : "light";
+
+  const heuristicSnapshot: HeuristicRoutingSnapshot = {
+    normalizedMessage: text,
+    primaryIntent: state.inputSignals.intent || state.preRouteSignals.quickIntent || "chat",
+    secondaryIntents: state.preRouteSignals.intentGateSecondaryIntents || [],
+    complexityScore,
+    ambiguityScore: ambiguity.score,
+    selectedMode,
+    routeHint: state.executionPlan.selectedRoute,
+    domain: state.inputSignals.domain || "general",
+    semanticModes,
+    hasGreetingSignal: snapshot.hasGreetingSignal,
+    hasVerifiableSignal: snapshot.hasVerifiableSignal,
+    hasRecencySignal: snapshot.hasRecencySignal,
+    needsRetrieval: provisionalNeedsRetrieval,
+    needsWebSearch: provisionalNeedsWebSearch,
+    needsMemoryReinforcement: provisionalNeedMemoryReinforcement,
+    needsClarification: state.conversationState.needsClarification,
+    topicShift: state.conversationState.topicShiftDetected,
+    responseStyle: conversationalPrompt ? "conversational" : selectedMode,
+    expectedOutputShape: conversationalPrompt ? ["paragraph"] : ["structured-answer"],
+    riskLevel: heuristicRiskLevel,
+    validationNeed: heuristicValidationNeed,
+    reflectionNeed: heuristicReflectionNeed,
+    proactivityTolerance: conversationalPrompt ? "medium" : "low",
+    estimatedBudgetClass: complexityScore >= 0.72 ? "expanded" : complexityScore <= 0.22 ? "tight" : "standard",
+  };
+
+  recordOrchestratorAudit(state, {
+    stage: "heuristic-scan",
+    at: new Date().toISOString(),
+    summary: `intent=${heuristicSnapshot.primaryIntent}; complexity=${complexityScore.toFixed(2)}; ambiguity=${ambiguity.score.toFixed(2)}`,
+    usedMotor: false,
+    fallbackUsed: false,
+    cacheHit: false,
+    details: {
+      semanticModes,
+      selectedMode,
+      needsRetrieval: provisionalNeedsRetrieval,
+      needsMemoryReinforcement: provisionalNeedMemoryReinforcement,
+      riskLevel: heuristicRiskLevel,
+    },
+  });
+
+  const motorRoutingAnalysis = await runMotorRoutingClient({
+    normalizedMessage: text,
+    recentTurns: sanitizedRecentTurns,
+    heuristicSnapshot,
+  });
+
+  state.motorRoutingAnalysis = motorRoutingAnalysis;
+  recordOrchestratorAudit(state, buildMotorRoutingAuditRecord(motorRoutingAnalysis));
+
+  const fusedDecision = fuseMotorAnalysis(heuristicSnapshot, motorRoutingAnalysis);
+  const selectedProfileIds = selectExecutionProfileIds({
+    normalizedMessage: text,
+    fusedDecision,
+  });
+  const profileComposition = composeExecutionProfiles(selectedProfileIds, fusedDecision);
+  const layerActivations = buildLayerActivationMatrix(
+    profileComposition.profiles,
+    profileComposition.selection.weights,
+  );
+  const resolvedLayerModes = summarizeLayerActivations(layerActivations);
+
+  selectedMode = resolveModeFromAdaptiveSignals(
+    selectedMode,
+    profileComposition.selection.primaryProfileId,
+    fusedDecision.taskType,
+  );
+  complexityScore = fusedDecision.finalComplexityScore;
+  state.profileSelectionResult = profileComposition.selection;
+
+  recordOrchestratorAudit(state, {
+    stage: "fusion",
+    at: new Date().toISOString(),
+    summary: `primaryIntent=${fusedDecision.primaryIntent}; complexity=${fusedDecision.finalComplexityBand}; profiles=${profileComposition.selection.selectedProfileIds.join("|")}`,
+    usedMotor: fusedDecision.usedMotor,
+    fallbackUsed: fusedDecision.fallbackUsed,
+    cacheHit: motorRoutingAnalysis.cacheHit,
+    details: {
+      finalComplexityScore: fusedDecision.finalComplexityScore,
+      finalComplexityBand: fusedDecision.finalComplexityBand,
+      ambiguityScore: fusedDecision.ambiguityScore,
+      dominantSignals: fusedDecision.dominantSignals,
+    },
+  });
 
   const depth = depthRequirementScorer({
     complexityScore,
-    ambiguityScore: ambiguity.score,
-    intent: state.inputSignals.intent,
+    ambiguityScore: fusedDecision.ambiguityScore,
+    intent: fusedDecision.primaryIntent,
   });
 
   const budget = responseBudgetEstimator({
     complexityScore,
     depthRequired: depth.depthRequired,
     mode: selectedMode,
+    argumentativeDepthScore: deliberativeDepth.argumentativeDepthScore,
+    reasoningIntensity: demandProfile.reasoningIntensity,
+    structuralComplexity: demandProfile.structuralComplexity,
+    obligationCount: state.deliberativeTaskState?.obligationGraph?.length || 0,
+    requiresFormalization: deliberativeDepth.needsFormalization,
+    requiresStructuredCoverage:
+      deliberativeDepth.needsStructuredCoverage || demandProfile.requiresStructuredCoverage,
+    requiresCounterObjection:
+      deliberativeDepth.needsCounterObjection || demandProfile.requiresSelfObjection,
+    requiresAssumptionAudit:
+      deliberativeDepth.needsAssumptionAudit || demandProfile.requiresAssumptionAudit,
+    requiresAlternatives: demandProfile.requiresAlternatives,
+    budgetClassHint: fusedDecision.estimatedBudgetClass,
   });
 
   state.complexityProfile.score = complexityScore;
-  state.complexityProfile.ambiguity = ambiguity.score;
+  state.complexityProfile.ambiguity = fusedDecision.ambiguityScore;
   state.complexityProfile.depthRequired = depth.depthRequired;
   state.complexityProfile.responseBudget = budget.responseBudget;
   state.selectedMode = selectedMode;
@@ -187,6 +483,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   let planningRoute: PipelineRoute = routeElevated ? routeHint : originalRoute;
   let routeFloorReason = "none";
   let semanticRouteFloor: PipelineRoute = "inferential";
+
   if (semanticModes.includes("epistemic_audit") || semanticModes.includes("philosophical_self_modeling")) {
     semanticRouteFloor = "inferential";
     routeFloorReason = "semantic_inferential_floor";
@@ -210,6 +507,14 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   if (!hasSafetyRestriction && !greetingFastLaneEligible && logicalFrame?.shouldAffectRouting) {
     planningRoute = elevateRoute(planningRoute, "inferential");
     routeFloorReason = "logical_discernment_floor";
+  }
+  if (
+    !hasSafetyRestriction &&
+    !greetingFastLaneEligible &&
+    (deliberativeDepth.requiresDeliberativeContract || demandProfile.requiresDeliberativeContract)
+  ) {
+    planningRoute = "inferential";
+    routeFloorReason = "deliberative_contract_floor";
   }
 
   if (regulatory.blockStructuralConsolidation && planningRoute !== "minimum") {
@@ -245,21 +550,15 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
 
   planningRoute = toOperationalRoute(planningRoute);
 
-  const retrievalDemandByIntent = ["research", "analysis", "technical"].includes(state.inputSignals.intent);
-  const retrievalDemandBySignal =
-    snapshot.hasVerifiableSignal ||
-    snapshot.hasRecencySignal ||
-    semanticModes.includes("epistemic_audit");
   const needRetrieval =
     !greetingFastLaneEligible &&
     !intentGateBypassDeepPipeline &&
     !hasSafetyRestriction &&
     !directAnswerCue &&
     (
-      retrievalDemandByIntent ||
-      retrievalDemandBySignal ||
-      logicalRetrievalBias ||
-      complexityScore >= 0.52
+      provisionalNeedsRetrieval ||
+      fusedDecision.retrievalNeed === "standard" ||
+      fusedDecision.retrievalNeed === "heavy"
     );
 
   const needWebSearch =
@@ -267,14 +566,13 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     !intentGateBypassDeepPipeline &&
     !directAnswerCue &&
     (
-      state.inputSignals.intent === "research" ||
-      snapshot.hasRecencySignal
+      provisionalNeedsWebSearch ||
+      fusedDecision.retrievalNeed === "heavy"
     );
 
   const needMemoryReinforcement =
-    regulatory.stressLoad >= 0.62 ||
-    nodular.priming >= 0.58 ||
-    legacyRuntimeTop.some((name) => name === "working_memory" || name === "memory_manager");
+    provisionalNeedMemoryReinforcement ||
+    fusedDecision.memoryNeed === "heavy";
 
   const singlePlan = singleStepPlan({ route: planningRoute, mode: selectedMode });
   const multiPlan = multiStepPlan({
@@ -306,6 +604,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
 
   const resolved = dependencyResolver({ steps: toolPlan.steps });
   resolved.resolvedSteps = Array.from(new Set([...resolved.resolvedSteps, ...semanticAugmentedSteps]));
+
   const sequenced = stepSequencer({
     resolvedSteps: resolved.resolvedSteps,
     maxDepth: depth.depthRequired,
@@ -337,8 +636,56 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   state.executionPlan.timeoutMs = timeout.timeoutMs;
   state.executionPlan.retryMaxAttempts = retry.maxAttempts;
   state.executionPlan.fallbackStrategy = fallback.primaryStrategy;
+
   const guardDecision = applyPipelineDecisionGuard(state, "post_orchestration");
   planningRoute = state.executionPlan.selectedRoute;
+
+  const adaptivePipelineContract = buildAdaptivePipelineContract({
+    state,
+    fusedDecision,
+    selectedProfiles: profileComposition.profiles,
+    profileSelection: profileComposition.selection,
+    layerActivations,
+    responseBudget: budget.responseBudget,
+  });
+  state.adaptivePipelineContract = adaptivePipelineContract;
+
+  recordOrchestratorAudit(state, {
+    stage: "profile-selection",
+    at: new Date().toISOString(),
+    summary: `primaryProfile=${profileComposition.selection.primaryProfileId}; selected=${profileComposition.selection.selectedProfileIds.join("|")}`,
+    usedMotor: fusedDecision.usedMotor,
+    fallbackUsed: fusedDecision.fallbackUsed,
+    cacheHit: motorRoutingAnalysis.cacheHit,
+    details: {
+      weights: profileComposition.selection.weights,
+      dominantSignals: profileComposition.selection.dominantSignals,
+    },
+  });
+
+  recordOrchestratorAudit(state, {
+    stage: "layer-activation",
+    at: new Date().toISOString(),
+    summary: `resolvedLayers=${Object.keys(resolvedLayerModes).length}; primaryProfile=${profileComposition.selection.primaryProfileId}`,
+    usedMotor: fusedDecision.usedMotor,
+    fallbackUsed: fusedDecision.fallbackUsed,
+    cacheHit: motorRoutingAnalysis.cacheHit,
+    details: resolvedLayerModes,
+  });
+
+  recordOrchestratorAudit(state, {
+    stage: "adaptive-contract",
+    at: new Date().toISOString(),
+    summary: `contract=${adaptivePipelineContract.version}; budget=${adaptivePipelineContract.responseBudget}; risk=${adaptivePipelineContract.riskLevel}`,
+    usedMotor: fusedDecision.usedMotor,
+    fallbackUsed: fusedDecision.fallbackUsed,
+    cacheHit: motorRoutingAnalysis.cacheHit,
+    details: {
+      selectedProfiles: adaptivePipelineContract.selectedProfiles.selectedProfileIds,
+      budgetClass: adaptivePipelineContract.budgetClass,
+      responsePolicy: adaptivePipelineContract.responsePolicy,
+    },
+  });
 
   state.activeConstraints = mergeConstraints(
     state.activeConstraints,
@@ -351,6 +698,23 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
       ...(guardDecision.enforced ? [toConstraint("decision_guard", "enforced_post_orchestration")] : []),
       ...(logicalFrame ? [toConstraint("logical_principle", logicalFrame.dominantPrinciple)] : []),
       ...(logicalFrame?.recommendedAction ? [toConstraint("logical_recommended_action", "present")] : []),
+      ...(deliberativeDepth.requiresDeliberativeContract
+        ? [
+            toConstraint("deliberative_contract", "active"),
+            toConstraint("deliberative_depth", deliberativeDepth.argumentativeDepthScore.toFixed(2)),
+            ...(deliberativeDepth.needsFormalization ? [toConstraint("deliberative_formalization", "required")] : []),
+          ]
+        : []),
+      ...(demandProfile.requiresDeliberativeContract
+        ? [
+            toConstraint("task_deliberation", "active"),
+            toConstraint("task_reasoning_intensity", demandProfile.reasoningIntensity.toFixed(2)),
+            toConstraint("task_structural_complexity", demandProfile.structuralComplexity.toFixed(2)),
+          ]
+        : []),
+      toConstraint("adaptive_profile", profileComposition.selection.primaryProfileId),
+      toConstraint("adaptive_budget_class", fusedDecision.estimatedBudgetClass),
+      ...(fusedDecision.needsClarification ? [toConstraint("adaptive_clarification", "required")] : []),
       toConstraint("fallback", fallback.primaryStrategy),
       toConstraint("retry_max_attempts", `${retry.maxAttempts}`),
       ...(needMemoryReinforcement ? [toConstraint("memory", "reinforcement_required")] : []),
@@ -364,7 +728,8 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
 
   state.timings.orchestrationTimeoutMs = timeout.timeoutMs;
   state.timings.orchestrationRetryBackoffMs = retry.backoffMs;
-  state.executionArtifacts = state.executionArtifacts || { knowledge: { cache: {}, lastQuerySignature: "", lastUsedCache: false } };
+  state.executionArtifacts =
+    state.executionArtifacts || { knowledge: { cache: {}, lastQuerySignature: "", lastUsedCache: false } };
   state.executionArtifacts.activeFamilies = resolveActiveFamilyIds(state);
 
   state.executionArtifacts.orchestration = {
@@ -373,7 +738,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     routeHint,
     semanticModes,
     complexityScore,
-    ambiguityScore: ambiguity.score,
+    ambiguityScore: fusedDecision.ambiguityScore,
     needRetrieval,
     needWebSearch,
     needMemoryReinforcement,
@@ -382,6 +747,13 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     fallbackStrategy: fallback.primaryStrategy,
     steps: [...state.executionPlan.steps],
     activeFamilies: [...state.executionArtifacts.activeFamilies],
+    motorRoutingUsed: fusedDecision.usedMotor,
+    motorRoutingCacheHit: motorRoutingAnalysis.cacheHit,
+    motorRoutingFallbackUsed: fusedDecision.fallbackUsed,
+    recommendedProfiles: [...profileComposition.selection.selectedProfileIds],
+    resolvedLayerModes,
+    adaptiveContractVersion: adaptivePipelineContract.version,
+    budgetClass: fusedDecision.estimatedBudgetClass,
   };
 
   state.trace.push(
@@ -391,11 +763,14 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
       route: planningRoute,
       latencyMs: Date.now() - startedAt,
       detail:
-        `score=${complexityScore.toFixed(3)}; ambiguity=${ambiguity.score.toFixed(3)}; mode=${selectedMode}; routeHint=${routeHint}; ` +
+        `score=${complexityScore.toFixed(3)}; ambiguity=${fusedDecision.ambiguityScore.toFixed(3)}; mode=${selectedMode}; routeHint=${routeHint}; ` +
         `planRoute=${planningRoute}; semanticModes=${semanticModes.join(",") || "none"}; steps=${state.executionPlan.steps.length}; fallback=${fallback.primaryStrategy}; retry=${retry.maxAttempts}; ` +
         `greetingFastLaneEligible=${greetingFastLaneEligible}; intentGateBypass=${intentGateBypassDeepPipeline}; ` +
         `logicalPrinciple=${logicalFrame?.dominantPrinciple || "none"}; logicalAffectRouting=${logicalFrame?.shouldAffectRouting ? "true" : "false"}; ` +
         `logicalAffectRetrieval=${logicalFrame?.shouldAffectRetrieval ? "true" : "false"}; ` +
+        `deliberativeActive=${deliberativeDepth.requiresDeliberativeContract ? "true" : "false"}; deliberativeScore=${deliberativeDepth.argumentativeDepthScore.toFixed(2)}; ` +
+        `taskDeliberation=${demandProfile.requiresDeliberativeContract ? "true" : "false"}; reasoningIntensity=${demandProfile.reasoningIntensity.toFixed(2)}; structuralComplexity=${demandProfile.structuralComplexity.toFixed(2)}; ` +
+        `adaptivePrimaryIntent=${fusedDecision.primaryIntent}; adaptiveProfiles=${profileComposition.selection.selectedProfileIds.join("|") || "none"}; budgetClass=${fusedDecision.estimatedBudgetClass}; ` +
         `tokens=${snapshot.tokenCount}; sentences=${snapshot.sentenceCount}; verifiable=${snapshot.hasVerifiableSignal}; recency=${snapshot.hasRecencySignal}; ` +
         `memoryBias=${memoryComplexityBias.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; nodularAttention=${nodular.attention.toFixed(2)}; ` +
         `legacyTop=${legacyRuntimeTop.slice(0, 2).join(",")}; memoryManager=${(legacyRuntimeMap.memory_manager || 0).toFixed(2)}`,

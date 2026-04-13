@@ -465,14 +465,55 @@ function normalizeHistory(history: RagChatHistoryItem[] | undefined, config: Rag
   for (const row of reversed) {
     if (selectedReversed.length >= config.historyMaxMessages) break;
     if (!row || (row.role !== "user" && row.role !== "assistant")) continue;
-    const content = normalizeString(row.content);
+
+    const content = sanitizeHistoryContent(row.content);
     if (!content) continue;
+
     if (usedChars + content.length > config.historyMaxChars) break;
-    selectedReversed.push({ role: row.role, content });
+
+    selectedReversed.push({
+      role: row.role,
+      content,
+    });
     usedChars += content.length;
   }
 
   return selectedReversed.reverse();
+}
+
+function sanitizeHistoryContent(value: unknown): string {
+  if (typeof value !== "string") return "";
+
+  let text = value.replace(/\r/g, "\n");
+  text = text.replace(
+    /\b(?:usuário|usuario|user|assistente|assistant|sistema|system|let[ií]cia|humano|ai|modelo)\s*:\s*/gi,
+    "",
+  );
+  text = text.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, " ");
+  text = text.replace(/\[PASSO\s+\d+\/\d+\][^\n]*/gi, " ");
+  text = text.replace(/\[continuidade passo\s+\d+\/\d+\]/gi, " ");
+  text = text.replace(/\s+/g, " ").trim();
+
+  if (!text) return "";
+  return text;
+}
+
+function sanitizeContextPack(value: string, maxChars: number): string {
+  if (!value) return "";
+
+  let text = value.replace(/\r/g, "\n");
+  text = text.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "\n");
+  text = text.replace(
+    /\b(?:usuário|usuario|user|assistente|assistant|sistema|system|let[ií]cia|humano|ai|modelo)\s*:\s*/gi,
+    "",
+  );
+  text = text.replace(/\n{3,}/g, "\n\n").trim();
+
+  if (text.length > maxChars) {
+    text = text.slice(0, maxChars).trimEnd();
+  }
+
+  return text;
 }
 
 function normalizeDocumentId(value: unknown) {
@@ -2090,8 +2131,7 @@ export class RagQueryService {
       2_000,
       80_000,
     );
-    const combinedContext =
-      combinedContextRaw.length > fullContextCap ? combinedContextRaw.slice(0, fullContextCap) : combinedContextRaw;
+    const combinedContext = sanitizeContextPack(combinedContextRaw, fullContextCap);
     const contextAssemblyMs = Date.now() - contextAssemblyStartedAt;
 
     const history = normalizeHistory(runtimeInput.history, this.generationConfig);
@@ -2508,10 +2548,7 @@ export class RagQueryService {
       2_000,
       60_000,
     );
-    const combinedContext =
-      combinedContextRaw.length > streamContextCap
-        ? combinedContextRaw.slice(0, streamContextCap)
-        : combinedContextRaw;
+    const combinedContext = sanitizeContextPack(combinedContextRaw, streamContextCap);
     const baseHistory = normalizeHistory(runtimeInput.history, this.generationConfig);
     const streamHistoryMaxMessages = parsePositiveInt(
       process.env.RAG_STREAM_HISTORY_MAX_MESSAGES,
@@ -2638,11 +2675,17 @@ export class RagQueryService {
             });
 
             if (normalizedPassText) {
+              const compactAssistantMemory =
+                `[resumo interno de progresso ${passIndex}/${streamPassCount}] ` +
+                normalizedPassText
+                  .replace(/\s+/g, " ")
+                  .trim()
+                  .slice(0, 600);
+
               rollingHistory = normalizeHistory(
                 [
                   ...rollingHistory,
-                  { role: "user", content: `[continuidade passo ${passIndex}/${streamPassCount}]` },
-                  { role: "assistant", content: normalizedPassText },
+                  { role: "assistant", content: compactAssistantMemory },
                 ],
                 {
                   ...this.generationConfig,

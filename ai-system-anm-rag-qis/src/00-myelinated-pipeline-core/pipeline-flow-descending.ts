@@ -1,8 +1,16 @@
 /**
- * Responsabilidade do arquivo:
- * - Executar fluxo descendente com gates por politica, steps, latencia e safety.
- * - Aplicar short-circuit de seguranca antes de camadas profundas.
- * - Rodar validacao progressiva (pre_presentation e final) com rastreabilidade.
+ * ANM ARCHITECTURAL SPEC
+ * Layer: 00-myelinated-pipeline-core
+ * Module: pipeline-flow-descending
+ * Responsibility: Execute the descending ANM pipeline with route policy, safety gates and adaptive layer modes.
+ * Primary Inputs: ProcessingState and selected route.
+ * Primary Outputs: ProcessingState after full descending execution.
+ * Upstream Dependencies: route policy, latency gates, step gates, adaptive layer mode resolver
+ * Downstream Dependencies: All pipeline layer bridges
+ * Invariants: Descending order is preserved; adaptive modulation may lighten or no-op layers but never jump across the tree.
+ * Failure Modes: Layer failures bubble up after being traced and counted.
+ * Audit Events: layer_executed, layer_skipped, layer_failed, descending_flow_completed
+ * Notes: Adaptive layer modes only become available after orchestration resolves the adaptive pipeline contract.
  */
 import type { PipelineLayerId, PipelineRoute } from "../shared/enums/pipeline-enums";
 import type { ProcessingState } from "../bridges/contracts/processing-state";
@@ -32,6 +40,10 @@ import { runConversationLayer } from "../03-conversation-layer/conversation-laye
 import { runAffectiveSignalLayer } from "../06b-affective-signal-layer/affective-signal-layer-bridge";
 import { runContextLayer } from "../04-context-and-session-layer/context-layer-bridge";
 import { runOrchestrationLayer } from "../05-complexity-and-orchestration-layer/orchestration-layer-bridge";
+import {
+  runDeliberativeFinalCoverageValidator,
+  runDeliberativeTaskContractLayer,
+} from "../05b-deliberative-task-contract-layer/deliberative-task-contract-layer-bridge";
 import { runMemoryLayer } from "../06-memory-and-plasticity-layer/memory-layer-bridge";
 import { runResponsePlanningLayer } from "../09b-response-planning-layer/response-planning-layer-bridge";
 import { runKnowledgeLayer } from "../07-knowledge-retrieval-and-research-layer/knowledge-layer-bridge";
@@ -55,6 +67,8 @@ import { runLogicalOutputAuditLayer } from "../bridges/logical-output-audit-brid
 import { runPresentationLayer } from "../18-presentation-and-delivery-layer/presentation-layer-bridge";
 import { runObservabilityLayer } from "../19-observability-control-and-admin-layer/observability-layer-bridge";
 import { runFeedbackLayer } from "../20-feedback-learning-and-memory-update-layer/feedback-layer-bridge";
+import { resolveLayerModeFromState } from "../05-complexity-and-orchestration-layer/activation-policy/layer-mode-resolver";
+import { isIntelligentNoopMode } from "../05-complexity-and-orchestration-layer/activation-policy/layer-mode";
 
 function isReflectiveAlwaysOn(): boolean {
   const flag = `${process.env.AI_SYSTEM_REFLECTIVE_ALWAYS_ON || ""}`.trim().toLowerCase();
@@ -116,6 +130,11 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
   const executed: string[] = [];
   const skipped: string[] = [];
 
+  const isAdaptiveLayerEnabled = (layerId: PipelineLayerId) => {
+    if (!state.adaptivePipelineContract) return true;
+    return !isIntelligentNoopMode(resolveLayerModeFromState(state, layerId));
+  };
+
   const runIf = async (
     condition: boolean,
     layerId: PipelineLayerId,
@@ -123,13 +142,15 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
     runner: (current: ProcessingState) => Promise<ProcessingState>,
     skipReason: string,
   ) => {
-    if (!condition) {
+    const adaptiveEnabled = isAdaptiveLayerEnabled(layerId);
+    const shouldRun = condition && adaptiveEnabled;
+    if (!shouldRun) {
       skipped.push(displayName);
       pushLayerDecisionTrace(state, {
         layer: layerId,
         route: effectiveRoute,
         status: "skipped",
-        reason: skipReason,
+        reason: condition ? "adaptive_noop_intelligent" : skipReason,
       });
       return;
     }
@@ -181,6 +202,13 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
   );
   await runIf(policy.runContext, "context", "context", runContextLayer, "route_policy_disabled");
   await runIf(policy.runOrchestration, "orchestration", "orchestration", runOrchestrationLayer, "route_policy_disabled");
+  await runIf(
+    policy.runDeliberativeTaskContract,
+    "deliberative-task-contract",
+    "deliberative-task-contract",
+    runDeliberativeTaskContractLayer,
+    "route_policy_disabled",
+  );
   await runIf(policy.runMemory, "memory", "memory", runMemoryLayer, "route_policy_disabled");
   await runIf(
     policy.runResponsePlanning,
@@ -466,6 +494,13 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
     "logical-output-audit",
     "logical-output-audit",
     runLogicalOutputAuditLayer,
+    "route_policy_disabled",
+  );
+  await runIf(
+    policy.runFinalCoverageValidator,
+    "final-coverage-validator",
+    "final-coverage-validator",
+    runDeliberativeFinalCoverageValidator,
     "route_policy_disabled",
   );
 

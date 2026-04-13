@@ -9,26 +9,26 @@ function resolveSentenceRange(complexity: ResponseComplexity, shape: RhetoricalS
   if (shape === "single_compact_paragraph") return [2, 4];
   if (shape === "two_paragraph_explanation") return [3, 5];
   if (shape === "enumerated_technical") return [2, 4];
-  if (shape === "headed_analysis") return [4, 7];
+  if (shape === "headed_analysis") return [4, 8];
 
   if (complexity === "micro") return [1, 2];
   if (complexity === "short") return [2, 3];
   if (complexity === "medium") return [3, 5];
-  if (complexity === "long") return [4, 6];
-  return [5, 8];
+  if (complexity === "long") return [4, 7];
+  return [5, 9];
 }
 
 function resolveCharRange(complexity: ResponseComplexity, shape: RhetoricalShape): [number, number] {
   if (shape === "single_compact_paragraph") return [140, 520];
   if (shape === "two_paragraph_explanation") return [280, 880];
   if (shape === "enumerated_technical") return [220, 760];
-  if (shape === "headed_analysis") return [360, 1200];
+  if (shape === "headed_analysis") return [420, 1400];
 
   if (complexity === "micro") return [80, 260];
   if (complexity === "short") return [120, 420];
   if (complexity === "medium") return [260, 780];
-  if (complexity === "long") return [340, 980];
-  return [420, 1400];
+  if (complexity === "long") return [380, 1180];
+  return [520, 1600];
 }
 
 export function applyParagraphDensityTargets(
@@ -45,22 +45,22 @@ export function applyParagraphDensityTargets(
         : base.complexity === "medium"
           ? 0.62
           : base.complexity === "long"
-            ? 0.72
-            : 0.8,
+            ? 0.74
+            : 0.82,
   );
 
   const flushThreshold = clamp01(
     base.rhetoricalShape === "headed_analysis"
       ? 0.74
       : base.rhetoricalShape === "enumerated_technical"
-        ? 0.68
+        ? 0.69
         : base.complexity === "micro"
           ? 0.55
           : base.complexity === "short"
             ? 0.61
             : base.complexity === "medium"
               ? 0.67
-              : 0.73,
+              : 0.75,
   );
 
   const allowSingleSentenceParagraphs =

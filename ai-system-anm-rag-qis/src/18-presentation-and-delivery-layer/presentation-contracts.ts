@@ -96,6 +96,14 @@ export interface PresentationRenderModel {
   confidence: ConfidenceView;
   responseLayoutPlan?: ResponseLayoutPlan;
   textualAudit?: TextualAudit;
+  longFormDiscourse?: {
+    isActive: boolean;
+    pendingObligations: string[];
+    completedObligations: string[];
+    paragraphHistory: string[];
+    transitionPlan: string[];
+    usesWorkingMemory: boolean;
+  };
 }
 
 export interface SerializedPresentation {

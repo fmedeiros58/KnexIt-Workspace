@@ -45,6 +45,27 @@ assert(
   "latest user utterance should preserve follow-up question",
 );
 
+const structuredSingleTurnPrompt = [
+  "Considere um sistema social idealizado com três princípios normativos obrigatórios:",
+  "(1) nenhuma decisão coletiva pode reduzir a liberdade básica de um indivíduo inocente;",
+  "(2) toda decisão coletiva deve maximizar o bem-estar agregado;",
+  "(3) toda decisão coletiva deve ser justificável por uma regra universal que possa ser aplicada sem exceção.",
+  "",
+  "Agora suponha que, em certas circunstâncias, qualquer decisão possível viola pelo menos um desses princípios.",
+  "(a) demonstre formalmente o conflito;",
+  "(b) proponha dois modelos;",
+  "(c) explicite pressupostos não provados.",
+].join("\n");
+const preservedStructuredPrompt = extractLatestUserUtterance(structuredSingleTurnPrompt);
+assert(
+  preservedStructuredPrompt.toLowerCase().includes("considere um sistema social idealizado"),
+  "structured single-turn prompt should preserve its opening instead of collapsing to the last line",
+);
+assert(
+  preservedStructuredPrompt.toLowerCase().includes("(c) explicite pressupostos"),
+  "structured single-turn prompt should preserve later obligations as part of the same user turn",
+);
+
 test('bootstrap assertions executed', () => {
   expect(true).toBe(true);
 });

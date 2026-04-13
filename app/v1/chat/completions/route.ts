@@ -18,10 +18,16 @@ const ragService = createRagQueryService();
 const ROUTE_OPTIONS = { methods: ["POST"], requireApiKey: true } as const;
 const MAX_OPENAI_MESSAGES = Number(process.env.PUBLIC_API_MAX_OPENAI_MESSAGES || 30);
 const MAX_OPENAI_MESSAGE_CHARS = Number(process.env.PUBLIC_API_MAX_OPENAI_MESSAGE_CHARS || 32000);
+const EXPOSE_DEBUG_METADATA_BY_DEFAULT = process.env.PUBLIC_API_EXPOSE_DEBUG_METADATA === "true";
 
 type OpenAiLikeMessage = {
   role?: unknown;
   content?: unknown;
+};
+
+type NormalizedMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
 };
 
 function normalizeString(value: unknown) {
@@ -61,8 +67,9 @@ function parsePipelineVersion(value: unknown): "v1" | "v2" | undefined {
   return undefined;
 }
 
-function normalizeMessages(value: unknown) {
-  if (!Array.isArray(value)) return [] as Array<{ role: "system" | "user" | "assistant"; content: string }>;
+function normalizeMessages(value: unknown): NormalizedMessage[] {
+  if (!Array.isArray(value)) return [];
+
   if (value.length > MAX_OPENAI_MESSAGES) {
     throw new RagPipelineError(
       400,
@@ -70,13 +77,18 @@ function normalizeMessages(value: unknown) {
       `messages excede limite maximo (${MAX_OPENAI_MESSAGES} itens).`,
     );
   }
-  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
+
+  const messages: NormalizedMessage[] = [];
+
   for (const item of value as OpenAiLikeMessage[]) {
     if (!item || typeof item !== "object") continue;
+
     const role = item.role;
     if (role !== "system" && role !== "user" && role !== "assistant") continue;
+
     const content = normalizeString(item.content);
     if (!content) continue;
+
     if (content.length > MAX_OPENAI_MESSAGE_CHARS) {
       throw new RagPipelineError(
         400,
@@ -84,13 +96,16 @@ function normalizeMessages(value: unknown) {
         `Mensagem excede limite (${MAX_OPENAI_MESSAGE_CHARS} caracteres).`,
       );
     }
+
     messages.push({ role, content });
   }
+
   return messages;
 }
 
-function extractQuestionAndHistory(messages: Array<{ role: "system" | "user" | "assistant"; content: string }>) {
+function extractQuestionAndHistory(messages: NormalizedMessage[]) {
   let lastUserIndex = -1;
+
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index].role === "user") {
       lastUserIndex = index;
@@ -110,12 +125,15 @@ function extractQuestionAndHistory(messages: Array<{ role: "system" | "user" | "
   const history = messages
     .slice(0, lastUserIndex)
     .filter((row) => row.role === "user" || row.role === "assistant")
-    .map((row) => ({ role: row.role as "user" | "assistant", content: row.content }));
+    .map((row) => ({
+      role: row.role as "user" | "assistant",
+      content: row.content,
+    }));
 
   return { question, history };
 }
 
-function toUsageNumber(value: number | null) {
+function toUsageNumber(value: number | null | undefined) {
   return Number.isFinite(value as number) ? Math.max(0, Math.trunc(value as number)) : 0;
 }
 
@@ -130,6 +148,63 @@ function openAiErrorPayload(message: string, code: string, type = "invalid_reque
   };
 }
 
+function shouldExposeDebugMetadata(req: NextRequest) {
+  if (!EXPOSE_DEBUG_METADATA_BY_DEFAULT) {
+    return false;
+  }
+
+  const headerValue = normalizeString(req.headers.get("x-debug-rag"));
+  return headerValue === "1" || headerValue.toLowerCase() === "true";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function getNestedRecord(source: Record<string, unknown> | null, key: string) {
+  if (!source) return null;
+  return asRecord(source[key]);
+}
+
+function getNestedNumber(source: Record<string, unknown> | null, key: string) {
+  if (!source) return undefined;
+  const value = source[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getNestedString(source: Record<string, unknown> | null, key: string) {
+  if (!source) return undefined;
+  const value = source[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function buildSafePublicKnexRag(metadata: unknown) {
+  const root = asRecord(metadata);
+  const llm = getNestedRecord(root, "llm");
+  const usage = getNestedRecord(llm, "usage");
+  const timingsMs = getNestedRecord(root, "timingsMs");
+
+  const safe = {
+    llm: {
+      model: getNestedString(llm, "model") ?? null,
+      finishReason: getNestedString(llm, "finishReason") ?? "stop",
+      usage: {
+        promptTokens: toUsageNumber(getNestedNumber(usage, "promptTokens") ?? null),
+        completionTokens: toUsageNumber(getNestedNumber(usage, "completionTokens") ?? null),
+        totalTokens: toUsageNumber(getNestedNumber(usage, "totalTokens") ?? null),
+      },
+    },
+    timingsMs: {
+      total: getNestedNumber(timingsMs, "total") ?? null,
+    },
+  };
+
+  return safe;
+}
+
 export async function OPTIONS(req: NextRequest) {
   return handlePublicApiPreflight(req, ROUTE_OPTIONS);
 }
@@ -137,6 +212,7 @@ export async function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { context, response } = enforcePublicApiRequest(req, ROUTE_OPTIONS);
   if (response) return response;
+
   logger.info("OPENAI_COMPAT_REQUEST", {
     requestId: context.requestId,
     method: context.method,
@@ -147,7 +223,9 @@ export async function POST(req: NextRequest) {
   try {
     const parsed = await readJsonBodyWithLimit(req, context, { methods: ROUTE_OPTIONS.methods });
     if (parsed.response) return parsed.response;
+
     const body = parsed.body || {};
+
     if (body?.stream === true) {
       throw new RagPipelineError(
         400,
@@ -190,11 +268,14 @@ export async function POST(req: NextRequest) {
     const created = Math.floor(Date.now() / 1000);
     const finishReason = result.metadata.llm.finishReason || "stop";
     const usage = result.metadata.llm.usage;
+    const exposeDebugMetadata = shouldExposeDebugMetadata(req);
+
     logger.info("OPENAI_COMPAT_SUCCESS", {
       requestId: context.requestId,
       totalMs: result.metadata.timingsMs.total,
       answerChars: result.answer.length,
       model: result.metadata.llm.model,
+      exposeDebugMetadata,
     });
 
     return jsonWithCors(
@@ -219,7 +300,7 @@ export async function POST(req: NextRequest) {
           completion_tokens: toUsageNumber(usage.completionTokens),
           total_tokens: toUsageNumber(usage.totalTokens),
         },
-        knex_rag: result.metadata,
+        ...(exposeDebugMetadata ? { knex_rag: buildSafePublicKnexRag(result.metadata) } : {}),
       },
       200,
       { methods: ROUTE_OPTIONS.methods },
@@ -231,10 +312,12 @@ export async function POST(req: NextRequest) {
         code: error.code,
         status: error.status,
       });
+
       const safeMessage =
         error.status >= 500
           ? sanitizePublicErrorMessage(error.message, "Falha interna no adaptador OpenAI-compatible.")
           : error.message;
+
       return jsonWithCors(
         context,
         openAiErrorPayload(safeMessage, error.code),
@@ -244,7 +327,11 @@ export async function POST(req: NextRequest) {
     }
 
     const message = error instanceof Error ? error.message : "Falha interna no adaptador OpenAI-compatible.";
-    logger.error("OPENAI_COMPAT_INTERNAL_ERROR", { requestId: context.requestId });
+
+    logger.error("OPENAI_COMPAT_INTERNAL_ERROR", {
+      requestId: context.requestId,
+    });
+
     return jsonWithCors(
       context,
       openAiErrorPayload(

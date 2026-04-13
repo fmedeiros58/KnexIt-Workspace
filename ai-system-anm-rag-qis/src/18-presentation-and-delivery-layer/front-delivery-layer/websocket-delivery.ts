@@ -8,7 +8,13 @@ export interface WebsocketDeliveryInput {
 }
 
 export function websocketDelivery(input: WebsocketDeliveryInput): DeliveryBuildResult {
-  const text = input.stream.text || JSON.stringify({ type: "message", text: input.serializedText, done: true });
+  const text =
+    input.stream.text ||
+    JSON.stringify({
+      type: "message",
+      text: input.serializedText,
+      done: true,
+    });
 
   return {
     channel: "websocket",
@@ -16,6 +22,8 @@ export function websocketDelivery(input: WebsocketDeliveryInput): DeliveryBuildR
     text,
     payload: {
       mode: "websocket",
+      format: "json-block",
+      text: input.serializedText,
       streamChunkCount: input.stream.chunkCount,
       retryPolicy: input.retryPolicy,
     },

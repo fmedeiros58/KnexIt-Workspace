@@ -16,6 +16,8 @@ import {
   hasIntentGateEvaluation,
   resolveIntentGateRoute,
 } from "../shared/routing/intent-gate-route-resolver";
+import { argumentativeDepthDetector } from "../05b-deliberative-task-contract-layer/argumentative-depth-detector";
+import { classifyCognitiveDemand } from "../05b-deliberative-task-contract-layer/cognitive-demand-classifier";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -68,6 +70,8 @@ export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
   state.textAnalysisSnapshot = snapshot;
   const preRoute = state.preRouteSignals;
   const logicalFrame = state.logicalFrame;
+  const deliberativeDepth = argumentativeDepthDetector(focusedMessage);
+  const demandProfile = classifyCognitiveDemand(focusedMessage);
 
   const conversational =
     isConversationalPrompt(focusedMessage) ||
@@ -93,7 +97,13 @@ export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
   const finalAmbiguity = conversational ? Math.min(ambiguitySeed, 0.22) : ambiguitySeed;
 
   const logicalBias = logicalFrame?.shouldAffectRouting ? Math.max(0, logicalFrame.confidence * 0.18) : 0;
-  state.complexityProfile.score = clamp01(score + logicalBias);
+  const deliberativeBias = deliberativeDepth.requiresDeliberativeContract
+    ? Math.max(0.16, deliberativeDepth.argumentativeDepthScore * 0.28)
+    : 0;
+  const demandBias = demandProfile.requiresDeliberativeContract
+    ? Math.max(0.12, demandProfile.reasoningIntensity * 0.22)
+    : 0;
+  state.complexityProfile.score = clamp01(score + logicalBias + deliberativeBias + demandBias);
   state.complexityProfile.ambiguity = finalAmbiguity;
 
   const verifiable =
@@ -102,6 +112,7 @@ export function selectPipelineRoute(state: ProcessingState): PipelineRoute {
 
   if (preRoute?.greetingFastLaneEligible) return "minimum";
   if (preRoute?.safetyAction === "caution") return "minimum";
+  if (deliberativeDepth.requiresDeliberativeContract || demandProfile.requiresDeliberativeContract) return "inferential";
   if (logicalFrame?.shouldAffectRouting) return "inferential";
 
   const intentGateRoute = resolveIntentGateRoute({

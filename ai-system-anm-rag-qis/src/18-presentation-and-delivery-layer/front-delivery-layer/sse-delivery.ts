@@ -8,7 +8,10 @@ export interface SseDeliveryInput {
 }
 
 export function sseDelivery(input: SseDeliveryInput): DeliveryBuildResult {
-  const streamBody = input.stream.text || `event: done\ndata: ${JSON.stringify({ done: true, text: input.serializedText })}\n\n`;
+  const streamBody =
+    input.stream.text ||
+    `event: done\ndata: ${JSON.stringify({ done: true, text: input.serializedText })}\n\n`;
+
   const text = `retry: ${input.retryPolicy.baseBackoffMs}\n${streamBody}`;
 
   return {
@@ -17,6 +20,7 @@ export function sseDelivery(input: SseDeliveryInput): DeliveryBuildResult {
     text,
     payload: {
       mode: "sse",
+      text: input.serializedText,
       streamChunkCount: input.stream.chunkCount,
       retry: input.retryPolicy.baseBackoffMs,
     },

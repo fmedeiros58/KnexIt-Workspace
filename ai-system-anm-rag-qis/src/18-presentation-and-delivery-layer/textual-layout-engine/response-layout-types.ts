@@ -65,6 +65,14 @@ export type ResponseLayoutPolicyInput = {
   hasEnumerativeSignals: boolean;
   requestedList: boolean;
   requestedHeading: boolean;
+  route?: string;
+  deliberativeActive?: boolean;
+  requiresStructuredCoverage?: boolean;
+  obligationCount?: number;
+  reasoningIntensity?: number;
+  structuralComplexity?: number;
+  usesWorkingMemory?: boolean;
+  pendingObligations?: string[];
 };
 
 export type ParagraphCohesionSample = {
@@ -85,4 +93,65 @@ export type ParagraphAssemblerInput = {
 export type ParagraphAssemblerOutput = {
   paragraphs: string[];
   candidates: ParagraphCandidate[];
+};
+
+export type TextualAuditContext = {
+  prompt?: string;
+  longFormDiscourse?: {
+    isActive: boolean;
+    pendingObligations: string[];
+    completedObligations: string[];
+    paragraphHistory: string[];
+    transitionPlan: string[];
+    antiRepetitionLedger: string[];
+    usesWorkingMemory: boolean;
+    memoryAnchors: string[];
+  };
+};
+
+export type ResponseCompletionTaskExecutionState = {
+  detectedObligations: string[];
+  obligationSatisfactionScores: Array<{
+    obligationId: string;
+    label: string;
+    type: string;
+    score: number;
+    passed: boolean;
+    issues: string[];
+  }>;
+  integrityChecks?: {
+    isTruncated: boolean;
+    hasAbruptEnding: boolean;
+    missingSections: string[];
+    issues: string[];
+  };
+  finalExecutionGate?: {
+    shouldBlock: boolean;
+    blockReasons: string[];
+  };
+};
+
+export type ResponseCompletionContext = {
+  prompt?: string;
+  plan?: ResponseLayoutPlan;
+  longFormDiscourse?: TextualAuditContext["longFormDiscourse"];
+  taskExecutionState?: ResponseCompletionTaskExecutionState;
+};
+
+export type ResponseCompletionAssessment = {
+  shouldContinue: boolean;
+  completionScore: number;
+  pendingCriticalObligations: string[];
+  pendingParagraphs: string[];
+  hasOpenSection: boolean;
+  hasClosedConclusion: boolean;
+  canSafelyTerminate: boolean;
+  terminationBlockReasons: string[];
+  continuationApplied: boolean;
+  continuationIterations: number;
+};
+
+export type ResponseCompletionResult = {
+  text: string;
+  state: ResponseCompletionAssessment;
 };

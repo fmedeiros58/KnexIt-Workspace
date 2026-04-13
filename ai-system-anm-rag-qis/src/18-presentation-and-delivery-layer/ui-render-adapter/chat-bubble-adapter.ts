@@ -24,6 +24,21 @@ function splitParagraphs(text: string): string[] {
     .filter(Boolean);
 }
 
+function splitSentences(text: string): string[] {
+  return `${text || ""}`
+    .split(/(?<=[.!?])\s+/g)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function chunkSentences(sentences: string[], chunkSize: number): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < sentences.length; i += chunkSize) {
+    chunks.push(sentences.slice(i, i + chunkSize).join(" ").trim());
+  }
+  return chunks.filter(Boolean);
+}
+
 export function chatBubbleAdapter(input: ChatBubbleAdapterInput): ChatBubbleAdapterOutput {
   const text = normalizeText(input.text);
   const maxParagraphs = Number.isFinite(input.maxParagraphs)
@@ -33,6 +48,19 @@ export function chatBubbleAdapter(input: ChatBubbleAdapterInput): ChatBubbleAdap
   let paragraphs = splitParagraphs(text);
   if (input.layoutPlan && paragraphs.length > 1) {
     paragraphs = mergeParagraphsByPlan(paragraphs, input.layoutPlan);
+  }
+  if (
+    input.layoutPlan?.keepDenseParagraphs &&
+    paragraphs.length === 1 &&
+    paragraphs[0].length >= 980
+  ) {
+    const sentences = splitSentences(paragraphs[0]);
+    if (sentences.length >= input.layoutPlan.targetParagraphSentenceRange[1] + 2) {
+      paragraphs = chunkSentences(
+        sentences,
+        Math.max(3, input.layoutPlan.targetParagraphSentenceRange[0] + 1),
+      );
+    }
   }
   paragraphs = paragraphs.slice(0, maxParagraphs);
   const fallbackParagraphs = paragraphs.length ? paragraphs : (text ? [text] : []);

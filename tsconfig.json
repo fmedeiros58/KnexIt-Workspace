@@ -22,16 +22,15 @@
         "name": "next"
       }
     ],
-    "baseUrl": ".",
     "paths": {
       "@/*": [
-        "*"
+        "./*"
       ],
       "@/lib/recstore": [
-        "supadrive/lib/recstore"
+        "./supadrive/lib/recstore"
       ],
       "@/types/drive-recording": [
-        "supadrive/types/drive-recording"
+        "./supadrive/types/drive-recording"
       ]
     }
   },

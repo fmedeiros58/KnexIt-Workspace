@@ -26,6 +26,7 @@ import {
   applyHeadingAndListStrategy,
   buildResponseLayoutPlan,
   resolveCitationRequestContext,
+  runResponseCompletionOrchestrator,
   textualOutputAuditor,
 } from "./textual-layout-engine";
 
@@ -59,6 +60,13 @@ type PresentationWatchdogResult = {
   surfaceAfter: SupportedOutputLanguage;
   promptEchoDetected: boolean;
   mixedLanguageDetected: boolean;
+};
+
+type TextualAuditSnapshot = {
+  passed: boolean;
+  score: number;
+  issues: string[];
+  repairedText?: string;
 };
 
 const PT_SURFACE_MARKERS: ReadonlyArray<string> = [
@@ -190,6 +198,12 @@ const EN_TO_PT_TOKEN_REPAIRS: ReadonlyArray<[RegExp, string]> = [
 
 function escapeRegex(value: string) {
   return `${value || ""}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function readOptionalStringField(source: unknown, key: string): string {
+  if (!source || typeof source !== "object") return "";
+  const value = (source as Record<string, unknown>)[key];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function parseChannel(value: string | undefined): DeliveryChannel | null {
@@ -391,7 +405,13 @@ function hasResidualEnglishLeakForPortuguese(text: string) {
     normalized,
   );
   if (hardLeak) return true;
-  return evidence.enScore >= 5 && evidence.enScore >= evidence.ptScore * 0.45;
+  if (normalized.length < 220 && evidence.ptScore >= Math.max(3, evidence.enScore)) {
+    return false;
+  }
+  if (detectSurfaceLanguage(text) === "pt-BR" && evidence.ptScore >= evidence.enScore * 1.25) {
+    return false;
+  }
+  return evidence.enScore >= 6 && evidence.enScore > evidence.ptScore;
 }
 
 function hasKnownEnglishLeak(text: string) {
@@ -408,6 +428,45 @@ function isLikelyIdentityPrompt(state: ProcessingState) {
   return /\b(leticia|medeiros|nome|origem|chamam|criacao|criador|idealizador|filha)\b/.test(normalized);
 }
 
+function isDirectIdentityNamePrompt(state: ProcessingState) {
+  const normalized = normalizeLanguageProbe(state.normalizedMessage || state.rawMessage || "");
+  if (!normalized) return false;
+  return /\b(pode me dizer seu nome|me diga seu nome|qual e o seu nome|qual seu nome|como voce se chama|como vc se chama|quem e voce)\b/.test(
+    normalized,
+  );
+}
+
+function stabilizeShortIdentityNameSurface(state: ProcessingState, text: string) {
+  if (!isDirectIdentityNamePrompt(state)) return `${text || ""}`.trim();
+  return `${text || ""}`.replace(/Let[ií]cia/g, "Leticia").trim();
+}
+
+function preferDirectIdentityAnswer(state: ProcessingState, text: string) {
+  const source = `${text || ""}`.trim();
+  if (!isDirectIdentityNamePrompt(state) || !source) return source;
+
+  const sentences = splitSentences(source);
+  if (!sentences.length) return source;
+
+  const identityIndex = sentences.findIndex((sentence) =>
+    /\b(?:eu sou|sou a|meu nome [ée]|me chamo)\s+(?:a\s+)?let[ií]cia\b/i.test(sentence),
+  );
+  if (identityIndex < 0) return source;
+
+  const selected: string[] = [sentences[identityIndex].trim()];
+  const companion = sentences[identityIndex + 1]?.trim() || "";
+  if (
+    companion &&
+    /^(?:meu nome|esse nome|ele reune|ele reúne|posso te explicar|a origem do nome)/i.test(
+      normalizeLanguageProbe(companion),
+    )
+  ) {
+    selected.push(companion);
+  }
+
+  return selected.join(" ").trim();
+}
+
 function resolveIdentityNarrativeFallback(state: ProcessingState) {
   const aiIdentity = state.behaviorPersonalityState?.aiIdentity;
   if (!aiIdentity) return "";
@@ -420,7 +479,10 @@ function resolveIdentityNarrativeFallback(state: ProcessingState) {
     Boolean(aiIdentity.professionalQuestionDetected) ||
     isLikelyIdentityPrompt(state);
   if (!hasIdentitySignal) return "";
-  return `${aiIdentity.medeirosNarrativeShort || aiIdentity.identityNarrativeShort || ""}`.trim();
+
+  const medeirosNarrativeShort = readOptionalStringField(aiIdentity, "medeirosNarrativeShort");
+  const identityNarrativeShort = readOptionalStringField(aiIdentity, "identityNarrativeShort");
+  return `${medeirosNarrativeShort || identityNarrativeShort}`.trim();
 }
 
 function repairCommonEnglishLeakToPortuguese(text: string) {
@@ -434,10 +496,8 @@ function repairCommonEnglishLeakToPortuguese(text: string) {
     .replace(/\byou are\b/gi, "você está")
     .replace(/\byou have\b/gi, "você trouxe")
     .replace(/\bcreated by\b/gi, "criada por")
-    .replace(/\bartificial intelligence\b/gi, "inteligência artificial")
-    .replace(/\s+/g, " ")
-    .trim();
-  return repaired;
+    .replace(/\bartificial intelligence\b/gi, "inteligência artificial");
+  return normalizeSurfaceParagraphSpacing(repaired);
 }
 
 function applyEnglishStructuralRepairsForPortuguese(text: string) {
@@ -449,10 +509,8 @@ function applyEnglishStructuralRepairsForPortuguese(text: string) {
     .replace(/\bmust\b/gi, "deve")
     .replace(/\bshould\b/gi, "deve")
     .replace(/\bcan\b/gi, "pode")
-    .replace(/\bnow\b/gi, "agora")
-    .replace(/\s+/g, " ")
-    .trim();
-  return repaired;
+    .replace(/\bnow\b/gi, "agora");
+  return normalizeSurfaceParagraphSpacing(repaired);
 }
 
 function applyEnglishTokenRepairsForPortuguese(text: string) {
@@ -460,11 +518,7 @@ function applyEnglishTokenRepairsForPortuguese(text: string) {
   for (const [pattern, replacement] of EN_TO_PT_TOKEN_REPAIRS) {
     repaired = repaired.replace(pattern, replacement);
   }
-  repaired = repaired
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.!?;:])/g, "$1")
-    .trim();
-  return repaired;
+  return normalizeSurfaceParagraphSpacing(repaired);
 }
 
 function normalizeForEchoCheck(value: string) {
@@ -484,6 +538,28 @@ function splitSentences(text: string) {
     .filter(Boolean);
 }
 
+function splitSurfaceParagraphs(text: string): string[] {
+  return `${text || ""}`
+    .replace(/\r/g, "")
+    .split(/\n{2,}/g)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+function normalizeSurfaceParagraphSpacing(text: string): string {
+  return splitSurfaceParagraphs(text)
+    .map((paragraph) =>
+      paragraph
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\s+/g, " ")
+        .replace(/\s+([,.!?;:])/g, "$1")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
 function isPromptEcho(answer: string, prompt: string) {
   const normalizedAnswer = normalizeForEchoCheck(answer);
   const normalizedPrompt = normalizeForEchoCheck(prompt);
@@ -499,6 +575,11 @@ function isPromptEcho(answer: string, prompt: string) {
 
   const promptSlice = normalizedPrompt.slice(0, Math.min(260, normalizedPrompt.length));
   if (promptSlice.length >= 120 && normalizedAnswer.includes(promptSlice)) return true;
+  if (promptSlice.length >= 120) {
+    const first = normalizedAnswer.indexOf(promptSlice);
+    const second = first >= 0 ? normalizedAnswer.indexOf(promptSlice, first + Math.max(40, Math.floor(promptSlice.length * 0.5))) : -1;
+    if (first >= 0 && second > first) return true;
+  }
 
   const promptTokens = normalizedPrompt.split(" ").filter((token) => token.length >= 4);
   const answerTokens = normalizedAnswer.split(" ").filter((token) => token.length >= 4);
@@ -511,7 +592,50 @@ function isPromptEcho(answer: string, prompt: string) {
   }
   const coverage = overlap / Math.max(1, promptSet.size);
   const lengthRatio = normalizedAnswer.length / Math.max(1, normalizedPrompt.length);
-  return coverage >= 0.7 && lengthRatio >= 0.55 && lengthRatio <= 1.95;
+  return coverage >= 0.7 && lengthRatio >= 0.55 && lengthRatio <= 3.4;
+}
+
+function collapseDuplicatedHalves(text: string) {
+  const source = `${text || ""}`.trim();
+  if (!source || source.length < 280) return source;
+
+  const sentences = splitSentences(source);
+  if (sentences.length < 8) return source;
+
+  const midpoint = Math.floor(sentences.length / 2);
+  const firstHalf = sentences.slice(0, midpoint);
+  const secondHalf = sentences.slice(midpoint, midpoint + firstHalf.length);
+  if (firstHalf.length < 3 || secondHalf.length < 3) return source;
+
+  const normalizedFirst = firstHalf.map((row) => normalizeForEchoCheck(row));
+  const normalizedSecond = secondHalf.map((row) => normalizeForEchoCheck(row));
+  let equal = 0;
+  const comparable = Math.min(normalizedFirst.length, normalizedSecond.length);
+  for (let i = 0; i < comparable; i += 1) {
+    if (normalizedFirst[i] && normalizedFirst[i] === normalizedSecond[i]) equal += 1;
+  }
+  const ratio = equal / Math.max(1, comparable);
+  if (ratio < 0.65) return source;
+
+  return normalizeSurfaceParagraphSpacing(firstHalf.join(" "));
+}
+
+function stripPromptPrefixByLength(answer: string, prompt: string) {
+  const source = `${answer || ""}`.trim();
+  const rawPrompt = `${prompt || ""}`.trim();
+  if (!source || rawPrompt.length < 80) return source;
+
+  const normalizedAnswer = normalizeForEchoCheck(source);
+  const normalizedPrompt = normalizeForEchoCheck(rawPrompt);
+  const promptHead = normalizedPrompt.slice(0, Math.min(160, normalizedPrompt.length));
+  if (!promptHead || !normalizedAnswer.startsWith(promptHead.slice(0, Math.min(120, promptHead.length)))) {
+    return source;
+  }
+
+  const rawCut = Math.min(source.length, Math.max(80, Math.floor(rawPrompt.length * 0.88)));
+  const trimmedByCut = source.slice(rawCut).trim();
+  if (trimmedByCut.length >= 40) return trimmedByCut;
+  return source;
 }
 
 function stripPromptEcho(answer: string, prompt: string) {
@@ -528,8 +652,28 @@ function stripPromptEcho(answer: string, prompt: string) {
   }
 
   let cleaned = paragraphs.join("\n\n").trim();
+  cleaned = stripPromptPrefixByLength(cleaned, prompt);
   cleaned = cleaned.replace(/^["“](.{100,}?)["”]\s*/i, "").trim();
+  if (cleaned && isPromptEcho(cleaned, prompt)) {
+    const promptLead = `${prompt || ""}`.trim().slice(0, Math.min(180, `${prompt || ""}`.trim().length));
+    if (promptLead.length >= 80) {
+      const escaped = escapeRegex(promptLead);
+      cleaned = cleaned.replace(new RegExp(`^${escaped}\\s*`, "i"), "").trim();
+    }
+    cleaned = stripPromptPrefixByLength(cleaned, prompt);
+    if (!cleaned || isPromptEcho(cleaned, prompt)) {
+      const sentences = splitSentences(cleaned);
+      if (sentences.length > 1) {
+        cleaned = sentences.slice(1).join(" ").trim();
+      } else {
+        const hardCut = Math.min(cleaned.length, Math.floor(`${prompt || ""}`.trim().length * 0.82));
+        const trimmedByHardCut = cleaned.slice(hardCut).trim();
+        if (trimmedByHardCut.length >= 32) cleaned = trimmedByHardCut;
+      }
+    }
+  }
   if (removed === 0 && !cleaned) return `${answer || ""}`.trim();
+  cleaned = collapseDuplicatedHalves(cleaned);
   return cleaned || `${answer || ""}`.trim();
 }
 
@@ -560,28 +704,35 @@ function stripRoleTranscriptTail(answer: string, prompt: string) {
 }
 
 function filterSentencesToTargetLanguage(text: string, target: SupportedOutputLanguage) {
-  const sentences = splitSentences(text);
-  if (!sentences.length || target === "unknown") return `${text || ""}`.trim();
+  const paragraphs = splitSurfaceParagraphs(text);
+  if (!paragraphs.length || target === "unknown") return `${text || ""}`.trim();
 
-  const kept: string[] = [];
+  const keptParagraphs: string[] = [];
   let removed = 0;
-  for (const sentence of sentences) {
-    const evidence = estimateLanguageEvidence(sentence);
-    const dominant = detectSurfaceLanguage(sentence);
-    if (
-      (target === "pt-BR" && dominant === "en-US" && evidence.enScore >= evidence.ptScore + 1) ||
-      (target === "pt-BR" && evidence.enScore >= 5 && evidence.enScore >= evidence.ptScore * 0.7) ||
-      (target === "en-US" && dominant === "pt-BR" && evidence.ptScore >= evidence.enScore + 1) ||
-      (target === "es-ES" && dominant !== "unknown" && dominant !== "es-ES")
-    ) {
-      removed += 1;
-      continue;
+  for (const paragraph of paragraphs) {
+    const sentences = splitSentences(paragraph);
+    const kept: string[] = [];
+    for (const sentence of sentences) {
+      const evidence = estimateLanguageEvidence(sentence);
+      const dominant = detectSurfaceLanguage(sentence);
+      if (
+        (target === "pt-BR" && dominant === "en-US" && evidence.enScore >= evidence.ptScore + 1) ||
+        (target === "pt-BR" && evidence.enScore >= 5 && evidence.enScore >= evidence.ptScore * 0.7) ||
+        (target === "en-US" && dominant === "pt-BR" && evidence.ptScore >= evidence.enScore + 1) ||
+        (target === "es-ES" && dominant !== "unknown" && dominant !== "es-ES")
+      ) {
+        removed += 1;
+        continue;
+      }
+      kept.push(sentence);
     }
-    kept.push(sentence);
+    if (kept.length > 0) {
+      keptParagraphs.push(kept.join(" "));
+    }
   }
 
-  if (!kept.length || removed === 0) return `${text || ""}`.trim();
-  return kept.join(" ").replace(/\s+/g, " ").trim();
+  if (!keptParagraphs.length || removed === 0) return `${text || ""}`.trim();
+  return normalizeSurfaceParagraphSpacing(keptParagraphs.join("\n\n"));
 }
 
 function applyPortugueseSurfaceRepairs(text: string) {
@@ -589,11 +740,11 @@ function applyPortugueseSurfaceRepairs(text: string) {
   for (const [pattern, replacement] of PT_SURFACE_REPAIRS) {
     repaired = repaired.replace(pattern, replacement);
   }
-  repaired = repaired
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.!?;:])/g, "$1")
-    .trim();
-  return repaired;
+  return normalizeSurfaceParagraphSpacing(repaired);
+}
+
+function repairMojibakeArtifacts(text: string) {
+  return ensureUtf8Response(`${text || ""}`).text;
 }
 
 function isFollowUpTurn(state: ProcessingState) {
@@ -639,9 +790,7 @@ function removeContextArtifactPhrases(text: string) {
     cleaned = cleaned.replace(pattern, replacement);
   }
 
-  cleaned = cleaned
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.!?;:])/g, "$1")
+  cleaned = normalizeSurfaceParagraphSpacing(cleaned)
     .replace(/([,.!?;:])\1+/g, "$1")
     .trim();
 
@@ -658,12 +807,16 @@ function applyHardBannedLexemeFilter(text: string): HardBanResult {
   let output = `${text || ""}`.trim();
   if (!output) return { text: "", replacedCount: 0 };
 
-  const bannedRules: ReadonlyArray<[RegExp, string]> = [
-    [/\bcontexto\b/gi, "cenario"],
+  const targetedRules: ReadonlyArray<[RegExp, string]> = [
+    [/\bno contexto atual\b/gi, "neste momento"],
+    [/\bcom base no contexto atual\b/gi, "com base no que foi apresentado"],
+    [/\bpelo contexto fornecido\b/gi, "pelo que foi apresentado"],
+    [/\bdentro do contexto atual\b/gi, "neste momento"],
   ];
 
   let replacedCount = 0;
-  for (const [pattern, replacement] of bannedRules) {
+
+  for (const [pattern, replacement] of targetedRules) {
     output = output.replace(pattern, (matched) => {
       replacedCount += 1;
       if (matched === matched.toUpperCase()) return replacement.toUpperCase();
@@ -674,10 +827,7 @@ function applyHardBannedLexemeFilter(text: string): HardBanResult {
     });
   }
 
-  output = output
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.!?;:])/g, "$1")
-    .trim();
+  output = normalizeSurfaceParagraphSpacing(output);
 
   return { text: output, replacedCount };
 }
@@ -810,6 +960,9 @@ function runPresentationWatchdog(
   const prompt = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
   const issues: string[] = [];
   const surfaceBefore = detectSurfaceLanguage(output);
+  if (state.responseCompletionState.shouldContinue || !state.responseCompletionState.canSafelyTerminate) {
+    issues.push("delivery_with_pending_completion_state");
+  }
   const promptEchoDetected = isPromptEcho(output, prompt);
   if (promptEchoDetected) {
     const deEchoed = stripPromptEcho(output, prompt);
@@ -817,6 +970,12 @@ function runPresentationWatchdog(
       output = deEchoed;
       issues.push("prompt_echo_removed");
     }
+  }
+
+  const earlyIdentityAnswer = preferDirectIdentityAnswer(state, output);
+  if (earlyIdentityAnswer && earlyIdentityAnswer !== output) {
+    output = earlyIdentityAnswer;
+    issues.push("identity_answer_head_preserved");
   }
 
   if (targetLanguage === "pt-BR") {
@@ -845,14 +1004,24 @@ function runPresentationWatchdog(
     issues.push("cross_language_sentences_removed");
   }
 
+  const preferredIdentityAnswer = preferDirectIdentityAnswer(state, output);
+  if (preferredIdentityAnswer && preferredIdentityAnswer !== output) {
+    output = preferredIdentityAnswer;
+    issues.push("identity_answer_tail_trimmed");
+  }
+
   const mixedLanguageDetected = hasStrongMixedLanguageEvidence(output, targetLanguage);
   if (mixedLanguageDetected) {
     if (targetLanguage === "pt-BR") {
+      const identityFallback = resolveIdentityNarrativeFallback(state);
       const fallback = filterSentencesToTargetLanguage(
         applyEnglishTokenRepairsForPortuguese(repairCommonEnglishLeakToPortuguese(output)),
         "pt-BR",
       );
-      output = fallback || "Vou responder em português de forma direta e sem repetir o enunciado.";
+      output =
+        fallback ||
+        identityFallback ||
+        "Vou responder em português de forma direta e sem repetir o enunciado.";
       issues.push("mixed_language_fallback_applied");
     } else if (targetLanguage === "en-US") {
       output = filterSentencesToTargetLanguage(output, "en-US") || "I will answer directly in English.";
@@ -864,19 +1033,30 @@ function runPresentationWatchdog(
   }
 
   output = output
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n\n")
+    .map((paragraph) => paragraph.replace(/[ \t]{2,}/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim())
+    .filter(Boolean)
+    .join("\n\n")
     .trim();
 
   const terminalSurface = detectSurfaceLanguage(output);
   if (targetLanguage === "pt-BR" && terminalSurface === "en-US") {
-    output = "Vou responder em português de forma direta e sem repetir o enunciado.";
+    output =
+      resolveIdentityNarrativeFallback(state) ||
+      "Vou responder em português de forma direta e sem repetir o enunciado.";
     issues.push("terminal_pt_guard_fallback");
   }
   if (targetLanguage === "pt-BR" && hasResidualEnglishLeakForPortuguese(output)) {
-    output = "Vou responder em português de forma direta e sem repetir o enunciado.";
+    output =
+      resolveIdentityNarrativeFallback(state) ||
+      "Vou responder em português de forma direta e sem repetir o enunciado.";
     issues.push("residual_en_leak_pt_fallback");
   }
+
+  output = stabilizeShortIdentityNameSurface(state, output);
 
   const surfaceAfter = detectSurfaceLanguage(output);
   return {
@@ -1057,9 +1237,69 @@ function removeEchoAndBoilerplate(text: string) {
   return deduped.join("\n\n").trim();
 }
 
+function countStructuredSurfaceMarkers(text: string): number {
+  return (
+    (`${text || ""}`.match(/\(\s*[a-z0-9]+\s*\)/gi) || []).length +
+    (`${text || ""}`.match(/\b(?:modelo|alternativa|opcao|caso|cenario|etapa|passo)\s+\d+\s*:/gi) || []).length +
+    (`${text || ""}`.match(/\b(?:conclusao|objecao|pressupostos?|limites?|sintese|fechamento)\s*:/gi) || []).length
+  );
+}
+
+function restoreStructuredParagraphBreaks(state: ProcessingState, text: string): string {
+  const source = `${text || ""}`.replace(/\r/g, "").trim();
+  if (!source) return "";
+
+  const deliberativeActive = Boolean(
+    state.generalTaskDeliberationState?.isActive || state.deliberativeTaskState?.isActive,
+  );
+  const markerCount = countStructuredSurfaceMarkers(source);
+  const shouldRestore =
+    deliberativeActive ||
+    markerCount >= 2 ||
+    source.length >= 900 ||
+    state.executionPlan.selectedRoute !== "minimum";
+
+  if (!shouldRestore) return source;
+
+  let output = source
+    .replace(/([.!?;:])\s+(?=\([a-z0-9]+\)\s+)/gi, "$1\n\n")
+    .replace(
+      /([.!?;:])\s+(?=(?:modelo|alternativa|opcao|caso|cenario|etapa|passo)\s+\d+\s*:)/gi,
+      "$1\n\n",
+    )
+    .replace(
+      /([.!?;:])\s+(?=(?:conclusao|objecao|pressupostos?|limites?|sintese|fechamento)\s*:)/gi,
+      "$1\n\n",
+    )
+    .replace(/\)\s+(?=(?:modelo|alternativa|opcao|caso|cenario)\s+\d+\s*:)/gi, ")\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!output.includes("\n\n") && markerCount >= 3) {
+    output = output
+      .replace(/\s+(?=\([a-z0-9]+\)\s+)/gi, "\n\n")
+      .replace(
+        /\s+(?=(?:modelo|alternativa|opcao|caso|cenario|etapa|passo)\s+\d+\s*:)/gi,
+        "\n\n",
+      )
+      .replace(
+        /\s+(?=(?:conclusao|objecao|pressupostos?|limites?|sintese|fechamento)\s*:)/gi,
+        "\n\n",
+      )
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  return output;
+}
+
 function applyPresentationPolish(state: ProcessingState, text: string) {
-  let output = `${text || ""}`.trim();
+  let output = repairMojibakeArtifacts(`${text || ""}`).trim();
   if (!output) return "";
+  const earlyIdentityAnswer = preferDirectIdentityAnswer(state, output);
+  if (earlyIdentityAnswer && earlyIdentityAnswer !== output) {
+    output = earlyIdentityAnswer;
+  }
   output = stripPromptEcho(output, `${state.normalizedMessage || state.rawMessage || ""}`);
   output = stripRoleTranscriptTail(output, `${state.normalizedMessage || state.rawMessage || ""}`);
 
@@ -1082,6 +1322,7 @@ function applyPresentationPolish(state: ProcessingState, text: string) {
     cleaned = output;
   }
   cleaned = cleaned.replace(/^resposta:\s*/i, "").trim();
+  cleaned = restoreStructuredParagraphBreaks(state, cleaned);
 
   const epistemicNote = buildEpistemicClarityNote(state, cleaned);
   if (
@@ -1103,23 +1344,159 @@ function applyPresentationPolish(state: ProcessingState, text: string) {
     }
   }
 
-  const surface = applyPortugueseSurfaceRepairs(cleaned);
-  return applyBackendArtifactSanitization(state, surface);
+  const surface = restoreStructuredParagraphBreaks(state, applyPortugueseSurfaceRepairs(cleaned));
+  return applyBackendArtifactSanitization(state, repairMojibakeArtifacts(surface));
+}
+
+function splitParagraphsForDiscourse(text: string): string[] {
+  return `${text || ""}`
+    .split(/\n{2,}/g)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+function extractMemoryAnchors(state: ProcessingState): string[] {
+  const anchors = [
+    ...state.memorySnapshot.globalNamespaces.identity.slice(-3),
+    ...state.memorySnapshot.globalNamespaces.semantic.slice(-5),
+    ...state.activeContext.slice(-8),
+    ...state.retrievedEvidence.slice(0, 6),
+  ]
+    .map((entry) => `${entry || ""}`.trim())
+    .filter((entry) => entry.length >= 4);
+
+  return [...new Set(anchors)].slice(0, 18);
+}
+
+function normalizeForDiscourseLedger(text: string): string {
+  return `${text || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveCompletedAndPendingObligations(state: ProcessingState): {
+  completed: string[];
+  pending: string[];
+} {
+  const deliberative = state.generalTaskDeliberationState || state.deliberativeTaskState;
+  const execution = deliberative?.taskExecutionState;
+  if (!execution || !deliberative?.isActive) return { completed: [], pending: [] };
+
+  const obligationScores = (execution.obligationSatisfactionScores || []) as Array<{
+    passed: boolean;
+    label?: string;
+    obligationId?: string;
+  }>;
+
+  const completed = obligationScores
+    .filter((score) => score.passed)
+    .map((score) => `${score.label || score.obligationId || ""}`.trim())
+    .filter(Boolean);
+
+  const completedSet = new Set(completed);
+  const pending = (execution.detectedObligations || []).filter((item) => !completedSet.has(item));
+
+  return {
+    completed: [...new Set(completed)],
+    pending: [...new Set(pending)],
+  };
+}
+
+function usesWorkingMemory(state: ProcessingState): boolean {
+  if ((state.memorySnapshot.selectedRecordIds || []).length > 0) return true;
+  const workingRecords = state.memorySnapshot.records.filter((record) =>
+    record.kind === "working" || record.kind === "short-term" || record.kind === "semantic"
+  );
+  return workingRecords.length > 0;
+}
+
+function buildLongFormDiscourseState(state: ProcessingState, seedText: string, rhetoricalShapeHint?: string) {
+  const prompt = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  const previous = state.longFormDiscourseState;
+  const obligationStatus = resolveCompletedAndPendingObligations(state);
+  const memoryAnchors = extractMemoryAnchors(state);
+  const paragraphs = splitParagraphsForDiscourse(seedText);
+  const firstParagraph = paragraphs[0] || "";
+  const firstSentence = firstParagraph.split(/(?<=[.!?])\s+/g).map((item) => item.trim()).filter(Boolean)[0] || "";
+  const route = `${state.executionPlan.selectedRoute || "minimum"}`.toLowerCase();
+  const deliberativeActive = Boolean(state.deliberativeTaskState?.isActive || state.generalTaskDeliberationState?.isActive);
+  const routeSuggestsLongForm =
+    route !== "minimum" && (seedText.length >= 260 || obligationStatus.pending.length >= 2);
+  const isActive =
+    !isGreetingMessage(prompt) &&
+    (deliberativeActive || routeSuggestsLongForm || seedText.length >= 620 || obligationStatus.pending.length >= 2);
+
+  const historical = [...(previous?.paragraphHistory || [])];
+  const nextHistory = [...historical, ...paragraphs].slice(-28);
+  const antiRepetitionLedger = [...new Set(nextHistory.map(normalizeForDiscourseLedger).filter(Boolean))].slice(-40);
+  const transitionPlan: string[] = [];
+  for (let i = 0; i < obligationStatus.pending.length - 1; i += 1) {
+    transitionPlan.push(`${obligationStatus.pending[i]} -> ${obligationStatus.pending[i + 1]}`);
+  }
+
+  const paragraphPlan = obligationStatus.pending.map((item, index) => ({
+    id: `paragraph_plan_${index + 1}`,
+    focus: item,
+    targetSentences: 4 + (index % 2),
+    status: "pending" as const,
+  }));
+  const densityProfile: ProcessingState["longFormDiscourseState"]["densityProfile"] = deliberativeActive
+    ? "deep"
+    : seedText.length >= 700
+      ? "dense"
+      : "balanced";
+
+  return {
+    isActive,
+    globalThesis: firstSentence || previous?.globalThesis || prompt.slice(0, 180),
+    currentArgumentThread: obligationStatus.pending[0] || previous?.currentArgumentThread || firstSentence,
+    completedObligations: obligationStatus.completed,
+    pendingObligations: obligationStatus.pending,
+    establishedDefinitions: [
+      ...new Set([
+        ...(previous?.establishedDefinitions || []),
+        ...(state.deliberativeTaskState?.proofSkeleton?.definitions || []),
+      ]),
+    ].slice(-18),
+    paragraphPlan,
+    paragraphHistory: nextHistory,
+    transitionPlan: transitionPlan.length ? transitionPlan : previous?.transitionPlan || [],
+    antiRepetitionLedger,
+    cohesionNotes: previous?.cohesionNotes || [],
+    densityProfile,
+    rhetoricalShape: rhetoricalShapeHint || previous?.rhetoricalShape || "multi_paragraph_analysis",
+    usesWorkingMemory: usesWorkingMemory(state),
+    memoryAnchors,
+  };
 }
 
 export async function runPresentationLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
   const promptText = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
   const responseForDelivery = `${state.finalResponse || state.structuredResponse || state.humanizedResponse || ""}`.trim();
+
   const utf8Guard = ensureUtf8Response(responseForDelivery);
   const channel = resolveDeliveryChannel();
   const citationRequestContext = resolveCitationRequestContext(state);
   const httpRetrievedSources = state.retrievedSources.filter((source) => isHttpUrl(source.url));
+
   const code = codeBlockAdapter({ text: utf8Guard.text });
+
   const preLayoutText = applyPresentationPolish(state, code.cleanedText || utf8Guard.text);
+
+  const seededLongFormState = buildLongFormDiscourseState(state, preLayoutText);
+  state.longFormDiscourseState = seededLongFormState;
+
   const hasEnumerativeSignals =
     /(^|\n)\s*(?:[-*•]|\d+\.)\s+/.test(preLayoutText) ||
     /\b(a\)|b\)|c\)|d\)|e\)|f\)|g\))\b/i.test(preLayoutText);
+
+  const deliberative = state.generalTaskDeliberationState || state.deliberativeTaskState;
+
   const responseLayoutPlan = buildResponseLayoutPlan({
     text: preLayoutText,
     prompt: promptText,
@@ -1129,30 +1506,69 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
     hasEnumerativeSignals,
     requestedList: /\b(lista|liste|listar|em topicos|bullet|itens)\b/i.test(promptText),
     requestedHeading: /\b(titulo|titulos|secoes|secao|subtitulo|subtitulos)\b/i.test(promptText),
+    route: state.executionPlan.selectedRoute,
+    deliberativeActive: Boolean(deliberative?.isActive),
+    requiresStructuredCoverage: Boolean(deliberative?.requiresCoverageAudit),
+    obligationCount: deliberative?.obligationGraph?.length || 0,
+    reasoningIntensity: deliberative?.reasoningIntensity || 0,
+    structuralComplexity: deliberative?.structuralComplexity || 0,
+    usesWorkingMemory: seededLongFormState.usesWorkingMemory,
+    pendingObligations: seededLongFormState.pendingObligations,
   });
+
+  state.longFormDiscourseState = buildLongFormDiscourseState(
+    state,
+    preLayoutText,
+    responseLayoutPlan.rhetoricalShape,
+  );
+
   const layoutDrivenText = applyHeadingAndListStrategy(preLayoutText, responseLayoutPlan);
-  const preSerializeAudit = textualOutputAuditor(layoutDrivenText, responseLayoutPlan);
-  const compositionText = `${preSerializeAudit.repairedText || layoutDrivenText}`.trim() || preLayoutText;
+
+  const preSerializeAudit = textualOutputAuditor(layoutDrivenText, responseLayoutPlan, {
+    prompt: promptText,
+    longFormDiscourse: state.longFormDiscourseState
+      ? {
+          isActive: state.longFormDiscourseState.isActive,
+          pendingObligations: state.longFormDiscourseState.pendingObligations,
+          completedObligations: state.longFormDiscourseState.completedObligations,
+          paragraphHistory: state.longFormDiscourseState.paragraphHistory,
+          transitionPlan: state.longFormDiscourseState.transitionPlan,
+          antiRepetitionLedger: state.longFormDiscourseState.antiRepetitionLedger,
+          usesWorkingMemory: state.longFormDiscourseState.usesWorkingMemory,
+          memoryAnchors: state.longFormDiscourseState.memoryAnchors,
+        }
+      : undefined,
+  });
+
+  const compositionText =
+    `${preSerializeAudit.repairedText || layoutDrivenText}`.trim() || preLayoutText;
+
   const bubble = chatBubbleAdapter({
     text: compositionText,
     layoutPlan: responseLayoutPlan,
   });
 
-  const accessDate = citationRequestContext.referenceListStyle === "abnt" ? buildAbntAccessDate() : "";
+  const accessDate = citationRequestContext.referenceListStyle === "abnt"
+    ? buildAbntAccessDate()
+    : "";
+
   const citations = citationAdapter({
     sources: httpRetrievedSources,
     requestContext: citationRequestContext,
     accessDate,
   });
+
   const documents = documentBlockAdapter({
     sources: state.retrievedSources,
     requestContext: citationRequestContext,
     accessDate,
   });
+
   const media = mediaAdapter({
     text: utf8Guard.text,
     sourceUrls: state.retrievedSources.map((source) => source.url),
   });
+
   const confidence = confidenceAdapter({
     scores: state.confidenceScores,
     validationReport: state.validationReport,
@@ -1175,6 +1591,14 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
     confidence: confidence.confidence,
     responseLayoutPlan,
     textualAudit: preSerializeAudit,
+    longFormDiscourse: {
+      isActive: state.longFormDiscourseState.isActive,
+      pendingObligations: state.longFormDiscourseState.pendingObligations,
+      completedObligations: state.longFormDiscourseState.completedObligations,
+      paragraphHistory: state.longFormDiscourseState.paragraphHistory,
+      transitionPlan: state.longFormDiscourseState.transitionPlan,
+      usesWorkingMemory: state.longFormDiscourseState.usesWorkingMemory,
+    },
   };
 
   const serializedMap: Record<DeliveryFormat, SerializedPresentation> = {
@@ -1185,45 +1609,114 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
   };
 
   const selectedSerialized = selectSerialized(format, serializedMap);
+  const finalCitations = citations.citations
+    .filter((row) => isHttpUrl(row.url))
+    .map((row) => row.url);
+
+  const rawFinalText = `${selectedSerialized.text || bubble.bubble.text}`.trim();
+
+  const forcedDateAnswer = isCurrentDateQuestion(state.normalizedMessage || state.rawMessage)
+    ? buildCurrentDateAnswer()
+    : null;
+
+  const polishedText = forcedDateAnswer || applyPresentationPolish(state, rawFinalText);
+
+  const postLayoutText = forcedDateAnswer
+    ? polishedText
+    : applyHeadingAndListStrategy(polishedText, responseLayoutPlan);
+
+  const finalTextualAudit: TextualAuditSnapshot = forcedDateAnswer
+    ? { passed: true, score: 1, issues: [], repairedText: polishedText }
+    : textualOutputAuditor(postLayoutText, responseLayoutPlan, {
+        prompt: promptText,
+        longFormDiscourse: state.longFormDiscourseState
+          ? {
+              isActive: state.longFormDiscourseState.isActive,
+              pendingObligations: state.longFormDiscourseState.pendingObligations,
+              completedObligations: state.longFormDiscourseState.completedObligations,
+              paragraphHistory: state.longFormDiscourseState.paragraphHistory,
+              transitionPlan: state.longFormDiscourseState.transitionPlan,
+              antiRepetitionLedger: state.longFormDiscourseState.antiRepetitionLedger,
+              usesWorkingMemory: state.longFormDiscourseState.usesWorkingMemory,
+              memoryAnchors: state.longFormDiscourseState.memoryAnchors,
+            }
+          : undefined,
+      });
+
+  const auditedText =
+    `${finalTextualAudit.repairedText || postLayoutText}`.trim() || polishedText;
+
+  const completionOrchestrated = runResponseCompletionOrchestrator(auditedText, {
+    prompt: promptText,
+    plan: responseLayoutPlan,
+    longFormDiscourse: state.longFormDiscourseState
+      ? {
+          isActive: state.longFormDiscourseState.isActive,
+          pendingObligations: state.longFormDiscourseState.pendingObligations,
+          completedObligations: state.longFormDiscourseState.completedObligations,
+          paragraphHistory: state.longFormDiscourseState.paragraphHistory,
+          transitionPlan: state.longFormDiscourseState.transitionPlan,
+          antiRepetitionLedger: state.longFormDiscourseState.antiRepetitionLedger,
+          usesWorkingMemory: state.longFormDiscourseState.usesWorkingMemory,
+          memoryAnchors: state.longFormDiscourseState.memoryAnchors,
+        }
+      : undefined,
+    taskExecutionState:
+      state.generalTaskDeliberationState?.taskExecutionState ||
+      state.deliberativeTaskState?.taskExecutionState,
+  });
+
+  state.responseCompletionState = {
+    ...state.responseCompletionState,
+    ...completionOrchestrated.state,
+  };
+
+  const languageGuard = enforcePresentationLanguage(state, completionOrchestrated.text);
+  const finalTextGuard = ensureUtf8Response(languageGuard.text);
+  const hardBanResult = applyHardBannedLexemeFilter(finalTextGuard.text);
+  const watchdogResult = runPresentationWatchdog(state, hardBanResult.text, languageGuard.targetLanguage);
+  const watchdogTextGuard = ensureUtf8Response(watchdogResult.text);
+
+  const finalText = restoreStructuredParagraphBreaks(
+    state,
+    stabilizeShortIdentityNameSurface(state, watchdogTextGuard.text),
+  );
+
+  state.longFormDiscourseState = buildLongFormDiscourseState(
+    state,
+    finalText,
+    responseLayoutPlan.rhetoricalShape,
+  );
+
+  const finalSerialized: SerializedPresentation = {
+    ...selectedSerialized,
+    text: finalText,
+    payload: {
+      ...(selectedSerialized.payload || {}),
+      text: finalText,
+    },
+  };
+
   const stream = buildPresentationStream({
-    text: selectedSerialized.text,
+    text: finalSerialized.text,
     channel,
     layoutPlan: responseLayoutPlan,
   });
 
   const front = buildPresentationFrontDelivery({
     channel,
-    serialized: selectedSerialized,
-    citations: citations.citations.filter((row) => isHttpUrl(row.url)).map((row) => row.url),
+    serialized: finalSerialized,
+    citations: finalCitations,
     stream: stream.serialized,
   });
-
-  const finalCitations = citations.citations.filter((row) => isHttpUrl(row.url)).map((row) => row.url);
-  const rawFinalText = `${front.delivery.text || selectedSerialized.text || bubble.bubble.text}`.trim();
-  const forcedDateAnswer = isCurrentDateQuestion(state.normalizedMessage || state.rawMessage)
-    ? buildCurrentDateAnswer()
-    : null;
-  const polishedText = forcedDateAnswer || applyPresentationPolish(state, rawFinalText);
-  const postLayoutText = forcedDateAnswer
-    ? polishedText
-    : applyHeadingAndListStrategy(polishedText, responseLayoutPlan);
-  const finalTextualAudit = forcedDateAnswer
-    ? { passed: true, score: 1, issues: [] as string[] }
-    : textualOutputAuditor(postLayoutText, responseLayoutPlan);
-  const auditedText = `${finalTextualAudit.repairedText || postLayoutText}`.trim() || polishedText;
-  const languageGuard = enforcePresentationLanguage(state, auditedText);
-  const finalTextGuard = ensureUtf8Response(languageGuard.text);
-  const hardBanResult = applyHardBannedLexemeFilter(finalTextGuard.text);
-  const watchdogResult = runPresentationWatchdog(state, hardBanResult.text, languageGuard.targetLanguage);
-  const watchdogTextGuard = ensureUtf8Response(watchdogResult.text);
-  const finalText = watchdogTextGuard.text;
 
   state.structuredResponse = finalText;
   state.deliveryPayload = {
     channel: front.delivery.channel,
     format: front.delivery.format,
-    text: finalText,
+    text: front.delivery.text,
     citations: finalCitations,
+    payload: front.delivery.payload,
   };
 
   state.executionArtifacts = {
@@ -1231,7 +1724,7 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
     presentation: {
       channel: front.delivery.channel,
       format: front.delivery.format,
-      selectedSerializer: selectedSerialized.format,
+      selectedSerializer: finalSerialized.format,
       adapters: [
         bubble.component,
         code.component,
@@ -1266,6 +1759,20 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
       responseLayoutNotes: responseLayoutPlan.notes,
       textualAuditScore: finalTextualAudit.score,
       textualAuditIssues: finalTextualAudit.issues,
+      longFormActive: state.longFormDiscourseState?.isActive || false,
+      longFormPendingObligations: state.longFormDiscourseState?.pendingObligations.length || 0,
+      longFormCompletedObligations: state.longFormDiscourseState?.completedObligations.length || 0,
+      longFormParagraphHistory: state.longFormDiscourseState?.paragraphHistory.length || 0,
+      longFormUsesWorkingMemory: state.longFormDiscourseState?.usesWorkingMemory || false,
+      responseCompletionShouldContinue: state.responseCompletionState.shouldContinue,
+      responseCompletionScore: state.responseCompletionState.completionScore,
+      responseCompletionPendingCritical: state.responseCompletionState.pendingCriticalObligations.length,
+      responseCompletionPendingParagraphs: state.responseCompletionState.pendingParagraphs.length,
+      responseCompletionCanSafelyTerminate: state.responseCompletionState.canSafelyTerminate,
+      responseCompletionContinuationApplied: state.responseCompletionState.continuationApplied,
+      responseCompletionTerminationBlockReasons: state.responseCompletionState.terminationBlockReasons,
+      antiFragmentationGateTriggered: finalTextualAudit.issues.some((issue) => /anti_fragmentation/i.test(issue)),
+      antiMonoblockGateTriggered: finalTextualAudit.issues.some((issue) => /anti_monoblock/i.test(issue)),
       citationStyle: citationRequestContext.citationStyle,
       referenceListStyle: citationRequestContext.referenceListStyle,
       presentationWatchdogTriggered: watchdogResult.triggered,
@@ -1284,7 +1791,7 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
       route: state.executionPlan.selectedRoute,
       latencyMs: Date.now() - startedAt,
       detail:
-        `channel=${front.delivery.channel}; format=${front.delivery.format}; serializer=${selectedSerialized.format}; ` +
+        `channel=${front.delivery.channel}; format=${front.delivery.format}; serializer=${finalSerialized.format}; ` +
         `utf8_repaired=${utf8Guard.repaired || finalTextGuard.repaired}; citations=${finalCitations.length}; stream_chunks=${stream.serialized.chunkCount}; recovered=${stream.recovered}; ` +
         `date_guard_applied=${forcedDateAnswer ? "true" : "false"}; language_target=${languageGuard.targetLanguage}; ` +
         `language_surface=${languageGuard.surfaceLanguage}; language_policy_applied=${languageGuard.applied ? "true" : "false"}; ` +
@@ -1292,6 +1799,15 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
         `presentation_watchdog_triggered=${watchdogResult.triggered ? "true" : "false"}; presentation_watchdog_issues=${watchdogResult.issues.length}; ` +
         `presentation_watchdog_surface_before=${watchdogResult.surfaceBefore}; presentation_watchdog_surface_after=${watchdogResult.surfaceAfter}; ` +
         `layout_shape=${responseLayoutPlan.rhetoricalShape}; layout_complexity=${responseLayoutPlan.complexity}; textual_audit_score=${finalTextualAudit.score.toFixed(2)}; ` +
+        `long_form_active=${state.longFormDiscourseState?.isActive ? "true" : "false"}; long_form_pending=${state.longFormDiscourseState?.pendingObligations.length || 0}; ` +
+        `response_completion_should_continue=${state.responseCompletionState.shouldContinue ? "true" : "false"}; ` +
+        `response_completion_score=${state.responseCompletionState.completionScore.toFixed(2)}; ` +
+        `response_completion_pending_critical=${state.responseCompletionState.pendingCriticalObligations.length}; ` +
+        `response_completion_pending_paragraphs=${state.responseCompletionState.pendingParagraphs.length}; ` +
+        `response_completion_can_terminate=${state.responseCompletionState.canSafelyTerminate ? "true" : "false"}; ` +
+        `response_completion_applied=${state.responseCompletionState.continuationApplied ? "true" : "false"}; ` +
+        `anti_fragmentation=${finalTextualAudit.issues.some((issue) => /anti_fragmentation/i.test(issue)) ? "true" : "false"}; ` +
+        `anti_monoblock=${finalTextualAudit.issues.some((issue) => /anti_monoblock/i.test(issue)) ? "true" : "false"}; ` +
         `citation_style=${citationRequestContext.citationStyle}; references_style=${citationRequestContext.referenceListStyle}`,
     }),
   );

@@ -1,11 +1,20 @@
 /**
- * Responsabilidade do arquivo:
- * - Executar validacao proporcional ao perfil (light/standard/strict).
- * - Unificar checagens factuais, de politica, estrutura e qualidade.
- * - Encaminhar estado validado para camada de apresentacao.
+ * ANM ARCHITECTURAL SPEC
+ * Layer: 17-validation-layer
+ * Module: validation-layer-bridge
+ * Responsibility: Execute structural, factual, policy and quality validation before presentation handoff.
+ * Primary Inputs: ProcessingState, adaptive layer mode and validated response surfaces.
+ * Primary Outputs: ValidationReport, validatedDraft and presentation handoff.
+ * Upstream Dependencies: response structure, academic normalization, epistemic bridge, validation operators
+ * Downstream Dependencies: presentation-layer
+ * Invariants: Validation must not bypass the descending pipeline; it only hardens the outgoing surface.
+ * Failure Modes: Missing evidence signals degrade to conservative acceptance thresholds and retry bias.
+ * Audit Events: multi_layer_validation_complete
+ * Notes: Adaptive orchestration modulates validation intensity, but semantic ownership remains in upstream layers.
  */
 import type { ProcessingState } from "../bridges/contracts/processing-state";
 import { makeTraceEvent } from "../shared/utils/trace-utils";
+import { resolveLayerModeFromState } from "../05-complexity-and-orchestration-layer/activation-policy/layer-mode-resolver";
 import { runClaimCheck } from "./factual-validator/claim-check";
 import { runSourceAlignmentCheck } from "./factual-validator/source-alignment-check";
 import { detectUnsupportedStatements } from "./factual-validator/unsupported-statement-detector";
@@ -30,6 +39,9 @@ import { handoffValidationToPresentation } from "./validation-to-presentation-br
 import { resolveValidationProfile } from "./validation-profile-resolver";
 import { runEpistemicValidationBridgeAdapter } from "../bridges/epistemic-validation.bridge";
 import { buildFounderEpistemicInfluence } from "../12b-founder-influence-layer/founder-epistemic-bridge";
+import { structuralValidator } from "./operators/structural-validator";
+import { epistemicValidator } from "./operators/epistemic-validator";
+import { confidenceChecker } from "./operators/confidence-checker";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -38,7 +50,11 @@ function clamp01(value: number) {
 export async function runValidationLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
   const validationStage = state.executionArtifacts?.validationStage || "pre_presentation";
+  const validationMode = resolveLayerModeFromState(state, "validation");
   const profile = resolveValidationProfile(state);
+  const structuralPolicy = structuralValidator(state, validationMode);
+  const epistemicPolicy = epistemicValidator(state, validationMode);
+  const confidencePolicy = confidenceChecker(state, validationMode);
   const epistemicValidation = runEpistemicValidationBridgeAdapter(state);
   const founderEpistemicInfluence = buildFounderEpistemicInfluence();
 
@@ -88,17 +104,24 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
   let factualOk = true;
   let factualIssues: string[] = [];
   let epistemicBase = 0.85;
+  const runDeepEpistemicChecks = profile !== "light" || epistemicPolicy.shouldRunClaimCheck;
 
-  if (profile !== "light") {
-    const claim = runClaimCheck(state.structuredResponse);
-    const sourceAlignment = runSourceAlignmentCheck({
-      text: state.structuredResponse,
-      sourceCount: state.retrievedSources.length,
-    });
-    const unsupported = detectUnsupportedStatements({
-      text: state.structuredResponse,
-      sourceCount: state.retrievedSources.length,
-    });
+  if (runDeepEpistemicChecks) {
+    const claim = epistemicPolicy.shouldRunClaimCheck
+      ? runClaimCheck(state.structuredResponse)
+      : { ok: true, issues: [] as string[] };
+    const sourceAlignment = epistemicPolicy.shouldRunSourceAlignment
+      ? runSourceAlignmentCheck({
+          text: state.structuredResponse,
+          sourceCount: state.retrievedSources.length,
+        })
+      : { ok: true, issues: [] as string[] };
+    const unsupported = epistemicPolicy.shouldRunUnsupportedStatementCheck
+      ? detectUnsupportedStatements({
+          text: state.structuredResponse,
+          sourceCount: state.retrievedSources.length,
+        })
+      : { ok: true, issues: [] as string[] };
     const hallucination = detectHallucinationRisk({
       uncertainty: state.collapsedTruth.uncertainty,
       sourceCount: state.retrievedSources.length,
@@ -106,11 +129,11 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
     });
 
     const traceValidation =
-      profile === "strict"
+      epistemicPolicy.shouldRunHypothesisTrace
         ? validateHypothesisTrace({
-          dominantHypothesisId: state.collapsedTruth.dominantHypothesisId,
-          hypothesisIds: state.hypothesisSet.map((item) => item.id),
-        })
+            dominantHypothesisId: state.collapsedTruth.dominantHypothesisId,
+            hypothesisIds: state.hypothesisSet.map((item) => item.id),
+          })
         : { ok: true, issues: [] as string[] };
 
     factualOk =
@@ -119,7 +142,7 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       unsupported.ok &&
       traceValidation.ok &&
       epistemicValidation.verdict.ok &&
-      hallucination.risk < (profile === "strict" ? 0.55 : 0.68) &&
+      hallucination.risk < epistemicPolicy.maxHallucinationRisk &&
       memoryValidationRisk < (profile === "strict" ? 0.72 : 0.82);
 
     factualIssues = [
@@ -129,6 +152,7 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       ...traceValidation.issues,
       ...epistemicValidation.verdict.issues,
       ...hallucination.issues,
+      ...epistemicPolicy.rationale,
       ...(memoryValidationRisk >= 0.62 ? ["memory_regulatory_high_risk"] : []),
       ...(regulatory.blockStructuralConsolidation ? ["memory_regulatory_consolidation_blocked"] : []),
       ...(runtimeOverclaimSignal >= 0.6 ? ["memory_runtime_overclaim_signal"] : []),
@@ -177,6 +201,22 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
     fluency,
     relevance: Number(clamp01(relevance - (memoryValidationRisk * 0.06)).toFixed(4)),
   });
+  const confidenceAcceptable =
+    quality.score >= confidencePolicy.minimumAcceptScore &&
+    coherence >= confidencePolicy.minimumCoherence &&
+    epistemic >= confidencePolicy.minimumEpistemic;
+  const structureOk =
+    (!structuralPolicy.enforceParagraphCohesion || brokenParagraphs.ok) &&
+    emptySections.ok &&
+    (!structuralPolicy.enforceCompletion || completion.ok) &&
+    (!structuralPolicy.enforceSequence || sequence.ok) &&
+    (!structuralPolicy.enforceTruncation || truncation.ok);
+  const finalQualityDecision =
+    quality.decision === "accept" &&
+    confidenceAcceptable &&
+    (!confidencePolicy.retryOnStructureFailure || structureOk)
+      ? "accept"
+      : "retry";
 
   state.validationReport = {
     factual: {
@@ -188,16 +228,20 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       issues: [...privacy.issues, ...restricted.issues, ...safety.issues, ...sensitive.issues],
     },
     structure: {
-      ok: brokenParagraphs.ok && completion.ok && emptySections.ok && sequence.ok && truncation.ok,
+      ok: structureOk,
       issues: [
-        ...brokenParagraphs.issues,
-        ...completion.issues,
+        ...(structuralPolicy.enforceParagraphCohesion ? brokenParagraphs.issues : []),
+        ...(structuralPolicy.enforceCompletion ? completion.issues : []),
         ...emptySections.issues,
-        ...sequence.issues,
-        ...truncation.issues,
+        ...(structuralPolicy.enforceSequence ? sequence.issues : []),
+        ...(structuralPolicy.enforceTruncation ? truncation.issues : []),
+        ...structuralPolicy.rationale,
       ],
     },
-    quality,
+    quality: {
+      score: quality.score,
+      decision: finalQualityDecision,
+    },
   };
 
   state.confidenceScores.coherence = coherence;
@@ -211,10 +255,13 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
   };
   state.executionArtifacts.validation = {
     activeValidationFamilies: [
-      ...(profile !== "light" ? ["validation_factual"] : []),
+      ...(runDeepEpistemicChecks ? ["validation_factual"] : []),
       "validation_policy",
+      `validation_mode_${validationMode}`,
+      ...structuralPolicy.rationale.slice(0, 2),
+      ...confidencePolicy.rationale.slice(0, 2),
     ],
-    validationProfile: profile,
+    validationProfile: `${profile}:${structuralPolicy.structuralProfile}`,
     validationStage,
   };
 
@@ -231,8 +278,8 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       route: state.executionPlan.selectedRoute,
       latencyMs: Date.now() - startedAt,
       detail:
-        `stage=${validationStage}; profile=${profile}; factual=${state.validationReport.factual.ok}; policy=${state.validationReport.policy.ok}; ` +
-        `structure=${state.validationReport.structure.ok}; decision=${quality.decision}; ` +
+        `stage=${validationStage}; profile=${profile}; mode=${validationMode}; factual=${state.validationReport.factual.ok}; policy=${state.validationReport.policy.ok}; ` +
+        `structure=${state.validationReport.structure.ok}; decision=${state.validationReport.quality.decision}; ` +
         `memoryRisk=${memoryValidationRisk.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; runtimeOverclaim=${runtimeOverclaimSignal.toFixed(2)}; ` +
         `epistemicBridge=${epistemicValidation.verdict.score.toFixed(2)}; coverage=${epistemicValidation.coverage.coverage.toFixed(2)}`,
     }),

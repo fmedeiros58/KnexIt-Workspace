@@ -1,9 +1,20 @@
 /**
- * ai-system-anm - layer 17b
- * Modula comportamento de resposta APOS validacao.
+ * ANM ARCHITECTURAL SPEC
+ * Layer: 17b-response-behavior-layer
+ * Module: response-behavior-layer-bridge
+ * Responsibility: Modulate post-validation response behavior without rewriting semantic content ownership.
+ * Primary Inputs: ProcessingState, validated draft and adaptive response-behavior layer mode.
+ * Primary Outputs: BehaviorPersonalityState adjustments and a behavior-shaped validatedDraft surface.
+ * Upstream Dependencies: validation layer, founder identity bridge, local behavior selector
+ * Downstream Dependencies: proactivity gate, delivery profile, humanizer
+ * Invariants: This layer only changes behavioral framing; semantic content stays locked after validation.
+ * Failure Modes: Missing adaptive signals degrade to balanced behavior targets.
+ * Audit Events: response_behavior_modulated
+ * Notes: Adaptive behavior remains local to 17b and does not leak orchestration policy as free-form state mutation.
  */
 import type { ProcessingState } from "../bridges/contracts/processing-state";
 import { makeTraceEvent } from "../shared/utils/trace-utils";
+import { resolveLayerModeFromState } from "../05-complexity-and-orchestration-layer/activation-policy/layer-mode-resolver";
 import { resolveAiIdentityProfile, resolveIdentityFallbackForMessage } from "./ai-identity-regulator";
 import { buildFounderIdentityInfluence } from "../12b-founder-influence-layer/founder-identity-bridge";
 import type {
@@ -13,6 +24,7 @@ import type {
   SensitivityLevel,
   TaskType,
 } from "./behavior-and-personality-types";
+import { responseBehaviorSelector } from "./operators/response-behavior-selector";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -246,6 +258,7 @@ function resolveToneTargets(state: ProcessingState) {
 
 export async function runResponseBehaviorLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
+  const behaviorMode = resolveLayerModeFromState(state, "response-behavior");
   let validatedDraft = `${state.validatedDraft || state.structuredResponse || state.draftResponse?.text || ""}`.trim();
   const behaviorInput = buildBehaviorInput(state);
   const aiIdentity = resolveAiIdentityProfile(behaviorInput);
@@ -282,12 +295,18 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
   const founderIdentityInfluence = buildFounderIdentityInfluence();
 
   const targets = resolveToneTargets(state);
+  const localBehaviorPolicy = responseBehaviorSelector(state, behaviorMode);
   state.behaviorPersonalityState = {
     ...state.behaviorPersonalityState,
-    ...targets,
-    targetHumanizationLevel: clamp01(1 - targets.targetRestraint + 0.22),
-    targetFormalityAdjustment: clamp01(targets.targetRestraint),
-    targetSocialPresence: clamp01(1 - targets.targetRestraint + 0.12),
+    targetWarmth: clamp01(targets.targetWarmth + localBehaviorPolicy.warmthBias),
+    targetCasualness: targets.targetCasualness,
+    targetEmpathy: clamp01(targets.targetEmpathy + localBehaviorPolicy.empathyBias),
+    targetRestraint: clamp01(targets.targetRestraint + localBehaviorPolicy.restraintBias),
+    targetHumanizationLevel: clamp01(
+      Math.min(localBehaviorPolicy.humanizationCap, 1 - targets.targetRestraint + 0.22 + localBehaviorPolicy.warmthBias),
+    ),
+    targetFormalityAdjustment: clamp01(targets.targetRestraint + Math.max(0, localBehaviorPolicy.restraintBias)),
+    targetSocialPresence: clamp01(1 - targets.targetRestraint + 0.12 + localBehaviorPolicy.socialPresenceBias),
     styleNotes: {
       ...state.behaviorPersonalityState.styleNotes,
       guidance: [
@@ -295,6 +314,8 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
         "response_behavior_post_validation",
         "semantic_content_locked",
         "no_fact_injection",
+        `behavior_mode:${behaviorMode}`,
+        ...localBehaviorPolicy.guidance,
       ],
     },
     aiIdentity: effectiveAiIdentity,
@@ -362,7 +383,7 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
       professionalQuestionDetected: state.behaviorPersonalityState.aiIdentity.professionalQuestionDetected,
       shouldSelfIntroduce: state.behaviorPersonalityState.aiIdentity.shouldSelfIntroduce,
     },
-    styleNotes: state.behaviorPersonalityState.styleNotes.guidance.slice(0, 6),
+    styleNotes: state.behaviorPersonalityState.styleNotes.guidance.slice(0, 8),
     safetyNotes: state.behaviorPersonalityState.safetyNotes.slice(0, 6),
   };
 
@@ -395,7 +416,7 @@ export async function runResponseBehaviorLayer(state: ProcessingState): Promise<
       route: state.executionPlan.selectedRoute,
       latencyMs: Date.now() - startedAt,
       detail:
-        `warmth=${targets.targetWarmth.toFixed(2)}; restraint=${targets.targetRestraint.toFixed(2)}; ` +
+        `mode=${behaviorMode}; warmth=${state.behaviorPersonalityState.targetWarmth.toFixed(2)}; restraint=${state.behaviorPersonalityState.targetRestraint.toFixed(2)}; ` +
         `identityDetected=${effectiveAiIdentity.identityQuestionDetected || effectiveAiIdentity.nameOriginQuestionDetected}; ` +
         `contextualIdentityFallback=${contextualIdentityFallback ? "true" : "false"}; ` +
         `canonicalApplied=${identityCanonicalApplied}; chars=${validatedDraft.length}`,

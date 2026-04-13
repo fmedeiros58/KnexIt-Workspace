@@ -141,7 +141,7 @@ const NAME_SHARE_PATTERNS: RegExp[] = [
 const NAME_RECALL_PATTERNS: RegExp[] = [
   /\b(qual(?:\s+(?:e|eh))?\s+o?\s*meu nome|qual meu nome|como voce me chama|como vc me chama)\b/i,
   /\b(diga meu nome|lembra (?:do|de) meu nome|voce lembra (?:do|de) meu nome|vc lembra (?:do|de) meu nome)\b/i,
-  /\b(lembra meu nome|como eu me chamo|qual nome voce tem salvo pra mim)\b/i,
+  /\b(lembra meu nome|como eu me chamo|qual nome voce tem salvo pra mim|qual nome voce tem salvo para mim|qual nome vc tem salvo pra mim|qual nome vc tem salvo para mim)\b/i,
 ];
 
 const ASSISTANT_IDENTITY_PATTERNS: RegExp[] = [
@@ -225,6 +225,31 @@ export function extractLatestUserUtterance(text: string): string {
 
   if (lines.length <= 1) {
     return lines[0] || source;
+  }
+
+  const hasTranscriptRoleMarkers = lines.some((line) =>
+    /^(?:usuario|usuário|user|assistant|assistente|leticia|sistema|system|human|model)\s*:/i.test(line),
+  );
+  const structuredEnumeratedLines = lines.filter((line) =>
+    /^\(?\s*(?:[a-z]|\d+)\s*\)/i.test(line) || /^\s*(?:\d+[\).]|[-*•])\s+/.test(line),
+  ).length;
+  const imperativeStructuredLines = lines.filter((line) =>
+    /\b(demonstre|explique|mostre|proponha|reformule|explicite|compare|analise|construa|fa[cç]a o seguinte|show|explain|compare|propose|reformulate|state explicitly)\b/i.test(
+      normalize(line),
+    ),
+  ).length;
+  const longInformativeLines = lines.filter((line) => line.length >= 40).length;
+  const hasStructuredParagraphBreaks = source.includes("\n\n");
+  const isStructuredSingleTurnPrompt =
+    !hasTranscriptRoleMarkers &&
+    (
+      structuredEnumeratedLines >= 2 ||
+      imperativeStructuredLines >= 2 ||
+      (hasStructuredParagraphBreaks && longInformativeLines >= 2)
+    );
+
+  if (isStructuredSingleTurnPrompt) {
+    return source;
   }
 
   const withoutThinkingMarkers = lines.filter((line) => !/^\s*pensou por \d+\s*(?:ms|s)\s*$/i.test(line));

@@ -14,6 +14,7 @@ export interface RouteExecutionPolicy {
   runAffectiveSignal: true;
   runContext: true;
   runOrchestration: true;
+  runDeliberativeTaskContract: true;
   runMemory: true;
   runResponsePlanning: true;
   runKnowledge: boolean;
@@ -33,6 +34,7 @@ export interface RouteExecutionPolicy {
   runLinguisticHumanizer: true;
   runResponseCalibration: true;
   runLogicalOutputAudit: true;
+  runFinalCoverageValidator: true;
   validationProfile: "light" | "standard" | "strict";
   runPresentation: true;
   runObservability: true;
@@ -49,6 +51,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
+    runDeliberativeTaskContract: true,
     runMemory: true,
     runResponsePlanning: true,
     runKnowledge: true,
@@ -68,6 +71,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
     runLogicalOutputAudit: true,
+    runFinalCoverageValidator: true,
     validationProfile: "light",
     runPresentation: true,
     runObservability: true,
@@ -82,6 +86,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
+    runDeliberativeTaskContract: true,
     runMemory: true,
     runResponsePlanning: true,
     runKnowledge: true,
@@ -101,6 +106,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
     runLogicalOutputAudit: true,
+    runFinalCoverageValidator: true,
     validationProfile: "standard",
     runPresentation: true,
     runObservability: true,
@@ -115,6 +121,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
+    runDeliberativeTaskContract: true,
     runMemory: true,
     runResponsePlanning: true,
     runKnowledge: true,
@@ -134,6 +141,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
     runLogicalOutputAudit: true,
+    runFinalCoverageValidator: true,
     validationProfile: "standard",
     runPresentation: true,
     runObservability: true,
@@ -148,6 +156,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runAffectiveSignal: true,
     runContext: true,
     runOrchestration: true,
+    runDeliberativeTaskContract: true,
     runMemory: true,
     runResponsePlanning: true,
     runKnowledge: true,
@@ -167,6 +176,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runLinguisticHumanizer: true,
     runResponseCalibration: true,
     runLogicalOutputAudit: true,
+    runFinalCoverageValidator: true,
     validationProfile: "strict",
     runPresentation: true,
     runObservability: true,
