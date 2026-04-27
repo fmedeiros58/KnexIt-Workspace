@@ -44,6 +44,13 @@ import type { AdaptivePipelineContract } from "./adaptive-pipeline-contract";
 import type { MotorRoutingAnalysis } from "./motor-routing-analysis";
 import type { ProfileSelectionResult } from "./profile-selection-result";
 import type { OrchestratorAuditRecord } from "./orchestrator-audit-record";
+import type { PipelineAuditReport } from "./pipeline-audit-report";
+import type { TaskContract } from "./task-contract";
+import type { TaskNatureState } from "./task-nature-state";
+import type { SelfCritiqueReport, TaskClassValidationReport } from "./validation-report";
+import type { FinalDeliveryIntegrityReport } from "./final-delivery-integrity-report";
+import type { ProblemResolutionState } from "../../14-reasoning-and-generation-layer/problem-resolution-core/problem-resolution-types";
+import type { CouncilAssessment } from "../../14b-critical-council-layer/council-types";
 
 export interface InputSignals {
   intent: string;
@@ -284,6 +291,9 @@ export interface ExecutionArtifacts {
     resolvedLayerModes?: Record<string, string>;
     adaptiveContractVersion?: string;
     budgetClass?: string;
+    selectedTaskType?: string;
+    taskNatureConfidence?: number;
+    taskContractVersion?: string;
   };
   decisionGuard?: {
     enforced: boolean;
@@ -324,6 +334,13 @@ export interface ExecutionArtifacts {
     expandedHypothesisCount?: number;
     communicativeHypothesisCount?: number;
     ontologicalHooksCount?: number;
+    closedConstraintSolver?: {
+      recognized: boolean;
+      pattern: string;
+      confidence: number;
+      action: string | null;
+      issues: string[];
+    };
   };
   knowledge: {
     cache: Record<string, KnowledgeExecutionCacheEntry>;
@@ -389,6 +406,11 @@ export interface ExecutionArtifacts {
     activeValidationFamilies: string[];
     validationProfile: string;
     validationStage: string;
+    validatorsTriggered?: string[];
+    taskClassValidationIssues?: string[];
+    selfCritiqueFindings?: string[];
+    taskClassValidationReport?: TaskClassValidationReport;
+    selfCritiqueReport?: SelfCritiqueReport;
   };
   validationStage?: "pre_presentation" | "final";
   presentation?: {
@@ -442,6 +464,7 @@ export interface ExecutionArtifacts {
     presentationWatchdogSurfaceAfter?: string;
     presentationWatchdogPromptEchoDetected?: boolean;
     presentationWatchdogMixedLanguageDetected?: boolean;
+    finalDeliveryIntegrity?: FinalDeliveryIntegrityReport;
   };
   errorHandling?: {
     category: string;
@@ -480,6 +503,15 @@ export interface ExecutionArtifacts {
       errors: string[];
     } | null;
     layerActivationAudit?: Record<string, string> | null;
+    pipelineAuditReport?: PipelineAuditReport | null;
+  };
+  feedback?: {
+    cognitiveRegimeErrorPattern?: string | null;
+    selectedTaskType?: string;
+    selectedProfile?: string;
+    validationBlocked?: boolean;
+    selfCritiqueFindings?: string[];
+    auditConfidence?: number;
   };
   behavior?: {
     targetWarmth: number;
@@ -553,6 +585,45 @@ export interface ExecutionArtifacts {
     sanityChecked: boolean;
     density?: "compact" | "balanced" | "detailed";
     forceDetailedDensity?: boolean;
+  };
+  problemResolution?: {
+    reasoningNeed: "none" | "light" | "moderate" | "high" | "formal_required";
+    closurePassed: boolean;
+    completionScore: number;
+    riskTypes: string[];
+    repairApplied: boolean;
+    repairReasonCount: number;
+    missingVariables: string[];
+    unresolvedScenarios: string[];
+    violatedConstraints: string[];
+  };
+  criticalCouncil?: {
+    approved?: boolean;
+    action?:
+      | "approve"
+      | "revise"
+      | "regenerate"
+      | "ask_clarification"
+      | "send_with_caveat"
+      | "block_delivery";
+    sycophancyRisk?: "low" | "medium" | "high" | "critical";
+    logicRisk?: "low" | "medium" | "high" | "critical";
+    evidenceRisk?: "low" | "medium" | "high" | "critical";
+    completenessRisk?: "low" | "medium" | "high" | "critical";
+    communicationRisk?: "low" | "medium" | "high" | "critical";
+    concerns?: string[];
+    requiredRevisions?: string[];
+    optionalRevisions?: string[];
+    rewriteInstruction?: string;
+    finalAction?:
+      | "approve"
+      | "revise"
+      | "regenerate"
+      | "ask_clarification"
+      | "send_with_caveat"
+      | "block_delivery";
+    deliveryBlocked?: boolean;
+    revisionAttempts: number;
   };
   logicalDiscernment?: {
     dominantPrinciple: DominantPrinciple;
@@ -730,6 +801,8 @@ export interface ProcessingState {
   epistemicIntegrationState: EpistemicIntegrationState;
   epistemicAuditState: EpistemicAuditState;
   scenarioSet: string[];
+  problemResolutionState: ProblemResolutionState | null;
+  councilAssessment: CouncilAssessment | null;
   communicativeElaborationState: CommunicativeElaborationOutput | null;
   philosophicalSelfModelState: PhilosophicalSelfModelingOutput | null;
   generationPrompt: string;
@@ -748,7 +821,10 @@ export interface ProcessingState {
   generalTaskDeliberationState: GeneralTaskDeliberationState;
   motorRoutingAnalysis: MotorRoutingAnalysis | null;
   profileSelectionResult: ProfileSelectionResult | null;
+  taskNatureState: TaskNatureState | null;
+  taskContract: TaskContract | null;
   adaptivePipelineContract: AdaptivePipelineContract | null;
+  pipelineAuditReport: PipelineAuditReport | null;
   orchestratorAuditTrail: OrchestratorAuditRecord[];
   longFormDiscourseState: LongFormDiscourseState;
   responseCompletionState: ResponseCompletionState;
@@ -1195,6 +1271,8 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
       confidence: 0.5,
     },
     scenarioSet: [],
+    problemResolutionState: null,
+    councilAssessment: null,
     communicativeElaborationState: null,
     philosophicalSelfModelState: null,
     generationPrompt: "",
@@ -1324,7 +1402,10 @@ export function createInitialProcessingState(rawMessage: string): ProcessingStat
     },
     motorRoutingAnalysis: null,
     profileSelectionResult: null,
+    taskNatureState: null,
+    taskContract: null,
     adaptivePipelineContract: null,
+    pipelineAuditReport: null,
     orchestratorAuditTrail: [],
     longFormDiscourseState: {
       isActive: false,

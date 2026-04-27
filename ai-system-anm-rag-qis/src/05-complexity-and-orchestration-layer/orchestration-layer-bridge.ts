@@ -52,6 +52,7 @@ import { applyPipelineDecisionGuard } from "../00-myelinated-pipeline-core/pipel
 import { isConversationalPrompt } from "../shared/utils/conversation-signals";
 import { argumentativeDepthDetector } from "../05b-deliberative-task-contract-layer/argumentative-depth-detector";
 import { classifyCognitiveDemand } from "../05b-deliberative-task-contract-layer/cognitive-demand-classifier";
+import { buildTaskContract } from "../05b-deliberative-task-contract-layer/task-contract-builder";
 import { runMotorRoutingClient } from "./llm-routing/motor-routing-client";
 import { buildMotorRoutingAuditRecord } from "./llm-routing/motor-routing-audit";
 import { fuseMotorAnalysis } from "./llm-routing/motor-analysis-fusion";
@@ -62,6 +63,7 @@ import { buildLayerActivationMatrix } from "./activation-policy/layer-activation
 import { summarizeLayerActivations } from "./activation-policy/activation-audit";
 import { buildAdaptivePipelineContract } from "../05b-deliberative-task-contract-layer/adaptive-pipeline-contract-builder";
 import { recordOrchestratorAudit } from "./orchestrator-audit-recorder";
+import { classifyTaskNature } from "./task-nature-classifier";
 
 type TurnRole = "user" | "assistant";
 
@@ -96,6 +98,21 @@ function hasDirectAnswerCue(text: string) {
   return /\b(curta e grossa|curto e grosso|resposta curta|apenas responda|s[oó] diga|sem explicar|sem analisar|direto ao ponto)\b/i.test(
     `${text || ""}`,
   );
+}
+
+function isContinuationRewritePrompt(text: string): boolean {
+  return /\b(outra forma|responder de outra forma|reformule|reescreva|mesma pergunta|essa pergunta|essa resposta|isso|mais eficiente|eficiente)\b/i.test(
+    `${text || ""}`,
+  );
+}
+
+function buildTaskNatureClassificationText(state: ProcessingState, currentText: string): string {
+  const activeTopic = `${state.conversationState?.activeTopic || ""}`.trim();
+  if (!activeTopic || state.conversationState?.topicShiftDetected || !isContinuationRewritePrompt(currentText)) {
+    return currentText;
+  }
+
+  return `${currentText}\nTopico ativo anterior: ${activeTopic}`;
 }
 
 function resolveModeFromAdaptiveSignals(
@@ -275,8 +292,42 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   const logicalFrame = state.logicalFrame;
   const deliberativeDepth = argumentativeDepthDetector(text);
   const demandProfile = classifyCognitiveDemand(text);
+  const taskNatureClassificationText = buildTaskNatureClassificationText(state, text);
+  const taskNatureState = classifyTaskNature({
+    normalizedMessage: taskNatureClassificationText,
+    conversationalIntent: state.inputSignals.intent || state.preRouteSignals.quickIntent,
+    domain: state.inputSignals.domain,
+    hasGreetingSignal: snapshot.hasGreetingSignal,
+    hasRetrievalSignal: snapshot.hasVerifiableSignal,
+    hasRecencySignal: snapshot.hasRecencySignal,
+    sessionSignals: [
+      ...(state.conversationState.topicShiftDetected ? ["topic_shift"] : []),
+      ...(state.conversationState.needsClarification ? ["needs_clarification"] : []),
+    ],
+  });
+  state.taskNatureState = taskNatureState;
+  const localClosedReasoningTask =
+    taskNatureState.selectedTaskType === "closed_constraint_deduction" ||
+    taskNatureState.selectedTaskType === "short_deterministic_reasoning";
   const logicalRoutingBias = logicalFrame?.shouldAffectRouting ? Math.max(0, logicalFrame.confidence * 0.22) : 0;
   const logicalRetrievalBias = Boolean(logicalFrame?.shouldAffectRetrieval);
+
+  recordOrchestratorAudit(state, {
+    stage: "task-nature",
+    at: new Date().toISOString(),
+    summary: `taskNature=${taskNatureState.selectedTaskType}; confidence=${taskNatureState.confidence.toFixed(2)}`,
+    usedMotor: false,
+    fallbackUsed: false,
+    cacheHit: false,
+    details: {
+      hypotheses: taskNatureState.hypotheses.map((item) => ({
+        taskType: item.taskType,
+        score: item.score,
+        signals: item.matchedSignals.slice(0, 4),
+      })),
+      conversationalIntents: taskNatureState.conversationalIntents,
+    },
+  });
 
   if (conversationalPrompt && !hasSemanticRoutingDemand) {
     complexityScore = Math.min(complexityScore, 0.28);
@@ -289,6 +340,9 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   }
   if (!hasSafetyRestriction && !greetingFastLaneEligible && demandProfile.requiresDeliberativeContract) {
     complexityScore = clamp01(Math.max(complexityScore, 0.7));
+  }
+  if (!hasSafetyRestriction && !greetingFastLaneEligible && taskNatureState.requiresStrongValidation) {
+    complexityScore = clamp01(Math.max(complexityScore, localClosedReasoningTask ? 0.56 : 0.68));
   }
 
   const modeCandidates = [
@@ -319,10 +373,11 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     (
       retrievalDemandByIntent ||
       retrievalDemandBySignal ||
-      deliberativeDepth.requiresDeliberativeContract ||
-      demandProfile.requiresDeliberativeContract ||
+      (!localClosedReasoningTask && deliberativeDepth.requiresDeliberativeContract) ||
+      (!localClosedReasoningTask && demandProfile.requiresDeliberativeContract) ||
       logicalRetrievalBias ||
-      complexityScore >= 0.52
+      taskNatureState.requiresRetrieval ||
+      (!localClosedReasoningTask && complexityScore >= 0.52)
     );
 
   const provisionalNeedsWebSearch =
@@ -350,7 +405,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
         : "light";
 
   const heuristicReflectionNeed =
-    philosophicalSelfCue || deliberativeDepth.requiresDeliberativeContract
+    philosophicalSelfCue || deliberativeDepth.requiresDeliberativeContract || taskNatureState.requiresCounterposition
       ? "heavy"
       : communicativeElaborationCue || demandProfile.requiresSelfObjection
         ? "standard"
@@ -412,6 +467,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
   const selectedProfileIds = selectExecutionProfileIds({
     normalizedMessage: text,
     fusedDecision,
+    taskNatureState,
   });
   const profileComposition = composeExecutionProfiles(selectedProfileIds, fusedDecision);
   const layerActivations = buildLayerActivationMatrix(
@@ -467,6 +523,14 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     requiresAlternatives: demandProfile.requiresAlternatives,
     budgetClassHint: fusedDecision.estimatedBudgetClass,
   });
+  const taskContract = buildTaskContract({
+    state,
+    taskNatureState,
+    profileSelection: profileComposition.selection,
+    responseBudget: budget.responseBudget,
+    riskLevel: fusedDecision.riskLevel,
+  });
+  state.taskContract = taskContract;
 
   state.complexityProfile.score = complexityScore;
   state.complexityProfile.ambiguity = fusedDecision.ambiguityScore;
@@ -647,6 +711,8 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     profileSelection: profileComposition.selection,
     layerActivations,
     responseBudget: budget.responseBudget,
+    taskNatureState,
+    taskContract,
   });
   state.adaptivePipelineContract = adaptivePipelineContract;
 
@@ -713,6 +779,8 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
           ]
         : []),
       toConstraint("adaptive_profile", profileComposition.selection.primaryProfileId),
+      toConstraint("task_nature", taskNatureState.selectedTaskType),
+      toConstraint("task_contract", taskContract.version),
       toConstraint("adaptive_budget_class", fusedDecision.estimatedBudgetClass),
       ...(fusedDecision.needsClarification ? [toConstraint("adaptive_clarification", "required")] : []),
       toConstraint("fallback", fallback.primaryStrategy),
@@ -754,6 +822,9 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
     resolvedLayerModes,
     adaptiveContractVersion: adaptivePipelineContract.version,
     budgetClass: fusedDecision.estimatedBudgetClass,
+    selectedTaskType: taskNatureState.selectedTaskType,
+    taskNatureConfidence: taskNatureState.confidence,
+    taskContractVersion: taskContract.version,
   };
 
   state.trace.push(
@@ -770,6 +841,7 @@ export async function runOrchestrationLayer(state: ProcessingState): Promise<Pro
         `logicalAffectRetrieval=${logicalFrame?.shouldAffectRetrieval ? "true" : "false"}; ` +
         `deliberativeActive=${deliberativeDepth.requiresDeliberativeContract ? "true" : "false"}; deliberativeScore=${deliberativeDepth.argumentativeDepthScore.toFixed(2)}; ` +
         `taskDeliberation=${demandProfile.requiresDeliberativeContract ? "true" : "false"}; reasoningIntensity=${demandProfile.reasoningIntensity.toFixed(2)}; structuralComplexity=${demandProfile.structuralComplexity.toFixed(2)}; ` +
+        `taskNature=${taskNatureState.selectedTaskType}; taskNatureConfidence=${taskNatureState.confidence.toFixed(2)}; taskContract=${taskContract.version}; ` +
         `adaptivePrimaryIntent=${fusedDecision.primaryIntent}; adaptiveProfiles=${profileComposition.selection.selectedProfileIds.join("|") || "none"}; budgetClass=${fusedDecision.estimatedBudgetClass}; ` +
         `tokens=${snapshot.tokenCount}; sentences=${snapshot.sentenceCount}; verifiable=${snapshot.hasVerifiableSignal}; recency=${snapshot.hasRecencySignal}; ` +
         `memoryBias=${memoryComplexityBias.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; nodularAttention=${nodular.attention.toFixed(2)}; ` +

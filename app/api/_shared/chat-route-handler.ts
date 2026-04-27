@@ -130,11 +130,11 @@ function parsePipelineVersion(value: unknown): "v1" | "v2" | undefined {
   return undefined;
 }
 
-function parseOptionalEngineMode(value: unknown): "direct" | undefined {
+function parseOptionalEngineMode(value: unknown): "direct" | "ai_system_anm" | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
   if (normalized === "direct") return "direct";
-  if (normalized === "ai-system-anm" || normalized === "ai_system_anm") return "direct";
+  if (normalized === "anm" || normalized === "ai-system-anm" || normalized === "ai_system_anm") return "ai_system_anm";
   return undefined;
 }
 

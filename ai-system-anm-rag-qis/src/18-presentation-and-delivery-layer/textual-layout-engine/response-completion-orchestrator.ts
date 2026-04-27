@@ -1,3 +1,15 @@
+/**
+ * @file response-completion-orchestrator.ts
+ * @description Avalia se uma resposta textual pode encerrar ou precisa continuar sem fabricar conteúdo semântico.
+ * @layer 18-presentation-and-delivery-layer
+ * @purpose Detectar truncamento, seções abertas e obrigações pendentes antes da entrega final ao usuário.
+ * @inputs Texto gerado e contexto de plano de layout, discurso longo e execução de obrigações.
+ * @outputs Texto reparado localmente e estado de completude com score, bloqueios e pendências.
+ * @dependsOn Tipos de layout e validação textual da camada de apresentação.
+ * @usedBy Auditoria textual e etapa de montagem final da resposta.
+ * @invariants Um texto parcial útil não deve receber score zero, mas também não deve ser marcado como encerrável quando há bloqueio duro.
+ * @notes O reparo local só fecha pontuação/cauda aberta; ele não inventa a próxima seção nem completa obrigação sem base.
+ */
 import type {
   ResponseCompletionAssessment,
   ResponseCompletionContext,
@@ -324,6 +336,10 @@ function buildAssessment(text: string, context?: ResponseCompletionContext): Res
   score -= Math.min(0.06, pendingParagraphs.length * 0.03);
 
   score = clamp01(score);
+
+  if (score === 0 && sanitized.length >= 120 && (hardBlockReasons.length > 0 || softBlockReasons.length > 0)) {
+    score = 0.24;
+  }
 
   const shouldContinue =
     hardBlockReasons.length > 0 ||

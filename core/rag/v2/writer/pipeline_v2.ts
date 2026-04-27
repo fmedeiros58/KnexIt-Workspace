@@ -1,22 +1,23 @@
-import type { RagChatHistoryItem, VllmInternalClient } from "@/core/rag/vllm-client";
-import { HybridRetrieverV2 } from "@/core/rag/v2/retrieval/hybrid_v2";
-import { ContextPackagerV2 } from "@/core/rag/v2/context/packager_v2";
-import { ProcessStoreV2, type ProcessStateV2 } from "@/core/rag/v2/memory/process_store_v2";
-import { RagPipelineError } from "@/core/rag/rag-errors";
-import { resolveComposerLanguageDecision, resolveLanguageById } from "@/core/rag/language/language_intent";
+
+import type { RagChatHistoryItem, VllmInternalClient } from "../../vllm-client";
+import { HybridRetrieverV2 } from "../retrieval/hybrid_v2";
+import { ContextPackagerV2 } from "../context/packager_v2";
+import { ProcessStoreV2, type ProcessStateV2 } from "../memory/process_store_v2";
+import { RagPipelineError } from "../../rag-errors";
+import { resolveComposerLanguageDecision, resolveLanguageById } from "../../language/language_intent";
 import {
   buildConstructionRulesDirective,
   resolveConstructionRules,
-} from "@/core/rag/v2/writer/construction_rules_orchestrator";
+} from "./construction_rules_orchestrator";
 import {
   assessDocumentGrounding,
   buildGroundingInstruction,
-} from "@/core/rag/v2/writer/document_grounding_orchestrator";
+} from "./document_grounding_orchestrator";
 import {
   buildWriterResponseRepairInstruction,
   evaluateWriterResponseContract,
-} from "@/core/rag/v2/writer/response_contract";
-import { resolveDynamicTokenBudget } from "@/core/rag/v2/writer/token_budget_orchestrator";
+} from "./response_contract";
+import { resolveDynamicTokenBudget } from "./token_budget_orchestrator";
 
 type WriterSectionPlan = {
   title: string;
@@ -41,7 +42,7 @@ export type WriterPipelineInput = {
   history?: RagChatHistoryItem[];
   maxTokens: number;
   temperature: number;
-  anmEngineMode?: "direct" | "anm";
+  anmEngineMode?: "direct" | "ai_system_anm";
   anmBaseUrl?: string;
   anmTimeoutMs?: number;
   anmSoftTimeoutMs?: number;
@@ -72,8 +73,19 @@ export type WriterPipelineResult = {
   };
 };
 
+type WriterLanguageDecision = ReturnType<typeof resolveComposerLanguageDecision>;
+
 function normalizeText(value: string) {
   return `${value || ""}`.replace(/\s+/g, " ").trim();
+}
+
+function normalizeMultilineText(value: string) {
+  return `${value || ""}`
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number, min: number, max: number) {
@@ -143,13 +155,21 @@ function hasProcessLeakage(text: string) {
     /consolidate the sections/.test(normalized) ||
     /consolida[cr].*se[cç][oõ]es/.test(normalized) ||
     /texto unico[, ]+coeso/.test(normalized) ||
-    /proxima melhoria sugerida\s*:/.test(normalized)
+    /proxima melhoria sugerida\s*:/.test(normalized) ||
+    /pergunta original do usuario/.test(normalized) ||
+    /language_id=/.test(normalized) ||
+    /nao use cabecalhos fixos/.test(normalized)
   );
 }
 
 function hasProcessLeakageHeadings(text: string) {
   const normalized = `${text || ""}`.toLowerCase().trim();
-  return /^resposta\s*:/.test(normalized) || /resposta final\s*:/.test(normalized);
+  return (
+    /^resposta\s*:/.test(normalized) ||
+    /^resposta final\s*:/.test(normalized) ||
+    /^pergunta original\b/.test(normalized) ||
+    /^idioma obrigatorio\b/.test(normalized)
+  );
 }
 
 function promptExplicitlyRequestsFollowupSection(prompt: string) {
@@ -160,34 +180,67 @@ function promptExplicitlyRequestsFollowupSection(prompt: string) {
   return /\bproxima melhoria sugerida\b/.test(normalized);
 }
 
-function sanitizeMergedText(raw: string, keepFollowupSection: boolean) {
-  let text = `${raw || ""}`.trim();
-  if (!text) return "";
-  text = text
+function stripInlineProcessMarkers(text: string) {
+  return `${text || ""}`
     .replace(/\[(?:doc|DOC)\s*=?\s*\d+[^\]]*\]/g, "")
     .replace(/\bDOC\s*=\s*\d+\s*CHUNK\s*=\s*\d+\b/gi, "")
     .replace(/\bCHUNK\s*=\s*\d+\b/gi, "")
     .replace(/\bPAGES?\s*=\s*[0-9\-]+\b/gi, "")
-    .replace(/\s{2,}/g, " ");
+    .replace(/\bLANGUAGE_ID\s*=\s*[a-z-]+\b/gi, "")
+    .replace(/\bLANGUAGE_NAME\s*=\s*[^.\n]+/gi, "")
+    .replace(/\bLANGUAGE_POLICY\s*=\s*[^.\n]+/gi, "")
+    .replace(/\bLANGUAGE_SOURCE\s*=\s*[^.\n]+/gi, "")
+    .replace(/\bLANGUAGE_EXPLICIT_OVERRIDE\s*=\s*(?:true|false)\b/gi, "")
+    .replace(/\bLANGUAGE_TRANSLATION_INTENT\s*=\s*(?:true|false)\b/gi, "");
+}
+
+function sanitizeMergedText(raw: string, keepFollowupSection: boolean) {
+  let text = normalizeMultilineText(stripInlineProcessMarkers(raw));
+  if (!text) return "";
+
   text = text
     .replace(/^\s*resposta(?:\s+(?:final|principal))?\s*:\s*/i, "")
     .replace(/^\s*final answer\s*:\s*/i, "")
+    .replace(/^\s*pergunta original(?: do usuario)?\s*:\s*/i, "")
     .trim();
+
   if (!keepFollowupSection) {
     text = text.replace(/\n{0,2}\s*(?:pr[oó]xima melhoria sugerida|next suggested improvement)\s*:[\s\S]*$/i, "").trim();
   }
-  if (!keepFollowupSection) {
-    const folded = text
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase();
-    const markerRegex = /(?:^|\n)\s*(?:proxima melhoria sugerida|next suggested improvement)\s*:/i;
-    const markerMatch = markerRegex.exec(folded);
-    if (markerMatch && Number.isFinite(markerMatch.index)) {
-      text = text.slice(0, Math.max(0, markerMatch.index)).trim();
+
+  const folded = text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+  const hardCutMarkers = [
+    "nao use cabecalhos fixos",
+    "nao inclua a secao",
+    "foco no problema real",
+    "respeite language_id",
+    "pergunta original do usuario",
+    "idioma obrigatorio",
+  ];
+
+  for (const marker of hardCutMarkers) {
+    const index = folded.indexOf(marker);
+    if (index >= 0) {
+      text = text.slice(0, index).trim();
+      break;
     }
   }
-  return text;
+
+  return normalizeMultilineText(text);
+}
+
+function sanitizeIntermediateDraft(raw: string) {
+  let text = sanitizeMergedText(raw, false);
+  text = text
+    .replace(/^##\s+/gm, "")
+    .replace(/^\s*(?:contexto|analise|aplicacao|sintese final|sintese)\s*:\s*/gim, "")
+    .trim();
+
+  return normalizeMultilineText(text);
 }
 
 function hasDeepSignal(prompt: string) {
@@ -289,6 +342,204 @@ function addUsage(
   aggregate.totalTokens += Number(usage.totalTokens || 0);
 }
 
+function sanitizeHistoryForWriter(history?: RagChatHistoryItem[]) {
+  if (!Array.isArray(history) || !history.length) return [];
+
+  const sanitized: RagChatHistoryItem[] = [];
+  for (const row of history) {
+    if (!row || (row.role !== "user" && row.role !== "assistant")) continue;
+
+    let content = normalizeMultilineText(`${row.content || ""}`);
+    if (!content) continue;
+
+    content = content
+      .replace(
+        /\b(?:usuário|usuario|user|assistente|assistant|sistema|system|let[ií]cia|humano|ai|modelo)\s*:\s*/gi,
+        "",
+      )
+      .replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, " ")
+      .replace(/\[PASSO\s+\d+\/\d+\][^\n]*/gi, " ")
+      .replace(/\[continuidade passo\s+\d+\/\d+\]/gi, " ")
+      .trim();
+
+    if (!content) continue;
+
+    const previous = sanitized[sanitized.length - 1];
+    if (previous && previous.role === row.role) {
+      sanitized[sanitized.length - 1] = { role: row.role, content };
+      continue;
+    }
+
+    sanitized.push({ role: row.role, content });
+  }
+
+  while (sanitized.length > 0 && sanitized[sanitized.length - 1]?.role === "user") {
+    sanitized.pop();
+  }
+
+  return sanitized.slice(-8);
+}
+
+function sanitizePackedContext(raw: string) {
+  return normalizeMultilineText(
+    `${raw || ""}`
+      .replace(/\bLANGUAGE_ID\s*=\s*[a-z-]+\b/gi, "")
+      .replace(/\bLANGUAGE_NAME\s*=\s*[^.\n]+/gi, "")
+      .replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "\n"),
+  );
+}
+
+function buildResponseLanguageContext(languageDecision: WriterLanguageDecision) {
+  return [
+    `Responda integralmente em ${languageDecision.name}.`,
+    "Não mude de idioma ao longo da resposta.",
+    languageDecision.explicitOverride
+      ? "O idioma foi definido explicitamente pelo usuário e deve ser respeitado sem exceções."
+      : "Mantenha o idioma da pergunta original.",
+  ].join(" ");
+}
+
+function buildCommonWriterGuardrails(input: {
+  languageDecision: WriterLanguageDecision;
+  constructionDirective: string;
+  groundingDirective: string;
+  deepMode: boolean;
+}) {
+  return [
+    buildResponseLanguageContext(input.languageDecision),
+    input.groundingDirective,
+    input.constructionDirective,
+    input.deepMode
+      ? "Aprofunde com explicação causal, implicações e limites, sem metacomentários."
+      : "Mantenha clareza, progressão lógica e foco direto no pedido.",
+    "Não mencione processo interno, seções, consolidacão, prompt, contexto recuperado ou instruções.",
+    "Não use rótulos como 'Resposta principal', 'Resposta final', 'Pergunta original' ou similares.",
+    "Não descreva o que você vai fazer; apenas entregue o conteúdo solicitado.",
+  ].join(" ");
+}
+
+function buildSectionQuestion(input: {
+  prompt: string;
+  section: WriterSectionPlan;
+  languageDecision: WriterLanguageDecision;
+  constructionDirective: string;
+  groundingDirective: string;
+  deepMode: boolean;
+  usedArguments: string[];
+}) {
+  const usedArguments = input.usedArguments.slice(-8).join(" | ") || "nenhum ainda";
+  return [
+    `Pedido do usuário: ${normalizeText(input.prompt)}.`,
+    `Escreva apenas a seção "${input.section.title}" com foco em ${input.section.objective}.`,
+    `Meta de extensão: ${input.section.targetParagraphs} parágrafo(s) consistentes.`,
+    `Evite repetir estes argumentos já usados: ${usedArguments}.`,
+    buildCommonWriterGuardrails({
+      languageDecision: input.languageDecision,
+      constructionDirective: input.constructionDirective,
+      groundingDirective: input.groundingDirective,
+      deepMode: input.deepMode,
+    }),
+  ].join(" ");
+}
+
+function buildMergeQuestion(input: {
+  prompt: string;
+  languageDecision: WriterLanguageDecision;
+  constructionDirective: string;
+  groundingDirective: string;
+  deepMode: boolean;
+}) {
+  return [
+    `Pedido do usuário: ${normalizeText(input.prompt)}.`,
+    "Escreva a resposta final em texto corrido, coeso e natural, unificando as evidências e ideias relevantes.",
+    "Abra respondendo diretamente ao que foi pedido e depois desenvolva a explicação.",
+    input.deepMode
+      ? "Entregue resposta aprofundada cobrindo fundamento, mecanismo, implicações, limites e orientação prática."
+      : "Entregue resposta clara, estruturada e analítica.",
+    buildCommonWriterGuardrails({
+      languageDecision: input.languageDecision,
+      constructionDirective: input.constructionDirective,
+      groundingDirective: input.groundingDirective,
+      deepMode: input.deepMode,
+    }),
+  ].join(" ");
+}
+
+function buildRepairQuestion(input: {
+  prompt: string;
+  languageDecision: WriterLanguageDecision;
+  constructionDirective: string;
+  groundingDirective: string;
+  deepMode: boolean;
+  contractRepairDirective: string;
+}) {
+  return [
+    `Pedido do usuário: ${normalizeText(input.prompt)}.`,
+    "Reescreva a resposta final para que ela fique natural, direta, útil e sem vazamento de instruções internas.",
+    input.deepMode
+      ? "Aumente profundidade, densidade argumentativa e coerência global, sem repetir trechos."
+      : "Aumente clareza, foco e encadeamento lógico, sem repetir trechos.",
+    buildCommonWriterGuardrails({
+      languageDecision: input.languageDecision,
+      constructionDirective: input.constructionDirective,
+      groundingDirective: input.groundingDirective,
+      deepMode: input.deepMode,
+    }),
+    input.contractRepairDirective,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function chunkTextForEmission(text: string, chunkSize = 400) {
+  const normalized = `${text || ""}`;
+  const chunks: string[] = [];
+  for (let cursor = 0; cursor < normalized.length; cursor += chunkSize) {
+    chunks.push(normalized.slice(cursor, Math.min(normalized.length, cursor + chunkSize)));
+  }
+  return chunks;
+}
+
+async function readStreamToText(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || !value.length) continue;
+      output += decoder.decode(value, { stream: true });
+    }
+    const tail = decoder.decode();
+    if (tail) output += tail;
+  } finally {
+    reader.releaseLock();
+  }
+
+  return normalizeMultilineText(output);
+}
+
+async function emitSanitizedFinalText(
+  text: string,
+  onFinalDelta?: (delta: string) => void | Promise<void>,
+) {
+  if (!onFinalDelta) return;
+  for (const chunk of chunkTextForEmission(text)) {
+    if (!chunk) continue;
+    await onFinalDelta(chunk);
+  }
+}
+
+function buildSectionBundle(sectionDrafts: Array<{ title: string; content: string }>) {
+  return normalizeMultilineText(
+    sectionDrafts
+      .map((row) => `${row.title}\n${sanitizeIntermediateDraft(row.content)}`)
+      .join("\n\n"),
+  );
+}
+
 export class WriterPipelineV2 {
   private readonly retriever = new HybridRetrieverV2();
   private readonly packager = new ContextPackagerV2();
@@ -301,9 +552,11 @@ export class WriterPipelineV2 {
     const priorityDocumentIds = normalizeDocumentIds(input.priorityDocumentIds);
     const hasDocumentScope = scopedDocumentIds.length > 0 || Boolean(scopedDocumentId);
     const strictDocumentGrounding = input.strictDocumentGrounding ?? hasDocumentScope;
+    const sanitizedHistory = sanitizeHistoryForWriter(input.history);
+
     const languageDecisionFromPrompt = resolveComposerLanguageDecision(input.prompt);
     const preferredLanguage = resolveLanguageById(`${input.preferredResponseLanguageId || ""}`);
-    const languageDecision = preferredLanguage
+    const languageDecision: WriterLanguageDecision = preferredLanguage
       ? {
           ...languageDecisionFromPrompt,
           id: preferredLanguage.id,
@@ -312,6 +565,7 @@ export class WriterPipelineV2 {
           explicitOverride: true,
         }
       : languageDecisionFromPrompt;
+
     const deepSignal = isDeepPrompt(input.prompt);
     const constructionRules = resolveConstructionRules(input.prompt, {
       hasDocumentScope,
@@ -327,6 +581,7 @@ export class WriterPipelineV2 {
     const plan = adaptPlanToRules(inferOutline(input.prompt, { hasDocumentScope }), constructionRules);
     const constructionDirective = buildConstructionRulesDirective(constructionRules);
     const groundingDirective = buildGroundingInstruction(hasDocumentScope);
+
     const emitProgress = async (event: WriterPipelineProgressEvent) => {
       if (!input.onProgress) return;
       try {
@@ -335,18 +590,13 @@ export class WriterPipelineV2 {
         // best effort: progresso nao deve quebrar o fluxo principal
       }
     };
+
     await emitProgress({
       stage: "planning",
       message: `Planejamento iniciado: idioma=${languageDecision.id}, estilo=${constructionRules.citationStyle}, secoes=${plan.length}.`,
       sectionTotal: plan.length,
     });
-    const originalQuestionAnchor = [
-      `Pergunta original do usuario: ${normalizeText(input.prompt)}`,
-      `Idioma obrigatorio: ${languageDecision.name} (LANGUAGE_ID=${languageDecision.id}).`,
-      languageDecision.explicitOverride
-        ? "O usuario solicitou explicitamente idioma/ traducao. Respeite integralmente esse override."
-        : "Nao mude o idioma da resposta sem pedido explicito do usuario.",
-    ].join(" ");
+
     const sectionDrafts: Array<{ title: string; content: string; usedChunks: number }> = [];
     const usageAggregate = {
       llmCalls: 0,
@@ -356,6 +606,7 @@ export class WriterPipelineV2 {
       hasUsage: false,
       model: null as string | null,
     };
+
     const previousState = await this.processStore.getLatestByConversation(input.conversationId);
     let sharedState: ProcessStateV2 = {
       ...(previousState?.state || {}),
@@ -364,6 +615,7 @@ export class WriterPipelineV2 {
       usedArguments: [...((previousState?.state?.usedArguments as string[] | undefined) || [])],
       usedCitations: [...((previousState?.state?.usedCitations as ProcessStateV2["usedCitations"]) || [])],
     };
+
     const sectionMaxTokens = lockTokenBudget(input.maxTokens, budgetPlan.sectionMinTokens, budgetPlan.sectionMaxTokens);
     const sectionTopK = budgetPlan.sectionTopK;
     const scopedSourceType = normalizeText(input.sourceType || "") || undefined;
@@ -373,6 +625,7 @@ export class WriterPipelineV2 {
 
     for (let sectionIndex = 0; sectionIndex < plan.length; sectionIndex += 1) {
       const section = plan[sectionIndex];
+
       await emitProgress({
         stage: "section_start",
         message: describeSectionStart(section),
@@ -380,12 +633,13 @@ export class WriterPipelineV2 {
         sectionTotal: plan.length,
         sectionTitle: section.title,
       });
+
       const sectionQuery = [
-        originalQuestionAnchor,
-        `Secao: ${section.title}`,
+        normalizeText(input.prompt),
+        `Seção: ${section.title}`,
         `Objetivo: ${section.objective}`,
-        "Escreva no mesmo idioma da pergunta original.",
       ].join("\n");
+
       const retrieval = await this.retriever.search({
         queryText: sectionQuery,
         queryVector: input.queryVector,
@@ -399,6 +653,7 @@ export class WriterPipelineV2 {
         mmrEnabled: true,
         allowScopeFallback: !strictDocumentGrounding,
       });
+
       let grounding = assessDocumentGrounding({
         question: input.prompt,
         sectionTitle: section.title,
@@ -406,7 +661,9 @@ export class WriterPipelineV2 {
         hits: retrieval.hits,
         hasDocumentScope,
       });
+
       let hitsForPacking = grounding.groundedHits.length > 0 ? grounding.groundedHits : retrieval.hits;
+
       let packed = this.packager.pack({
         question: sectionQuery,
         hits: hitsForPacking,
@@ -415,6 +672,7 @@ export class WriterPipelineV2 {
         answerBudgetTokens: sectionMaxTokens,
         safetyMarginTokens: 192,
       });
+
       if (strictDocumentGrounding && (!grounding.isGrounded || packed.selected.length === 0)) {
         const fallbackRetrieval = await this.retriever.search({
           queryText: [normalizeText(input.prompt), section.title, section.objective, "evidencia textual"].join(" "),
@@ -430,16 +688,18 @@ export class WriterPipelineV2 {
           cacheEnabled: false,
           allowScopeFallback: false,
         });
-        const relaxedRetrieval = fallbackRetrieval;
+
         const relaxedGrounding = assessDocumentGrounding({
           question: input.prompt,
           sectionTitle: section.title,
           sectionObjective: section.objective,
-          hits: relaxedRetrieval.hits,
+          hits: fallbackRetrieval.hits,
           hasDocumentScope,
         });
+
         grounding = relaxedGrounding;
         hitsForPacking = relaxedGrounding.groundedHits.length > 0 ? relaxedGrounding.groundedHits : [];
+
         const fallbackPacked = this.packager.pack({
           question: sectionQuery,
           hits: hitsForPacking,
@@ -448,10 +708,12 @@ export class WriterPipelineV2 {
           answerBudgetTokens: sectionMaxTokens,
           safetyMarginTokens: 192,
         });
+
         if (relaxedGrounding.isGrounded && fallbackPacked.selected.length > 0) {
           packed = fallbackPacked;
         }
       }
+
       if (strictDocumentGrounding && (!grounding.isGrounded || packed.selected.length === 0)) {
         await emitProgress({
           stage: "section_done",
@@ -462,24 +724,22 @@ export class WriterPipelineV2 {
         });
         continue;
       }
+
       groundedSections += 1;
       totalSelectedEvidenceChunks += packed.selected.length;
-      const response = await input.llmClient.completeWithContext({
-        question: [
-          originalQuestionAnchor,
-          `Escreva a secao '${section.title}' com foco em: ${section.objective}.`,
-          `Alvo: ${section.targetParagraphs} paragrafo(s) conectados e claros, sem repetir argumentos ja usados.`,
-          `Cada paragrafo deve ter no minimo ${constructionRules.targetSentencesPerParagraphMin} frases completas e desenvolvimento robusto (evite paragrafo curto/telegrafico).`,
-          `Argumentos usados anteriormente: ${(sharedState.usedArguments || []).slice(-8).join(" | ") || "nenhum"}.`,
-          groundingDirective,
+
+      const sectionResponse = await input.llmClient.completeWithContext({
+        question: buildSectionQuestion({
+          prompt: input.prompt,
+          section,
+          languageDecision,
           constructionDirective,
-          "Foque no pedido do usuario; nao descreva o processo de escrita, consolidacao, prompt, contexto ou instrucoes internas.",
-          "Nao use cabecalhos fixos como 'Resposta principal' ou 'Proxima melhoria sugerida' nesta etapa.",
-          `Mantenha exatamente o idioma configurado em LANGUAGE_ID=${languageDecision.id}.`,
-          "Nao inclua a secao 'Proxima melhoria sugerida' neste bloco intermediario.",
-        ].join(" "),
-        contextPack: packed.packedText,
-        history: input.history || [],
+          groundingDirective,
+          deepMode,
+          usedArguments: sharedState.usedArguments || [],
+        }),
+        contextPack: sanitizePackedContext(packed.packedText),
+        history: sanitizedHistory,
         maxTokens: sectionMaxTokens,
         temperature: input.temperature,
         seed: null,
@@ -495,8 +755,16 @@ export class WriterPipelineV2 {
         anmSoftTimeoutMs: input.anmSoftTimeoutMs,
         anmFallbackToDirect: input.anmFallbackToDirect,
       });
-      addUsage(usageAggregate, response.usage, response.model || null);
-      sectionDrafts.push({ title: section.title, content: response.answer, usedChunks: packed.selected.length });
+
+      addUsage(usageAggregate, sectionResponse.usage, sectionResponse.model || null);
+
+      const sanitizedSectionContent = sanitizeIntermediateDraft(sectionResponse.answer);
+      sectionDrafts.push({
+        title: section.title,
+        content: sanitizedSectionContent,
+        usedChunks: packed.selected.length,
+      });
+
       await emitProgress({
         stage: "section_done",
         message: describeSectionDone(section),
@@ -504,6 +772,7 @@ export class WriterPipelineV2 {
         sectionTotal: plan.length,
         sectionTitle: section.title,
       });
+
       sharedState.sectionStatus = {
         ...(sharedState.sectionStatus || {}),
         [section.title]: "done",
@@ -516,6 +785,7 @@ export class WriterPipelineV2 {
         pageEnd: row.pageEnd,
       }));
       sharedState.usedCitations = [...(sharedState.usedCitations || []), ...cited].slice(-200);
+
       await this.processStore.upsertCheckpoint({
         memoryId: `${input.conversationId}:writer-v2`,
         conversationId: input.conversationId,
@@ -523,6 +793,7 @@ export class WriterPipelineV2 {
         state: sharedState,
       });
     }
+
     if (strictDocumentGrounding && (totalSelectedEvidenceChunks === 0 || groundedSections === 0)) {
       throw new RagPipelineError(
         422,
@@ -531,34 +802,31 @@ export class WriterPipelineV2 {
       );
     }
 
-    const sectionBundle = sectionDrafts.map((row) => `## ${row.title}\n\n${row.content}`).join("\n\n");
+    const sectionBundle = buildSectionBundle(sectionDrafts);
+
     await emitProgress({
       stage: "merge_start",
       message: "Organizando síntese final para iniciar a redação.",
       sectionTotal: plan.length,
     });
-    const mergeQuestion = [
-      originalQuestionAnchor,
-      "Escreva a resposta final para a pergunta original, com coerencia, foco e progressao logica entre ideias.",
-      "Nao descreva o processo interno de consolidacao e nao cite instrucoes, secoes, contexto recuperado ou prompt.",
-      "Nao use cabecalhos fixos como 'Resposta principal' ou 'Proxima melhoria sugerida', salvo se o usuario pedir explicitamente.",
-      groundingDirective,
+
+    const mergeQuestion = buildMergeQuestion({
+      prompt: input.prompt,
+      languageDecision,
       constructionDirective,
-      `Entrega esperada: ${constructionRules.targetParagraphsMin} a ${constructionRules.targetParagraphsMax} paragrafos com ${constructionRules.targetSentencesPerParagraphMin} a ${constructionRules.targetSentencesPerParagraphMax} frases por paragrafo.`,
-      "Evite paragrafos curtos: desenvolva cada paragrafo com progressao argumentativa completa.",
-      deepMode
-        ? "Entregue resposta aprofundada cobrindo fundamento, mecanismo, implicacoes, limites e orientacao pratica."
-        : "Entregue resposta clara, estruturada e analitica.",
-      "Abra com resposta direta ao pedido do usuario e depois desenvolva com exemplos relevantes ao tema.",
-      `Mantenha exatamente o idioma configurado em LANGUAGE_ID=${languageDecision.id} (${languageDecision.name}).`,
-    ].join(" ");
+      groundingDirective,
+      deepMode,
+    });
+
     const mergeMaxTokens = lockTokenBudget(input.maxTokens, budgetPlan.mergeMinTokens, budgetPlan.mergeMaxTokens);
+
     let mergedText = "";
+
     if (input.onFinalDelta) {
       const stream = await input.llmClient.streamWithContext({
         question: mergeQuestion,
         contextPack: sectionBundle,
-        history: input.history || [],
+        history: sanitizedHistory,
         maxTokens: mergeMaxTokens,
         temperature: Math.max(0, Math.min(1.2, input.temperature)),
         seed: null,
@@ -574,24 +842,8 @@ export class WriterPipelineV2 {
         anmSoftTimeoutMs: input.anmSoftTimeoutMs,
         anmFallbackToDirect: input.anmFallbackToDirect,
       });
-      const reader = stream.getReader();
-      const decoder = new TextDecoder();
-      let streamed = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const delta = decoder.decode(value, { stream: true });
-        if (!delta) continue;
-        streamed += delta;
-        await input.onFinalDelta(delta);
-      }
-      const tail = decoder.decode();
-      if (tail) {
-        streamed += tail;
-        await input.onFinalDelta(tail);
-      }
-      reader.releaseLock();
-      mergedText = `${streamed || ""}`.trim();
+
+      const rawMerged = await readStreamToText(stream);
       addUsage(
         usageAggregate,
         {
@@ -601,11 +853,12 @@ export class WriterPipelineV2 {
         },
         input.llmClient.getConfig().model || null,
       );
+      mergedText = rawMerged;
     } else {
       const mergeResponse = await input.llmClient.completeWithContext({
         question: mergeQuestion,
         contextPack: sectionBundle,
-        history: input.history || [],
+        history: sanitizedHistory,
         maxTokens: mergeMaxTokens,
         temperature: Math.max(0, Math.min(1.2, input.temperature)),
         seed: null,
@@ -621,37 +874,37 @@ export class WriterPipelineV2 {
         anmSoftTimeoutMs: input.anmSoftTimeoutMs,
         anmFallbackToDirect: input.anmFallbackToDirect,
       });
+
       addUsage(usageAggregate, mergeResponse.usage, mergeResponse.model || null);
       mergedText = `${mergeResponse.answer || ""}`.trim();
     }
+
     const contractEvaluation = evaluateWriterResponseContract({
       prompt: input.prompt,
       answer: mergedText,
       hasDocumentScope,
       deepMode,
     });
+
     const hasContractViolation = contractEvaluation.reasons.length > 0;
     const requiresRepair = hasProcessLeakage(mergedText) || hasProcessLeakageHeadings(mergedText) || hasContractViolation;
-    if (requiresRepair && !input.onFinalDelta) {
+
+    if (requiresRepair) {
       const contractRepairDirective = hasContractViolation
         ? buildWriterResponseRepairInstruction(contractEvaluation, { hasDocumentScope, deepMode })
         : "";
+
       const repair = await input.llmClient.completeWithContext({
-        question: [
-          originalQuestionAnchor,
-          "Reescreva a resposta para o usuario com foco no problema real e sem meta-comentarios.",
-          "Nao mencione consolidacao, secoes, prompt, contexto recuperado ou instrucoes internas.",
-          deepMode
-            ? "Aumente a profundidade com explicacao causal e implicacoes praticas mantendo coesao."
-            : "Aumente a clareza e o encadeamento logico mantendo objetividade.",
-          `Respeite LANGUAGE_ID=${languageDecision.id} (${languageDecision.name}).`,
-          groundingDirective,
+        question: buildRepairQuestion({
+          prompt: input.prompt,
+          languageDecision,
           constructionDirective,
-          "Nao use o titulo 'Resposta principal'.",
+          groundingDirective,
+          deepMode,
           contractRepairDirective,
-        ].join(" "),
-        contextPack: mergedText || sectionBundle,
-        history: input.history || [],
+        }),
+        contextPack: sanitizePackedContext(mergedText || sectionBundle),
+        history: sanitizedHistory,
         maxTokens: mergeMaxTokens,
         temperature: Math.max(0, Math.min(1.0, input.temperature)),
         seed: null,
@@ -667,11 +920,18 @@ export class WriterPipelineV2 {
         anmSoftTimeoutMs: input.anmSoftTimeoutMs,
         anmFallbackToDirect: input.anmFallbackToDirect,
       });
+
       addUsage(usageAggregate, repair.usage, repair.model || null);
       mergedText = `${repair.answer || ""}`.trim() || mergedText;
     }
+
     mergedText = sanitizeMergedText(mergedText, promptExplicitlyRequestsFollowupSection(input.prompt));
     if (!mergedText) mergedText = sectionBundle;
+
+    if (input.onFinalDelta) {
+      await emitSanitizedFinalText(mergedText, input.onFinalDelta);
+    }
+
     await emitProgress({
       stage: "merge_done",
       message: "Caminho consolidado. Iniciando entrega do texto final.",

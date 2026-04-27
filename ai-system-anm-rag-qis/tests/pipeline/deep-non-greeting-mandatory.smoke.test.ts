@@ -1,4 +1,5 @@
 import { runPipelineConductor } from "../../src/00-myelinated-pipeline-core/pipeline-conductor";
+import type { PipelineLayerId } from "../../src/shared/enums/pipeline-enums";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -16,7 +17,7 @@ async function shouldRunDeepPipelineForNonGreetingTurns(): Promise<void> {
       .map((event) => event.layer),
   );
 
-  const requiredDeepLayers = [
+  const requiredDeepLayers: PipelineLayerId[] = [
     "reflective",
     "inferential",
     "metacognitive",

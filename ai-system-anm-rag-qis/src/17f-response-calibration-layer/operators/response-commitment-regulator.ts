@@ -43,6 +43,17 @@ export function responseCommitmentRegulator(
     };
   }
 
+  if (
+    state.taskContract?.cognitiveTaskType === "closed_constraint_deduction" ||
+    state.taskNatureState?.selectedTaskType === "closed_constraint_deduction"
+  ) {
+    return {
+      text: value,
+      softened: false,
+      reasons: ["deterministic_closed_constraint_commitment_preserved"],
+    };
+  }
+
   const highUncertainty = state.collapsedTruth.uncertainty >= 0.48;
   const factualRisk = !state.validationReport.factual.ok || state.validationReport.quality.score < 0.7;
   const shouldSoften = highUncertainty || factualRisk || mode === "epistemic-heavy";

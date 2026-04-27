@@ -26,6 +26,7 @@ export interface RouteExecutionPolicy {
   runFounderInfluence: boolean;
   runEpistemicIntegration: boolean;
   runGeneration: true;
+  runCriticalCouncil: true;
   runStructure: true;
   runAcademicNormalization: boolean;
   runResponseBehavior: true;
@@ -63,6 +64,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runFounderInfluence: true,
     runEpistemicIntegration: true,
     runGeneration: true,
+    runCriticalCouncil: true,
     runStructure: true,
     runAcademicNormalization: true,
     runResponseBehavior: true,
@@ -98,6 +100,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runFounderInfluence: true,
     runEpistemicIntegration: true,
     runGeneration: true,
+    runCriticalCouncil: true,
     runStructure: true,
     runAcademicNormalization: true,
     runResponseBehavior: true,
@@ -133,6 +136,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runFounderInfluence: true,
     runEpistemicIntegration: true,
     runGeneration: true,
+    runCriticalCouncil: true,
     runStructure: true,
     runAcademicNormalization: true,
     runResponseBehavior: true,
@@ -168,6 +172,7 @@ export const ROUTE_EXECUTION_POLICY: Record<PipelineRoute, RouteExecutionPolicy>
     runFounderInfluence: true,
     runEpistemicIntegration: true,
     runGeneration: true,
+    runCriticalCouncil: true,
     runStructure: true,
     runAcademicNormalization: true,
     runResponseBehavior: true,

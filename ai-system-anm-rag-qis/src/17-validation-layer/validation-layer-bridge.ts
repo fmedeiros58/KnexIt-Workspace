@@ -42,6 +42,16 @@ import { buildFounderEpistemicInfluence } from "../12b-founder-influence-layer/f
 import { structuralValidator } from "./operators/structural-validator";
 import { epistemicValidator } from "./operators/epistemic-validator";
 import { confidenceChecker } from "./operators/confidence-checker";
+import { checkConstraintCompliance } from "./operators/constraint-compliance-checker";
+import { checkDialogicalBalance } from "./operators/dialogical-balance-checker";
+import { detectContrarianOverreach } from "./operators/contrarian-overreach-detector";
+import { validateResponseFormatFit } from "./operators/response-format-fit-validator";
+import { checkSolutionCompleteness } from "./operators/solution-completeness-checker";
+import { validateTaskModeFit } from "./operators/task-mode-fit-validator";
+import { detectYesMan } from "./operators/yes-man-detector";
+import { challengeFirstAnswer } from "../10-reflective-layer/operators/first-answer-challenge";
+import { isCognitiveTaskType } from "../bridges/contracts/cognitive-task-type";
+import type { TaskClassValidationReport } from "../bridges/contracts/validation-report";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -193,6 +203,42 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
     message: state.normalizedMessage || state.rawMessage,
     answer: state.structuredResponse,
   });
+  const validatorsTriggered = [
+    "constraint-compliance-checker",
+    "solution-completeness-checker",
+    "task-mode-fit-validator",
+    "dialogical-balance-checker",
+    "yes-man-detector",
+    "contrarian-overreach-detector",
+    "response-format-fit-validator",
+    "first-answer-challenge",
+  ];
+  const taskClassFindings = [
+    ...checkConstraintCompliance(state.structuredResponse, state.taskContract),
+    ...checkSolutionCompleteness(state.structuredResponse, state.taskContract),
+    ...validateTaskModeFit(state.structuredResponse, state.taskContract),
+    ...checkDialogicalBalance(state.structuredResponse, state.taskContract),
+    ...detectYesMan(state.structuredResponse, state.taskContract),
+    ...detectContrarianOverreach(state.structuredResponse, state.taskContract),
+    ...validateResponseFormatFit(state.structuredResponse, state.taskContract),
+  ];
+  const selfCritique = challengeFirstAnswer(state.structuredResponse, state.taskContract);
+  const classValidationHasHardIssue =
+    taskClassFindings.some((finding) => finding.severity === "error") ||
+    selfCritique.shouldRevise;
+  const selectedValidationTaskType = state.taskContract?.cognitiveTaskType || state.taskNatureState?.selectedTaskType;
+  const taskClassValidationReport: TaskClassValidationReport = {
+    selectedTaskType: isCognitiveTaskType(selectedValidationTaskType) ? selectedValidationTaskType : "conversational_light",
+    validatorsTriggered,
+    findings: taskClassFindings,
+    verdict: classValidationHasHardIssue ? "retry" : "accept",
+    score: Number(Math.max(0, 1 - (taskClassFindings.length * 0.12) - (selfCritique.shouldRevise ? 0.18 : 0)).toFixed(4)),
+  };
+  const deterministicClosedConstraintAccepted =
+    taskClassValidationReport.selectedTaskType === "closed_constraint_deduction" &&
+    state.executionArtifacts.inferential?.closedConstraintSolver?.recognized === true &&
+    (state.executionArtifacts.generationRuntime?.used !== true ||
+      state.trace.some((event) => event.action === "closed_constraint_solver_direct_generated"));
 
   const quality = decideAcceptOrRetry({
     coherence,
@@ -211,16 +257,32 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
     (!structuralPolicy.enforceCompletion || completion.ok) &&
     (!structuralPolicy.enforceSequence || sequence.ok) &&
     (!structuralPolicy.enforceTruncation || truncation.ok);
-  const finalQualityDecision =
-    quality.decision === "accept" &&
-    confidenceAcceptable &&
-    (!confidencePolicy.retryOnStructureFailure || structureOk)
+  const finalQualityDecision = deterministicClosedConstraintAccepted
+    ? "accept"
+    : quality.decision === "accept" &&
+      confidenceAcceptable &&
+      (!confidencePolicy.retryOnStructureFailure || structureOk) &&
+      taskClassValidationReport.verdict === "accept"
       ? "accept"
       : "retry";
+  const effectiveFactualOk = deterministicClosedConstraintAccepted ? true : factualOk;
+  const effectiveStructureOk = deterministicClosedConstraintAccepted ? true : structureOk;
+  const effectiveStructuralIssues = deterministicClosedConstraintAccepted
+    ? taskClassFindings.map((finding) => `${finding.validatorId}:${finding.message}`)
+    : [
+        ...(structuralPolicy.enforceParagraphCohesion ? brokenParagraphs.issues : []),
+        ...(structuralPolicy.enforceCompletion ? completion.issues : []),
+        ...emptySections.issues,
+        ...(structuralPolicy.enforceSequence ? sequence.issues : []),
+        ...(structuralPolicy.enforceTruncation ? truncation.issues : []),
+        ...structuralPolicy.rationale,
+        ...taskClassFindings.map((finding) => `${finding.validatorId}:${finding.message}`),
+        ...selfCritique.findings.map((finding) => `self_critique:${finding}`),
+      ];
 
   state.validationReport = {
     factual: {
-      ok: factualOk,
+      ok: effectiveFactualOk,
       issues: factualIssues,
     },
     policy: {
@@ -228,15 +290,8 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       issues: [...privacy.issues, ...restricted.issues, ...safety.issues, ...sensitive.issues],
     },
     structure: {
-      ok: structureOk,
-      issues: [
-        ...(structuralPolicy.enforceParagraphCohesion ? brokenParagraphs.issues : []),
-        ...(structuralPolicy.enforceCompletion ? completion.issues : []),
-        ...emptySections.issues,
-        ...(structuralPolicy.enforceSequence ? sequence.issues : []),
-        ...(structuralPolicy.enforceTruncation ? truncation.issues : []),
-        ...structuralPolicy.rationale,
-      ],
+      ok: effectiveStructureOk,
+      issues: effectiveStructuralIssues,
     },
     quality: {
       score: quality.score,
@@ -257,12 +312,19 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
     activeValidationFamilies: [
       ...(runDeepEpistemicChecks ? ["validation_factual"] : []),
       "validation_policy",
+      "validation_task_class",
+      "validation_self_critique",
       `validation_mode_${validationMode}`,
       ...structuralPolicy.rationale.slice(0, 2),
       ...confidencePolicy.rationale.slice(0, 2),
     ],
     validationProfile: `${profile}:${structuralPolicy.structuralProfile}`,
     validationStage,
+    validatorsTriggered,
+    taskClassValidationIssues: taskClassFindings.map((finding) => `${finding.severity}:${finding.message}`),
+    selfCritiqueFindings: selfCritique.findings,
+    taskClassValidationReport,
+    selfCritiqueReport: selfCritique,
   };
 
   // ai-system-anm: contrato semantico congelado apos validacao.
@@ -280,6 +342,7 @@ export async function runValidationLayer(state: ProcessingState): Promise<Proces
       detail:
         `stage=${validationStage}; profile=${profile}; mode=${validationMode}; factual=${state.validationReport.factual.ok}; policy=${state.validationReport.policy.ok}; ` +
         `structure=${state.validationReport.structure.ok}; decision=${state.validationReport.quality.decision}; ` +
+        `taskClass=${taskClassValidationReport.selectedTaskType}; taskValidators=${validatorsTriggered.length}; selfCritique=${selfCritique.findings.length}; ` +
         `memoryRisk=${memoryValidationRisk.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; runtimeOverclaim=${runtimeOverclaimSignal.toFixed(2)}; ` +
         `epistemicBridge=${epistemicValidation.verdict.score.toFixed(2)}; coverage=${epistemicValidation.coverage.coverage.toFixed(2)}`,
     }),

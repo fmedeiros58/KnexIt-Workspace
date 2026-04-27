@@ -1,3 +1,15 @@
+/**
+ * @file generation-layer-bridge.ts
+ * @description Orquestra a geracao de resposta, escolhendo entre solver deterministico, runtime LLM e fallbacks controlados.
+ * @layer 14-reasoning-and-generation-layer
+ * @purpose Impedir que tarefas fechadas caiam em geracao discursiva quando ha solucao deterministica auditavel.
+ * @inputs ProcessingState com contrato de tarefa, contexto, memoria, evidencias e artefatos inferenciais.
+ * @outputs draftResponse, generationPrompt, rastros de geracao e handoff para estrutura.
+ * @dependsOn generation bridges, closed-constraint solver, prompt construction core e operadores de raciocinio.
+ * @usedBy pipeline-flow-descending.
+ * @invariants Deducoes fechadas reconhecidas devem pular LLM e aquisicao iterativa de evidencias; o pipeline descendente continua preservado.
+ * @notes O solver nao substitui a arquitetura; ele fornece um caminho deterministico dentro da camada de geracao.
+ */
 import type { ProcessingState } from "../bridges/contracts/processing-state";
 import { makeTraceEvent } from "../shared/utils/trace-utils";
 import { runGenerationMemoryBridge } from "./generation-memory-bridge";
@@ -41,6 +53,7 @@ import { buildTransitions } from "./response-assembly-core/transition-builder";
 import { buildConclusion } from "./response-assembly-core/conclusion-builder";
 import { handoffGenerationToStructure } from "./generation-to-structure-bridge";
 import { runCommunicativeElaborationBridge } from "../bridges/communicative-elaboration.bridge";
+import { solveClosedConstraintDeduction } from "../11-inferential-layer/operators/closed-constraint-solver";
 import { detectAssertionVsProofGap } from "../05b-deliberative-task-contract-layer/assertion-vs-proof-detector";
 import { detectPromptRestatement } from "../05b-deliberative-task-contract-layer/prompt-restatement-detector";
 import { detectProofVsIllustration } from "../05b-deliberative-task-contract-layer/proof-vs-illustration-detector";
@@ -144,6 +157,68 @@ function buildCurrentDateAnswer(timeZone = "America/Sao_Paulo"): string {
     timeZone,
   }).format(now);
   return `Hoje e ${capitalizeFirst(weekday)}, ${fullDate}.`;
+}
+
+function buildClosedConstraintSolverPrompt(state: ProcessingState): string {
+  const recent = state.recentTurns
+    .slice(-8)
+    .map((turn) => `${turn.role}: ${turn.content}`)
+    .join("\n");
+
+  return [
+    state.rawMessage || "",
+    state.normalizedMessage || "",
+    recent,
+    state.activeContext.slice(-8).join("\n"),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function shouldUseClosedConstraintDirectAnswer(state: ProcessingState): boolean {
+  return (
+    state.taskContract?.cognitiveTaskType === "closed_constraint_deduction" ||
+    state.taskNatureState?.selectedTaskType === "closed_constraint_deduction" ||
+    state.taskContract?.logicalAdequacy?.regime === "closed_constraint_deduction"
+  );
+}
+
+function isClosedConstraintFollowUp(state: ProcessingState): boolean {
+  const normalized = `${state.normalizedMessage || state.rawMessage || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return false;
+
+  const hasRelatedCue = /\b(caixa|caixas|etiqueta|etiquetas|rotulo|rotulos|fruta|frutas|tirar|retirar|olhar|unica|unico|errada|erradas|deduz|deducao|solucao|responder|forma|entend|porque|por que|como)\b/.test(normalized);
+  if (hasRelatedCue) return true;
+
+  const pureCourtesyOrGreeting =
+    isGreetingMessage(normalized) ||
+    (/^\s*(obrigad[ao]|valeu|tchau|ate mais|ok|certo|entendi)\s*[.!?]*\s*$/.test(normalized) &&
+      !/\b(mas|porem|ainda|por que|porque|como|nao entendi)\b/.test(normalized));
+
+  return !pureCourtesyOrGreeting && normalized.length <= 180 && /\b(mas|ainda|isso|essa|esse|outra|diferente)\b/.test(normalized);
+}
+
+function buildClosedConstraintDirectAnswer(state: ProcessingState): string {
+  const solver = solveClosedConstraintDeduction({
+    prompt: buildClosedConstraintSolverPrompt(state),
+  });
+
+  if (!solver.recognized || !solver.action) return "";
+  if (!shouldUseClosedConstraintDirectAnswer(state) && !isClosedConstraintFollowUp(state)) return "";
+
+  return [
+    solver.action,
+    ...solver.steps,
+    ...solver.conclusions,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function resolveReflectiveObjectiveFinalAnswer(state: ProcessingState): string | null {
@@ -620,7 +695,32 @@ export async function runGenerationLayer(state: ProcessingState): Promise<Proces
 
   await runGenerationMemoryBridge(state);
   await runGenerationEvidenceBridge(state);
+
+  const closedConstraintDirectAnswer = buildClosedConstraintDirectAnswer(state);
+  if (closedConstraintDirectAnswer) {
+    const directText = applyMultimodalDraftBridge(closedConstraintDirectAnswer, state.inputSignals.modality);
+    state.retrievedSources = [];
+    state.retrievedEvidence = [];
+    state.confidenceScores.retrieval = 0;
+    state.generationPrompt = buildPrompt(state);
+    state.draftResponse = {
+      text: directText,
+      sections: [{ title: "Resposta", content: directText }],
+    };
+    state.trace.push(
+      makeTraceEvent({
+        layer: "generation",
+        action: "closed_constraint_solver_direct_generated",
+        route: state.executionPlan.selectedRoute,
+        latencyMs: Date.now() - startedAt,
+        detail: "source=closed_constraint_solver; llm_runtime=skipped_for_recognized_solver",
+      }),
+    );
+    return handoffGenerationToStructure(state);
+  }
+
   const reasoningAugmentedEvidence = await runReasoningToIterativeAcquisitionBridge(state);
+
   await runGenerationLlmBridge(state);
   await runCommunicativeElaborationBridge(state);
   const groundedSourceCount = countGroundedSources(state);

@@ -1,4 +1,16 @@
-﻿export interface TokenStreamManagerInput {
+/**
+ * @file token-stream-manager.ts
+ * @description Divide texto final em tokens preservando espacos relevantes para streaming incremental.
+ * @layer 18-presentation-and-delivery-layer
+ * @purpose Evitar que a entrega progressiva remonte frases com pontuacao colada incorretamente.
+ * @inputs Texto final limpo da camada de apresentacao.
+ * @outputs Sequencia de tokens reconstruivel e score de integridade da tokenizacao.
+ * @dependsOn Nenhuma dependencia externa.
+ * @usedBy presentation-stream-bridge.
+ * @invariants A concatenacao dos tokens deve preservar a legibilidade do texto original.
+ * @notes Espacos pendentes devem ser aplicados antes da proxima palavra, nao depois dela.
+ */
+export interface TokenStreamManagerInput {
   text: string;
 }
 
@@ -24,21 +36,21 @@ function isWhitespace(piece: string): boolean {
 }
 
 function isWordLike(piece: string): boolean {
-  return /^[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*$/u.test(piece);
+  return /^[\p{L}\p{N}]+(?:[-'\u2019][\p{L}\p{N}]+)*$/u.test(piece);
 }
 
 function isClosingPunctuation(piece: string): boolean {
-  return /^[,.;:!?%)\]}"'»”’]+$/u.test(piece);
+  return /^[,.;:!?%)\]}"'\u00BB\u201D\u2019]+$/u.test(piece);
 }
 
 function isOpeningPunctuation(piece: string): boolean {
-  return /^[([{'"«“‘]+$/u.test(piece);
+  return /^[([{"'\u00AB\u201C\u2018]+$/u.test(piece);
 }
 
 function tokenizeRaw(text: string): string[] {
   return (
     text.match(
-      /(?:[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*|[ \n]+|[^\s\p{L}\p{N}])/gu,
+      /(?:[\p{L}\p{N}]+(?:[-'\u2019][\p{L}\p{N}]+)*|[ \n]+|[^\s\p{L}\p{N}])/gu,
     ) || []
   );
 }
@@ -72,7 +84,7 @@ function buildTokenStream(rawPieces: string[]): string[] {
     }
 
     if (isWordLike(piece)) {
-      tokens.push(`${piece}${pendingWhitespace}`);
+      tokens.push(`${pendingWhitespace}${piece}`);
       pendingWhitespace = "";
       continue;
     }
@@ -83,7 +95,7 @@ function buildTokenStream(rawPieces: string[]): string[] {
       continue;
     }
 
-    tokens.push(`${piece}${pendingWhitespace}`);
+    tokens.push(`${pendingWhitespace}${piece}`);
     pendingWhitespace = "";
   }
 

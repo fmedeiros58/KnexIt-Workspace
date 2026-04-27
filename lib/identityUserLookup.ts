@@ -5,6 +5,12 @@ type FindUserResult = {
   error: Error | null;
 };
 
+const toError = (value: unknown) => {
+  if (value instanceof Error) return value;
+  if (typeof value === "string" && value.trim()) return new Error(value);
+  return new Error("Unknown identity lookup error.");
+};
+
 export const findUserByEmail = async (
   admin: SupabaseClient,
   email: string,
@@ -14,7 +20,15 @@ export const findUserByEmail = async (
   const perPage = 200;
 
   for (;;) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    let data: Awaited<ReturnType<typeof admin.auth.admin.listUsers>>["data"] | null = null;
+    let error: Awaited<ReturnType<typeof admin.auth.admin.listUsers>>["error"] | null = null;
+    try {
+      const response = await admin.auth.admin.listUsers({ page, perPage });
+      data = response.data;
+      error = response.error;
+    } catch (lookupError) {
+      return { user: null, error: toError(lookupError) };
+    }
     if (error) {
       return { user: null, error };
     }

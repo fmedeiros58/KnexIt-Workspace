@@ -15,11 +15,15 @@
 import type { LayerActivationMap } from "./layer-activation";
 import type { MotorRoutingAnalysis } from "./motor-routing-analysis";
 import type { ProfileSelectionResult } from "./profile-selection-result";
+import type { TaskContract } from "./task-contract";
+import type { TaskNatureState } from "./task-nature-state";
 
 export interface AdaptivePipelineContract {
   version: string;
   primaryIntent: string;
   secondaryIntents: string[];
+  taskNatureState: TaskNatureState | null;
+  taskContract: TaskContract | null;
   finalComplexityScore: number;
   finalComplexityBand: string;
   complexityConfidence: number;

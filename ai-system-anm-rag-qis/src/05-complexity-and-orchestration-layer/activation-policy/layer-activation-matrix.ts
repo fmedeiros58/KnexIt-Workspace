@@ -34,6 +34,7 @@ const COVERED_LAYERS: PipelineLayerId[] = [
   "metacognitive",
   "epistemic-integration",
   "generation",
+  "critical-council",
   "structure",
   "academic-normalization",
   "validation",

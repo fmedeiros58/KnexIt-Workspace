@@ -6,6 +6,7 @@ export interface VllmClient {
     prompt: string,
     options?: {
       timeoutMs?: number;
+      maxTokens?: number;
     },
   ) => Promise<string>;
 }
@@ -64,6 +65,13 @@ function buildHeaders() {
   return headers;
 }
 
+function resolveMaxTokensOverride(value: number | undefined): number {
+  if (!Number.isFinite(value)) return generationConfig.maxTokens;
+  const numeric = Number(value);
+  if (!numeric) return generationConfig.maxTokens;
+  return Math.max(64, Math.min(generationConfig.maxTokens, Math.floor(numeric)));
+}
+
 async function parseChatCompletionResponse(response: Response): Promise<string> {
   const payload = await response.json() as ChatCompletionResponse;
   const content = payload.choices?.[0]?.message?.content?.trim();
@@ -84,6 +92,7 @@ export function createVllmClient(): VllmClient {
     async generate(prompt: string, options = {}) {
       const controller = new AbortController();
       const timeoutMs = Math.max(500, options.timeoutMs ?? modelConfig.timeoutMs);
+      const maxTokens = resolveMaxTokensOverride(options.maxTokens);
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const headers = buildHeaders();
 
@@ -94,7 +103,7 @@ export function createVllmClient(): VllmClient {
           headers,
           body: JSON.stringify({
             model: modelConfig.modelName,
-            max_tokens: generationConfig.maxTokens,
+            max_tokens: maxTokens,
             temperature: generationConfig.temperature,
             top_p: generationConfig.topP,
             messages: [
@@ -114,7 +123,7 @@ export function createVllmClient(): VllmClient {
           headers,
           body: JSON.stringify({
             model: modelConfig.modelName,
-            max_tokens: generationConfig.maxTokens,
+            max_tokens: maxTokens,
             temperature: generationConfig.temperature,
             top_p: generationConfig.topP,
             prompt,

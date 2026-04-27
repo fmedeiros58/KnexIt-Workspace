@@ -14,6 +14,7 @@
  */
 export type OrchestratorAuditStage =
   | "heuristic-scan"
+  | "task-nature"
   | "motor-routing"
   | "fusion"
   | "profile-selection"

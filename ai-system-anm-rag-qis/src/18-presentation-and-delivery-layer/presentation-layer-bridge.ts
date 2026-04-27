@@ -436,6 +436,14 @@ function isDirectIdentityNamePrompt(state: ProcessingState) {
   );
 }
 
+function shouldSuppressPresentationCitations(state: ProcessingState) {
+  return (
+    state.taskContract?.cognitiveTaskType === "closed_constraint_deduction" ||
+    state.taskNatureState?.selectedTaskType === "closed_constraint_deduction" ||
+    state.executionArtifacts.inferential?.closedConstraintSolver?.recognized === true
+  );
+}
+
 function stabilizeShortIdentityNameSurface(state: ProcessingState, text: string) {
   if (!isDirectIdentityNamePrompt(state)) return `${text || ""}`.trim();
   return `${text || ""}`.replace(/Let[ií]cia/g, "Leticia").trim();
@@ -808,10 +816,11 @@ function applyHardBannedLexemeFilter(text: string): HardBanResult {
   if (!output) return { text: "", replacedCount: 0 };
 
   const targetedRules: ReadonlyArray<[RegExp, string]> = [
-    [/\bno contexto atual\b/gi, "neste momento"],
     [/\bcom base no contexto atual\b/gi, "com base no que foi apresentado"],
     [/\bpelo contexto fornecido\b/gi, "pelo que foi apresentado"],
     [/\bdentro do contexto atual\b/gi, "neste momento"],
+    [/\bno contexto atual\b/gi, "neste momento"],
+    [/\bcontexto\b/gi, "cenario"],
   ];
 
   let replacedCount = 0;
@@ -1482,7 +1491,9 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
   const utf8Guard = ensureUtf8Response(responseForDelivery);
   const channel = resolveDeliveryChannel();
   const citationRequestContext = resolveCitationRequestContext(state);
-  const httpRetrievedSources = state.retrievedSources.filter((source) => isHttpUrl(source.url));
+  const citationSuppressed = shouldSuppressPresentationCitations(state);
+  const presentationSources = citationSuppressed ? [] : state.retrievedSources;
+  const httpRetrievedSources = presentationSources.filter((source) => isHttpUrl(source.url));
 
   const code = codeBlockAdapter({ text: utf8Guard.text });
 
@@ -1502,7 +1513,7 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
     prompt: promptText,
     hasCodeBlocks: code.codeBlocks.length > 0,
     hasCitations: httpRetrievedSources.length > 0,
-    hasMedia: state.retrievedSources.length > 0,
+    hasMedia: presentationSources.length > 0,
     hasEnumerativeSignals,
     requestedList: /\b(lista|liste|listar|em topicos|bullet|itens)\b/i.test(promptText),
     requestedHeading: /\b(titulo|titulos|secoes|secao|subtitulo|subtitulos)\b/i.test(promptText),
@@ -1559,14 +1570,14 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
   });
 
   const documents = documentBlockAdapter({
-    sources: state.retrievedSources,
+    sources: presentationSources,
     requestContext: citationRequestContext,
     accessDate,
   });
 
   const media = mediaAdapter({
     text: utf8Guard.text,
-    sourceUrls: state.retrievedSources.map((source) => source.url),
+    sourceUrls: presentationSources.map((source) => source.url),
   });
 
   const confidence = confidenceAdapter({
@@ -1808,7 +1819,8 @@ export async function runPresentationLayer(state: ProcessingState): Promise<Proc
         `response_completion_applied=${state.responseCompletionState.continuationApplied ? "true" : "false"}; ` +
         `anti_fragmentation=${finalTextualAudit.issues.some((issue) => /anti_fragmentation/i.test(issue)) ? "true" : "false"}; ` +
         `anti_monoblock=${finalTextualAudit.issues.some((issue) => /anti_monoblock/i.test(issue)) ? "true" : "false"}; ` +
-        `citation_style=${citationRequestContext.citationStyle}; references_style=${citationRequestContext.referenceListStyle}`,
+        `citation_style=${citationRequestContext.citationStyle}; references_style=${citationRequestContext.referenceListStyle}; ` +
+        `citation_suppressed=${citationSuppressed ? "true" : "false"}`,
     }),
   );
 

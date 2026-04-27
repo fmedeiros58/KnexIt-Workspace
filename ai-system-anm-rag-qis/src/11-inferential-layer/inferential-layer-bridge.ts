@@ -23,6 +23,7 @@ import { runCommunicativeElaborationBridge } from "../bridges/communicative-elab
 import { runPhilosophicalSelfModelingBridgeAdapter } from "../bridges/philosophical-self-modeling.bridge";
 import { inferenceDepthResolver } from "./operators/inference-depth-resolver";
 import { hypothesisExpander } from "./operators/hypothesis-expander";
+import { solveClosedConstraintDeduction } from "./operators/closed-constraint-solver";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -102,6 +103,17 @@ export async function runInferentialLayer(state: ProcessingState): Promise<Proce
   const inferentialMap = runInferenceEngine(state);
   const inferenceDepth = inferenceDepthResolver(state, inferentialMode);
   const expandedHypotheses = sanitizeStringArray(hypothesisExpander(state, inferentialMode), 16);
+  const closedConstraintSolver =
+    state.taskContract?.cognitiveTaskType === "closed_constraint_deduction"
+      ? solveClosedConstraintDeduction({ prompt: state.rawMessage || state.normalizedMessage })
+      : null;
+  const closedConstraintImplications = closedConstraintSolver?.recognized
+    ? [
+        `deducao_fechada_acao:${sanitizeInferentialText(closedConstraintSolver.action || "")}`,
+        ...closedConstraintSolver.steps.map((step) => `deducao_fechada_passo:${sanitizeInferentialText(step)}`),
+        ...closedConstraintSolver.conclusions.map((conclusion) => `deducao_fechada_conclusao:${sanitizeInferentialText(conclusion)}`),
+      ]
+    : [];
   const logicalFrame = state.logicalFrame;
   const deliberative = state.deliberativeTaskState;
   const communicativeBranches = state.communicativeElaborationState?.hypothesisBranches || [];
@@ -109,6 +121,7 @@ export async function runInferentialLayer(state: ProcessingState): Promise<Proce
 
   const enrichedInferentialMap = {
     implications: [
+      ...closedConstraintImplications,
       ...sanitizeStringArray(inferentialMap.implications, 18),
       ...expandedHypotheses.map((item) => `hipotese_expandida:${sanitizeInferentialText(item)}`),
       ...communicativeBranches
@@ -203,6 +216,15 @@ export async function runInferentialLayer(state: ProcessingState): Promise<Proce
     expandedHypothesisCount: expandedHypotheses.length,
     communicativeHypothesisCount: communicativeBranches.length,
     ontologicalHooksCount: ontologicalHooks.length,
+    closedConstraintSolver: closedConstraintSolver
+      ? {
+          recognized: closedConstraintSolver.recognized,
+          pattern: closedConstraintSolver.pattern,
+          confidence: closedConstraintSolver.confidence,
+          action: closedConstraintSolver.action,
+          issues: closedConstraintSolver.issues,
+        }
+      : undefined,
   };
 
   state.activeConstraints = mergeConstraints(
@@ -217,6 +239,9 @@ export async function runInferentialLayer(state: ProcessingState): Promise<Proce
         : []),
       ...(expandedHypotheses.length
         ? [toConstraint("inferential", "hypothesis_expansion_active")]
+        : []),
+      ...(closedConstraintSolver?.recognized
+        ? [toConstraint("inferential", "closed_constraint_solver_active")]
         : []),
       ...(ontologicalHooks.length
         ? [toConstraint("inferential", "ontological_framing_hooks")]
@@ -239,7 +264,7 @@ export async function runInferentialLayer(state: ProcessingState): Promise<Proce
       detail:
         `mode=${inferentialMode}; depth=${inferenceDepth}; implications=${enrichedInferentialMap.implications.length}; scenarios=${enrichedInferentialMap.scenarios.length}; secondOrder=${enrichedInferentialMap.secondOrderEffects.length}; ` +
         `expandedHypotheses=${expandedHypotheses.length}; commBranches=${communicativeBranches.length}; ontoHooks=${ontologicalHooks.length}; ` +
-        `handoff=${handoff.score.toFixed(2)}; priming=${nodular.priming.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; runtimeTop=${runtimeTop.slice(0, 2).join(",")}`,
+        `closedConstraintSolver=${closedConstraintSolver?.recognized ? "active" : "inactive"}; handoff=${handoff.score.toFixed(2)}; priming=${nodular.priming.toFixed(2)}; stress=${regulatory.stressLoad.toFixed(2)}; runtimeTop=${runtimeTop.slice(0, 2).join(",")}`,
     }),
   );
 

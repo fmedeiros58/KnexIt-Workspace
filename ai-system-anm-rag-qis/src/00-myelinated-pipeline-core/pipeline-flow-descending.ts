@@ -55,6 +55,7 @@ import { runMetacognitiveLayer } from "../12-metacognitive-layer/metacognitive-l
 import { runFounderInfluenceLayer } from "../12b-founder-influence-layer/founder-influence-layer-bridge";
 import { runEpistemicIntegrationLayer } from "../13-epistemic-integration-layer/epistemic-integration-layer-bridge";
 import { runGenerationLayer } from "../14-reasoning-and-generation-layer/generation-layer-bridge";
+import { runCriticalCouncilLayer } from "../14b-critical-council-layer/council-layer-bridge";
 import { runStructureLayer } from "../15-response-structure-engine/structure-layer-bridge";
 import { runAcademicNormalizationLayer } from "../16-academic-normalization-layer/academic-layer-bridge";
 import { runValidationLayer } from "../17-validation-layer/validation-layer-bridge";
@@ -431,6 +432,13 @@ export async function runDescendingFlow(initialState: ProcessingState, route: Pi
   );
 
   await runIf(policy.runGeneration, "generation", "generation", runGenerationLayer, "route_policy_disabled");
+  await runIf(
+    policy.runCriticalCouncil,
+    "critical-council",
+    "critical-council",
+    runCriticalCouncilLayer,
+    "route_policy_disabled",
+  );
   await runIf(policy.runStructure, "structure", "structure", runStructureLayer, "route_policy_disabled");
 
   await runIf(

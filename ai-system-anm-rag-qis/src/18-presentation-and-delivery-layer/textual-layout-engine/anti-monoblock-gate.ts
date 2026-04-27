@@ -1,3 +1,15 @@
+/**
+ * @file anti-monoblock-gate.ts
+ * @description Divide respostas longas em bloco único em parágrafos coerentes conforme o plano de layout.
+ * @layer 18-presentation-and-delivery-layer
+ * @purpose Evitar entrega de monoblocos que prejudicam leitura e podem mascarar cortes ou repetição em respostas profundas.
+ * @inputs Texto candidato e ResponseLayoutPlan com metas de parágrafo.
+ * @outputs Resultado com indicação de reparo, issues e texto repartido.
+ * @dependsOn Guarda de codificação UTF-8 e contratos de layout textual.
+ * @usedBy textual-output-auditor antes da serialização final.
+ * @invariants A divisão deve preservar conteúdo existente; não deve inventar conclusão nem remover todo conteúdo repetido de forma destrutiva.
+ * @notes Quando há repetição extrema, a porta ainda divide o texto para preservar legibilidade e permitir auditoria posterior de redundância.
+ */
 import { ensureUtf8Response } from "../text-encoding-guard";
 import type { ResponseLayoutPlan } from "./response-layout-types";
 
@@ -160,7 +172,8 @@ function buildParagraphsFromMonoblock(
   const paragraphs: string[] = [];
   let cursor: string[] = [];
 
-  const cleanSentences = dedupeSentences(sentences);
+  const dedupedSentences = dedupeSentences(sentences);
+  const cleanSentences = dedupedSentences.length >= 2 ? dedupedSentences : sentences.map((sentence) => normalize(sentence)).filter(Boolean);
 
   for (let index = 0; index < cleanSentences.length; index += 1) {
     const sentence = cleanSentences[index];
@@ -262,7 +275,7 @@ export function runAntiMonoblockGate(
     return { triggered: false, issues: [], repairedText: source };
   }
 
-  const sentences = dedupeSentences(splitBySentences(source));
+  const sentences = splitBySentences(source);
   if (sentences.length <= plan.targetParagraphSentenceRange[1]) {
     return { triggered: false, issues: [], repairedText: source };
   }

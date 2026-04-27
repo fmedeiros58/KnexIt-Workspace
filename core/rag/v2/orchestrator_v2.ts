@@ -1,5 +1,5 @@
-import { createVectorRetrievalRepository, type VectorRetrievalRepository } from "@/core/database/vector-retrieval-repository";
-import { createQueryEmbeddingClient, type QueryEmbeddingClient } from "@/core/rag/embedding-client";
+import { createVectorRetrievalRepository, type VectorRetrievalRepository } from "../../database/vector-retrieval-repository";
+import { createQueryEmbeddingClient, type QueryEmbeddingClient } from "../embedding-client";
 import {
   loadRagContextConfig,
   loadRagGenerationConfig,
@@ -9,26 +9,26 @@ import {
   type RagGenerationConfig,
   type RagPipelineFlags,
   type RagResilienceConfig,
-} from "@/core/rag/rag-config";
-import { RagPipelineError } from "@/core/rag/rag-errors";
-import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "@/core/rag/vllm-client";
-import { TextAnalysisModule, type AnalysisDescriptor, type TextAnalysisPipelineStrategy } from "@/core/rag/v2/analysis/text_analysis_module";
-import { CitationAlignerV2 } from "@/core/rag/v2/citations/aligner_v2";
-import { ContextPackagerV2 } from "@/core/rag/v2/context/packager_v2";
-import { emitTrace, hashText, startTrace, timedStage } from "@/core/rag/v2/observability/logger_v2";
-import { RunAuditRepositoryV2 } from "@/core/rag/v2/observability/run_audit_repository_v2";
-import { progressEventStore } from "@/core/rag/v2/progress/event_store";
-import { ProgressMessageFactory } from "@/core/rag/v2/progress/message_factory";
+} from "../rag-config";
+import { RagPipelineError } from "../rag-errors";
+import { createVllmInternalClient, type RagChatHistoryItem, type VllmInternalClient } from "../vllm-client";
+import { TextAnalysisModule, type AnalysisDescriptor, type TextAnalysisPipelineStrategy } from "./analysis/text_analysis_module";
+import { CitationAlignerV2 } from "./citations/aligner_v2";
+import { ContextPackagerV2 } from "./context/packager_v2";
+import { emitTrace, hashText, startTrace, timedStage } from "./observability/logger_v2";
+import { RunAuditRepositoryV2 } from "./observability/run_audit_repository_v2";
+import { progressEventStore } from "./progress/event_store";
+import { ProgressMessageFactory } from "./progress/message_factory";
 import {
   createProgressTimestamp,
   type PipelineProgressEventType,
   type PipelineProgressStage,
   type ProgressTarget,
   type RagPipelineProgressEvent,
-} from "@/core/rag/v2/progress/types";
-import { HybridRetrieverV2 } from "@/core/rag/v2/retrieval/hybrid_v2";
-import { RerankerV2 } from "@/core/rag/v2/rerank/reranker_v2";
-import { WriterPipelineV2, type WriterPipelineProgressEvent } from "@/core/rag/v2/writer/pipeline_v2";
+} from "./progress/types";
+import { HybridRetrieverV2 } from "./retrieval/hybrid_v2";
+import { RerankerV2 } from "./rerank/reranker_v2";
+import { WriterPipelineV2, type WriterPipelineProgressEvent } from "./writer/pipeline_v2";
 
 export type OrchestratorV2Input = {
   requestId: string;
@@ -46,7 +46,7 @@ export type OrchestratorV2Input = {
   maxResponseTokens?: number;
   temperature?: number;
   seed?: number | null;
-  anmEngineMode?: "direct" | "anm";
+  anmEngineMode?: "direct" | "ai_system_anm";
   anmBaseUrl?: string;
   anmTimeoutMs?: number;
   anmSoftTimeoutMs?: number;
@@ -146,22 +146,27 @@ export type OrchestratorV2Result = {
       llm: number;
       total: number;
     };
-        v2: {
-          runId: string;
-          pipelineVersion: "v2";
-          queryHash: string;
-          traceStages: Array<{ stage: string; elapsedMs: number }>;
-          pipelineStrategy: TextAnalysisPipelineStrategy;
-          analysis: AnalysisDescriptor;
-          writerMode: boolean;
-          writerSections: number;
-          writerLlmCalls: number;
-          writerReinforcementCalls: number;
-          multicallLockEnabled: boolean;
-          multicallMinWriterCalls: number;
-        };
-      };
+    v2: {
+      runId: string;
+      pipelineVersion: "v2";
+      queryHash: string;
+      traceStages: Array<{ stage: string; elapsedMs: number }>;
+      pipelineStrategy: TextAnalysisPipelineStrategy;
+      analysis: AnalysisDescriptor;
+      writerMode: boolean;
+      writerSections: number;
+      writerLlmCalls: number;
+      writerReinforcementCalls: number;
+      multicallLockEnabled: boolean;
+      multicallMinWriterCalls: number;
+    };
+  };
 };
+
+const MAX_ORCHESTRATOR_HISTORY_MESSAGES = 12;
+const MAX_ORCHESTRATOR_HISTORY_CHARS = 8_000;
+const MAX_ORCHESTRATOR_CONTEXT_CHARS = 24_000;
+const MAX_REINFORCEMENT_DRAFT_CHARS = 4_000;
 
 function normalizeText(value: string) {
   return `${value || ""}`.trim();
@@ -247,7 +252,8 @@ function shouldUseWriterMode(question: string, maxTokens: number, enabled: boole
 function shouldUseDegradedMode(error: unknown, resilienceConfig: RagResilienceConfig) {
   if (resilienceConfig.embeddingFailureMode !== "degrade") return false;
   if (!(error instanceof RagPipelineError)) return false;
-  return error.code.startsWith("RAG_EMBEDDING_");
+    const pipelineError = error as RagPipelineError;
+  return pipelineError.code.startsWith("RAG_EMBEDDING_");
 }
 
 function normalizeLanguageTag(value: string | undefined) {
@@ -339,6 +345,7 @@ function sanitizeFinalAnswer(answer: string, question: string) {
     "coerente com as evidencias",
     "mantenha o idioma da pergunta",
     "evite repetir argumentos",
+    "nao inclua meta comentarios",
   ];
   const paragraphs = raw
     .replace(/\r\n/g, "\n")
@@ -354,8 +361,9 @@ function sanitizeFinalAnswer(answer: string, question: string) {
     if (questionKey && key === questionKey) continue;
     if (key.startsWith("pergunta original")) continue;
     if (questionKey && key.includes(`pergunta original ${questionKey.slice(0, 140)}`)) continue;
+    if (/\b(?:usuario|usuário|assistente|assistant|sistema|system|leticia)\s*:/.test(key)) continue;
     const markerHits = directiveMarkers.reduce((acc, marker) => (key.includes(marker) ? acc + 1 : acc), 0);
-    if (markerHits >= 2 && key.length < 680) continue;
+    if (markerHits >= 2 && key.length < 800) continue;
     const dedupeKey = key.slice(0, 260);
     if (dedupeKey.length > 48 && seen.has(dedupeKey)) continue;
     if (dedupeKey.length > 48) seen.add(dedupeKey);
@@ -363,6 +371,87 @@ function sanitizeFinalAnswer(answer: string, question: string) {
   }
   const rebuilt = filtered.join("\n\n").trim();
   return rebuilt || raw;
+}
+
+function stripRoleMarkers(value: string) {
+  return value.replace(/\b(?:usuario|usuário|user|assistente|assistant|sistema|system|let[ií]cia|humano|ai|modelo)\s*:\s*/gi, "");
+}
+
+function sanitizeQuestionText(value: string) {
+  let text = normalizeText(value);
+  text = stripRoleMarkers(text);
+  text = text.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, " ");
+  text = text.replace(/\[PASSO\s+\d+\/\d+\][^\n]*/gi, " ");
+  text = text.replace(/\s+/g, " ").trim();
+  return text;
+}
+
+function sanitizeHistoryText(value: string) {
+  let text = normalizeText(value);
+  if (!text) return "";
+  text = stripRoleMarkers(text);
+  text = text.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, " ");
+  text = text.replace(/\[PASSO\s+\d+\/\d+\][^\n]*/gi, " ");
+  text = text.replace(/\[continuidade passo\s+\d+\/\d+\]/gi, " ");
+  text = text.replace(/\s+/g, " ").trim();
+  return text;
+}
+
+function sanitizeHistory(history: RagChatHistoryItem[]) {
+  if (!Array.isArray(history) || !history.length) return [];
+
+  const reversed = [...history].reverse();
+  const selectedReversed: RagChatHistoryItem[] = [];
+  let usedChars = 0;
+
+  for (const row of reversed) {
+    if (selectedReversed.length >= MAX_ORCHESTRATOR_HISTORY_MESSAGES) break;
+    if (!row || (row.role !== "user" && row.role !== "assistant")) continue;
+
+    const content = sanitizeHistoryText(row.content);
+    if (!content) continue;
+
+    if (usedChars + content.length > MAX_ORCHESTRATOR_HISTORY_CHARS) break;
+
+    selectedReversed.push({
+      role: row.role,
+      content,
+    });
+    usedChars += content.length;
+  }
+
+  return selectedReversed.reverse();
+}
+
+function sanitizeContextForGeneration(value: string, maxChars = MAX_ORCHESTRATOR_CONTEXT_CHARS) {
+  let text = `${value || ""}`.replace(/\r/g, "\n");
+  text = text.replace(/\[\[KNX_EVT\]\][\s\S]*?\[\[\/KNX_EVT\]\]/g, "\n");
+  text = stripRoleMarkers(text);
+  text = text.replace(/\n{3,}/g, "\n\n").trim();
+
+  if (text.length > maxChars) {
+    text = text.slice(0, maxChars).trimEnd();
+  }
+
+  return text;
+}
+
+function buildReinforcementQuestion(question: string, currentDraft: string) {
+  const safeQuestion = sanitizeQuestionText(question);
+  const safeDraft = sanitizeFinalAnswer(currentDraft, question).slice(0, MAX_REINFORCEMENT_DRAFT_CHARS);
+
+  return [
+    `Pergunta original: ${safeQuestion}`,
+    "Abaixo esta o rascunho atual da resposta.",
+    "Aprimore a resposta mantendo o mesmo idioma da pergunta.",
+    "Aumente profundidade e clareza sem repetir paragrafos ja cobertos.",
+    "Preserve consistencia factual com o contexto recuperado.",
+    "Nao inclua meta-comentarios sobre consolidacao, secoes, prompt ou instrucoes internas.",
+    "",
+    "<rascunho_atual>",
+    safeDraft,
+    "</rascunho_atual>",
+  ].join("\n");
 }
 
 async function streamCompletionToText(
@@ -418,10 +507,13 @@ export class RagOrchestratorV2 {
   async query(input: OrchestratorV2Input): Promise<OrchestratorV2Result> {
     const startedAt = Date.now();
     const requestId = input.requestId || `rq-${Date.now()}`;
-    const question = normalizeText(input.question);
+    const question = sanitizeQuestionText(input.question);
     if (!question) {
       throw new RagPipelineError(400, "RAG_QUESTION_REQUIRED", "Campo question e obrigatorio.");
     }
+
+    const safeHistory = sanitizeHistory(Array.isArray(input.history) ? input.history : []);
+
     const trace = startTrace(requestId, "v2");
     const runId = trace.runId;
     const queryHash = hashText(question);
@@ -439,6 +531,7 @@ export class RagOrchestratorV2 {
         "Modo de grounding estrito requer documento(s) selecionado(s) no composer.",
       );
     }
+
     const progressEnabled = parseBoolean(process.env.PROGRESS_STREAM_ENABLED, true);
     const analysisEnabled = parseBoolean(process.env.TEXT_ANALYSIS_MODULE_ENABLED, true);
     const dynamicMessagesEnabled = parseBoolean(process.env.DYNAMIC_PROGRESS_MESSAGES, true);
@@ -446,7 +539,7 @@ export class RagOrchestratorV2 {
     let analysis = analysisEnabled
       ? this.textAnalysis.analyze({
           question,
-          history: Array.isArray(input.history) ? input.history : [],
+          history: safeHistory,
           documentId: scopedDocumentId ?? undefined,
           documentIds: scopedDocumentIds,
           strictDocumentGrounding,
@@ -455,6 +548,7 @@ export class RagOrchestratorV2 {
           preferredResponseLanguageId: input.preferredResponseLanguageId,
         })
       : createFallbackAnalysisDescriptor(question, normalizeLanguageTag(input.preferredResponseLanguageId));
+
     let pipelineStrategy = analysis.complexity.recommended_pipeline;
     const languageTag = normalizeLanguageTag(input.preferredResponseLanguageId || analysis.doc_profile.language);
     const userGoalShort = analysis.task_profile.goal;
@@ -464,7 +558,7 @@ export class RagOrchestratorV2 {
       try {
         await input.onProgress(event);
       } catch {
-        // best effort: progresso nao deve quebrar execucao
+        // best effort
       }
     };
 
@@ -495,6 +589,7 @@ export class RagOrchestratorV2 {
               userGoalShort,
             })
           : "");
+
       const payload: RagPipelineProgressEvent = {
         type: opts.type || "progress",
         request_id: requestId,
@@ -509,6 +604,7 @@ export class RagOrchestratorV2 {
         message,
         detail: opts.detail,
       };
+
       if (progressEnabled) {
         progressEventStore.append(payload);
         await emitProgress({
@@ -521,6 +617,7 @@ export class RagOrchestratorV2 {
           progress: payload,
         });
       }
+
       return payload;
     };
 
@@ -535,6 +632,7 @@ export class RagOrchestratorV2 {
         strict_document_grounding: strictDocumentGrounding,
       },
     });
+
     await emitPipelineProgress({
       stage: "PARSE",
       substage: "question_parse",
@@ -543,8 +641,10 @@ export class RagOrchestratorV2 {
       },
       detail: {
         question_chars: question.length,
+        history_items: safeHistory.length,
       },
     });
+
     await emitPipelineProgress({
       stage: "STRUCTURE",
       substage: "text_analysis",
@@ -607,6 +707,7 @@ export class RagOrchestratorV2 {
         degraded: Boolean(degradedCode),
       },
     });
+
     await emitPipelineProgress({
       stage: "RETRIEVE",
       substage: "hybrid_search_start",
@@ -640,6 +741,7 @@ export class RagOrchestratorV2 {
       { topK: safeTopK },
     );
     const retrievalElapsedMs = Date.now() - retrievalStartedAt;
+
     await emitPipelineProgress({
       stage: "RETRIEVE",
       substage: "hybrid_search_done",
@@ -668,6 +770,7 @@ export class RagOrchestratorV2 {
           beforeOrderChunkIds: hybrid.hits.map((row) => row.chunkId),
           afterOrderChunkIds: hybrid.hits.slice(0, safeTopK).map((row) => row.chunkId),
         };
+
     if (rerankResult.applied) {
       await emitPipelineProgress({
         stage: "RERANK",
@@ -677,6 +780,7 @@ export class RagOrchestratorV2 {
         },
       });
     }
+
     const usedDocumentScopeFallback =
       Boolean(hybrid.usedScopeFallback) || rerankResult.hits.some((row) => row.rankSource === "scope_fallback");
 
@@ -698,9 +802,11 @@ export class RagOrchestratorV2 {
         "Nenhum trecho indexado foi encontrado para os documentos selecionados. Aguarde os embeddings concluirem ou revise o arquivo enviado.",
       );
     }
+
     const answerBudgetTokens = Math.max(128, maxTokens);
     const contextBudgetTokens = Math.max(384, Math.min(Math.trunc(maxTokens * 2.4), 16_384));
     const safetyMarginTokens = 192;
+
     await emitPipelineProgress({
       stage: "CHUNK",
       substage: "candidate_chunk_projection",
@@ -719,6 +825,7 @@ export class RagOrchestratorV2 {
         chunks_total: rerankResult.hits.length,
       },
     });
+
     const contextPack = await timedStage(
       trace,
       "context_pack",
@@ -735,6 +842,7 @@ export class RagOrchestratorV2 {
         selected: rerankResult.hits.length,
       },
     );
+
     await emitPipelineProgress({
       stage: "PACK",
       substage: "context_pack_done",
@@ -753,6 +861,7 @@ export class RagOrchestratorV2 {
         omitted_chunks: contextPack.omitted,
       },
     });
+
     if (hasDocumentScope && contextPack.selected.length === 0) {
       throw new RagPipelineError(
         422,
@@ -760,6 +869,11 @@ export class RagOrchestratorV2 {
         "Nao encontrei trechos suficientes do documento em escopo para gerar resposta confiavel.",
       );
     }
+
+    const safePackedContext = sanitizeContextForGeneration(
+      contextPack.packedText,
+      Math.max(4_000, this.contextConfig.maxChars),
+    );
 
     let finalAnswer = "";
     let llmModel = this.llmClient.getConfig().model;
@@ -781,6 +895,7 @@ export class RagOrchestratorV2 {
     const multicallLock = resolveMulticallLockConfig();
 
     writerMode = pipelineStrategy !== "FAST" && shouldUseWriterMode(question, maxTokens, true);
+
     if (writerMode) {
       await emitPipelineProgress({
         stage: "DRAFT",
@@ -792,6 +907,7 @@ export class RagOrchestratorV2 {
           strategy: pipelineStrategy,
         },
       });
+
       const writerResult = await timedStage(
         trace,
         "writer_pipeline",
@@ -801,16 +917,16 @@ export class RagOrchestratorV2 {
             runId,
             prompt: question,
             queryVector,
-            documentId: input.documentId,
-            documentIds: input.documentIds,
-            priorityDocumentIds: input.priorityDocumentIds,
+            documentId: scopedDocumentId ?? undefined,
+            documentIds: scopedDocumentIds,
+            priorityDocumentIds,
             sourceType: input.sourceType,
             retrievalEmbeddingModel: input.retrievalEmbeddingModel,
             preferredResponseLanguageId: input.preferredResponseLanguageId,
             strictDocumentGrounding,
             maxDistance: input.maxDistance,
             llmClient: this.llmClient,
-            history: Array.isArray(input.history) ? input.history : [],
+            history: safeHistory,
             maxTokens,
             temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
             anmEngineMode: input.anmEngineMode,
@@ -818,7 +934,7 @@ export class RagOrchestratorV2 {
             anmTimeoutMs: input.anmTimeoutMs,
             anmSoftTimeoutMs: input.anmSoftTimeoutMs,
             anmFallbackToDirect: input.anmFallbackToDirect,
-            onProgress: async (event) => {
+            onProgress: async (event: WriterPipelineProgressEvent) => {
               const stage = event.stage === "merge_start" || event.stage === "merge_done" ? "MERGE" : "DRAFT";
               const message = event.message;
               const progressPayload: RagPipelineProgressEvent = {
@@ -867,7 +983,8 @@ export class RagOrchestratorV2 {
           selectedChunks: contextPack.selected.length,
         },
       );
-      finalAnswer = writerResult.mergedText;
+
+      finalAnswer = sanitizeFinalAnswer(writerResult.mergedText, question);
       llmModel = writerResult.usage.model || llmModel;
       llmFinishReason = "writer_pipeline";
       llmUsage = {
@@ -878,6 +995,7 @@ export class RagOrchestratorV2 {
       llmElapsedMs = writerResult.usage.elapsedMs;
       writerSections = writerResult.plan.length;
       writerLlmCalls = writerResult.usage.llmCalls;
+
       await emitPipelineProgress({
         stage: "DRAFT",
         substage: "writer_pipeline_done",
@@ -894,14 +1012,14 @@ export class RagOrchestratorV2 {
           strategy: pipelineStrategy,
         },
       });
-      const singlePassQuestion = question;
+
       if (input.onFinalDelta) {
         const singlePassStartedAt = Date.now();
         const streamed = await timedStage(trace, "writer_merge", async () => {
           const stream = await this.llmClient.streamWithContext({
-            question: singlePassQuestion,
-            contextPack: contextPack.packedText,
-            history: Array.isArray(input.history) ? input.history : [],
+            question,
+            contextPack: safePackedContext,
+            history: safeHistory,
             maxTokens,
             temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
             seed: normalizeSeed(input.seed, this.generationConfig.seed),
@@ -918,7 +1036,8 @@ export class RagOrchestratorV2 {
           });
           return { mergedText };
         });
-        finalAnswer = streamed.mergedText;
+
+        finalAnswer = sanitizeFinalAnswer(streamed.mergedText, question);
         llmFinishReason = "single_pass_stream";
         llmUsage = {
           promptTokens: null,
@@ -932,9 +1051,9 @@ export class RagOrchestratorV2 {
           "writer_merge",
           async () =>
             this.llmClient.completeWithContext({
-              question: singlePassQuestion,
-              contextPack: contextPack.packedText,
-              history: Array.isArray(input.history) ? input.history : [],
+              question,
+              contextPack: safePackedContext,
+              history: safeHistory,
               maxTokens,
               temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
               seed: normalizeSeed(input.seed, this.generationConfig.seed),
@@ -947,14 +1066,17 @@ export class RagOrchestratorV2 {
               anmFallbackToDirect: input.anmFallbackToDirect,
             }),
         );
-        finalAnswer = `${singlePass.answer || ""}`.trim();
+
+        finalAnswer = sanitizeFinalAnswer(singlePass.answer, question);
         llmModel = singlePass.model || llmModel;
         llmFinishReason = singlePass.finishReason || "single_pass";
         llmUsage = singlePass.usage;
         llmElapsedMs = singlePass.elapsedMs;
       }
+
       writerSections = 1;
       writerLlmCalls = 1;
+
       await emitPipelineProgress({
         stage: "DRAFT",
         substage: "single_pass_done",
@@ -970,7 +1092,8 @@ export class RagOrchestratorV2 {
       let aggregatedPromptTokens = Number(llmUsage.promptTokens || 0);
       let aggregatedCompletionTokens = Number(llmUsage.completionTokens || 0);
       let aggregatedTotalTokens = Number(llmUsage.totalTokens || 0);
-      let hasUsage = llmUsage.promptTokens !== null || llmUsage.completionTokens !== null || llmUsage.totalTokens !== null;
+      let hasUsage =
+        llmUsage.promptTokens !== null || llmUsage.completionTokens !== null || llmUsage.totalTokens !== null;
 
       for (let pass = 1; pass <= reinforcementCalls; pass += 1) {
         await emitPipelineProgress({
@@ -986,24 +1109,20 @@ export class RagOrchestratorV2 {
             section_total: reinforcementCalls,
           },
         });
+
         const reinforced = await timedStage(
           trace,
           "writer_merge",
           async () =>
             this.llmClient.completeWithContext({
-              question: [
-                `Pergunta original: ${question}`,
-                "Aprimore a resposta mantendo o mesmo idioma da pergunta.",
-                "Aumente profundidade sem repetir paragrafo ja coberto.",
-                "Preserve consistencia factual com o contexto recuperado.",
-                "Nao inclua meta-comentarios sobre consolidacao, secoes, prompt ou instrucoes internas.",
-              ].join(" "),
-              contextPack: finalAnswer,
-              history: Array.isArray(input.history) ? input.history : [],
+              question: buildReinforcementQuestion(question, finalAnswer),
+              contextPack: safePackedContext,
+              history: [],
               maxTokens,
               temperature: clampTemperature(input.temperature, this.generationConfig.temperature),
               seed: normalizeSeed(input.seed, this.generationConfig.seed),
               followupMode: "omit",
+              responseLanguageId: input.preferredResponseLanguageId,
               anmEngineMode: input.anmEngineMode,
               anmBaseUrl: input.anmBaseUrl,
               anmTimeoutMs: input.anmTimeoutMs,
@@ -1015,12 +1134,14 @@ export class RagOrchestratorV2 {
             lockMinCalls: multicallLock.minWriterCalls,
           },
         );
-        finalAnswer = `${reinforced.answer || ""}`.trim() || finalAnswer;
+
+        finalAnswer = sanitizeFinalAnswer(reinforced.answer, question) || finalAnswer;
         llmModel = reinforced.model || llmModel;
         llmFinishReason = reinforced.finishReason || llmFinishReason;
         llmElapsedMs += reinforced.elapsedMs;
         writerLlmCalls += 1;
         writerReinforcementCalls += 1;
+
         if (
           reinforced.usage.promptTokens !== null ||
           reinforced.usage.completionTokens !== null ||
@@ -1028,9 +1149,11 @@ export class RagOrchestratorV2 {
         ) {
           hasUsage = true;
         }
+
         aggregatedPromptTokens += Number(reinforced.usage.promptTokens || 0);
         aggregatedCompletionTokens += Number(reinforced.usage.completionTokens || 0);
         aggregatedTotalTokens += Number(reinforced.usage.totalTokens || 0);
+
         await emitPipelineProgress({
           stage: "MERGE",
           substage: "multicall_reinforcement_done",
@@ -1045,6 +1168,7 @@ export class RagOrchestratorV2 {
           },
         });
       }
+
       llmUsage = hasUsage
         ? {
             promptTokens: aggregatedPromptTokens,
@@ -1056,6 +1180,7 @@ export class RagOrchestratorV2 {
             completionTokens: null,
             totalTokens: null,
           };
+
       if (writerLlmCalls < multicallLock.minWriterCalls) {
         throw new RagPipelineError(
           500,
@@ -1075,6 +1200,7 @@ export class RagOrchestratorV2 {
           chunks_total: contextPack.selected.length,
         },
       });
+
       const alignment = await timedStage(
         trace,
         "citations",
@@ -1089,6 +1215,7 @@ export class RagOrchestratorV2 {
       if (this.flags.generationRunAuditEnabled) {
         await this.runAudit.writeCitations(runId, alignment.citations);
       }
+
       await emitPipelineProgress({
         stage: "CITE_AUDIT",
         substage: "citation_alignment_done",
@@ -1098,6 +1225,7 @@ export class RagOrchestratorV2 {
         },
       });
     }
+
     finalAnswer = sanitizeFinalAnswer(finalAnswer, question);
 
     if (this.flags.retrievalRunAuditEnabled) {
@@ -1125,6 +1253,7 @@ export class RagOrchestratorV2 {
         },
       });
     }
+
     if (this.flags.generationRunAuditEnabled) {
       await this.runAudit.writeGenerationRun({
         runId,
@@ -1132,7 +1261,7 @@ export class RagOrchestratorV2 {
         pipelineVersion: "v2",
         mode: "chat",
         promptMeta: {
-          contextChars: contextPack.packedText.length,
+          contextChars: safePackedContext.length,
           selectedChunks: contextPack.selected.length,
           uncoveredClaims,
           writerMode,
@@ -1268,4 +1397,3 @@ export class RagOrchestratorV2 {
     };
   }
 }
-

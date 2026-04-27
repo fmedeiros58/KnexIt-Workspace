@@ -1,8 +1,14 @@
 /**
- * Responsabilidade do arquivo:
- * - Descobrir testes TypeScript (.test.ts/.spec.ts) sem depender de glob do shell.
- * - Executar o runner `tsx --test` com a lista real de arquivos.
- * - Garantir comportamento consistente em Windows/Linux/macOS.
+ * @file run-tests.mjs
+ * @description Descobre e executa testes TypeScript sem depender de glob ou limite curto do shell.
+ * @layer tests
+ * @purpose Garantir execucao estavel da suite de antirregressao em Windows, Linux e macOS.
+ * @inputs Diretorio tests com arquivos .test.ts e .spec.ts.
+ * @outputs Execucao TAP do runner tsx --test e codigo de saida agregado.
+ * @dependsOn node:fs, node:path, node:url, node:child_process e tsx.
+ * @usedBy npm test.
+ * @invariants O runner nao deve depender de shell expansion nem montar linha de comando maior que o limite do Windows.
+ * @notes Os testes sao executados em lotes para evitar erro "A sintaxe do comando esta incorreta" no cmd.exe.
  */
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -41,21 +47,50 @@ if (!testFiles.length) {
   process.exit(1);
 }
 
-const tsxBin = path.resolve(
-  ROOT,
-  process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx",
-);
+const tsxCli = path.resolve(ROOT, "node_modules/tsx/dist/cli.mjs");
 const testGlobalsSetup = pathToFileURL(path.resolve(ROOT, "scripts/test-globals.mjs")).href;
+const maxBatchArgChars = process.platform === "win32" ? 12000 : 60000;
 
-const result = spawnSync(tsxBin, ["--import", testGlobalsSetup, "--test", ...testFiles], {
-  stdio: "inherit",
-  cwd: ROOT,
-  shell: process.platform === "win32",
-});
+function buildTestBatches(files) {
+  const batches = [];
+  let current = [];
+  let currentSize = 0;
 
-if (result.error) {
-  console.error(result.error);
-  process.exit(1);
+  for (const file of files) {
+    const nextSize = currentSize + file.length + 1;
+    if (current.length > 0 && nextSize > maxBatchArgChars) {
+      batches.push(current);
+      current = [];
+      currentSize = 0;
+    }
+
+    current.push(file);
+    currentSize += file.length + 1;
+  }
+
+  if (current.length > 0) batches.push(current);
+  return batches;
 }
 
-process.exit(result.status ?? 1);
+for (const batch of buildTestBatches(testFiles)) {
+  const result = spawnSync(
+    process.execPath,
+    [tsxCli, "--import", testGlobalsSetup, "--test", ...batch],
+    {
+      stdio: "inherit",
+      cwd: ROOT,
+      shell: false,
+    },
+  );
+
+  if (result.error) {
+    console.error(result.error);
+    process.exit(1);
+  }
+
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+process.exit(0);

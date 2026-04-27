@@ -1,3 +1,15 @@
+/**
+ * @file task-prompt-builder.ts
+ * @description Monta as diretrizes de tarefa que entram no prompt de geração sem expor contratos internos ao usuário.
+ * @layer 14-reasoning-and-generation-layer
+ * @purpose Traduzir o TaskContract e o estado conversacional em comportamento de resposta adequado ao tipo cognitivo da tarefa.
+ * @inputs ProcessingState com conversationState, deliberativeTaskState e taskContract.
+ * @outputs Bloco textual de diretrizes para a geração da resposta.
+ * @dependsOn ProcessingState e contratos cognitivos populados pela orquestração descendente.
+ * @usedBy generation-layer-bridge durante a construção do prompt final.
+ * @invariants As diretrizes podem orientar a resposta, mas nunca devem pedir exposição de metadados, camadas ou contratos internos.
+ * @notes Para dedução fechada e raciocínio curto, prioriza solução direta e respeito estrito às restrições explícitas.
+ */
 import type { ProcessingState } from "../../bridges/contracts/processing-state";
 
 const MAX_TOPIC_CHARS = 120;
@@ -17,6 +29,7 @@ export function buildTaskPrompt(state: ProcessingState): string {
   ];
 
   const conversationDirectives = buildConversationDirectives(state);
+  const cognitiveDirectives = buildCognitiveTaskDirectives(state);
   const deliberativeDirectives = deliberativeActive ? buildDeliberativeBehavioralBrief(state) : [];
   const styleDirectives = deliberativeActive
     ? [
@@ -37,10 +50,114 @@ export function buildTaskPrompt(state: ProcessingState): string {
     ...(conversationDirectives.length
       ? ["", "Diretrizes conversacionais:", ...conversationDirectives.map((item) => `- ${item}`)]
       : []),
+    ...(cognitiveDirectives.length
+      ? ["", "Diretrizes cognitivas da tarefa:", ...cognitiveDirectives.map((item) => `- ${item}`)]
+      : []),
     ...(deliberativeDirectives.length
       ? ["", "Diretrizes deliberativas:", ...deliberativeDirectives.map((item) => `- ${item}`)]
       : []),
   ].join("\n");
+}
+
+function buildCognitiveTaskDirectives(state: ProcessingState): string[] {
+  const contract = state.taskContract;
+  if (!contract) {
+    return [];
+  }
+
+  const directives: string[] = [];
+
+  if (contract.explicitConstraints.length > 0) {
+    directives.push(`Respeite estritamente estas restricoes do pedido: ${contract.explicitConstraints.slice(0, 5).join("; ")}.`);
+  }
+
+  if (contract.prohibitedActions.length > 0) {
+    directives.push(`Nao execute nem sugira estas acoes proibidas pelo pedido: ${contract.prohibitedActions.slice(0, 5).join("; ")}.`);
+  }
+
+  if (contract.logicalAdequacy?.requiresConstraintProof) {
+    directives.push(
+      "Antes de formular a resposta, respeite o orcamento logico de acoes e observacoes do enunciado.",
+      "Nao transforme problema fechado em exploracao; use as restricoes para deduzir, nao para propor novas tentativas.",
+    );
+  }
+
+  if (contract.logicalAdequacy?.requiresPivotSelection) {
+    directives.push(
+      "Identifique o passo-pivo mais informativo sob a restricao antes de responder.",
+      "Nao escolha uma caixa, opcao ou caminho de forma aleatoria quando houver uma escolha logicamente mais informativa.",
+    );
+  }
+
+  switch (contract.cognitiveTaskType) {
+    case "closed_constraint_deduction":
+      directives.push(
+        "Resolva a deducao fechada em vez de discutir possibilidades abertas.",
+        "Comece pela acao ou conclusao correta e depois justifique em poucos passos.",
+        "Nao proponha experimentos adicionais se o enunciado limitar a uma unica acao ou observacao.",
+      );
+      break;
+    case "short_deterministic_reasoning":
+      directives.push(
+        "Entregue resposta curta, deterministica e verificavel.",
+        "Evite explicacao longa quando a pergunta puder ser resolvida por uma inferencia direta.",
+      );
+      break;
+    case "dialectical_counterargument":
+      directives.push(
+        "Contraponha de modo proporcional quando houver tese fragil, sem virar contrarianismo gratuito.",
+        "Indique a premissa que precisa ser qualificada antes da conclusao.",
+      );
+      break;
+    case "technical_analysis":
+      directives.push(
+        "Priorize diagnostico estrutural, causa provavel, impacto e ajuste tecnico concreto.",
+        "Evite generalidades sem relacao com os artefatos do sistema.",
+      );
+      break;
+    case "debug_and_correction":
+      directives.push(
+        "Foque em reproduzir o sintoma, localizar causa provavel e propor correcao verificavel.",
+        "Diferencie claramente achado confirmado de hipotese tecnica.",
+      );
+      break;
+    case "retrieval_grounded_analysis":
+      directives.push(
+        "Ancore afirmacoes factuais nas evidencias disponiveis.",
+        "Se a evidencia recuperada for insuficiente, declare a insuficiencia em vez de completar por suposicao.",
+      );
+      break;
+    case "pedagogical_explanation":
+      directives.push(
+        "Explique em progressao didatica, do ponto central para os detalhes.",
+        "Use exemplo apenas se ele reduzir ambiguidade.",
+      );
+      break;
+    case "procedural_instruction":
+      directives.push(
+        "Entregue passos executaveis em ordem pratica.",
+        "Mencione pre-condicoes apenas quando elas bloquearem a execucao.",
+      );
+      break;
+    case "decision_between_alternatives":
+      directives.push(
+        "Compare alternativas por criterio explicito e encerre com uma recomendacao.",
+        "Mostre o trade-off dominante sem diluir a decisao.",
+      );
+      break;
+    case "conversational_light":
+    case "greeting_light":
+      directives.push("Mantenha resposta breve e conversacional, sem expandir para analise desnecessaria.");
+      break;
+    default:
+      break;
+  }
+
+  if (contract.expectedOutputFormat.length > 0) {
+    directives.push(`Ajuste o formato de saida a: ${contract.expectedOutputFormat.slice(0, 4).join(", ")}.`);
+  }
+
+  return directives;
 }
 
 function buildDeliberativeBehavioralBrief(state: ProcessingState): string[] {

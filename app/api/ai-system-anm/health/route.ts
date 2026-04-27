@@ -18,6 +18,11 @@ type EngineModeConfig = {
   anmTimeoutMs: number;
   fallbackToDirect: boolean;
 };
+type LlmAiSystemAnmSynergyConfig = {
+  enabled: boolean;
+  enforceAllTurns: boolean;
+  healthWatchdogEnabled: boolean;
+};
 
 let wslDiscoveryCache: { key: string; checkedAt: number; urls: string[] } | null = null;
 
@@ -132,8 +137,14 @@ function readLlmConfig() {
 }
 
 function readEngineModeConfig(): EngineModeConfig {
-  // Runtime atual: direct-only no endpoint principal /api/ai-system-anm.
-  const mode: EngineMode = "direct";
+  const modeRaw = pickFirstNonEmpty(
+    readAnmCompatEnv("KNEXAI_ENGINE_MODE", "AI_SYSTEM_ANM_ENGINE_MODE"),
+    "direct",
+  ).toLowerCase();
+  const mode: EngineMode =
+    modeRaw === "anm" || modeRaw === "ai-system-anm" || modeRaw === "ai_system_anm"
+      ? "ai_system_anm"
+      : "direct";
   const anmBaseUrl = readConfiguredAiSystemAnmBaseUrl(
     pickFirstNonEmpty(
       readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL"),
@@ -150,6 +161,37 @@ function readEngineModeConfig(): EngineModeConfig {
   ).toLowerCase();
   const fallbackToDirect = !["0", "false", "no", "off"].includes(fallbackRaw);
   return { mode, anmBaseUrl, anmTimeoutMs, fallbackToDirect };
+}
+
+function readLlmAiSystemAnmSynergyConfig(): LlmAiSystemAnmSynergyConfig {
+  const enabled = parseBooleanFlag(
+    readAnmCompatEnv(
+      "KNEXAI_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ENABLED",
+      "AI_SYSTEM_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ENABLED",
+      "KNEXAI_LLM_ANM_SYNERGY_LOCK_ENABLED",
+      "AI_SYSTEM_LLM_ANM_SYNERGY_LOCK_ENABLED",
+    ),
+    true,
+  );
+  const enforceAllTurns = parseBooleanFlag(
+    readAnmCompatEnv(
+      "KNEXAI_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ALL_TURNS",
+      "AI_SYSTEM_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ALL_TURNS",
+      "KNEXAI_LLM_ANM_SYNERGY_LOCK_ALL_TURNS",
+      "AI_SYSTEM_LLM_ANM_SYNERGY_LOCK_ALL_TURNS",
+    ),
+    true,
+  );
+  const healthWatchdogEnabled = parseBooleanFlag(
+    readAnmCompatEnv(
+      "KNEXAI_LLM_AI_SYSTEM_ANM_SYNERGY_HEALTH_WATCHDOG",
+      "AI_SYSTEM_LLM_AI_SYSTEM_ANM_SYNERGY_HEALTH_WATCHDOG",
+      "KNEXAI_LLM_ANM_SYNERGY_HEALTH_WATCHDOG",
+      "AI_SYSTEM_LLM_ANM_SYNERGY_HEALTH_WATCHDOG",
+    ),
+    true,
+  );
+  return { enabled, enforceAllTurns, healthWatchdogEnabled };
 }
 
 function resolveDynamicLlmFallbackUrls(seedUrls: string[]) {
@@ -263,11 +305,12 @@ async function probeAnm(baseUrl: string, timeoutMs: number) {
 
 export async function GET() {
   const engineMode = readEngineModeConfig();
+  const llmAnmSynergy = readLlmAiSystemAnmSynergyConfig();
 
   if (engineMode.mode === "ai_system_anm") {
     const anmResolution = await resolveReachableAiSystemAnmBaseUrl({
       configuredBaseUrl: engineMode.anmBaseUrl,
-      timeoutMs: Math.min(2_000, engineMode.anmTimeoutMs),
+      timeoutMs: Math.min(5_000, engineMode.anmTimeoutMs),
       healthPath: "/healthz",
     });
     const anmProbe = await probeAnm(anmResolution.baseUrl, engineMode.anmTimeoutMs);
@@ -282,6 +325,7 @@ export async function GET() {
           anmConfiguredBaseUrl: engineMode.anmBaseUrl,
           anmAttemptedBaseUrls: anmResolution.attemptedBaseUrls,
           anmFallbackToDirect: engineMode.fallbackToDirect,
+          llmAnmSynergy,
           status: anmProbe.status,
           elapsedMs: anmProbe.elapsedMs,
           message: anmProbe.error,
@@ -301,6 +345,7 @@ export async function GET() {
         anmAttemptedBaseUrls: anmResolution.attemptedBaseUrls,
         anmEndpoint: anmProbe.endpoint,
         anmFallbackToDirect: engineMode.fallbackToDirect,
+        llmAnmSynergy,
         status: anmProbe.status,
         elapsedMs: anmProbe.elapsedMs,
         payload: anmProbe.payload,
@@ -354,6 +399,7 @@ export async function GET() {
           baseUrl,
           configuredBaseUrl: config.baseUrl,
           attemptedBaseUrls: candidates,
+          llmAnmSynergy,
           elapsedMs,
         },
         { status: 200 },
@@ -386,6 +432,7 @@ export async function GET() {
       baseUrl: first.baseUrl,
       configuredBaseUrl: config.baseUrl,
       attemptedBaseUrls: candidates,
+      llmAnmSynergy,
       message: `Nao foi possivel conectar ao LLM. Endpoints tentados: ${candidates.join(", ")}.`,
       attempts,
     },
