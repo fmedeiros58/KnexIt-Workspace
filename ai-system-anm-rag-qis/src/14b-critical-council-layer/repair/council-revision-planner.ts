@@ -3,6 +3,10 @@ import type {
   CouncilRevisionPlan,
   CouncilSynthesisResult,
 } from "../council-types";
+import {
+  extractProblemResolutionCouncilSignals,
+  type ProblemResolutionCouncilSignals,
+} from "../problem-resolution-signal-reader";
 
 interface RevisionPriorityLike {
   readonly issue?: unknown;
@@ -55,6 +59,8 @@ export function buildCouncilRevisionPlan(
   const recommendation = synthesisResult.finalRecommendation;
   const action = normalizeAction(getUnknownProperty(recommendation, "action"));
   const topIssues = getTopIssues(synthesisResult);
+  const problemResolutionSignals =
+    extractProblemResolutionCouncilSignals(councilInput);
 
   const buckets = buildInitialBuckets();
 
@@ -62,10 +68,12 @@ export function buildCouncilRevisionPlan(
   addRecommendationDrivenInstructions(synthesisResult, buckets);
   addAssessmentDrivenInstructions(synthesisResult, buckets);
   addActionDrivenInstructions(action, buckets);
+  addProblemResolutionDrivenInstructions(problemResolutionSignals, buckets);
 
   const constraintsToPreserve = dedupe([
     ...GENERAL_CONSTRAINTS,
     ...extractProblemResolutionConstraints(councilInput),
+    ...extractProblemResolutionSignalConstraints(problemResolutionSignals),
     ...extractFormatConstraints(councilInput),
   ]);
 
@@ -80,6 +88,125 @@ export function buildCouncilRevisionPlan(
     logicInstructions: dedupe(buckets.logicInstructions),
     antiSycophancyInstructions: dedupe(buckets.antiSycophancyInstructions),
   };
+}
+
+function addProblemResolutionDrivenInstructions(
+  signals: ProblemResolutionCouncilSignals,
+  buckets: RevisionCategoryBucket,
+): void {
+  if (!signals.hasProblemResolutionState && !signals.hasProblemResolutionArtifact) {
+    return;
+  }
+
+  if (signals.closurePassed === false) {
+    buckets.revisionGoals.push(
+      "Resolve the failed upstream problem-resolution closure before delivery.",
+    );
+    buckets.logicInstructions.push(
+      "Rebuild the reasoning until explicit constraints, scenarios, assignments and proof obligations are closed.",
+    );
+  }
+
+  if (signals.requiredActionFloor === "block_delivery") {
+    buckets.revisionGoals.push(
+      "Treat upstream problem-resolution blockers as non-deliverable until corrected.",
+    );
+    buckets.rewriteInstructions.push(
+      "Do not deliver the current draft while upstream problem-resolution blockers remain.",
+    );
+  }
+
+  if (signals.requiredActionFloor === "regenerate") {
+    buckets.revisionGoals.push(
+      "Regenerate the answer from the formal problem-resolution diagnostics.",
+    );
+    buckets.logicInstructions.push(
+      "Do not patch only the surface text when formal closure, assignment or scenario coverage failed.",
+    );
+  }
+
+  if (signals.shouldEscalateToCriticalCouncil === true) {
+    buckets.revisionGoals.push(
+      "Respect the upstream request to escalate problem-resolution findings into critical council review.",
+    );
+  }
+
+  if (signals.unresolvedScenarios.length > 0) {
+    buckets.logicInstructions.push(
+      "Enumerate and close every unresolved scenario branch reported by problem-resolution.",
+    );
+  }
+
+  if (signals.missingVariables.length > 0) {
+    buckets.logicInstructions.push(
+      "Provide explicit assignments for every variable reported missing by problem-resolution.",
+    );
+  }
+
+  if (signals.violatedConstraints.length > 0) {
+    buckets.logicInstructions.push(
+      "Rewrite any step that violates upstream constraints instead of preserving the invalid path.",
+    );
+  }
+
+  if (signals.unsupportedConclusions.length > 0) {
+    buckets.logicInstructions.push(
+      "Support every conclusion with premises, constraints, covered scenarios or validated assignments.",
+    );
+  }
+
+  if (signals.missingProofObligations.length > 0) {
+    buckets.logicInstructions.push(
+      "Satisfy the missing proof obligations before presenting the final conclusion.",
+    );
+  }
+
+  if (signals.scenarioCoveragePassed === false) {
+    buckets.logicInstructions.push(
+      "Convert scenario mentions into complete branch-by-branch consequences.",
+    );
+  }
+
+  if (signals.assignmentConsistencyPassed === false) {
+    buckets.logicInstructions.push(
+      "Replace implied or partial mappings with a complete, non-duplicated assignment structure.",
+    );
+  }
+
+  if (signals.repairMode === "regenerate") {
+    buckets.rewriteInstructions.push(
+      "Regenerate the draft because the problem-resolution repair planner rejected a light patch.",
+    );
+  } else if (signals.repairMode === "substantial_revision") {
+    buckets.rewriteInstructions.push(
+      "Apply a substantial revision guided by problem-resolution, not a cosmetic edit.",
+    );
+  }
+}
+
+function extractProblemResolutionSignalConstraints(
+  signals: ProblemResolutionCouncilSignals,
+): string[] {
+  return dedupe([
+    ...signals.violatedConstraints.map(
+      (constraint) => `Upstream violated constraint to correct: ${constraint}`,
+    ),
+    ...signals.unresolvedScenarios.map(
+      (scenario) => `Upstream unresolved scenario to close: ${scenario}`,
+    ),
+    ...signals.missingVariables.map(
+      (variable) => `Upstream missing variable to assign: ${variable}`,
+    ),
+    ...signals.unsupportedConclusions.map(
+      (conclusion) => `Upstream unsupported conclusion to ground: ${conclusion}`,
+    ),
+    ...signals.missingProofObligations.map(
+      (obligation) => `Upstream proof obligation to satisfy: ${obligation}`,
+    ),
+    ...(signals.repairMode && signals.repairMode !== "none"
+      ? [`Upstream repair mode to respect: ${signals.repairMode}`]
+      : []),
+  ]);
 }
 
 function buildInitialBuckets(): RevisionCategoryBucket {
@@ -354,12 +481,13 @@ function shouldRequireRevision(
   action: RevisionAction,
   buckets: RevisionCategoryBucket,
 ): boolean {
-  if (action === "revise" || action === "send_with_caveat") {
+  if (action === "revise") {
     return true;
   }
 
   if (
     action === "approve" ||
+    action === "send_with_caveat" ||
     action === "ask_clarification" ||
     action === "block_delivery"
   ) {

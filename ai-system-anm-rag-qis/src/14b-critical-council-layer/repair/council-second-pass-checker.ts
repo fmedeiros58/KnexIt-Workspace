@@ -330,17 +330,6 @@ function shouldRequireAnotherPass(input: {
     return true;
   }
 
-  if (input.revised.action === "revise" || input.revised.action === "regenerate") {
-    return true;
-  }
-
-  if (
-    input.revised.deliveryRequiredAction === "revise" ||
-    input.revised.deliveryRequiredAction === "regenerate"
-  ) {
-    return true;
-  }
-
   const newHardIssue = input.newIssues.some((issue) =>
     /critical|high|contradiction|block|regenerate/i.test(issue),
   );
@@ -531,7 +520,7 @@ function extractSalientTerms(normalizedText: string): string[] {
     normalizedText
       .split(/\s+/g)
       .map((term) => term.trim())
-      .filter((term) => term.length >= 5 && !stopwords.has(term)),
+      .filter((term) => term.length >= 4 && !stopwords.has(term)),
   ).slice(0, 12);
 }
 

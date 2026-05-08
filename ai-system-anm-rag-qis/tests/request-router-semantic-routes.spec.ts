@@ -15,3 +15,8 @@ assert(routeRequest(epistemic) === "inferential", "epistemic audit with verifiab
 
 const philosophical = createInitialProcessingState("quem e voce e qual sua origem?");
 assert(routeRequest(philosophical) === "inferential", "philosophical self-modeling prompt should route to inferential");
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

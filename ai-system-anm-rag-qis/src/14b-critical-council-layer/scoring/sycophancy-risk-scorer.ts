@@ -498,13 +498,16 @@ function buildSycophancyContext(input: SycophancyRiskInput): SycophancyContext {
   );
 
   const hasAnyCritiqueMarker = containsAny(draft, CRITIQUE_MARKERS);
-  const hasConcreteCritique = containsAny(draft, CONCRETE_CRITIQUE_MARKERS);
   const hasActionableImprovement = containsAny(
     draft,
     ACTIONABLE_IMPROVEMENT_MARKERS,
   );
   const hasPremiseTesting = containsAny(draft, PREMISE_TESTING_MARKERS);
   const hasCounterpoint = containsAny(draft, COUNTERPOINT_MARKERS);
+  const hasConcreteCritique =
+    containsAny(draft, CONCRETE_CRITIQUE_MARKERS) ||
+    hasPremiseTesting ||
+    hasCounterpoint;
   const hasEvidenceAwareLanguage = containsAny(draft, EVIDENCE_AWARE_MARKERS);
   const hasBoundaryLanguage = containsAny(draft, BOUNDARY_MARKERS);
 

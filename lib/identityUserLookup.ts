@@ -41,11 +41,23 @@ export const findUserByEmail = async (
     if (!data?.users || data.users.length < perPage) {
       return { user: null, error: null };
     }
-    if (data?.nextPage && data.nextPage !== page) {
-      page = data.nextPage;
+
+    const nextPage =
+      data && typeof data === "object" && "nextPage" in data
+        ? (data as { nextPage?: number }).nextPage
+        : undefined;
+
+    if (typeof nextPage === "number" && nextPage !== page) {
+      page = nextPage;
       continue;
     }
-    if (data?.lastPage && page < data.lastPage) {
+
+    const lastPage =
+      data && typeof data === "object" && "lastPage" in data
+        ? (data as { lastPage?: number }).lastPage
+        : undefined;
+
+    if (typeof lastPage === "number" && page < lastPage) {
       page += 1;
       continue;
     }

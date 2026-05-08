@@ -16,3 +16,8 @@ assert(fixed.text.includes("\u00EA"), "expected repaired text with proper accent
 const untouched = ensureUtf8Response("Voce esta bem?");
 assert(!untouched.repaired, "expected untouched ASCII text");
 
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

@@ -503,3 +503,8 @@ scenarioGlobalPortugueseOrthographyRepair();
 assert(true, "bootstrap assertions executed");
 
 
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

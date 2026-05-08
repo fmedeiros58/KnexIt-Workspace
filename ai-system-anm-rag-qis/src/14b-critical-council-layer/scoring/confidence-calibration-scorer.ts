@@ -378,16 +378,12 @@ function detectUnderconfidenceSignals(
     context.supportCount >= 2;
 
   const hasNoMaterialBlockingRisk =
-    !context.hasUnsupportedClaims &&
-    !context.hasContradictions &&
-    !isRiskAtLeast(context.evidenceRisk, "medium") &&
-    !isRiskAtLeast(context.logicRisk, "medium") &&
-    !isRiskAtLeast(context.completenessRisk, "medium");
+    !context.hasContradictions;
 
   if (context.hedgeCount >= 3 && hasSupport && hasNoMaterialBlockingRisk) {
     signals.push({
       note: "underconfident_despite_available_support",
-      penalty: 0.34,
+      penalty: 0.36,
       minimumRisk: "medium",
     });
   }

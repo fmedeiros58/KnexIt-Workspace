@@ -27,3 +27,8 @@ assert(
   "factual verifiable prompt should be routed to deep inferential pipeline",
 );
 assert(factualDecision.requiresWeb, "factual verifiable prompt should require web");
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

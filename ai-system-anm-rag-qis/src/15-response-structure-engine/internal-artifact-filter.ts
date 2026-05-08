@@ -21,6 +21,11 @@ const PERSONA_CONCAT_PATTERN = String.raw`\blet(?:i|\u00ed|\u00c3\u00ad|\uFFFD|\
 const EXPLANATION_PATTERN = String.raw`\bexplica(?:c|\u00e7|\u00c3\u00a7)(?:a|\u00e3|\u00c3\u00a3)o`;
 const USER_WORD_PATTERN = String.raw`usu(?:a|\u00e1|\u00c3\u00a1|\uFFFD|\u00ef\u00bf\u00bd|\?)rio`;
 
+// Problem-resolution (layer 14) repair tail that must never be delivered to end users.
+// This is internal diagnostic/control text, not part of the user-facing answer.
+const PROBLEM_RESOLUTION_REPAIR_TAIL_PATTERN =
+  /\n{0,3}Complemento de fechamento[\s\S]*$/i;
+
 const ARTIFACT_LINE_RULES: Array<{ signal: string; pattern: RegExp }> = [
   { signal: "line_thought_time", pattern: /^\s*pensou por \d+\s*(?:ms|s)\s*$/i },
   { signal: "line_evidence_guide", pattern: /\bevidencia[-\s]?guia\b/i },
@@ -58,7 +63,10 @@ function compactSpaces(value: string): string {
 }
 
 export function filterInternalArtifacts(text: string): InternalArtifactFilterResult {
-  const source = `${text || ""}`.replace(/\r/g, "").trim();
+  const source = `${text || ""}`
+    .replace(/\r/g, "")
+    .replace(PROBLEM_RESOLUTION_REPAIR_TAIL_PATTERN, "")
+    .trim();
   if (!source) {
     return { text: "", removedCount: 0, removedSignals: [] };
   }

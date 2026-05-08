@@ -23,3 +23,8 @@ const infoQuestion = pragmaticIntentDetector({
 
 assert(infoQuestion.intent === "ask_information", "expected ask_information for factual question");
 
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

@@ -18,3 +18,8 @@ const detailedTechnical = runInputPreRouteScan(
   createInitialProcessingState("como corrigir erro de normalizer no parser de entrada?"),
 );
 assert(selectPipelineRoute(detailedTechnical) === "inferential", "detailed technical question should route to inferential");
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

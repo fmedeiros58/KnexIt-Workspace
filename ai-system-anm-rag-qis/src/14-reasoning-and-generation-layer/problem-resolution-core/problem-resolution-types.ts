@@ -310,6 +310,9 @@ export interface ProblemResolutionState {
   risks: ReasoningRisk[];
   closure: LogicalClosureAssessment;
 
+  repairPlan?: DraftRepairPlan;
+  repairMode?: RepairMode;
+  repairApplied?: boolean;
   repairInstructions: string[];
 
   representation: ProblemRepresentation;

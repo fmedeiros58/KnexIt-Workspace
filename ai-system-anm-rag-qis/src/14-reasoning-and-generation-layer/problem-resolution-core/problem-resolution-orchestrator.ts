@@ -42,6 +42,12 @@ function normalizeText(value: string): string {
     .trim();
 }
 
+function normalizeDraft(value: string): string {
+  return String(value ?? "")
+    .replace(/\r/g, "")
+    .trim();
+}
+
 function dedupe(values: ReadonlyArray<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -160,7 +166,8 @@ export function runProblemResolutionOrchestrator(
   const normalizedInput: ProblemResolutionInput = {
     ...input,
     userInput: normalizeText(input.userInput || ""),
-    draftAnswer: normalizeText(input.draftAnswer || ""),
+    // Keep paragraph structure for downstream checks (repetition, case analysis closure, mapping layouts).
+    draftAnswer: normalizeDraft(input.draftAnswer || ""),
   };
 
   const reasoningNeed = classifyTaskReasoningNeed(normalizedInput);
@@ -316,6 +323,9 @@ export function runProblemResolutionOrchestrator(
 
     risks,
     closure: closureState.closure,
+    repairPlan,
+    repairMode: repairPlan.repairMode,
+    repairApplied: false,
     repairInstructions: repairPlan.repairInstructions,
 
     representation: {

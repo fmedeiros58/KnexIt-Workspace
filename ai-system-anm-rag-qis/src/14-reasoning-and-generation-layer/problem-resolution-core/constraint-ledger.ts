@@ -714,12 +714,26 @@ function detectNegativeConstraintViolation(
 
   for (const segment of forbiddenSegments) {
     const segmentTokens = tokenize(segment);
+    const segmentSymbolTokens = extractShortSymbolTokens(segment);
 
-    if (segmentTokens.length === 0) {
+    if (segmentTokens.length === 0 && segmentSymbolTokens.length === 0) {
       continue;
     }
 
     for (const sentence of sentences) {
+      if (
+        segmentSymbolTokens.length > 0 &&
+        segmentSymbolTokens.some((token) => hasExactToken(sentence, token)) &&
+        !hasLocalNegation(sentence)
+      ) {
+        return {
+          violated: true,
+          reason: `forbidden symbol appears affirmatively: ${segmentSymbolTokens.join(
+            ", ",
+          )}`,
+        };
+      }
+
       if (!hasSemanticOverlap(segment, sentence, 0.36)) {
         continue;
       }
@@ -959,6 +973,18 @@ function tokenize(text: string): string[] {
     .map((token) => token.trim())
     .filter((token) => token.length >= 3)
     .filter((token) => !STOPWORDS.has(token));
+}
+
+function extractShortSymbolTokens(text: string): string[] {
+  return dedupe(
+    normalize(text)
+      .split(" ")
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .filter((token) => token.length > 0 && token.length < 3)
+      .filter((token) => !STOPWORDS.has(token))
+      .filter((token) => /^[a-z0-9_]+$/i.test(token)),
+  );
 }
 
 function getScenarioBranchSignals(representation: ProblemRepresentation): string[] {

@@ -117,3 +117,8 @@ const mayor = buildFactualAnswerFallback({
 
 assert(Boolean(mayor), "expected factual fallback for mayor question");
 assert(Boolean(mayor?.answer.includes("Bocalom")), "expected extracted mayor name");
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

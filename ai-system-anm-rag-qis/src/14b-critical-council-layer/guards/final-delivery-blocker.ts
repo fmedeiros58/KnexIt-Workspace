@@ -10,6 +10,7 @@ import type {
   UnsupportedConfidenceGuardResult,
   WeakCritiqueGuardResult,
 } from "../council-types";
+import type { ProblemResolutionCouncilSignals } from "../problem-resolution-signal-reader";
 
 type DeliveryReasonSeverity = "soft" | "medium" | "hard" | "blocking";
 
@@ -35,6 +36,7 @@ interface FinalDeliveryBlockerInput {
   readonly prematureApprovalGuard: PrematureApprovalGuardResult;
   readonly unsupportedConfidenceGuard: UnsupportedConfidenceGuardResult;
   readonly revisionPlan: CouncilRevisionPlan;
+  readonly problemResolution?: ProblemResolutionCouncilSignals;
   readonly secondPass?: CouncilSecondPassResult;
   readonly userGoalSatisfied: boolean;
 }
@@ -85,9 +87,208 @@ function collectDeliveryReasons(
     ...collectAssessmentContentReasons(input.baseAssessment),
     ...collectGuardReasons(input),
     ...collectRevisionReasons(input.revisionPlan),
+    ...collectProblemResolutionReasons(input.problemResolution),
     ...collectSecondPassReasons(input.secondPass),
     ...collectUserGoalReasons(input.userGoalSatisfied),
   ]);
+}
+
+function collectProblemResolutionReasons(
+  problemResolution: ProblemResolutionCouncilSignals | undefined,
+): DeliveryReason[] {
+  if (!problemResolution) {
+    return [];
+  }
+
+  const reasons: DeliveryReason[] = [];
+
+  if (problemResolution.requiredActionFloor === "block_delivery") {
+    reasons.push({
+      code: "problem_resolution_requires_block_delivery",
+      severity: "blocking",
+      message:
+        "Problem-resolution diagnostics require blocking delivery.",
+      preferredAction: "block_delivery",
+    });
+  } else if (problemResolution.requiredActionFloor === "regenerate") {
+    reasons.push({
+      code: "problem_resolution_requires_regeneration",
+      severity: "hard",
+      message:
+        "Problem-resolution diagnostics require regenerating the answer.",
+      preferredAction: "regenerate",
+    });
+  } else if (problemResolution.requiredActionFloor === "revise") {
+    reasons.push({
+      code: "problem_resolution_requires_revision",
+      severity: "medium",
+      message:
+        "Problem-resolution diagnostics require revising the answer.",
+      preferredAction: "revise",
+    });
+  }
+
+  if (problemResolution.closurePassed === false) {
+    reasons.push({
+      code: "problem_resolution_closure_failed",
+      severity: "hard",
+      message:
+        "Problem-resolution closure failed upstream.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  if (
+    problemResolution.shouldEscalateToCriticalCouncil === true &&
+    problemResolution.hardFailureReasons.length === 0
+  ) {
+    reasons.push({
+      code: "problem_resolution_escalation_requested",
+      severity: "medium",
+      message:
+        "Problem-resolution requested critical-council escalation.",
+      preferredAction: "revise",
+    });
+  }
+
+  if (
+    typeof problemResolution.completionScore === "number" &&
+    problemResolution.completionScore < 0.5
+  ) {
+    reasons.push({
+      code: "problem_resolution_completion_score_critical",
+      severity: "hard",
+      message:
+        "Problem-resolution completion score is critically low.",
+      preferredAction: "regenerate",
+    });
+  } else if (
+    typeof problemResolution.completionScore === "number" &&
+    problemResolution.completionScore < 0.72
+  ) {
+    reasons.push({
+      code: "problem_resolution_completion_score_low",
+      severity: "medium",
+      message:
+        "Problem-resolution completion score is below the delivery threshold.",
+      preferredAction: "revise",
+    });
+  }
+
+  if (problemResolution.contradictions.length > 0) {
+    reasons.push({
+      code: "problem_resolution_contradictions",
+      severity: "blocking",
+      message:
+        "Problem-resolution found unresolved contradictions.",
+      preferredAction: "block_delivery",
+    });
+  }
+
+  if (problemResolution.violatedConstraints.length > 0) {
+    reasons.push({
+      code: "problem_resolution_violated_constraints",
+      severity: "blocking",
+      message:
+        "Problem-resolution found violated constraints.",
+      preferredAction: "block_delivery",
+    });
+  }
+
+  if (problemResolution.unresolvedScenarios.length > 0) {
+    reasons.push({
+      code: "problem_resolution_unresolved_scenarios",
+      severity: "hard",
+      message:
+        "Problem-resolution found unresolved scenario branches.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  if (problemResolution.missingVariables.length > 0) {
+    reasons.push({
+      code: "problem_resolution_missing_variables",
+      severity: "hard",
+      message:
+        "Problem-resolution found required variables or assignments still missing.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  if (problemResolution.unsupportedConclusions.length > 0) {
+    reasons.push({
+      code: "problem_resolution_unsupported_conclusions",
+      severity: "hard",
+      message:
+        "Problem-resolution found unsupported conclusions.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  if (problemResolution.missingProofObligations.length > 0) {
+    reasons.push({
+      code: "problem_resolution_missing_proof_obligations",
+      severity: "hard",
+      message:
+        "Problem-resolution found missing proof obligations.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  if (problemResolution.scenarioCoveragePassed === false) {
+    reasons.push({
+      code: "problem_resolution_scenario_coverage_failed",
+      severity: "hard",
+      message:
+        "Problem-resolution scenario coverage failed.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  if (problemResolution.assignmentConsistencyPassed === false) {
+    reasons.push({
+      code: "problem_resolution_assignment_consistency_failed",
+      severity: "hard",
+      message:
+        "Problem-resolution assignment consistency failed.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  if (problemResolution.repairMode === "regenerate") {
+    reasons.push({
+      code: "problem_resolution_repair_mode_regenerate",
+      severity: "hard",
+      message:
+        "Problem-resolution repair planner recommended regeneration.",
+      preferredAction: "regenerate",
+    });
+  } else if (problemResolution.repairMode === "substantial_revision") {
+    reasons.push({
+      code: "problem_resolution_repair_mode_substantial_revision",
+      severity: "medium",
+      message:
+        "Problem-resolution repair planner recommended substantial revision.",
+      preferredAction: "revise",
+    });
+  }
+
+  if (
+    problemResolution.repairApplied === false &&
+    problemResolution.repairMode !== null &&
+    problemResolution.repairMode !== "none" &&
+    problemResolution.hardFailureReasons.length > 0
+  ) {
+    reasons.push({
+      code: "problem_resolution_repair_not_applied",
+      severity: "hard",
+      message:
+        "Problem-resolution repair was required but not applied.",
+      preferredAction: "regenerate",
+    });
+  }
+
+  return reasons;
 }
 
 function collectSynthesisReasons(
@@ -377,16 +578,6 @@ function collectRevisionReasons(
       severity: "medium",
       message:
         "Revision plan requires revision.",
-      preferredAction: "revise",
-    });
-  }
-
-  if ((revisionPlan.rewriteInstructions ?? []).length > 0) {
-    reasons.push({
-      code: "revision_plan_has_rewrite_instructions",
-      severity: "medium",
-      message:
-        "Revision plan still has rewrite instructions to apply.",
       preferredAction: "revise",
     });
   }

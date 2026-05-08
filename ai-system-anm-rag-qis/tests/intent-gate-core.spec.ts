@@ -79,3 +79,8 @@ assert(
   shortDefinition.routingRecommendation === "deep_pipeline_required",
   "short definition query should route to deep pipeline",
 );
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

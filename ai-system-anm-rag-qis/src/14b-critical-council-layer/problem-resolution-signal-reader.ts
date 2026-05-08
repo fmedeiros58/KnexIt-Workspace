@@ -40,6 +40,7 @@ export interface ProblemResolutionCouncilSignals {
   readonly proofEvaluationSatisfied: string[];
 
   readonly riskTypes: string[];
+  readonly shouldEscalateToCriticalCouncil: boolean | null;
   readonly repairMode: ProblemResolutionRepairMode | null;
   readonly repairApplied: boolean | null;
 
@@ -174,6 +175,10 @@ export function extractProblemResolutionCouncilSignals(
     ...getNestedStringArray(artifact, ["riskTypes"]),
   ]);
 
+  const shouldEscalateToCriticalCouncil =
+    getNestedBoolean(state, ["shouldEscalateToCriticalCouncil"]) ??
+    getNestedBoolean(artifact, ["shouldEscalateToCriticalCouncil"]);
+
   const signalsWithoutFailures = {
     hasProblemResolutionState: isRecord(state),
     hasProblemResolutionArtifact: isRecord(artifact),
@@ -208,6 +213,7 @@ export function extractProblemResolutionCouncilSignals(
       "satisfied",
     ]),
     riskTypes,
+    shouldEscalateToCriticalCouncil,
     repairMode,
     repairApplied,
   };
@@ -238,6 +244,7 @@ function buildHardFailureReasons(input: {
   readonly assignmentConsistencyPassed: boolean | null;
   readonly proofEvaluationMissing: readonly string[];
   readonly riskTypes: readonly string[];
+  readonly shouldEscalateToCriticalCouncil: boolean | null;
   readonly repairMode: ProblemResolutionRepairMode | null;
 }): string[] {
   return dedupe([
@@ -300,6 +307,7 @@ function deriveRequiredActionFloor(input: {
   readonly hardFailureReasons: readonly string[];
   readonly violatedConstraints: readonly string[];
   readonly contradictions: readonly string[];
+  readonly shouldEscalateToCriticalCouncil: boolean | null;
   readonly repairMode: ProblemResolutionRepairMode | null;
 }): CouncilAction | null {
   if (input.contradictions.length > 0) {
@@ -325,6 +333,10 @@ function deriveRequiredActionFloor(input: {
   }
 
   if (input.repairMode === "substantial_revision") {
+    return "revise";
+  }
+
+  if (input.shouldEscalateToCriticalCouncil === true) {
     return "revise";
   }
 

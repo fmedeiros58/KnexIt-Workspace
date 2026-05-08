@@ -244,6 +244,7 @@ const VERIFICATION_REQUEST_MARKERS = [
 const CONTESTED_CLAIM_MARKERS = [
   "isso esta errado",
   "isso esta ruim",
+  "esta errado",
   "nao concordo",
   "a ia errou",
   "a resposta esta errada",

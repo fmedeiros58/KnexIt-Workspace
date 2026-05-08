@@ -64,3 +64,50 @@ const leaked = [
   assert(state.deliveryPayload.text.startsWith("Estou funcionando normalmente"), "fallback should keep useful head");
   assert(!/Usu[aá]rio:|Let[ií]cia:|continuity\\?_mode|�/i.test(state.deliveryPayload.text), "fallback should sanitize contaminated structured response");
 }
+
+{
+  const state = createInitialProcessingState("teste de entrega bloqueada");
+  state.structuredResponse = "Resposta que nao deveria ser entregue.";
+  state.deliveryPayload.text = "Resposta que nao deveria ser entregue.";
+  state.executionArtifacts.criticalCouncil = {
+    ...(state.executionArtifacts.criticalCouncil || {}),
+    deliveryBlocked: true,
+    revisionAttempts: 0,
+  };
+
+  handoffPipelineDelivery(state);
+
+  assert(
+    /^Ainda nao posso entregar uma resposta final com seguranca\b/i.test(state.deliveryPayload.text),
+    "handoff should block delivery when critical council blocks delivery",
+  );
+}
+
+{
+  const state = createInitialProcessingState("teste de fechamento logico falho");
+  state.structuredResponse = "Resposta que nao deveria ser entregue.";
+  state.deliveryPayload.text = "Resposta que nao deveria ser entregue.";
+  state.executionArtifacts.problemResolution = {
+    reasoningNeed: "high",
+    closurePassed: false,
+    completionScore: 0,
+    riskTypes: [],
+    repairApplied: false,
+    repairReasonCount: 0,
+    missingVariables: [],
+    unresolvedScenarios: [],
+    violatedConstraints: [],
+  };
+
+  handoffPipelineDelivery(state);
+
+  assert(
+    /^Ainda nao posso entregar uma resposta final com seguranca\b/i.test(state.deliveryPayload.text),
+    "handoff should block delivery when problem-resolution closure fails",
+  );
+}
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

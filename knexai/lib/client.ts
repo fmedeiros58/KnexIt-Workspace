@@ -723,6 +723,8 @@ export type WriteProjectView = {
 export type WriteProjectListItem = {
   project_id: string;
   title: string;
+  description?: string;
+  objective?: string;
   status: string;
   updated_at: string;
   sections_count: number;

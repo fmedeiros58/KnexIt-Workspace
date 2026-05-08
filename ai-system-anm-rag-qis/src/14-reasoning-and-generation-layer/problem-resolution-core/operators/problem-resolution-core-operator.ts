@@ -15,6 +15,9 @@ import {
   buildAnswerDraftRepairPlan,
 } from "../answer-draft-repair-planner";
 
+const INTERNAL_REPAIR_TAIL_PATTERN =
+  /\n{0,3}Complemento de fechamento[\s\S]*$/i;
+
 export interface ProblemResolutionOperatorInput extends ProblemResolutionInput {
   autoRepair?: boolean;
 }
@@ -31,26 +34,32 @@ export function runProblemResolutionCoreOperator(
 ): ProblemResolutionOperatorResult {
   const initialState = runProblemResolutionOrchestrator(input);
   const initialPlan = buildAnswerDraftRepairPlan(initialState);
+  const initialStateWithRepair = attachRepairMetadata(
+    initialState,
+    initialPlan,
+    false,
+  );
   const originalDraft = String(input.draftAnswer ?? "");
 
   if (!input.autoRepair || !initialPlan.requiresRepair || !originalDraft.trim()) {
     return {
-      state: initialState,
+      state: initialStateWithRepair,
       repairPlan: initialPlan,
       repairedDraft: originalDraft,
       repairApplied: false,
     };
   }
 
-  const repairedDraft = applyProblemResolutionRepair(
+  const repairedDraftRaw = applyProblemResolutionRepair(
     originalDraft,
     initialState,
     initialPlan,
   );
+  const repairedDraft = stripInternalRepairTail(repairedDraftRaw);
 
   if (!repairedDraft || repairedDraft === originalDraft) {
     return {
-      state: initialState,
+      state: initialStateWithRepair,
       repairPlan: initialPlan,
       repairedDraft: originalDraft,
       repairApplied: false,
@@ -61,12 +70,30 @@ export function runProblemResolutionCoreOperator(
     ...input,
     draftAnswer: repairedDraft,
   });
+  const repairedPlan = buildAnswerDraftRepairPlan(repairedState);
 
   return {
-    state: repairedState,
-    repairPlan: buildAnswerDraftRepairPlan(repairedState),
+    state: attachRepairMetadata(repairedState, repairedPlan, true),
+    repairPlan: repairedPlan,
     repairedDraft,
     repairApplied: true,
   };
+}
+
+function attachRepairMetadata(
+  state: ProblemResolutionState,
+  repairPlan: DraftRepairPlan,
+  repairApplied: boolean,
+): ProblemResolutionState {
+  return {
+    ...state,
+    repairPlan,
+    repairMode: repairPlan.repairMode,
+    repairApplied,
+  };
+}
+
+function stripInternalRepairTail(value: string): string {
+  return `${value || ""}`.replace(INTERNAL_REPAIR_TAIL_PATTERN, "").trim();
 }
 

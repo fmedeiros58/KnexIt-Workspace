@@ -273,6 +273,18 @@ describe("14b critical-council-layer", () => {
     expect(["revise", "regenerate", "block_delivery"]).toContain(
       assessment.action,
     );
+    expect(
+      assessment.deliveryDecision.reasons.some((reason) =>
+        /problem_resolution_/i.test(reason),
+      ),
+    ).toBe(true);
+    expect(
+      assessment.revisionPlan.logicInstructions.some((instruction) =>
+        /problem-resolution|scenario|variable|proof|mapping|assignment/i.test(
+          instruction,
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("uses problem-resolution artifact repair mode as a council action floor", () => {
@@ -300,6 +312,81 @@ describe("14b critical-council-layer", () => {
     expect(assessment.deliveryDecision.canDeliver).toBe(false);
   });
 
+  test("uses problem-resolution state repair mode without artifact fallback", () => {
+    const problemResolutionState = {
+      closure: {
+        passed: true,
+        missingVariables: [],
+        violatedConstraints: [],
+        unresolvedScenarios: [],
+        unsupportedConclusions: [],
+        contradictions: [],
+        completionScore: 1,
+      },
+      repairMode: "regenerate",
+      repairApplied: false,
+      report: {
+        missingObligations: [],
+        missingProofObligations: [],
+        unresolvedScenarios: [],
+        violatedConstraints: [],
+        unsupportedConclusions: [],
+      },
+      risks: [],
+    } as any;
+
+    const assessment = runCriticalCouncilOrchestrator({
+      userInput: "Entregue somente se a solucao estiver fechada.",
+      draftAnswer: "Conclusao final.",
+      problemResolutionState,
+      retrievedEvidence: [],
+      retrievedSources: [],
+    });
+
+    expect(assessment.approved).toBe(false);
+    expect(["regenerate", "block_delivery"]).toContain(assessment.action);
+    expect(assessment.deliveryDecision.canDeliver).toBe(false);
+    expect(
+      assessment.deliveryDecision.reasons.some((reason) =>
+        /problem_resolution_repair_mode_regenerate|problem_resolution_requires_regeneration|problem_resolution_repair_not_applied/i.test(
+          reason,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  test("uses problem-resolution escalation artifact as revision floor", () => {
+    const assessment = runCriticalCouncilOrchestrator({
+      userInput: "Revise criticamente antes de entregar.",
+      draftAnswer: "A resposta parece adequada.",
+      problemResolutionArtifact: {
+        closurePassed: true,
+        completionScore: 1,
+        repairApplied: false,
+        repairMode: "none",
+        shouldEscalateToCriticalCouncil: true,
+        riskTypes: [],
+        missingVariables: [],
+        unresolvedScenarios: [],
+        violatedConstraints: [],
+        unsupportedConclusions: [],
+        contradictions: [],
+      },
+      retrievedEvidence: [],
+      retrievedSources: [],
+    });
+
+    expect(assessment.approved).toBe(false);
+    expect(["revise", "regenerate", "block_delivery"]).toContain(
+      assessment.action,
+    );
+    expect(
+      assessment.deliveryDecision.reasons.includes(
+        "problem_resolution_escalation_requested",
+      ),
+    ).toBe(true);
+  });
+
   test("second pass approves only after core issues are resolved", () => {
     const original = runCriticalCouncilOrchestrator({
       userInput: "Avalie esta tese forte com contraponto.",
@@ -307,10 +394,16 @@ describe("14b critical-council-layer", () => {
       retrievedEvidence: [],
       retrievedSources: [],
     });
+    const revisedDraft =
+      "A resposta deve avaliar a tese com objetividade. " +
+      "Voce tem um ponto forte, mas a premissa central e fragil e exige verificacao. " +
+      "Contraponto: existe um contraexemplo plausivel em que a premissa falha; nesse cenario a conclusao nao e valida. " +
+      "Limite de evidencia: sem fonte ou dados, trate a afirmacao como hipotese e explique por que ela ainda e incerta. " +
+      "Conclusao: feche a analise explicitando quais condicoes sustentam a tese e quais condicoes a invalidam. " +
+      "Proximo passo: descreva um teste minimo da premissa mais fragil e o criterio que decide entre alternativas antes de finalizar a recomendacao.";
     const revised = runCriticalCouncilOrchestrator({
       userInput: "Avalie esta tese forte com contraponto.",
-      draftAnswer:
-        "A tese tem pontos validos, porem existe contraexemplo relevante. Conclusao: a decisao exige validar premissas com evidencia antes de adotar a tese.",
+      draftAnswer: revisedDraft,
       retrievedEvidence: ["evidence"],
       retrievedSources: [{ title: "src", url: "https://example.org", snippet: "snippet" }],
     });
@@ -318,12 +411,10 @@ describe("14b critical-council-layer", () => {
     const secondPass = runCouncilSecondPassCheck({
       originalAssessment: original,
       revisedAssessment: revised,
-      revisedDraft:
-        "A tese tem pontos validos, porem existe contraexemplo relevante. Conclusao: a decisao exige validar premissas com evidencia antes de adotar a tese.",
+      revisedDraft,
       councilInput: {
         userInput: "Avalie esta tese forte com contraponto.",
-        draftAnswer:
-          "A tese tem pontos validos, porem existe contraexemplo relevante. Conclusao: a decisao exige validar premissas com evidencia antes de adotar a tese.",
+        draftAnswer: revisedDraft,
         retrievedEvidence: ["evidence"],
         retrievedSources: [{ title: "src", url: "https://example.org", snippet: "snippet" }],
       },

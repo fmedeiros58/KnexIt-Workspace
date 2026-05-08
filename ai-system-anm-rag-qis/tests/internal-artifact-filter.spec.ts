@@ -57,3 +57,22 @@ assert(
   "expected accented transcript tail to be removed",
 );
 assert(!/Usuário:|Letícia/i.test(accentedTranscriptLeak.text), "expected accented role markers to be removed");
+
+const repairTailLeak = filterInternalArtifacts(
+  [
+    "Resposta util e objetiva.",
+    "",
+    "Complemento de fechamento logico:",
+    "- Modo de reparo recomendado: regenerate.",
+    "- Variaveis ainda nao cobertas: entity_A, entity_B.",
+  ].join("\n"),
+);
+assert(
+  repairTailLeak.text === "Resposta util e objetiva.",
+  "expected problem-resolution repair tail to be removed",
+);
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

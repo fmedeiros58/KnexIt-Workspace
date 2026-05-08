@@ -6,7 +6,7 @@ export type WorkspaceProduct = {
   slug: string;
   category: WorkspaceProductCategory;
   description: string;
-  icon?: "play" | "record" | "edit" | "live" | "folder" | "supadrive" | "doc" | "read" | "kanban" | "chat" | "search" | "review" | "analytics" | "brain" | "owl" | "mail" | "credit" | "hub";
+  icon?: "play" | "record" | "edit" | "live" | "folder" | "supadrive" | "doc" | "read" | "kanban" | "chat" | "search" | "review" | "analytics" | "brain" | "owl" | "mail" | "credit" | "hub" | "pen";
 };
 
 export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
@@ -137,6 +137,14 @@ export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = [
     category: "infra",
     description: "Billing e planos em breve.",
     icon: "credit",
+  },
+  {
+    id: "knexwriter",
+    name: "KnexWriter",
+    slug: "knexwriter",
+    category: "ia",
+    description: "Escrita assistida por IA com paginação.",
+    icon: "pen",
   },
 ];
 

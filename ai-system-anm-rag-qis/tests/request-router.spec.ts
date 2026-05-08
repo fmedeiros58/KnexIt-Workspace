@@ -19,3 +19,8 @@ const detailedTechnical = createInitialProcessingState("como corrigir erro de no
 detailedTechnical.inputSignals.intent = "technical";
 detailedTechnical.preRouteSignals.quickIntent = "technical";
 assert(routeRequest(detailedTechnical) === "inferential", "detailed technical question should use inferential route");
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

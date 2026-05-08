@@ -203,6 +203,7 @@ export function runCriticalCouncilOrchestrator(
     prematureApprovalGuard,
     unsupportedConfidenceGuard,
     revisionPlan,
+    problemResolution: reasoning.problemResolution,
     userGoalSatisfied: isUserGoalSatisfied(
       normalizedInput.userInput,
       normalizedInput.draftAnswer,
@@ -608,15 +609,18 @@ function buildRequiredRevisions(input: {
   readonly deliveryDecision: CouncilAssessment["deliveryDecision"];
 }): string[] {
   const plan = input.revisionPlan;
+  const includePlanInstructions = Boolean(
+    plan.revisionRequired || plan.regenerationRequired,
+  );
 
   return dedupe([
     ...(input.baseAssessment.requiredRevisions ?? []),
     ...(plan.revisionRequired ? plan.rewriteInstructions ?? [] : []),
     ...(plan.regenerationRequired ? plan.revisionGoals ?? [] : []),
-    ...(plan.logicInstructions ?? []),
-    ...(plan.evidenceInstructions ?? []),
-    ...(plan.antiSycophancyInstructions ?? []),
-    ...(plan.toneInstructions ?? []),
+    ...(includePlanInstructions ? plan.logicInstructions ?? [] : []),
+    ...(includePlanInstructions ? plan.evidenceInstructions ?? [] : []),
+    ...(includePlanInstructions ? plan.antiSycophancyInstructions ?? [] : []),
+    ...(includePlanInstructions ? plan.toneInstructions ?? [] : []),
     ...(input.unsupportedConfidenceGuard.requiredCalibration ?? []),
     ...(input.weakCritiqueGuard.requiredSpecificity ?? []),
     ...(input.deliveryDecision.canDeliver
@@ -690,7 +694,7 @@ function extractSalientTerms(text: string): string[] {
     normalizeText(text)
       .split(/\s+/g)
       .map((term) => term.trim())
-      .filter((term) => term.length >= 5 && !stopwords.has(term)),
+      .filter((term) => term.length >= 4 && !stopwords.has(term)),
   ).slice(0, 18);
 }
 

@@ -246,8 +246,17 @@ const ICONS: Record<NonNullable<WorkspaceProduct["icon"]>, IconConfig> = {
         <path d="M7.8 12.6 10.6 9M16.2 12.6 13.4 9M10.2 13.7l3.7.2M8 14.6l2.7 1.6m5.3-1.6-2.7 1.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </>
     ),
-  },
-};
+  },  pen: {
+    bg: "bg-green-100",
+    fg: "text-green-700",
+    path: (
+      <>
+        <path fill="currentColor" d="M5 5h14v14H5V5Z" />
+        <path fill="white" fillOpacity="0.9" d="M8.5 8.5h7v1.5h-7v-1.5Zm0 2.5h7v1h-7v-1Zm0 1.8h5v1h-5v-1Z" />
+        <path fill="white" fillOpacity="0.8" d="M15 12.5 18 10l1.4 1.4L16.4 13.9Z" stroke="currentColor" strokeWidth="0.8" />
+      </>
+    ),
+  },};
 
 type ProductIconProps = {
   icon?: WorkspaceProduct["icon"];
