@@ -1,4 +1,17 @@
-﻿import type { ProcessingState } from "../bridges/contracts/processing-state";
+/**
+ * @file presentation-stream-bridge.ts
+ * @description Constroi streams progressivos a partir do texto final ja saneado da camada de apresentacao.
+ * @layer 18-presentation-and-delivery-layer
+ * @purpose Evitar que chunks progressivos reintroduzam historico, rotulos de fala ou artefatos internos no front-end.
+ * @inputs ProcessingState ou texto final com canal de entrega e plano opcional de layout.
+ * @outputs Chunks, stream serializado e metadado de recuperacao do stream.
+ * @dependsOn Filtro de artefatos internos, guardas UTF-8, controladores de streaming e serializer de chunks.
+ * @usedBy Ponte de apresentacao antes do handoff aos canais REST, SSE e WebSocket.
+ * @invariants O stream deve representar apenas o texto final limpo, sem continuidade interna nem transcricao de conversa.
+ * @notes O saneamento aqui replica a defesa final porque streams podem ser gerados antes da ponte de front-end.
+ */
+import type { ProcessingState } from "../bridges/contracts/processing-state";
+import { filterInternalArtifacts } from "../15-response-structure-engine/internal-artifact-filter";
 import { ensureUtf8Response } from "./text-encoding-guard";
 import { streamChunkSerializer, type StreamChunkSerializerOutput } from "./output-serializer/stream-chunk-serializer";
 import type { DeliveryChannel, StreamChunk } from "./presentation-contracts";
@@ -52,7 +65,7 @@ function stripRoleTranscriptTail(value: string): string {
   const source = `${value || ""}`.trim();
   if (!source) return "";
 
-  const roleTailPattern = /\b(?:usu[aá]rio|usuario|user|assistente|assistant|let[ií]cia|leticia)\s*:\s*/i;
+  const roleTailPattern = /\b(?:usu[aá]rio|usuario|user|assistente|assistant|let[ií]cia|leticia)\s*:\s*|\blet[ií]cia(?=\s*:|[A-ZÁÉÍÓÚÂÊÔÃÕ]|Sim|Nao|Não)|(?:^|[^A-Za-z0-9_]|\\n)(?:continuidade|continuity\\*_anchor|continuity\\*_mode)\s*:|\bexplica[cç][aã]o\s*:\s*(?:$|\n|\\n|a pergunta do usu[aá]rio|a minha resposta|nao houve necessidade|não houve necessidade)|\bpensou por \d+\s*(?:ms|s)\b/i;
   const match = roleTailPattern.exec(source);
   if (!match || match.index <= 0) return source;
 
@@ -124,7 +137,8 @@ function collapseDuplicatedHalves(text: string): string {
 
 function sanitizeStreamText(value: string): string {
   const utf8 = ensureUtf8Response(`${value || ""}`).text;
-  const withoutLabels = stripDialogueLabels(utf8);
+  const artifactFiltered = filterInternalArtifacts(utf8).text;
+  const withoutLabels = stripDialogueLabels(artifactFiltered);
   const withoutTail = stripRoleTranscriptTail(withoutLabels);
   const deduped = dedupeConsecutiveParagraphs(withoutTail);
   const collapsed = collapseDuplicatedHalves(deduped);

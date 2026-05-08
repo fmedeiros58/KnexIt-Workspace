@@ -41,6 +41,40 @@ function shouldUseLlmRuntime(state: ProcessingState): boolean {
   return true;
 }
 
+function resolveRuntimeTokenBudget(state: ProcessingState): number {
+  const prompt = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  if (!prompt) return 640;
+  if (isConversationalPrompt(prompt) || isLikelyMicroConversationalPrompt(prompt)) return 220;
+
+  const deliberative = getDeliberativeState(state);
+  if (deliberative?.isActive) {
+    const obligations = deliberative.obligationGraph?.length || 0;
+    if (obligations >= 8) return 1800;
+    if (obligations >= 5) return 1400;
+    if (obligations >= 3) return 1100;
+  }
+
+  const complexity = Math.max(state.complexityProfile.score || 0, state.preRouteSignals?.quickComplexity || 0);
+  if (complexity >= 0.72) return 1400;
+  if (complexity >= 0.58) return 1000;
+  return 700;
+}
+
+function resolveRuntimeTimeoutMs(state: ProcessingState): number {
+  const configured = Number(process.env.AI_SYSTEM_LLM_BRIDGE_TIMEOUT_MS || 0);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(1_200, configured);
+  }
+
+  const prompt = `${state.normalizedMessage || state.rawMessage || ""}`.trim();
+  if (isConversationalPrompt(prompt) || isLikelyMicroConversationalPrompt(prompt)) return 9_000;
+
+  const complexity = Math.max(state.complexityProfile.score || 0, state.preRouteSignals?.quickComplexity || 0);
+  if (complexity >= 0.72) return 24_000;
+  if (complexity >= 0.55) return 18_000;
+  return 14_000;
+}
+
 function normalizeForComparison(value: string): string {
   return `${value || ""}`
     .toLowerCase()
@@ -644,12 +678,14 @@ export async function runGenerationLlmBridge(state: ProcessingState): Promise<Pr
 
   state.executionArtifacts =
     state.executionArtifacts || { knowledge: { cache: {}, lastQuerySignature: "", lastUsedCache: false } };
+  const runtimeTokenBudget = resolveRuntimeTokenBudget(state);
+  const runtimeTimeout = resolveRuntimeTimeoutMs(state);
 
   state.executionArtifacts.generationRuntime = {
     provider: "vllm-openai-compatible",
     model: vllmClientInfo.model,
     baseUrl: vllmClientInfo.baseUrl,
-    maxTokens: vllmClientInfo.maxTokens,
+    maxTokens: runtimeTokenBudget,
     enabled: shouldUseLlmRuntime(state),
     used: false,
     llmDraft: "",
@@ -657,16 +693,11 @@ export async function runGenerationLlmBridge(state: ProcessingState): Promise<Pr
 
   if (!state.executionArtifacts.generationRuntime.enabled) return state;
 
-  const runtimeTimeout = Math.max(
-    1_200,
-    Number(process.env.AI_SYSTEM_LLM_BRIDGE_TIMEOUT_MS || 9000),
-  );
-
   const prompt = buildRuntimePrompt(state);
   const sourceMessage = sanitizeSourceMessage(state.normalizedMessage || state.rawMessage);
 
   let llmDraft = sanitizeRuntimeDraft(
-    await vllmClient.generate(prompt, { timeoutMs: runtimeTimeout }),
+    await vllmClient.generate(prompt, { timeoutMs: runtimeTimeout, maxTokens: runtimeTokenBudget }),
     sourceMessage,
   );
 
@@ -683,7 +714,7 @@ export async function runGenerationLlmBridge(state: ProcessingState): Promise<Pr
     ].join("\n");
 
     const rewritten = sanitizeRuntimeDraft(
-      await vllmClient.generate(rewritePrompt, { timeoutMs: runtimeTimeout }),
+      await vllmClient.generate(rewritePrompt, { timeoutMs: runtimeTimeout, maxTokens: runtimeTokenBudget }),
       sourceMessage,
     );
 
@@ -730,7 +761,7 @@ export async function runGenerationLlmBridge(state: ProcessingState): Promise<Pr
       ].join("\n");
 
       const continuation = sanitizeRuntimeDraft(
-        await vllmClient.generate(continuationPrompt, { timeoutMs: runtimeTimeout }),
+        await vllmClient.generate(continuationPrompt, { timeoutMs: runtimeTimeout, maxTokens: runtimeTokenBudget }),
         sourceMessage,
       );
 

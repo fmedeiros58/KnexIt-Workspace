@@ -16,3 +16,8 @@ assert(repaired.text === "Voc\u00EA est\u00E1 bem?", "expected mojibake text to 
 const untouched = encodingNormalizer({ text: "Voce esta bem?" });
 assert(!untouched.hadEncodingNoise, "expected plain ASCII text to remain untouched");
 assert(untouched.text === "Voce esta bem?", "expected untouched text to remain identical");
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

@@ -22,6 +22,7 @@ export type PipelineLayerId =
   | "founder-influence"
   | "epistemic-integration"
   | "generation"
+  | "critical-council"
   | "structure"
   | "academic-normalization"
   | "validation"

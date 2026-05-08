@@ -1,4 +1,5 @@
-import { RagInternetSearchService } from "@/core/rag/internet-search-service";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { RagInternetSearchService } from "./internet-search-service";
 
 describe("RagInternetSearchService redundancy", () => {
   const originalFetch = globalThis.fetch;
@@ -10,7 +11,13 @@ describe("RagInternetSearchService redundancy", () => {
 
   it("retries with relaxed query when provider gets empty constrained results", async () => {
     const fetchMock = jest.fn(async (input: URL | RequestInfo) => {
-      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const rawUrl =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
       const parsed = new URL(rawUrl);
       const query = parsed.searchParams.get("q") || "";
       const constrained = query.includes("site:gov.br");
@@ -33,6 +40,7 @@ describe("RagInternetSearchService redundancy", () => {
         },
       );
     });
+
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const service = new RagInternetSearchService({
@@ -54,14 +62,20 @@ describe("RagInternetSearchService redundancy", () => {
     expect(response?.results[0]?.url).toContain("ac.gov.br");
 
     const fetchedQueries = fetchMock.mock.calls
-      .map(([input]) => {
-        const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      .map(([input]: [URL | RequestInfo, ...unknown[]]) => {
+        const rawUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+
         return new URL(rawUrl).searchParams.get("q") || "";
       })
       .filter(Boolean);
 
-    expect(fetchedQueries.some((query) => query.includes("site:gov.br"))).toBe(true);
-    expect(fetchedQueries.some((query) => query === "governador do acre")).toBe(true);
+    expect(fetchedQueries.some((query: string) => query.includes("site:gov.br"))).toBe(true);
+    expect(fetchedQueries.some((query: string) => query === "governador do acre")).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -85,6 +99,7 @@ describe("RagInternetSearchService redundancy", () => {
         headers: { "Content-Type": "application/rss+xml" },
       }),
     );
+
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const service = new RagInternetSearchService({
@@ -120,6 +135,7 @@ describe("RagInternetSearchService redundancy", () => {
         },
       ),
     );
+
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const service = new RagInternetSearchService({
@@ -140,4 +156,3 @@ describe("RagInternetSearchService redundancy", () => {
     expect(response?.results.some((row) => row.url.includes("dicio.com.br"))).toBe(false);
   });
 });
-

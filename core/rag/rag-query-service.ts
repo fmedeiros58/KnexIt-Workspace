@@ -82,7 +82,7 @@ export type RagQueryInput = {
   temperature?: number;
   seed?: number | null;
   preferredResponseLanguageId?: string;
-  anmEngineMode?: "direct" | "anm";
+  anmEngineMode?: "direct" | "ai_system_anm";
   anmBaseUrl?: string;
   anmTimeoutMs?: number;
   anmSoftTimeoutMs?: number;

@@ -19,6 +19,7 @@ import { collectPipelineTraceSnapshot } from "./architectural-audit/pipeline-tra
 import { buildProfileSelectionAudit } from "./architectural-audit/profile-selection-audit";
 import { buildMotorRoutingStageAudit } from "./architectural-audit/motor-routing-audit";
 import { buildLayerActivationAudit } from "./architectural-audit/layer-activation-audit";
+import { buildPipelineAuditReport } from "./architectural-audit/pipeline-audit-report-builder";
 
 export async function runObservabilityLayer(state: ProcessingState): Promise<ProcessingState> {
   const startedAt = Date.now();
@@ -41,6 +42,8 @@ export async function runObservabilityLayer(state: ProcessingState): Promise<Pro
   const profileSelectionAudit = buildProfileSelectionAudit(state);
   const motorRoutingAudit = buildMotorRoutingStageAudit(state);
   const layerActivationAudit = buildLayerActivationAudit(state);
+  const pipelineAuditReport = buildPipelineAuditReport(state);
+  state.pipelineAuditReport = pipelineAuditReport;
 
   state.executionArtifacts = {
     ...state.executionArtifacts,
@@ -55,6 +58,7 @@ export async function runObservabilityLayer(state: ProcessingState): Promise<Pro
       profileSelectionAudit,
       motorRoutingAudit,
       layerActivationAudit,
+      pipelineAuditReport,
     },
   };
 
@@ -68,7 +72,8 @@ export async function runObservabilityLayer(state: ProcessingState): Promise<Pro
         `routeRuns=${routeMetrics?.runs || 0}; succeeded=${routeMetrics?.succeeded || 0}; ` +
         `failed=${routeMetrics?.failed || 0}; fallbacks=${routeMetrics?.fallbacks || 0}; ` +
         `topSkipReasons=${skipReasons || "none"}; activeFamilies=${activeFamilies.length}; ` +
-        `motorRouting=${motorRoutingAudit?.source || "none"}; profilePrimary=${profileSelectionAudit?.primaryProfileId || "none"}`,
+        `motorRouting=${motorRoutingAudit?.source || "none"}; profilePrimary=${profileSelectionAudit?.primaryProfileId || "none"}; ` +
+        `taskType=${pipelineAuditReport.selectedTaskType}; auditConfidence=${pipelineAuditReport.confidence.toFixed(2)}`,
     }),
   );
 

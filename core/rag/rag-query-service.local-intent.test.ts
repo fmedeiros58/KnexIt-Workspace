@@ -1,7 +1,16 @@
-﻿import { RagQueryService } from "@/core/rag/rag-query-service";
-import type { InternetSearchResponse } from "@/core/rag/internet-search-service";
-import type { RagGenerationConfig, RagPipelineFlags, RagResilienceConfig } from "@/core/rag/rag-config";
-import { RagPipelineError } from "@/core/rag/rag-errors";
+﻿import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { RagQueryService } from "./rag-query-service";
+import type { InternetSearchResponse } from "./internet-search-service";
+import type { RagGenerationConfig, RagPipelineFlags, RagResilienceConfig } from "./rag-config";
+import { RagPipelineError } from "./rag-errors";
+
+function getFirstMockArg<T>(mockFn: { mock: { calls: unknown[][] } }): T {
+  const firstCall = mockFn.mock.calls[0];
+  if (!firstCall || firstCall.length === 0) {
+    throw new Error("Expected mocked function to have been called with at least one argument.");
+  }
+  return firstCall[0] as T;
+}
 
 function createTestService(input?: {
   searchResponse?: InternetSearchResponse | null;
@@ -23,8 +32,9 @@ function createTestService(input?: {
       elapsedMs: 1,
     })),
   };
+
   const llmClient = {
-    getConfig: () => ({ baseUrl: "http://127.0.0.1:8000/v1" }),
+    getConfig: () => ({ baseUrl: "http://127.0.0.1:8000/v1", model: "mistral-awq" }),
     completeWithContext: jest.fn(async () => ({
       answer: "llm",
       model: "mistral-awq",
@@ -47,14 +57,16 @@ function createTestService(input?: {
     isEnabled: () => input?.searchEnabled !== false,
     search: jest.fn(async () => input?.searchResponse ?? null),
   };
+
   const vectorDb = {
     query: jest.fn(async (_sql: string, params?: unknown[]) => {
       const requestedIds = Array.isArray(params?.[0])
-        ? (params?.[0] as unknown[])
+        ? (params[0] as unknown[])
             .map((row) => Number(row))
             .filter((row) => Number.isFinite(row) && row > 0)
             .map((row) => Math.trunc(row))
         : [];
+
       const scoped = new Set<number>(requestedIds);
       const rows = (input?.vectorRows || []).filter((row) => scoped.has(Math.trunc(Number(row.id))));
       return { rows };
@@ -68,9 +80,11 @@ function createTestService(input?: {
     historyMaxMessages: 8,
     historyMaxChars: 4000,
   };
+
   const resilienceConfig: RagResilienceConfig = {
     embeddingFailureMode: "degrade",
   };
+
   const pipelineFlags: RagPipelineFlags = {
     pipelineVersion: "v2",
     hybridEnabled: true,
@@ -111,19 +125,26 @@ async function readStream(stream: ReadableStream<Uint8Array>) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let text = "";
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     if (value) text += decoder.decode(value, { stream: true });
   }
+
   text += decoder.decode();
   return text;
 }
 
 describe("RagQueryService local intent replies", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it("retorna saudacao curta sem chamar LLM", async () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "oi" });
+
     expect(result.answer.toLowerCase()).toContain("oi");
     expect(result.answer.toLowerCase()).toContain("letícia");
     expect(result.answer.toLowerCase()).toContain("como posso te ajudar");
@@ -134,6 +155,7 @@ describe("RagQueryService local intent replies", () => {
   it("responde pergunta de identidade da IA sem chamar LLM", async () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "eu gostaria de saber qual o seu nome" });
+
     expect(result.answer.toLowerCase()).toContain("eu sou a letícia");
     expect(result.answer.toLowerCase()).not.toContain("pode me chamar de letícia");
     expect(result.metadata.llm.model).toContain("local_intent");
@@ -144,7 +166,10 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "pq vc tem esse nome?" });
     const answer = result.answer.toLowerCase();
-    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+
+    expect(answer).toContain(
+      "language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase(),
+    );
     expect(answer).toContain("homenagem");
     expect(answer).toContain("filha letícia");
     expect(answer).not.toContain("deusa");
@@ -156,7 +181,10 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "ma o que significa Letícia" });
     const answer = result.answer.toLowerCase();
-    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+
+    expect(answer).toContain(
+      "language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase(),
+    );
     expect(answer).toContain("homenagem");
     expect(answer).toContain("filha letícia");
     expect(result.metadata.llm.model).toContain("local_intent");
@@ -172,8 +200,11 @@ describe("RagQueryService local intent replies", () => {
         { role: "assistant", content: "Eu sou a Letícia." },
       ],
     });
+
     const answer = result.answer.toLowerCase();
-    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(answer).toContain(
+      "language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase(),
+    );
     expect(answer).toContain("homenagem");
     expect(answer).toContain("filha letícia");
     expect(result.metadata.llm.model).toContain("local_intent");
@@ -184,7 +215,10 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "e pq te chamam assim?" });
     const answer = result.answer.toLowerCase();
-    expect(answer).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+
+    expect(answer).toContain(
+      "language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase(),
+    );
     expect(answer).toContain("homenagem");
     expect(answer).toContain("filha letícia");
     expect(result.metadata.llm.model).toContain("local_intent");
@@ -200,6 +234,7 @@ describe("RagQueryService local intent replies", () => {
         { role: "assistant", content: "Eu me chamo Letícia por duas bases complementares." },
       ],
     });
+
     const answer = result.answer.toLowerCase();
     expect(answer).toContain("idealizador do projeto letícia");
     expect(answer).toContain("outro medeiros");
@@ -216,6 +251,7 @@ describe("RagQueryService local intent replies", () => {
         { role: "assistant", content: "No contexto desta IA, Medeiros e o idealizador do projeto Leticia." },
       ],
     });
+
     const answer = result.answer.toLowerCase();
     expect(answer).toContain("idealizador do projeto letícia");
     expect(answer).not.toContain("medidor");
@@ -232,6 +268,7 @@ describe("RagQueryService local intent replies", () => {
         { role: "assistant", content: "Eu sou a Leticia." },
       ],
     });
+
     const answer = result.answer.toLowerCase();
     expect(answer).toContain("você quer mais detalhes sobre medeiros");
     expect(answer).toContain("significado do nome letícia");
@@ -242,6 +279,7 @@ describe("RagQueryService local intent replies", () => {
   it("nao captura identidade quando follow-up inclui mudanca de topico factual", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService();
       const result = await service.query({
@@ -251,6 +289,7 @@ describe("RagQueryService local intent replies", () => {
           { role: "assistant", content: "No contexto desta IA, Medeiros e o idealizador do projeto Leticia." },
         ],
       });
+
       expect(result.answer).toBe("llm");
       expect(result.metadata.llm.model).toBe("mistral-awq");
       expect(llmClient.completeWithContext).toHaveBeenCalledTimes(1);
@@ -263,6 +302,7 @@ describe("RagQueryService local intent replies", () => {
   it("nao ativa fast-path de identidade para pergunta factual mesmo com historico identitario", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService();
       const result = await service.query({
@@ -272,6 +312,7 @@ describe("RagQueryService local intent replies", () => {
           { role: "assistant", content: "Eu sou a Letícia." },
         ],
       });
+
       expect(result.answer).toBe("llm");
       expect(result.metadata.llm.model).toBe("mistral-awq");
       expect(llmClient.completeWithContext).toHaveBeenCalledTimes(1);
@@ -284,6 +325,7 @@ describe("RagQueryService local intent replies", () => {
   it("usa somente o trecho final do USER_INPUT para classificar local-intent", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService();
       const result = await service.query({
@@ -292,6 +334,7 @@ describe("RagQueryService local intent replies", () => {
         routingHint:
           "Contexto: Eu sou a Letícia. Meu nome tem significado.\n[USER_INPUT]: qual a capital do brasil?",
       });
+
       expect(result.answer).toBe("llm");
       expect(result.metadata.llm.model).toBe("mistral-awq");
       expect(llmClient.completeWithContext).toHaveBeenCalledTimes(1);
@@ -304,6 +347,7 @@ describe("RagQueryService local intent replies", () => {
   it("pede termo de busca quando comando vem sem consulta", async () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "busque" });
+
     expect(result.answer.toLowerCase()).toContain("me diga o tema");
     expect(llmClient.completeWithContext).not.toHaveBeenCalled();
   });
@@ -326,7 +370,10 @@ describe("RagQueryService local intent replies", () => {
       },
     });
 
-    const result = await service.query({ question: "pode buscar na internet pdf sobre perspectiva heliocentrica" });
+    const result = await service.query({
+      question: "pode buscar na internet pdf sobre perspectiva heliocentrica",
+    });
+
     expect(result.answer).toContain("https://example.org/heliocentric.pdf");
     expect(result.answer).toContain("[PDF]");
     expect(searchService.search).toHaveBeenCalled();
@@ -337,6 +384,7 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const stream = await service.queryStream({ question: "boa tarde" });
     const text = await readStream(stream);
+
     expect(text.toLowerCase()).toContain("boa tarde");
     expect(text.toLowerCase()).toContain("letícia");
     expect(llmClient.streamWithContext).not.toHaveBeenCalled();
@@ -346,6 +394,7 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const result = await service.query({ question: "tudo bem com vc?" });
     const answer = result.answer.toLowerCase();
+
     expect(answer).toContain("tudo certo por aqui");
     expect(answer).toContain("como posso te ajudar agora");
     expect(result.metadata.llm.model).toContain("local_intent");
@@ -356,6 +405,7 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const stream = await service.queryStream({ question: "qual o seu nome?" });
     const text = await readStream(stream);
+
     expect(text.toLowerCase()).toContain("eu sou a letícia");
     expect(llmClient.streamWithContext).not.toHaveBeenCalled();
   });
@@ -364,7 +414,10 @@ describe("RagQueryService local intent replies", () => {
     const { service, llmClient } = createTestService();
     const stream = await service.queryStream({ question: "por que Você tem esse nome?" });
     const text = (await readStream(stream)).toLowerCase();
-    expect(text).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+
+    expect(text).toContain(
+      "language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase(),
+    );
     expect(text).toContain("homenagem");
     expect(text).toContain("filha letícia");
     expect(text).not.toContain("deusa");
@@ -380,8 +433,11 @@ describe("RagQueryService local intent replies", () => {
         { role: "assistant", content: "Eu sou a Letícia." },
       ],
     });
+
     const text = (await readStream(stream)).toLowerCase();
-    expect(text).toContain("language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase());
+    expect(text).toContain(
+      "language-engineered technology for intelligent cognition, interaction and assistance".toLowerCase(),
+    );
     expect(text).toContain("homenagem");
     expect(text).toContain("filha letícia");
     expect(llmClient.streamWithContext).not.toHaveBeenCalled();
@@ -396,6 +452,7 @@ describe("RagQueryService local intent replies", () => {
         { role: "assistant", content: "Eu sou a Letícia." },
       ],
     });
+
     const text = (await readStream(stream)).toLowerCase();
     expect(text).toContain("idealizador do projeto letícia");
     expect(text).toContain("outro medeiros");
@@ -409,6 +466,7 @@ describe("RagQueryService local intent replies", () => {
       composerBound: true,
       composerAttachmentIds: [11, 22],
     });
+
     expect(result.answer.toLowerCase()).toContain("qual deles devo usar");
     expect(result.metadata.llm.model).toContain("local_intent");
     expect(llmClient.completeWithContext).not.toHaveBeenCalled();
@@ -417,6 +475,7 @@ describe("RagQueryService local intent replies", () => {
   it("converte erro de grounding em pergunta de clarificacao no v2", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "full";
+
     try {
       const { service, llmClient } = createTestService();
       const orchestratorQuery = jest.fn(async () => {
@@ -426,6 +485,7 @@ describe("RagQueryService local intent replies", () => {
           "Não encontrei trechos suficientes do documento em escopo para gerar resposta confiável.",
         );
       });
+
       (service as any).orchestratorV2 = {
         query: orchestratorQuery,
       };
@@ -452,6 +512,7 @@ describe("RagQueryService local intent replies", () => {
       RAG_SAFE_INPUT_RESERVE_TOKENS: process.env.RAG_SAFE_INPUT_RESERVE_TOKENS,
       RAG_SAFE_OUTPUT_CLAMP_ENABLED: process.env.RAG_SAFE_OUTPUT_CLAMP_ENABLED,
     };
+
     process.env.RAG_LLM_CONTEXT_WINDOW = "2048";
     process.env.RAG_SAFE_OUTPUT_RATIO_PERCENT = "40";
     process.env.RAG_SAFE_INPUT_RESERVE_TOKENS = "1024";
@@ -540,6 +601,7 @@ describe("RagQueryService local intent replies", () => {
           },
         },
       }));
+
       (service as any).orchestratorV2 = {
         query: orchestratorQuery,
       };
@@ -550,15 +612,18 @@ describe("RagQueryService local intent replies", () => {
       });
 
       expect(orchestratorQuery).toHaveBeenCalledTimes(1);
-      const input = orchestratorQuery.mock.calls[0][0];
-      expect(input.maxResponseTokens).toBe(819);
+      const queryInput = getFirstMockArg<{ maxResponseTokens?: number }>(orchestratorQuery);
+      expect(queryInput.maxResponseTokens).toBe(819);
     } finally {
       if (envBackup.RAG_LLM_CONTEXT_WINDOW === undefined) delete process.env.RAG_LLM_CONTEXT_WINDOW;
       else process.env.RAG_LLM_CONTEXT_WINDOW = envBackup.RAG_LLM_CONTEXT_WINDOW;
+
       if (envBackup.RAG_SAFE_OUTPUT_RATIO_PERCENT === undefined) delete process.env.RAG_SAFE_OUTPUT_RATIO_PERCENT;
       else process.env.RAG_SAFE_OUTPUT_RATIO_PERCENT = envBackup.RAG_SAFE_OUTPUT_RATIO_PERCENT;
+
       if (envBackup.RAG_SAFE_INPUT_RESERVE_TOKENS === undefined) delete process.env.RAG_SAFE_INPUT_RESERVE_TOKENS;
       else process.env.RAG_SAFE_INPUT_RESERVE_TOKENS = envBackup.RAG_SAFE_INPUT_RESERVE_TOKENS;
+
       if (envBackup.RAG_SAFE_OUTPUT_CLAMP_ENABLED === undefined) delete process.env.RAG_SAFE_OUTPUT_CLAMP_ENABLED;
       else process.env.RAG_SAFE_OUTPUT_CLAMP_ENABLED = envBackup.RAG_SAFE_OUTPUT_CLAMP_ENABLED;
     }
@@ -567,88 +632,89 @@ describe("RagQueryService local intent replies", () => {
   it("usa routingHint como pergunta semantica no v2", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "full";
+
     try {
       const { service } = createTestService();
       const orchestratorQuery = jest.fn(async () => ({
-      answer: "ok",
-      metadata: {
-        resilience: {
-          embeddingFailureMode: "degrade",
-          degraded: false,
-          degradedCode: null,
-          degradedMessage: null,
-          usedDocumentScopeFallback: false,
-        },
-        retrieval: {
-          topK: 0,
-          maxDistance: null,
-          strategy: "hybrid_v2",
-          filters: {
-            documentId: null,
-            documentIds: [],
-            sourceType: null,
-            embeddingModel: null,
+        answer: "ok",
+        metadata: {
+          resilience: {
+            embeddingFailureMode: "degrade",
+            degraded: false,
+            degradedCode: null,
+            degradedMessage: null,
+            usedDocumentScopeFallback: false,
           },
-          returnedChunks: 0,
-        },
-        contextPack: {
-          selectedChunks: 0,
-          omittedChunks: 0,
-          totalCandidateChunks: 0,
-          maxChars: 0,
-          usedChars: 0,
-          truncated: false,
-        },
-        fullDocumentRead: {
-          enabled: false,
-          attemptedDocs: 0,
-          loadedDocs: 0,
-          contextDocs: 0,
-          failedDocs: 0,
-          fullReadChars: 0,
-          includedChars: 0,
-          truncatedDocs: 0,
-          sources: [],
-        },
-        chunks: [],
-        queryEmbedding: {
-          model: "test",
-          dimension: 0,
-        },
-        llm: {
-          provider: "vllm_internal",
-          baseUrl: "http://127.0.0.1:8000/v1",
-          model: "mistral-awq",
-          maxTokens: 0,
-          temperature: 0,
-          seed: 42,
-          finishReason: "stop",
-          usage: {
-            promptTokens: 1,
-            completionTokens: 1,
-            totalTokens: 2,
+          retrieval: {
+            topK: 0,
+            maxDistance: null,
+            strategy: "hybrid_v2",
+            filters: {
+              documentId: null,
+              documentIds: [],
+              sourceType: null,
+              embeddingModel: null,
+            },
+            returnedChunks: 0,
+          },
+          contextPack: {
+            selectedChunks: 0,
+            omittedChunks: 0,
+            totalCandidateChunks: 0,
+            maxChars: 0,
+            usedChars: 0,
+            truncated: false,
+          },
+          fullDocumentRead: {
+            enabled: false,
+            attemptedDocs: 0,
+            loadedDocs: 0,
+            contextDocs: 0,
+            failedDocs: 0,
+            fullReadChars: 0,
+            includedChars: 0,
+            truncatedDocs: 0,
+            sources: [],
+          },
+          chunks: [],
+          queryEmbedding: {
+            model: "test",
+            dimension: 0,
+          },
+          llm: {
+            provider: "vllm_internal",
+            baseUrl: "http://127.0.0.1:8000/v1",
+            model: "mistral-awq",
+            maxTokens: 0,
+            temperature: 0,
+            seed: 42,
+            finishReason: "stop",
+            usage: {
+              promptTokens: 1,
+              completionTokens: 1,
+              totalTokens: 2,
+            },
+          },
+          timingsMs: {
+            embedding: 0,
+            retrieval: 0,
+            contextAssembly: 0,
+            llm: 1,
+            total: 1,
+          },
+          v2: {
+            runId: "run",
+            pipelineVersion: "v2",
+            queryHash: "hash",
+            traceStages: [],
+            writerMode: "FAST",
+            writerSections: 0,
+            writerLlmCalls: 0,
+            writerReinforcementCalls: 0,
+            multicallLockEnabled: false,
+            multicallMinWriterCalls: 0,
           },
         },
-        timingsMs: {
-          embedding: 0,
-          retrieval: 0,
-          contextAssembly: 0,
-          llm: 1,
-          total: 1,
-        },
-        v2: {
-          runId: "run",
-          pipelineVersion: "v2",
-          queryHash: "hash",
-          traceStages: [],
-          writerMode: "FAST",
-          writerSections: 0,
-          writerLlmCalls: 0,
-          writerReinforcementCalls: 0,
-          multicallLockEnabled: false,
-          multicallMinWriterCalls: 0,
-        },
-      },
       }));
 
       (service as any).orchestratorV2 = {
@@ -662,7 +728,7 @@ describe("RagQueryService local intent replies", () => {
       });
 
       expect(orchestratorQuery).toHaveBeenCalledTimes(1);
-      const payload = orchestratorQuery.mock.calls[0][0];
+      const payload = getFirstMockArg<{ question?: string }>(orchestratorQuery);
       expect(payload.question).toBe("Me diga os pro-reitores da UFAC.");
     } finally {
       if (previousForceMode === undefined) delete process.env.RAG_PIPELINE_FORCE_MODE;
@@ -673,6 +739,7 @@ describe("RagQueryService local intent replies", () => {
   it("resolve continuacao de clarificacao por nome de arquivo e retoma pergunta original", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService({
         vectorRows: [
@@ -698,14 +765,17 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [11, 22],
         history: [
           { role: "user", content: "Quero um resumo dessa obra." },
-          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          {
+            role: "assistant",
+            content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?",
+          },
           { role: "user", content: "a dissertacao" },
         ],
       });
 
       expect(result.answer).toBe("llm");
       expect(llmClient.completeWithContext).toHaveBeenCalledTimes(1);
-      const payload = llmClient.completeWithContext.mock.calls[0][0];
+      const payload = getFirstMockArg<{ question?: string; runtimeMode?: string }>(llmClient.completeWithContext);
       expect(payload.question).toBe("Quero um resumo dessa obra.");
       expect(payload.runtimeMode).toBe("lite");
     } finally {
@@ -717,6 +787,7 @@ describe("RagQueryService local intent replies", () => {
   it("responde saudacao durante clarificacao e pergunta se deve retomar pedido anterior", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService({
         vectorRows: [
@@ -742,7 +813,10 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [71, 72],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          {
+            role: "assistant",
+            content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?",
+          },
           { role: "user", content: "a dissertacao" },
         ],
       });
@@ -756,9 +830,10 @@ describe("RagQueryService local intent replies", () => {
     }
   });
 
-  it("prioriza nova solicitacao Não vinculada e Não insiste na clarificacao anterior", async () => {
+  it("prioriza nova solicitacao nao vinculada e nao insiste na clarificacao anterior", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService({
         vectorRows: [
@@ -784,7 +859,10 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [81, 82],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          {
+            role: "assistant",
+            content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?",
+          },
         ],
       });
 
@@ -800,6 +878,7 @@ describe("RagQueryService local intent replies", () => {
   it("prioriza nova solicitacao mesmo com saudacao no inicio da mensagem", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService({
         vectorRows: [
@@ -825,7 +904,10 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [85, 86],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          {
+            role: "assistant",
+            content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?",
+          },
         ],
       });
 
@@ -841,6 +923,7 @@ describe("RagQueryService local intent replies", () => {
   it("aceita cancelar pendencia de documento sem insistir em desambiguacao", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService({
         vectorRows: [
@@ -866,7 +949,10 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [91, 92],
         history: [
           { role: "user", content: "quero um resumo dessa obra" },
-          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          {
+            role: "assistant",
+            content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?",
+          },
         ],
       });
 
@@ -882,6 +968,7 @@ describe("RagQueryService local intent replies", () => {
   it("resolve continuacao de clarificacao no stream e preserva a pergunta original", async () => {
     const previousForceMode = process.env.RAG_PIPELINE_FORCE_MODE;
     process.env.RAG_PIPELINE_FORCE_MODE = "lite";
+
     try {
       const { service, llmClient } = createTestService({
         vectorRows: [
@@ -907,7 +994,10 @@ describe("RagQueryService local intent replies", () => {
         composerAttachmentIds: [31, 32],
         history: [
           { role: "user", content: "Quero um resumo dessa obra." },
-          { role: "assistant", content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?" },
+          {
+            role: "assistant",
+            content: "Você pediu sobre um unico arquivo, mas ha 2 documentos no contexto. Qual deles devo usar?",
+          },
           { role: "user", content: "a dissertacao" },
         ],
       });
@@ -915,7 +1005,7 @@ describe("RagQueryService local intent replies", () => {
       const text = await readStream(stream);
       expect(text).toContain("llm");
       expect(llmClient.streamWithContext).toHaveBeenCalledTimes(1);
-      const payload = llmClient.streamWithContext.mock.calls[0][0];
+      const payload = getFirstMockArg<{ question?: string; runtimeMode?: string }>(llmClient.streamWithContext);
       expect(payload.question).toBe("Quero um resumo dessa obra.");
       expect(payload.runtimeMode).toBe("lite");
     } finally {
@@ -924,5 +1014,3 @@ describe("RagQueryService local intent replies", () => {
     }
   });
 });
-
-

@@ -1,4 +1,5 @@
-import { extractTextFromDocument } from "@/core/rag/text-extractor";
+import { describe, expect, it } from "@jest/globals";
+import { extractTextFromDocument } from "./text-extractor";
 
 describe("extractTextFromDocument", () => {
   it("mantem fallback para formatos binarios nao suportados sem quebrar ingestao", async () => {
@@ -53,6 +54,7 @@ describe("extractTextFromDocument", () => {
   it("mantem fallback seguro para imagem quando OCR estiver desabilitado", async () => {
     const prev = process.env.OCR_AUTO_ENABLED;
     process.env.OCR_AUTO_ENABLED = "0";
+
     try {
       const result = await extractTextFromDocument({
         bytes: Buffer.from([71, 73, 70, 56, 57, 97, 1, 0, 1, 0]),
@@ -64,8 +66,11 @@ describe("extractTextFromDocument", () => {
       expect(result.textQuality).toBe("placeholder");
       expect(result.text).toContain("Arquivo anexado: imagem.gif.");
     } finally {
-      if (typeof prev === "undefined") delete process.env.OCR_AUTO_ENABLED;
-      else process.env.OCR_AUTO_ENABLED = prev;
+      if (typeof prev === "undefined") {
+        delete process.env.OCR_AUTO_ENABLED;
+      } else {
+        process.env.OCR_AUTO_ENABLED = prev;
+      }
     }
   });
 
@@ -84,11 +89,13 @@ describe("extractTextFromDocument", () => {
       const { createCanvas } = await import("@napi-rs/canvas");
       const canvas = createCanvas(420, 120);
       const ctx = canvas.getContext("2d");
+
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, 420, 120);
       ctx.fillStyle = "#111111";
       ctx.font = "28px Arial";
       ctx.fillText("OCR smoke", 20, 68);
+
       const pngBytes = canvas.toBuffer("image/png");
       const startedAt = Date.now();
       const result = await extractTextFromDocument({
@@ -102,14 +109,29 @@ describe("extractTextFromDocument", () => {
       expect(result.parser).toBe("utf8");
       expect(["ocr_fallback", "placeholder"]).toContain(result.textQuality);
     } finally {
-      if (typeof prevEnabled === "undefined") delete process.env.OCR_AUTO_ENABLED;
-      else process.env.OCR_AUTO_ENABLED = prevEnabled;
-      if (typeof prevTimeout === "undefined") delete process.env.OCR_TIMEOUT_MS;
-      else process.env.OCR_TIMEOUT_MS = prevTimeout;
-      if (typeof prevWorkerInitTimeout === "undefined") delete process.env.OCR_WORKER_INIT_TIMEOUT_MS;
-      else process.env.OCR_WORKER_INIT_TIMEOUT_MS = prevWorkerInitTimeout;
-      if (typeof prevWorkerTerminateTimeout === "undefined") delete process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS;
-      else process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS = prevWorkerTerminateTimeout;
+      if (typeof prevEnabled === "undefined") {
+        delete process.env.OCR_AUTO_ENABLED;
+      } else {
+        process.env.OCR_AUTO_ENABLED = prevEnabled;
+      }
+
+      if (typeof prevTimeout === "undefined") {
+        delete process.env.OCR_TIMEOUT_MS;
+      } else {
+        process.env.OCR_TIMEOUT_MS = prevTimeout;
+      }
+
+      if (typeof prevWorkerInitTimeout === "undefined") {
+        delete process.env.OCR_WORKER_INIT_TIMEOUT_MS;
+      } else {
+        process.env.OCR_WORKER_INIT_TIMEOUT_MS = prevWorkerInitTimeout;
+      }
+
+      if (typeof prevWorkerTerminateTimeout === "undefined") {
+        delete process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS;
+      } else {
+        process.env.OCR_WORKER_TERMINATE_TIMEOUT_MS = prevWorkerTerminateTimeout;
+      }
     }
   });
 });

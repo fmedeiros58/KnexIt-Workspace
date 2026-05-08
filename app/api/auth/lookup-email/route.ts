@@ -13,6 +13,11 @@ type RateEntry = {
   resetAt: number;
 };
 
+const isTransientIdentityError = (error: Error) => {
+  const message = error.message || "";
+  return /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(message);
+};
+
 const rateStore =
   (globalThis as { __lookupRateStore?: Map<string, RateEntry> }).__lookupRateStore ??
   new Map<string, RateEntry>();
@@ -65,14 +70,17 @@ export async function POST(req: NextRequest) {
 
     const { user, error: userError } = await findUserByEmail(admin, email);
     if (userError) {
+      const transientIdentityError = isTransientIdentityError(userError);
       return Response.json(
         {
           message:
             process.env.NODE_ENV === "development"
               ? userError.message
-              : "Falha ao consultar o e-mail.",
+              : transientIdentityError
+                ? "Serviço de identidade temporariamente indisponível. Tente novamente em instantes."
+                : "Falha ao consultar o e-mail.",
         },
-        { status: 500 },
+        { status: transientIdentityError ? 503 : 500 },
       );
     }
 

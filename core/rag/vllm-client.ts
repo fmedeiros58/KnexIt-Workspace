@@ -9,6 +9,8 @@ export type RagChatHistoryItem = {
   content: string;
 };
 
+type AnmEngineMode = "direct" | "ai_system_anm";
+
 export type RagLlmRequest = {
   question: string;
   contextPack: string;
@@ -23,7 +25,7 @@ export type RagLlmRequest = {
   responseLanguageSource?: "question" | "explicit_override" | "default";
   responseLanguageExplicitOverride?: boolean;
   responseLanguageIsTranslationIntent?: boolean;
-  anmEngineMode?: "direct" | "anm";
+  anmEngineMode?: AnmEngineMode;
   anmBaseUrl?: string;
   anmTimeoutMs?: number;
   anmSoftTimeoutMs?: number;
@@ -65,6 +67,9 @@ const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 524]
 const DEFAULT_MIN_BUDGET_PER_CALL = 384;
 const DEFAULT_LLM_CONTEXT_WINDOW_TOKENS = 8192;
 const DEFAULT_LOCKED_MAX_TOKENS_PER_CALL = 16384;
+const DEFAULT_AI_SYSTEM_ANM_BASE_URL = "http://127.0.0.1:3000";
+const DEFAULT_AI_SYSTEM_ANM_TIMEOUT_MS = 45_000;
+const DEFAULT_AI_SYSTEM_ANM_SOFT_TIMEOUT_MS = 200;
 
 type LlmEndpointAttempt = {
   baseUrl: string;
@@ -149,6 +154,14 @@ function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return fallback;
+}
+
+function normalizeAnmEngineMode(value: unknown): AnmEngineMode {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  if (normalized === "anm" || normalized === "ai-system-anm" || normalized === "ai_system_anm") {
+    return "ai_system_anm";
+  }
+  return "direct";
 }
 
 function readAnmCompatEnv(...keys: string[]) {
@@ -965,13 +978,44 @@ export class VllmInternalClient {
   }
 
   private resolveAnmRuntimeConfig(input: RagLlmRequest): AnmRuntimeConfig {
-    // Runtime atual: direct-only. Modo ANM legado sempre desativado.
+    const requestedMode = normalizeAnmEngineMode(input.anmEngineMode);
+    const configuredMode = normalizeAnmEngineMode(
+      readAnmCompatEnv("KNEXAI_ENGINE_MODE", "AI_SYSTEM_ANM_ENGINE_MODE"),
+    );
+    const mode = requestedMode === "ai_system_anm" ? requestedMode : configuredMode;
+    const enabled = mode === "ai_system_anm";
+    const configuredBaseUrl = readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL", "KNEXAI_AI_SYSTEM_ANM_BASE_URL");
+    const baseUrl = normalizeUrl(`${input.anmBaseUrl || configuredBaseUrl || DEFAULT_AI_SYSTEM_ANM_BASE_URL}`);
+    const timeoutMs =
+      typeof input.anmTimeoutMs === "number" && Number.isFinite(input.anmTimeoutMs)
+        ? Math.max(3_000, Math.round(input.anmTimeoutMs))
+        : parsePositiveInt(
+            readAnmCompatEnv("AI_SYSTEM_ANM_API_TIMEOUT_MS"),
+            DEFAULT_AI_SYSTEM_ANM_TIMEOUT_MS,
+            3_000,
+            300_000,
+          );
+    const softTimeoutRaw =
+      typeof input.anmSoftTimeoutMs === "number" && Number.isFinite(input.anmSoftTimeoutMs)
+        ? Math.round(input.anmSoftTimeoutMs)
+        : parsePositiveInt(
+            readAnmCompatEnv("KNEXAI_AI_SYSTEM_ANM_SOFT_TIMEOUT_MS"),
+            DEFAULT_AI_SYSTEM_ANM_SOFT_TIMEOUT_MS,
+            200,
+            timeoutMs,
+          );
+    const softTimeoutMs = Math.max(200, Math.min(timeoutMs, softTimeoutRaw));
+    const fallbackToDirect =
+      typeof input.anmFallbackToDirect === "boolean"
+        ? input.anmFallbackToDirect
+        : parseBooleanFlag(readAnmCompatEnv("KNEXAI_AI_SYSTEM_ANM_FALLBACK_TO_DIRECT"), true);
+
     return {
-      enabled: false,
-      baseUrl: "",
-      timeoutMs: 0,
-      softTimeoutMs: 0,
-      fallbackToDirect: true,
+      enabled,
+      baseUrl,
+      timeoutMs,
+      softTimeoutMs,
+      fallbackToDirect,
     };
   }
 
@@ -1683,7 +1727,7 @@ export class VllmInternalClient {
           localeHint: responseLanguage.id,
         });
         const guardedAnswer = applyVerifiableContextGuard(anmResult.answer, promptProfile);
-        logger.info("RAG_LLM_ANM_CALL_DONE", {
+        logger.info("RAG_LLM_AI_SYSTEM_ANM_CALL_DONE", {
           baseUrl: anmResult.baseUrl,
           endpoint: anmResult.endpoint,
           elapsedMs: anmResult.elapsedMs,
@@ -1703,7 +1747,7 @@ export class VllmInternalClient {
           elapsedMs: anmResult.elapsedMs,
         };
       } catch (error) {
-        logger.warn("RAG_LLM_ANM_CALL_FAILED", {
+        logger.warn("RAG_LLM_AI_SYSTEM_ANM_CALL_FAILED", {
           baseUrl: anmRuntime.baseUrl,
           fallbackToDirect: anmRuntime.fallbackToDirect,
           errorCode: error instanceof RagPipelineError ? error.code : null,

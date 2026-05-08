@@ -125,6 +125,11 @@ type DescendingPipelineConfig = {
   strict: boolean;
   allowVerifiable: boolean;
 };
+type LlmAiSystemAnmSynergyConfig = {
+  enabled: boolean;
+  enforceAllTurns: boolean;
+  healthWatchdogEnabled: boolean;
+};
 type AssistantIdentityIntentFamily = "identity" | "name_semantics" | "creator_identity" | null;
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1";
@@ -235,6 +240,38 @@ function isCanonicalPipelineWatchdogEnabled(): boolean {
     "AI_SYSTEM_CANONICAL_PIPELINE_WATCHDOG",
   );
   return parseOptionalBoolean(raw) !== false;
+}
+
+function readLlmAiSystemAnmSynergyConfig(): LlmAiSystemAnmSynergyConfig {
+  const enabled = parseOptionalBoolean(
+    readAnmCompatEnv(
+      "KNEXAI_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ENABLED",
+      "AI_SYSTEM_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ENABLED",
+      "KNEXAI_LLM_ANM_SYNERGY_LOCK_ENABLED",
+      "AI_SYSTEM_LLM_ANM_SYNERGY_LOCK_ENABLED",
+    ),
+  ) !== false;
+  const enforceAllTurns = parseOptionalBoolean(
+    readAnmCompatEnv(
+      "KNEXAI_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ALL_TURNS",
+      "AI_SYSTEM_LLM_AI_SYSTEM_ANM_SYNERGY_LOCK_ALL_TURNS",
+      "KNEXAI_LLM_ANM_SYNERGY_LOCK_ALL_TURNS",
+      "AI_SYSTEM_LLM_ANM_SYNERGY_LOCK_ALL_TURNS",
+    ),
+  ) !== false;
+  const healthWatchdogEnabled = parseOptionalBoolean(
+    readAnmCompatEnv(
+      "KNEXAI_LLM_AI_SYSTEM_ANM_SYNERGY_HEALTH_WATCHDOG",
+      "AI_SYSTEM_LLM_AI_SYSTEM_ANM_SYNERGY_HEALTH_WATCHDOG",
+      "KNEXAI_LLM_ANM_SYNERGY_HEALTH_WATCHDOG",
+      "AI_SYSTEM_LLM_ANM_SYNERGY_HEALTH_WATCHDOG",
+    ),
+  ) !== false;
+  return {
+    enabled,
+    enforceAllTurns,
+    healthWatchdogEnabled,
+  };
 }
 
 function isLowQualityFallbackExplicitlyAllowed(): boolean {
@@ -375,6 +412,29 @@ function buildDescendingRecoveryPrompt(userPrompt: string, localeHint: string) {
     "Para perguntas normativas/filosoficas complexas, organize a resposta em blocos com argumentos e contra-argumentos.",
     "",
     `Pergunta do usuario: ${userPrompt}`,
+  ].join("\n");
+}
+
+function buildDescendingSynergyComplementPrompt(userPrompt: string, deterministicAnswer: string, localeHint: string) {
+  const locale = `${localeHint || ""}`.trim().toLowerCase();
+  const languageInstruction = locale.startsWith("en")
+    ? "Respond in English."
+    : locale.startsWith("es")
+      ? "Responde en español."
+      : "Responda em português do Brasil.";
+  return [
+    "Sinergia obrigatoria entre ai-system e LLM.",
+    languageInstruction,
+    "Use o rascunho deterministico do ai-system como base e gere a resposta final com clareza superior.",
+    "Preserve integralmente as restricoes logicas e a conclusao central do rascunho.",
+    "Nao introduza observacoes proibidas, nao abra etapas extras e nao contradiga o enunciado.",
+    "Nao mencione pipeline, watchdog, backend, llm, ai-system, logs ou mecanismos internos.",
+    "Nao repita o enunciado como corpo principal da resposta.",
+    "",
+    `Pergunta do usuario: ${userPrompt}`,
+    "",
+    "Rascunho deterministico base:",
+    deterministicAnswer,
   ].join("\n");
 }
 
@@ -2372,8 +2432,14 @@ function readLlmConfig(): LlmConfig {
 }
 
 function readEngineModeConfig(): EngineModeConfig {
-  // Runtime atual: direct-only. Mantemos os campos legados apenas por compatibilidade de contrato.
-  const mode: EngineMode = "direct";
+  const modeRaw = pickFirstNonEmpty(
+    readAnmCompatEnv("KNEXAI_ENGINE_MODE", "AI_SYSTEM_ANM_ENGINE_MODE"),
+    "direct",
+  ).toLowerCase();
+  const mode: EngineMode =
+    modeRaw === "anm" || modeRaw === "ai-system-anm" || modeRaw === "ai_system_anm"
+      ? "ai_system_anm"
+      : "direct";
   const anmBaseUrl = readConfiguredAiSystemAnmBaseUrl(
     pickFirstNonEmpty(
       readAnmCompatEnv("AI_SYSTEM_ANM_API_BASE_URL"),
@@ -3375,8 +3441,7 @@ function parseOptionalEngineModeFromBody(value: unknown): EngineMode | undefined
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
   if (normalized === "direct") return "direct";
-  // Compatibilidade de payload: aceitar apenas identificadores canonicos de ai-system-anm.
-  if (normalized === "ai-system-anm" || normalized === "ai_system_anm") return "direct";
+  if (normalized === "anm" || normalized === "ai-system-anm" || normalized === "ai_system_anm") return "ai_system_anm";
   return undefined;
 }
 
@@ -5228,11 +5293,12 @@ export async function GET() {
   const config = readLlmConfig();
   const engineMode = readEngineModeConfig();
   const descendingPipeline = readDescendingPipelineConfig();
+  const llmAnmSynergy = readLlmAiSystemAnmSynergyConfig();
   const anmResolution =
     engineMode.mode === "ai_system_anm"
       ? await resolveReachableAiSystemAnmBaseUrl({
           configuredBaseUrl: engineMode.anmBaseUrl,
-          timeoutMs: Math.min(2_000, engineMode.anmTimeoutMs),
+          timeoutMs: Math.min(5_000, engineMode.anmTimeoutMs),
           healthPath: "/healthz",
         })
       : null;
@@ -5257,6 +5323,7 @@ export async function GET() {
       maxTokens: config.maxTokens,
       descendingPipeline,
       descendingPipelineAlwaysOn: isDescendingPipelineAlwaysOn(),
+      llmAnmSynergy,
     },
     { status: 200 },
   );
@@ -5338,12 +5405,17 @@ export async function POST(req: NextRequest) {
     const llmBridgeAlwaysOn = parseOptionalBoolean(
       readAnmCompatEnv("AI_SYSTEM_LLM_BRIDGE_ALWAYS_ON"),
     ) !== false;
+    const nonGreetingTurn = !isPureGreetingPrompt(safePrompt);
+    const llmAnmSynergy = readLlmAiSystemAnmSynergyConfig();
+    const synergyTurnRequired =
+      llmAnmSynergy.enabled && (llmAnmSynergy.enforceAllTurns || nonGreetingTurn);
     const descendingAlwaysOn = isDescendingPipelineAlwaysOn();
     const descendingDeepOnlyMode = isDescendingDeepOnlyModeEnabled();
     const microSocialFastPathEnabled =
       parseOptionalBoolean(process.env.KNEXAI_MICRO_SOCIAL_FASTPATH_ENABLED) !== false;
     const shouldUseMicroSocialFastPath =
       microSocialFastPathEnabled &&
+      !synergyTurnRequired &&
       !disableMicroSocialFastPathFromBody &&
       !forceDescendingHint &&
       isPureGreetingPrompt(safePrompt);
@@ -5488,20 +5560,71 @@ export async function POST(req: NextRequest) {
     const descendingStrict =
       typeof descendingStrictFromBody === "boolean" ? descendingStrictFromBody : descendingPipelineDefaults.strict;
     const pipelineWatchdogEnabled = isCanonicalPipelineWatchdogEnabled();
-    const nonGreetingTurn = !isPureGreetingPrompt(safePrompt);
+    const effectiveAnmProbeConfig: EngineModeConfig = {
+      ...engineMode,
+      mode: "ai_system_anm",
+      anmBaseUrl: anmBaseUrlFromBody || engineMode.anmBaseUrl,
+      anmTimeoutMs: anmTimeoutMsFromBody || engineMode.anmTimeoutMs,
+      anmSoftTimeoutMs: anmSoftTimeoutMsFromBody || engineMode.anmSoftTimeoutMs,
+      fallbackToDirect: false,
+    };
+
+    if (synergyTurnRequired && llmAnmSynergy.healthWatchdogEnabled) {
+      const anmResolution = await resolveReachableAiSystemAnmBaseUrl({
+        configuredBaseUrl: effectiveAnmProbeConfig.anmBaseUrl,
+        timeoutMs: Math.min(5_000, effectiveAnmProbeConfig.anmTimeoutMs),
+        healthPath: "/healthz",
+      });
+      const anmProbeConfig: EngineModeConfig = {
+        ...effectiveAnmProbeConfig,
+        anmBaseUrl: anmResolution.baseUrl,
+      };
+      const [anmHealth, directHealth] = await Promise.all([
+        probeAnmHealth(anmProbeConfig),
+        probeDirectHealth(config),
+      ]);
+      console.info("KNEXAI_LLM_AI_SYSTEM_ANM_SYNERGY_WATCHDOG", {
+        required: synergyTurnRequired,
+        anmOk: anmHealth.ok,
+        anmStatus: anmHealth.status,
+        anmDetail: anmHealth.detail,
+        anmConfiguredBaseUrl: effectiveAnmProbeConfig.anmBaseUrl,
+        anmSelectedBaseUrl: anmProbeConfig.anmBaseUrl,
+        anmAttemptedBaseUrls: anmResolution.attemptedBaseUrls,
+        directOk: directHealth.ok,
+        directStatus: directHealth.status,
+        directDetail: directHealth.detail,
+        directConfiguredBaseUrl: config.baseUrl,
+        directSelectedBaseUrl: directHealth.baseUrl || config.baseUrl,
+        directAttemptedBaseUrls: directHealth.attemptedBaseUrls || [config.baseUrl],
+      });
+      if (!anmHealth.ok || !directHealth.ok) {
+          throw new LlmRouteError(
+            503,
+            "LLM_AI_SYSTEM_ANM_SYNERGY_WATCHDOG",
+            `Sinergia obrigatoria indisponivel. ai-system-anm=${anmHealth.detail}; LLM=${directHealth.detail}.` +
+              ` Endpoints ai-system-anm: ${anmResolution.attemptedBaseUrls.join(", ")}.` +
+              ` Endpoints LLM: ${(directHealth.attemptedBaseUrls || [config.baseUrl]).join(", ")}.`,
+          );
+        }
+    }
+
     const descendingHardFailEnabled =
-      (pipelineWatchdogEnabled && nonGreetingTurn) || isDescendingHardFailEnabled();
+      synergyTurnRequired || (pipelineWatchdogEnabled && nonGreetingTurn) || isDescendingHardFailEnabled();
     const defaultAllowDirectFallbackAfterDescendingFailure = descendingAlwaysOn
       ? false
       : parseOptionalBoolean(process.env.KNEXAI_DESCENDING_ALLOW_DIRECT_FALLBACK) !== false;
     const allowDirectFallbackAfterDescendingFailure =
+      synergyTurnRequired
+        ? false
+        :
       typeof directFallbackFromBody === "boolean"
         ? directFallbackFromBody
         : defaultAllowDirectFallbackAfterDescendingFailure;
     const disableIdentityCanonicalFallback =
       disableIdentityCanonicalFallbackFromBody === true || requireGenerationLlmFromBody === true;
     const requireGenerationLlm =
-      (pipelineWatchdogEnabled && nonGreetingTurn) || requireGenerationLlmFromBody === true;
+      synergyTurnRequired || (pipelineWatchdogEnabled && nonGreetingTurn) || requireGenerationLlmFromBody === true;
     const descendingQualityRetryCount = (() => {
       const fromBody = typeof descendingQualityRetryCountFromBody === "number"
         ? descendingQualityRetryCountFromBody
@@ -5533,6 +5656,9 @@ export async function POST(req: NextRequest) {
           nonGreetingTurn &&
           !shouldBypassDescendingForDocumentScope;
     const shouldRunDescending =
+      synergyTurnRequired
+        ? true
+        :
       pipelineWatchdogEnabled && nonGreetingTurn
         ? true
         : descendingDeepOnlyMode
@@ -5653,6 +5779,93 @@ export async function POST(req: NextRequest) {
         finalOutputText = ensureUtf8Response(decodeLikelyMojibake(finalOutputText)).text;
         finalOutputText = applyPolicyGuardsToAnswer(finalOutputText, responsePolicyContext).answer;
         finalOutputText = await repairPolicyAnswerIfNeeded(finalOutputText, responsePolicyContext, config);
+        console.info("KNEXAI_DESCENDING_PIPELINE_OK", {
+          route: selectedRun.route,
+          traceEvents: selectedRun.state.trace.length,
+          confidenceFinal: selectedRun.state.confidenceScores.final,
+          strict: descendingStrict,
+          usedAsFinalResponse: true,
+          attempt: selectedAttempt,
+          maxAttempts,
+        });
+        const generationRuntime = selectedRun.state.executionArtifacts.generationRuntime;
+        let generationLlmUsed = generationRuntime?.used ? "1" : "0";
+        let generationLlmProvider = `${generationRuntime?.provider || "none"}`;
+        let generationLlmModel = `${generationRuntime?.model || "none"}`;
+        const deterministicClosedConstraintRecognized =
+          selectedRun.state.executionArtifacts.inferential?.closedConstraintSolver?.recognized === true &&
+          (
+            selectedRun.state.taskContract?.cognitiveTaskType === "closed_constraint_deduction" ||
+            selectedRun.state.taskNatureState?.selectedTaskType === "closed_constraint_deduction"
+          );
+
+        if (requireGenerationLlm && generationLlmUsed !== "1") {
+          try {
+            const synergyPrompt = buildDescendingSynergyComplementPrompt(
+              safePrompt,
+              finalOutputText,
+              localeHintFromBody,
+            );
+            const safeSynergyHistory = sanitizeHistoryForModel(ensurePrompt(historyForCascade, synergyPrompt));
+            const effectiveSynergyHistory = optimizeHistoryForLatency(
+              resolveEffectiveHistory(safeSynergyHistory, synergyPrompt),
+              synergyPrompt,
+            );
+            const directHealth = await probeDirectHealth(config);
+            const directConfig = directHealth.ok ? applyResolvedLlmBaseUrl(config, directHealth.baseUrl) : config;
+            const synergyUpstream = await requestLlmStreaming(
+              directConfig,
+              effectiveSynergyHistory,
+              synergyPrompt,
+              buildConversationStateSummaryBlock(conversationState),
+            );
+            const synergyResponse = await toClientTextStreamResponse(
+              synergyUpstream,
+              responsePolicyContext,
+              directConfig,
+              {
+                streamRequested: false,
+                streamMode,
+              },
+            );
+            const synergyRawText = (await synergyResponse.text().catch(() => "")).trim();
+            const synergyText = ensureUtf8Response(decodeLikelyMojibake(synergyRawText)).text.trim();
+            const normalizedSynergyText = stripConversationRoleArtifacts(synergyText) || synergyText;
+            if (!normalizedSynergyText) {
+              throw new Error("empty_descending_synergy_output");
+            }
+            if (isLowQualityDescendingOutput(normalizedSynergyText, verificationTargetPrompt)) {
+              throw new Error("low_quality_descending_synergy_output");
+            }
+            finalOutputText = normalizedSynergyText;
+            generationLlmUsed = "1";
+            generationLlmProvider = "vllm-openai-compatible";
+            generationLlmModel = `${directConfig.model || "unknown"}`;
+            console.info("KNEXAI_DESCENDING_SYNERGY_COMPLEMENT_OK", {
+              route: selectedRun.route,
+              attempt: selectedAttempt,
+              maxAttempts,
+              deterministicClosedConstraintRecognized,
+              model: generationLlmModel,
+            });
+          } catch (synergyError) {
+            console.warn("KNEXAI_DESCENDING_SYNERGY_COMPLEMENT_FAILED", {
+              message: synergyError instanceof Error ? synergyError.message : String(synergyError),
+              route: selectedRun.route,
+              attempt: selectedAttempt,
+              maxAttempts,
+              deterministicClosedConstraintRecognized,
+            });
+          }
+        }
+
+        if (requireGenerationLlm && generationLlmUsed !== "1") {
+          throw new LlmRouteError(
+            503,
+            "GENERATION_LLM_REQUIRED",
+            "Fluxo exige geracao ativa via vLLM neste turno, mas nao houve uso confirmado do motor.",
+          );
+        }
         rememberRuntimeConversationTurn(conversationKeyFromBody, safePrompt, finalOutputText);
         enqueueContinuousLearningCapture({
           phase: "output",
@@ -5665,29 +5878,19 @@ export async function POST(req: NextRequest) {
           route: selectedRun.route,
           mode: "descending",
           intentFamily: identityIntentFamily,
-          tags: ["descending_pipeline", `attempt:${selectedAttempt}/${maxAttempts}`],
+          tags: [
+            "descending_pipeline",
+            `attempt:${selectedAttempt}/${maxAttempts}`,
+            requireGenerationLlm ? "synergy_required" : "synergy_optional",
+            generationLlmUsed === "1" ? "synergy_llm_used" : "synergy_llm_not_used",
+          ],
         });
-
-        console.info("KNEXAI_DESCENDING_PIPELINE_OK", {
-          route: selectedRun.route,
-          traceEvents: selectedRun.state.trace.length,
-          confidenceFinal: selectedRun.state.confidenceScores.final,
-          strict: descendingStrict,
-          usedAsFinalResponse: true,
-          attempt: selectedAttempt,
-          maxAttempts,
-        });
-        const generationRuntime = selectedRun.state.executionArtifacts.generationRuntime;
-        const generationLlmUsed = generationRuntime?.used ? "1" : "0";
-        const generationLlmProvider = `${generationRuntime?.provider || "none"}`;
-        const generationLlmModel = `${generationRuntime?.model || "none"}`;
-        if (requireGenerationLlm && generationLlmUsed !== "1") {
-          throw new LlmRouteError(
-            503,
-            "GENERATION_LLM_REQUIRED",
-            "Fluxo exige geracao ativa via vLLM neste turno, mas nao houve uso confirmado do motor.",
-          );
-        }
+        const descendingWatchdogHeader =
+          synergyTurnRequired
+            ? "llm-ai-system-anm-synergy-lock"
+            : pipelineWatchdogEnabled && nonGreetingTurn
+              ? "canonical-descending-enforced"
+              : "off";
 
         if (streamRequested) {
           const textStream = createInteractiveTextStream(finalOutputText);
@@ -5706,8 +5909,7 @@ export async function POST(req: NextRequest) {
               "X-KnexAI-Generation-LLM-Used": generationLlmUsed,
               "X-KnexAI-Generation-LLM-Provider": generationLlmProvider,
               "X-KnexAI-Generation-LLM-Model": generationLlmModel,
-              "X-KnexAI-Watchdog":
-                pipelineWatchdogEnabled && nonGreetingTurn ? "canonical-descending-enforced" : "off",
+              "X-KnexAI-Watchdog": descendingWatchdogHeader,
             },
           });
         }
@@ -5722,8 +5924,7 @@ export async function POST(req: NextRequest) {
             "X-KnexAI-Generation-LLM-Used": generationLlmUsed,
             "X-KnexAI-Generation-LLM-Provider": generationLlmProvider,
             "X-KnexAI-Generation-LLM-Model": generationLlmModel,
-            "X-KnexAI-Watchdog":
-              pipelineWatchdogEnabled && nonGreetingTurn ? "canonical-descending-enforced" : "off",
+            "X-KnexAI-Watchdog": descendingWatchdogHeader,
           },
         });
       } catch (error) {
@@ -5736,7 +5937,10 @@ export async function POST(req: NextRequest) {
           identityIntentFamily,
           disableIdentityCanonicalFallback,
         });
-        if (pipelineWatchdogEnabled && nonGreetingTurn) {
+        if (error instanceof LlmRouteError && error.code === "GENERATION_LLM_REQUIRED") {
+          throw error;
+        }
+        if (pipelineWatchdogEnabled && nonGreetingTurn && !synergyTurnRequired) {
           try {
             const recoveryState = rebuildConversationState({
               conversationKey: conversationKeyFromBody,
@@ -5823,7 +6027,7 @@ export async function POST(req: NextRequest) {
             });
           }
         }
-        if (descendingDeepOnlyMode || (pipelineWatchdogEnabled && nonGreetingTurn)) {
+        if (synergyTurnRequired || descendingDeepOnlyMode || (pipelineWatchdogEnabled && nonGreetingTurn)) {
           throw new LlmRouteError(
             503,
             "DESCENDING_PIPELINE_UNAVAILABLE",
@@ -5882,6 +6086,14 @@ export async function POST(req: NextRequest) {
         }
         forceDirectAfterDescendingFailure = true;
       }
+    }
+
+    if (synergyTurnRequired) {
+      throw new LlmRouteError(
+        503,
+        "LLM_AI_SYSTEM_ANM_SYNERGY_LOCK",
+        "Bloqueio de sinergia ativo: resposta fora do pipeline descendente foi bloqueada.",
+      );
     }
 
     if (pipelineWatchdogEnabled && nonGreetingTurn) {
@@ -5989,7 +6201,6 @@ export async function POST(req: NextRequest) {
           : shouldForceFullRagMode
             ? "direct"
             : anmEngineModeFromBody || engineMode.mode;
-      const ragEngineModeForOrchestrator = ragEngineMode === "ai_system_anm" ? "anm" : "direct";
       const ragAnmBaseUrl = anmBaseUrlFromBody || engineMode.anmBaseUrl;
       const ragAnmTimeoutMs = anmTimeoutMsFromBody || engineMode.anmTimeoutMs;
       const ragAnmSoftTimeoutMs = anmSoftTimeoutMsFromBody || engineMode.anmSoftTimeoutMs;
@@ -6026,7 +6237,7 @@ export async function POST(req: NextRequest) {
           maxResponseTokens: effectiveMaxResponseTokens,
           temperature,
           seed,
-          anmEngineMode: ragEngineModeForOrchestrator,
+          anmEngineMode: ragEngineMode,
           anmBaseUrl: ragAnmBaseUrl,
           anmTimeoutMs: ragAnmTimeoutMs,
           anmSoftTimeoutMs: ragAnmSoftTimeoutMs,
@@ -6239,13 +6450,23 @@ export async function POST(req: NextRequest) {
       requestedEngineMode: requestedEngineMode || "",
       forceDirectAfterDescendingFailure,
     });
-    // Guard definitivo: endpoint opera somente em modo direto.
-    const anmResolution: { baseUrl?: string; attemptedBaseUrls?: string[] } | null = null;
-    const effectiveEngineMode: EngineModeConfig = {
-      ...preferredEngineMode,
-      mode: "direct" as EngineMode,
-      fallbackToDirect: true,
-    };
+    let anmResolution: { baseUrl?: string; attemptedBaseUrls?: string[] } | null = null;
+    let effectiveEngineMode: EngineModeConfig = preferredEngineMode;
+    if (preferredEngineMode.mode === "ai_system_anm") {
+      const resolvedAnm = await resolveReachableAiSystemAnmBaseUrl({
+        configuredBaseUrl: preferredEngineMode.anmBaseUrl,
+        timeoutMs: Math.min(5_000, preferredEngineMode.anmTimeoutMs),
+        healthPath: "/healthz",
+      });
+      anmResolution = {
+        baseUrl: resolvedAnm.baseUrl,
+        attemptedBaseUrls: resolvedAnm.attemptedBaseUrls,
+      };
+      effectiveEngineMode = {
+        ...preferredEngineMode,
+        anmBaseUrl: resolvedAnm.baseUrl,
+      };
+    }
 
     if (effectiveEngineMode.mode === "ai_system_anm") {
       if (effectiveEngineMode.fallbackToDirect) {

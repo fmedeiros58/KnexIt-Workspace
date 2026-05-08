@@ -33,6 +33,7 @@ const BASE_LAYER_INTENSITIES: Partial<Record<PipelineLayerId, LayerMode>> = {
   metacognitive: "light",
   "epistemic-integration": "light",
   generation: "required",
+  "critical-council": "medium",
   structure: "required",
   "academic-normalization": "light",
   validation: "required",

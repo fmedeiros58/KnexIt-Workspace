@@ -22,6 +22,7 @@ export const LAYER_MODES = [
   "epistemic-heavy",
   "memory-heavy",
   "retrieval-heavy",
+  "dialogical-strong",
   "delivery-light",
   "delivery-rich",
 ] as const;
@@ -39,7 +40,8 @@ export const LAYER_MODE_PRIORITY: Record<LayerMode, number> = {
   "memory-heavy": 7,
   "retrieval-heavy": 8,
   "epistemic-heavy": 9,
-  "delivery-rich": 10,
+  "dialogical-strong": 10,
+  "delivery-rich": 11,
 };
 
 export function isLayerMode(value: string): value is LayerMode {

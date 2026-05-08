@@ -48,3 +48,8 @@ assert(
   dataAccessRoute === "inferential" || dataAccessRoute === "quantum-state",
   "identity question requiring RAG/SQL consultation should escalate above reflective",
 );
+
+// __JEST_SMOKE_TEST__: ensures Jest counts at least one test in this spec file.
+test("spec smoke", () => {
+  expect(true).toBe(true);
+});

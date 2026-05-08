@@ -117,7 +117,7 @@ function formatAbntReferenceSection(model: PresentationRenderModel) {
   ]);
 
   if (!references.length) return "";
-  return ["### Referências", ...references].join("\n\n");
+  return ["### Referencias", ...references].join("\n\n");
 }
 
 function formatDefaultReferenceSection(model: PresentationRenderModel) {

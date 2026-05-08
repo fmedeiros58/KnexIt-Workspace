@@ -112,7 +112,7 @@ function formatAbntReferences(model: PresentationRenderModel) {
     .filter(Boolean);
 
   if (!combined.length) return [];
-  return ["Referências", ...combined];
+  return ["Referencias", ...combined];
 }
 
 function hasStructuredMarkers(text: string): boolean {

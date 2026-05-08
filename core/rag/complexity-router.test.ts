@@ -1,4 +1,5 @@
-import { routeComplexity } from "@/core/rag/complexity-router";
+import { describe, expect, it } from "vitest";
+import { routeComplexity } from "./complexity-router";
 
 describe("routeComplexity", () => {
   it("forca LITE para saudacao curta", () => {
@@ -8,6 +9,7 @@ describe("routeComplexity", () => {
       hasDocumentScope: false,
       hasConversationContext: false,
     });
+
     expect(decision.mode).toBe("lite");
     expect(decision.hardRule).toBe("FORCE_LITE");
   });
@@ -19,6 +21,7 @@ describe("routeComplexity", () => {
       hasDocumentScope: true,
       hasConversationContext: false,
     });
+
     expect(decision.mode).toBe("full");
     expect(decision.hardRule).toBe("FORCE_FULL");
   });
@@ -30,8 +33,9 @@ describe("routeComplexity", () => {
       hasDocumentScope: false,
       hasConversationContext: false,
     });
+
     expect(decision.mode).toBe("full");
-    expect(decision.reasons.some((reason) => reason.includes("HARD_FULL_CODE_OR_ARCH"))).toBe(true);
+    expect(decision.reasons.some((reason: string) => reason.includes("HARD_FULL_CODE_OR_ARCH"))).toBe(true);
   });
 
   it("classifica pergunta multi-etapas como FULL", () => {
@@ -41,6 +45,7 @@ describe("routeComplexity", () => {
       hasDocumentScope: false,
       hasConversationContext: true,
     });
+
     expect(decision.mode).toBe("full");
     expect(decision.score).toBeGreaterThan(0);
   });
@@ -52,6 +57,7 @@ describe("routeComplexity", () => {
       hasDocumentScope: false,
       hasConversationContext: true,
     });
+
     expect(decision.mode).toBe("lite");
     expect(decision.score).toBeLessThanOrEqual(0);
   });
@@ -63,8 +69,9 @@ describe("routeComplexity", () => {
       hasDocumentScope: false,
       hasConversationContext: false,
     });
+
     expect(decision.mode).toBe("full");
-    expect(decision.reasons.some((reason) => reason.includes("SHORT_FACTUAL_QUESTION"))).toBe(true);
-    expect(decision.reasons.some((reason) => reason.includes("FACTUAL_GROUNDING"))).toBe(true);
+    expect(decision.reasons.some((reason: string) => reason.includes("SHORT_FACTUAL_QUESTION"))).toBe(true);
+    expect(decision.reasons.some((reason: string) => reason.includes("FACTUAL_GROUNDING"))).toBe(true);
   });
 });

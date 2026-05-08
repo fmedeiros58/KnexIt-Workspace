@@ -19,6 +19,8 @@ import type { ProcessingState } from "../bridges/contracts/processing-state";
 import type { FusedRoutingDecision } from "../05-complexity-and-orchestration-layer/llm-routing/routing-analysis-types";
 import { composeProfilePolicies } from "../05-complexity-and-orchestration-layer/activation-policy/profile-composition-rules";
 import type { ExecutionProfile } from "../bridges/contracts/execution-profile";
+import type { TaskContract } from "../bridges/contracts/task-contract";
+import type { TaskNatureState } from "../bridges/contracts/task-nature-state";
 
 export interface AdaptivePipelineContractBuilderInput {
   state: ProcessingState;
@@ -27,6 +29,8 @@ export interface AdaptivePipelineContractBuilderInput {
   profileSelection: ProfileSelectionResult;
   layerActivations: LayerActivationMap;
   responseBudget: number;
+  taskNatureState?: TaskNatureState | null;
+  taskContract?: TaskContract | null;
 }
 
 export function buildAdaptivePipelineContract(
@@ -43,6 +47,8 @@ export function buildAdaptivePipelineContract(
     version: "05b.adaptive-pipeline-contract.v1",
     primaryIntent: fusedDecision.primaryIntent,
     secondaryIntents: fusedDecision.secondaryIntents,
+    taskNatureState: input.taskNatureState || state.taskNatureState || null,
+    taskContract: input.taskContract || state.taskContract || null,
     finalComplexityScore: fusedDecision.finalComplexityScore,
     finalComplexityBand: fusedDecision.finalComplexityBand,
     complexityConfidence: fusedDecision.complexityConfidence,
