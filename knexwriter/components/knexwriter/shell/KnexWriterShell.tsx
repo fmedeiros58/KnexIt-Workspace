@@ -569,16 +569,6 @@ let lastMammothLoadError: string | null = null;
 const DOCX_PREVIEW_CDN_VERSION = "0.3.7";
 const MAMMOTH_CDN_VERSION = "1.11.0";
 
-async function importModuleFromUrl<T = unknown>(url: string): Promise<T | null> {
-  if (typeof window === "undefined") return null;
-
-  try {
-    return (await import(/* webpackIgnore: true */ url)) as T;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * ============================================================================
  * CONSTANTES DE LAYOUT E ANÃLISE
@@ -1996,11 +1986,26 @@ async function loadPdfJsGlobal() {
 function getDocxPreviewGlobal() {
   if (typeof window === "undefined") return null;
 
-  const candidate = (window as unknown as { docxPreview?: unknown }).docxPreview;
-  if (!candidate || typeof candidate !== "object") return null;
+  const maybeGlobals = (window as unknown as { docxPreview?: unknown; docx?: unknown });
+  const candidates: unknown[] = [maybeGlobals.docxPreview, maybeGlobals.docx];
 
-  const runtime = candidate as Partial<DocxPreviewGlobal>;
-  return typeof runtime.renderAsync === "function" ? (runtime as DocxPreviewGlobal) : null;
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const runtime = candidate as Partial<DocxPreviewGlobal>;
+    if (typeof runtime.renderAsync === "function") {
+      return runtime as DocxPreviewGlobal;
+    }
+
+    const runtimeDefault = (candidate as { default?: Partial<DocxPreviewGlobal> }).default;
+    if (runtimeDefault && typeof runtimeDefault.renderAsync === "function") {
+      return runtimeDefault as DocxPreviewGlobal;
+    }
+  }
+
+  return null;
 }
 
 async function loadDocxPreviewGlobal() {
@@ -2011,64 +2016,56 @@ async function loadDocxPreviewGlobal() {
 
   cachedDocxPreviewLoadPromise = (async () => {
     const errors: string[] = [];
-
-    const tryImport = async (importPath: string) => {
-      try {
-        const loadedModule = (await import(importPath)) as unknown;
-        const runtime =
-          typeof (loadedModule as Partial<DocxPreviewGlobal>).renderAsync === "function"
-            ? (loadedModule as DocxPreviewGlobal)
-            : typeof (loadedModule as any)?.default?.renderAsync === "function"
-            ? (loadedModule as any).default
-            : null;
-
-        if (runtime) {
-          return runtime;
-        }
-
-        errors.push(`${importPath} carregado sem renderAsync`);
-      } catch (error: unknown) {
-        errors.push(
-          `${importPath}: ${error instanceof Error ? error.message : "erro desconhecido"}`,
-        );
+    const resolveRuntimeFromModule = (loadedModule: unknown): DocxPreviewGlobal | null => {
+      if (
+        loadedModule &&
+        typeof loadedModule === "object" &&
+        typeof (loadedModule as Partial<DocxPreviewGlobal>).renderAsync === "function"
+      ) {
+        return loadedModule as DocxPreviewGlobal;
       }
+
+      const maybeDefault = (loadedModule as { default?: Partial<DocxPreviewGlobal> })?.default;
+      if (maybeDefault && typeof maybeDefault.renderAsync === "function") {
+        return maybeDefault as DocxPreviewGlobal;
+      }
+
       return null;
     };
 
-    const modulePaths = [
-      "docx-preview/dist/docx-preview.mjs",
-      "docx-preview/dist/docx-preview.min.mjs",
-      "docx-preview",
-    ];
-
-    for (const path of modulePaths) {
-      const runtime = await tryImport(path);
+    try {
+      const loadedModule = (await import("docx-preview")) as unknown;
+      const runtime = resolveRuntimeFromModule(loadedModule);
       if (runtime) {
         (window as unknown as { docxPreview?: DocxPreviewGlobal }).docxPreview = runtime;
         lastDocxPreviewLoadError = null;
         return runtime;
       }
+      errors.push("docx-preview carregado sem renderAsync");
+    } catch (error: unknown) {
+      errors.push(`docx-preview: ${error instanceof Error ? error.message : "erro desconhecido"}`);
     }
 
-    const remoteUrl = `https://cdn.jsdelivr.net/npm/docx-preview@${DOCX_PREVIEW_CDN_VERSION}/dist/docx-preview.mjs`;
-    const remoteModule = await importModuleFromUrl<Partial<DocxPreviewGlobal>>(remoteUrl);
-    if (remoteModule) {
-      const runtime =
-        typeof (remoteModule as Partial<DocxPreviewGlobal>).renderAsync === "function"
-          ? (remoteModule as DocxPreviewGlobal)
-          : typeof (remoteModule as any)?.default?.renderAsync === "function"
-          ? (remoteModule as any).default
-          : null;
+    const cdnScriptCandidates = [
+      `https://cdn.jsdelivr.net/npm/docx-preview@${DOCX_PREVIEW_CDN_VERSION}/dist/docx-preview.min.js`,
+      `https://cdn.jsdelivr.net/npm/docx-preview@${DOCX_PREVIEW_CDN_VERSION}/dist/docx-preview.js`,
+    ];
 
+    for (const scriptUrl of cdnScriptCandidates) {
+      const loadedByCdnScript = await loadScript(scriptUrl);
+      if (!loadedByCdnScript) {
+        errors.push(`falha ao carregar script CDN ${scriptUrl}`);
+        continue;
+      }
+
+      const runtime = getDocxPreviewGlobal();
       if (runtime) {
         (window as unknown as { docxPreview?: DocxPreviewGlobal }).docxPreview = runtime;
         lastDocxPreviewLoadError = null;
         return runtime;
       }
 
-      errors.push(`${remoteUrl} carregado sem renderAsync`);
-    } else {
-      errors.push(`${remoteUrl} nÃ£o pÃ´de ser importado via CDN`);
+      errors.push(`${scriptUrl} carregado, mas docx-preview global nÃ£o ficou disponÃ­vel`);
     }
 
     lastDocxPreviewLoadError = errors.join(" | ");
