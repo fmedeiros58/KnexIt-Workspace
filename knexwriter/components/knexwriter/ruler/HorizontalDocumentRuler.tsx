@@ -1110,23 +1110,6 @@ function MarginHandle({
             {displayLabel} {valueCm.toFixed(1)} cm
           </span>
 
-          {isDragging ? (
-            <span
-              className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border px-1.5 py-[2px] text-[10px] leading-none shadow-sm"
-              style={{
-                top: MARGIN_HANDLE_HITBOX_HEIGHT_PX + 24,
-                borderColor: MARKER_STROKE,
-                backgroundColor: "#ffffff",
-                color: WORD_RULER_NUMBER,
-                fontWeight: 600,
-                zIndex: 120,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {valueCm.toFixed(1)} cm
-            </span>
-          ) : null}
-
           {/*
             A seta é visualmente grande, mas não amplia a zona de captura.
             O pointer-events-none garante que só a microzona do botão capture.
