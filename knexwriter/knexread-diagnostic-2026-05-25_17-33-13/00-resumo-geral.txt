@@ -1,0 +1,56 @@
+﻿
+============================================================
+DIAGNÓSTICO GERAL DO KNEXREAD
+============================================================
+Data: 2026-05-25 17:33:13
+Raiz do comando: C:\knexit-workspace\knexit-workspace\knexwriter
+Raiz analisada do KnexRead: C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader
+Total de arquivos analisados: 165
+Total de arquivos candidatos: 133
+
+Objetivo do diagnóstico:
+- Identificar arquivos que controlam canvas, camada textual, tipografia, coordenadas, escala, seleção e modo híbrido visual.
+- Encontrar onde podem estar os problemas de sobreposição entre texto do canvas e texto vetorial.
+- Encontrar onde podem estar os problemas de diferença tipográfica em zoom baixo.
+
+Arquivos com maior prioridade aparente:
+  44  knex-pdf-engine\backends\future-pdfium\PdfiumEmbedPdfRuntime.ts
+  41  knex-pdf-engine\core\engineTypes.ts
+  36  components\PdfPageView.tsx
+  35  components\PdfVisualTextLayer.tsx
+  35  components\PdfTextLayer.tsx
+  30  _backup_hybrid_text_layer_20260522_121448\knex-pdf-engine__backends__future-pdfium__PdfiumEmbedPdfRuntime.ts
+  29  _backup_hybrid_text_layer_20260522_121448\knex-pdf-engine__core__engineTypes.ts
+  27  _backup_hybrid_text_layer_20260522_121448\components__PdfPageView.tsx
+  26  _backup_hybrid_text_layer_20260522_121448\components__PdfTextLayer.tsx
+  25  components\PdfPageCanvas.tsx
+  23  knex-pdf-engine\text\SemanticTextLayer.ts
+  23  knex-pdf-engine\backends\PdfRenderBackend.ts
+  23  knex-pdf-engine\text\PdfVisualTextStyleResolver.ts
+  22  knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts
+  18  knex-pdf-engine\rendering\RenderQualityController.ts
+  17  knex-pdf-engine\text\TextCoordinateMapper.ts
+  16  components\PdfAnnotationLayer.tsx
+  16  knex-pdf-engine\backends\pdfjs\PdfJsPageRenderer.ts
+  15  knex-pdf-engine\integration\KnexPdfViewerRuntime.ts
+  15  knex-pdf-engine\diagnostics\PdfEngineDebugPanel.tsx
+  15  hooks\usePdfSelection.ts
+  15  components\PdfHighlightPopover.tsx
+  15  components\PdfReaderShell.tsx
+  14  knex-pdf-engine\platform\DeviceCapabilities.ts
+  14  knex-pdf-engine\selection\SelectionRectangleCalculator.ts
+  14  knex-pdf-engine\annotations\AnnotationController.ts
+  14  knex-pdf-engine\backends\pdfjs\PdfJsAnnotationExtractor.ts
+  14  knex-pdf-engine\diagnostics\RenderDebugInfo.ts
+  13  knex-pdf-engine\index.ts
+  13  knex-pdf-engine\core\renderPolicy.ts
+  13  _backup_hybrid_text_layer_20260522_121448\knex-pdf-engine__text__TextCoordinateMapper.ts
+  13  knex-pdf-engine\backends\pdfjs\PdfJsTextExtractor.ts
+  13  _backup_hybrid_text_layer_20260522_121448\knex-pdf-engine__text__SemanticTextLayer.ts
+  12  services\pdfAnnotation.service.ts
+  12  services\pdfHighlight.service.ts
+  12  hooks\usePdfAnnotations.ts
+  12  types\PdfHighlight.ts
+  12  types\PdfAnnotation.ts
+  12  hooks\usePdfHighlights.ts
+  11  knex-pdf-engine\backends\future-mupdf\MuPdfAnnotationExtractor.ts

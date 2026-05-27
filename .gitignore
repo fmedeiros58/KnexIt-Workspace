@@ -9,6 +9,7 @@ dist/
 
 # Python cache artifacts
 __pycache__/
+.cache/
 *.pyc
 *.pyo
 *.pyd

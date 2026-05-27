@@ -33,7 +33,7 @@ export type KnexWriterHeaderAreaProps = {
 
   onOpenHeaderEditor?: () => void;
   onChangeHeaderHtml?: (html: string) => void;
-  onMeasureHeaderHeight?: (heightPx: number) => void;
+  onMeasureHeaderHeight?: (heightPx: number, pageIndex: number) => void;
   onFocusPage?: (pageIndex: number) => void;
 };
 
@@ -70,11 +70,56 @@ function getSectionNumber(sectionIndex: number | undefined, pageIndex: number) {
 function measureEditableHeight(node: HTMLDivElement | null) {
   if (!node) return 0;
 
-  const rect = node.getBoundingClientRect();
-  const scrollHeight = node.scrollHeight;
-  const offsetHeight = node.offsetHeight;
+  const ownerDocument = node.ownerDocument;
+  const range = ownerDocument.createRange();
+  range.selectNodeContents(node);
 
-  return Math.ceil(Math.max(rect.height, scrollHeight, offsetHeight, 1));
+  const contentRect = range.getBoundingClientRect();
+  range.detach();
+
+  const computedStyle = window.getComputedStyle(node);
+  const paddingTopPx = Number.parseFloat(computedStyle.paddingTop) || 0;
+  const paddingBottomPx = Number.parseFloat(computedStyle.paddingBottom) || 0;
+
+  return Math.ceil(Math.max(0, contentRect.height + paddingTopPx + paddingBottomPx));
+}
+
+function placeCaretAtPoint(editable: HTMLDivElement, clientX: number, clientY: number) {
+  editable.focus({ preventScroll: true });
+
+  const ownerDocument = editable.ownerDocument as Document & {
+    caretPositionFromPoint?: (
+      x: number,
+      y: number,
+    ) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+
+  const selection = ownerDocument.getSelection();
+  if (!selection) return;
+
+  const position = ownerDocument.caretPositionFromPoint?.(clientX, clientY);
+  if (position && editable.contains(position.offsetNode)) {
+    const range = ownerDocument.createRange();
+    range.setStart(position.offsetNode, position.offset);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return;
+  }
+
+  const pointRange = ownerDocument.caretRangeFromPoint?.(clientX, clientY);
+  if (pointRange && editable.contains(pointRange.startContainer)) {
+    selection.removeAllRanges();
+    selection.addRange(pointRange);
+    return;
+  }
+
+  const range = ownerDocument.createRange();
+  range.selectNodeContents(editable);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 /**
@@ -123,9 +168,9 @@ export function KnexWriterHeaderArea({
       frameRef.current = null;
 
       const measuredHeightPx = measureEditableHeight(editableRef.current);
-      onMeasureHeaderHeight?.(measuredHeightPx);
+      onMeasureHeaderHeight?.(measuredHeightPx, pageIndex);
     });
-  }, [onMeasureHeaderHeight]);
+  }, [onMeasureHeaderHeight, pageIndex]);
 
   useEffect(() => {
     latestHtmlRef.current = headerHtml;
@@ -155,6 +200,32 @@ export function KnexWriterHeaderArea({
 
     return () => observer.disconnect();
   }, [scheduleMeasure]);
+
+  useEffect(() => {
+    const node = editableRef.current;
+    if (!node || !isEditing || typeof MutationObserver === "undefined") {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const nextHtml = node.innerHTML;
+
+      if (nextHtml !== latestHtmlRef.current) {
+        latestHtmlRef.current = nextHtml;
+        onChangeHeaderHtml?.(nextHtml);
+      }
+
+      scheduleMeasure();
+    });
+
+    observer.observe(node, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, [isEditing, onChangeHeaderHtml, scheduleMeasure]);
 
   useEffect(() => {
     return () => {
@@ -214,10 +285,12 @@ export function KnexWriterHeaderArea({
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            onFocusPage?.(pageIndex);
           }}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            onFocusPage?.(pageIndex);
           }}
           onDoubleClick={(event) => {
             event.preventDefault();
@@ -227,7 +300,7 @@ export function KnexWriterHeaderArea({
         />
       ) : null}
 
-      {isEditing ? (
+      {isEditing || showGuide ? (
         <>
           <div
             aria-hidden="true"
@@ -275,7 +348,11 @@ export function KnexWriterHeaderArea({
           left: bodyLeftPx,
           top: 0,
           width: bodyWidthPx,
-          minHeight: headerHeightPx,
+          height: headerHeightPx,
+          maxHeight: headerHeightPx,
+          minHeight: 0,
+          overflow: "hidden",
+          backgroundColor: "transparent",
           boxSizing: "border-box",
           pointerEvents: isEditing ? "auto" : "none",
         }}
@@ -291,9 +368,9 @@ export function KnexWriterHeaderArea({
           spellCheck={false}
           tabIndex={isEditing ? 0 : -1}
           className={[
-            "relative z-[2] min-h-full w-full bg-transparent text-center text-[11px] text-zinc-600 outline-none",
+            "relative z-[2] h-full min-h-0 w-full bg-transparent text-center text-[11px] text-zinc-600 outline-none",
             isEditing
-              ? "cursor-text overflow-visible whitespace-pre-wrap break-words px-2 pb-1 pt-5"
+              ? "cursor-text overflow-hidden whitespace-pre-wrap break-words px-2 pb-1 pt-1"
               : "pointer-events-none overflow-hidden px-2 py-1",
             !isEditing && !hasContent ? "opacity-0" : "",
           ]
@@ -303,11 +380,24 @@ export function KnexWriterHeaderArea({
             fontFamily: 'Tinos, "Times New Roman", serif',
             lineHeight: 1.25,
             boxSizing: "border-box",
+            backgroundColor: "transparent",
+            caretColor: "#18181b",
           }}
+          {...(!isEditing
+            ? { dangerouslySetInnerHTML: { __html: headerHtml || "" } }
+            : {})}
           onInput={handleInput}
           onPointerDown={(event) => {
             if (isEditing) {
               event.stopPropagation();
+              onFocusPage?.(pageIndex);
+            }
+          }}
+          onMouseDown={(event) => {
+            if (isEditing) {
+              event.preventDefault();
+              event.stopPropagation();
+              placeCaretAtPoint(event.currentTarget, event.clientX, event.clientY);
               onFocusPage?.(pageIndex);
             }
           }}

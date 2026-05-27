@@ -55,6 +55,7 @@
     "verify:public-api": "powershell -ExecutionPolicy Bypass -File scripts/check-public-api.ps1"
   },
   "dependencies": {
+    "@embedpdf/pdfium": "^2.14.3",
     "@livekit/components-react": "^2.9.15",
     "@livekit/components-styles": "^1.1.6",
     "@mediapipe/tasks-vision": "^0.10.32",

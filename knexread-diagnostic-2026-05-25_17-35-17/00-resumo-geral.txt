@@ -1,0 +1,12 @@
+﻿
+============================================================
+DIAGNÓSTICO GERAL DO KNEXREAD
+============================================================
+Data: 2026-05-25 17:35:18
+Raiz do comando: C:\knexit-workspace\knexit-workspace
+Raiz analisada do KnexRead: C:\knexit-workspace\knexit-workspace\.next-dev\server\app\knexread
+Total de arquivos analisados: 2
+Total de arquivos candidatos: 1
+
+Arquivos com maior prioridade aparente:
+  45  web\page.js

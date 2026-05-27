@@ -64,6 +64,8 @@ type HeaderFooterActions = {
   handleCloseHeaderFooterEditor?: () => void;
   handleChangeHeaderHtml?: (html: string) => void;
   handleChangeFooterHtml?: (html: string) => void;
+  handleChangeHeaderDistanceFromTop?: (nextDistancePx: number) => void;
+  handleChangeFooterDistanceFromBottom?: (nextDistancePx: number) => void;
 };
 
 type StagePaginationGeometry = {
@@ -75,6 +77,10 @@ type StagePaginationGeometry = {
   marginRightPx: number;
   marginBottomPx: number;
   marginLeftPx: number;
+  /** Distância efetiva do cabeçalho a partir do topo da folha. */
+  headerDistanceFromTopPx: number;
+  /** Distância efetiva do rodapé a partir da borda inferior da folha. */
+  footerDistanceFromBottomPx: number;
   headerTopPx: number;
   headerHeightPx: number;
   footerTopPx: number;
@@ -111,6 +117,15 @@ const TOP_PAGE_CLEARANCE_PX = 18;
 
 const HEADER_FOOTER_EXTRA_PADDING_PX = 10;
 const MIN_BODY_HEIGHT_PX = 72;
+
+/**
+ * Padrões iniciais da página.
+ *
+ * Esses valores representam a faixa reservada do cabeçalho e do rodapé,
+ * independentemente das margens superior/inferior do documento.
+ */
+const DEFAULT_HEADER_DISTANCE_FROM_TOP_PX = cmToPx(3);
+const DEFAULT_FOOTER_DISTANCE_FROM_BOTTOM_PX = cmToPx(2);
 const HEADER_FOOTER_OUTSIDE_CLICK_EXIT_THRESHOLD = 3;
 const HEADER_FOOTER_OUTSIDE_CLICK_EXIT_WINDOW_MS = 1800;
 
@@ -133,6 +148,14 @@ function getHeaderFooterActions(actions: WriterRenderProps["actions"]) {
   return actions as typeof actions & HeaderFooterActions;
 }
 
+function clampStageNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, value));
+}
+
 function getPaginationGeometry(
   state: WriterRenderProps["state"],
   layout: WriterRenderProps["layout"],
@@ -153,23 +176,83 @@ function getPaginationGeometry(
   const pageGapPx = candidate?.pageGapPx ?? layout.pageGapPx;
   const pageStridePx = candidate?.pageStridePx ?? layout.pageStridePx;
 
-  const headerTopPx = candidate?.headerTopPx ?? 0;
-  const headerHeightPx = candidate?.headerHeightPx ?? cmToPx(3);
+  const explicitHeaderDistanceFromTopPx = (
+    candidate as
+      | (Partial<StagePaginationGeometry> & {
+          headerDistanceFromTopPx?: number;
+        })
+      | null
+      | undefined
+  )?.headerDistanceFromTopPx;
 
-  const footerHeightPx = candidate?.footerHeightPx ?? cmToPx(2);
-  const footerTopPx = candidate?.footerTopPx ?? pageHeightPx - footerHeightPx;
+  const explicitFooterDistanceFromBottomPx = (
+    candidate as
+      | (Partial<StagePaginationGeometry> & {
+          footerDistanceFromBottomPx?: number;
+        })
+      | null
+      | undefined
+  )?.footerDistanceFromBottomPx;
+
+  /**
+   * Cabeçalho e rodapé são tratados como faixas próprias da folha.
+   *
+   * Importante: não usamos marginTopPx/marginBottomPx como padrão dessas
+   * distâncias, porque isso fazia a régua mostrar 2,5 cm quando o cabeçalho
+   * deveria abrir com 3 cm e o rodapé com 2 cm.
+   *
+   * Ainda assim, preservamos valores realmente alterados/salvos quando eles
+   * aparecem em bodyTopPx/bodyBottomPx. Para diferenciar um valor salvo de uma
+   * simples herança da margem padrão, ignoramos bodyTopPx/bodyBottomPx quando
+   * eles são praticamente iguais às margens superior/inferior.
+   */
+  const bodyTopLooksLikeMarginFallback =
+    explicitHeaderDistanceFromTopPx == null &&
+    candidate?.bodyTopPx != null &&
+    Math.abs(candidate.bodyTopPx - marginTopPx) < 1;
+
+  const bodyBottomLooksLikeMarginFallback =
+    explicitFooterDistanceFromBottomPx == null &&
+    candidate?.footerHeightPx == null &&
+    candidate?.bodyBottomPx != null &&
+    Math.abs(candidate.bodyBottomPx - marginBottomPx) < 1;
+
+  const headerDistanceFromTopPx = clampStageNumber(
+    explicitHeaderDistanceFromTopPx ??
+      (bodyTopLooksLikeMarginFallback
+        ? DEFAULT_HEADER_DISTANCE_FROM_TOP_PX
+        : candidate?.bodyTopPx) ??
+      DEFAULT_HEADER_DISTANCE_FROM_TOP_PX,
+    0,
+    pageHeightPx,
+  );
+
+  const footerDistanceFromBottomPx = clampStageNumber(
+    explicitFooterDistanceFromBottomPx ??
+      candidate?.footerHeightPx ??
+      (bodyBottomLooksLikeMarginFallback
+        ? DEFAULT_FOOTER_DISTANCE_FROM_BOTTOM_PX
+        : candidate?.bodyBottomPx) ??
+      DEFAULT_FOOTER_DISTANCE_FROM_BOTTOM_PX,
+    0,
+    pageHeightPx,
+  );
+
+  const headerTopPx = 0;
+  const headerHeightPx = candidate?.headerHeightPx ?? headerDistanceFromTopPx;
+
+  const footerTopPx = Math.max(0, pageHeightPx - footerDistanceFromBottomPx);
+  const footerHeightPx = Math.max(0, pageHeightPx - footerTopPx);
 
   const bodyLeftPx = candidate?.bodyLeftPx ?? marginLeftPx;
   const bodyRightPx = candidate?.bodyRightPx ?? marginRightPx;
 
-  const bodyTopPx =
-    candidate?.bodyTopPx ?? Math.max(marginTopPx, headerTopPx + headerHeightPx);
-
-  const footerBodyLimitPx = Math.min(pageHeightPx - marginBottomPx, footerTopPx);
+  const bodyTopPx = candidate?.bodyTopPx ?? headerDistanceFromTopPx;
 
   const bodyBottomPx =
-    candidate?.bodyBottomPx ??
-    Math.max(marginBottomPx, pageHeightPx - footerBodyLimitPx);
+    explicitFooterDistanceFromBottomPx ??
+    candidate?.footerHeightPx ??
+    footerDistanceFromBottomPx;
 
   const bodyWidthPx =
     candidate?.bodyWidthPx ?? Math.max(1, pageWidthPx - bodyLeftPx - bodyRightPx);
@@ -187,6 +270,8 @@ function getPaginationGeometry(
     marginRightPx: candidate?.marginRightPx ?? marginRightPx,
     marginBottomPx: candidate?.marginBottomPx ?? marginBottomPx,
     marginLeftPx: candidate?.marginLeftPx ?? marginLeftPx,
+    headerDistanceFromTopPx,
+    footerDistanceFromBottomPx,
     headerTopPx,
     headerHeightPx,
     footerTopPx,
@@ -201,13 +286,26 @@ function getPaginationGeometry(
 }
 
 function isHeaderFooterInsideClick(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
+  if (!(target instanceof Element)) {
     return false;
   }
 
   return Boolean(
     target.closest('[data-knexwriter-header-area="true"]') ||
       target.closest('[data-knexwriter-footer-area="true"]'),
+  );
+}
+
+function isWriterChromeInteraction(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest('[data-ruler-control="true"]') ||
+      target.closest('[data-knexwriter-horizontal-ruler-shell="true"]') ||
+      target.closest('[data-knexwriter-vertical-ruler-shell="true"]') ||
+      target.closest('[data-knexwriter-ruler-guide-line="true"]'),
   );
 }
 
@@ -320,58 +418,79 @@ export function KnexWriterStage({
   const headerFooterOutsideClickCountRef = useRef(0);
   const headerFooterOutsideClickTimerRef = useRef<number | null>(null);
 
+  const headerFooter = getHeaderFooterState(state);
+  const headerFooterActions = getHeaderFooterActions(actions);
+  const stageActions = actions as typeof actions & {
+    handleChangeWritingActivePage?: (pageNumber: number) => void;
+  };
+
   const zoomScale = Math.max(0.5, state.writingCanvasZoomPercent / 100);
   const basePaginationGeometry = getPaginationGeometry(state, layout);
 
   const effectivePaginationGeometry = useMemo<StagePaginationGeometry>(() => {
-    const requestedHeaderHeightPx = Math.max(
-      basePaginationGeometry.headerHeightPx,
-      measuredHeaderHeightPx > 0
+    /**
+     * A geometria efetiva usa cabeçalho e rodapé como fonte única da área
+     * branca vertical da folha.
+     *
+     * Isso evita o problema visto na régua vertical: o rótulo indicava 2,5 cm
+     * porque a margem inferior contaminava a leitura do rodapé. Agora o rodapé
+     * padrão é 2 cm e a régua, a página e a área de rodapé usam o mesmo valor.
+     */
+    const allowMeasuredExpansion = headerFooter.isEditing;
+
+    const requestedHeaderDistanceFromTopPx = Math.max(
+      basePaginationGeometry.headerDistanceFromTopPx,
+      allowMeasuredExpansion && measuredHeaderHeightPx > 0
         ? measuredHeaderHeightPx + HEADER_FOOTER_EXTRA_PADDING_PX
-        : basePaginationGeometry.headerHeightPx,
+        : basePaginationGeometry.headerDistanceFromTopPx,
     );
 
-    const requestedFooterHeightPx = Math.max(
-      basePaginationGeometry.footerHeightPx,
-      measuredFooterHeightPx > 0
+    const requestedFooterDistanceFromBottomPx = Math.max(
+      basePaginationGeometry.footerDistanceFromBottomPx,
+      allowMeasuredExpansion && measuredFooterHeightPx > 0
         ? measuredFooterHeightPx + HEADER_FOOTER_EXTRA_PADDING_PX
-        : basePaginationGeometry.footerHeightPx,
+        : basePaginationGeometry.footerDistanceFromBottomPx,
     );
 
-    const maxHeaderHeightPx = Math.max(
-      basePaginationGeometry.headerHeightPx,
-      basePaginationGeometry.pageHeightPx - requestedFooterHeightPx - MIN_BODY_HEIGHT_PX,
+    const maxHeaderDistanceFromTopPx = Math.max(
+      0,
+      basePaginationGeometry.pageHeightPx -
+        requestedFooterDistanceFromBottomPx -
+        MIN_BODY_HEIGHT_PX,
     );
 
-    const effectiveHeaderHeightPx = Math.min(
-      requestedHeaderHeightPx,
-      maxHeaderHeightPx,
+    const effectiveHeaderDistanceFromTopPx = Math.min(
+      requestedHeaderDistanceFromTopPx,
+      maxHeaderDistanceFromTopPx,
     );
 
-    const maxFooterHeightPx = Math.max(
-      basePaginationGeometry.footerHeightPx,
-      basePaginationGeometry.pageHeightPx - effectiveHeaderHeightPx - MIN_BODY_HEIGHT_PX,
+    const maxFooterDistanceFromBottomPx = Math.max(
+      0,
+      basePaginationGeometry.pageHeightPx -
+        effectiveHeaderDistanceFromTopPx -
+        MIN_BODY_HEIGHT_PX,
     );
 
-    const effectiveFooterHeightPx = Math.min(
-      requestedFooterHeightPx,
-      maxFooterHeightPx,
+    const effectiveFooterDistanceFromBottomPx = Math.min(
+      requestedFooterDistanceFromBottomPx,
+      maxFooterDistanceFromBottomPx,
     );
+
+    const effectiveHeaderTopPx = 0;
+    const effectiveHeaderHeightPx = effectiveHeaderDistanceFromTopPx;
 
     const effectiveFooterTopPx = Math.max(
       0,
-      basePaginationGeometry.pageHeightPx - effectiveFooterHeightPx,
+      basePaginationGeometry.pageHeightPx - effectiveFooterDistanceFromBottomPx,
     );
 
-    const effectiveBodyTopPx = Math.max(
-      basePaginationGeometry.bodyTopPx,
-      basePaginationGeometry.headerTopPx + effectiveHeaderHeightPx,
-    );
-
-    const effectiveBodyBottomPx = Math.max(
-      basePaginationGeometry.bodyBottomPx,
+    const effectiveFooterHeightPx = Math.max(
+      0,
       basePaginationGeometry.pageHeightPx - effectiveFooterTopPx,
     );
+
+    const effectiveBodyTopPx = effectiveHeaderDistanceFromTopPx;
+    const effectiveBodyBottomPx = effectiveFooterDistanceFromBottomPx;
 
     const effectiveBodyHeightPx = Math.max(
       1,
@@ -382,6 +501,9 @@ export function KnexWriterStage({
 
     return {
       ...basePaginationGeometry,
+      headerDistanceFromTopPx: effectiveHeaderDistanceFromTopPx,
+      footerDistanceFromBottomPx: effectiveFooterDistanceFromBottomPx,
+      headerTopPx: effectiveHeaderTopPx,
       headerHeightPx: effectiveHeaderHeightPx,
       footerTopPx: effectiveFooterTopPx,
       footerHeightPx: effectiveFooterHeightPx,
@@ -389,7 +511,12 @@ export function KnexWriterStage({
       bodyBottomPx: effectiveBodyBottomPx,
       bodyHeightPx: effectiveBodyHeightPx,
     };
-  }, [basePaginationGeometry, measuredFooterHeightPx, measuredHeaderHeightPx]);
+  }, [
+    basePaginationGeometry,
+    headerFooter.isEditing,
+    measuredFooterHeightPx,
+    measuredHeaderHeightPx,
+  ]);
 
   const pageCount = Math.max(1, state.writingPageCount);
 
@@ -408,12 +535,19 @@ export function KnexWriterStage({
   const scaledPageHeightPx = applyZoom(effectivePaginationGeometry.pageHeightPx, zoomScale);
   const scaledStageHeightPx = applyZoom(stageHeight, zoomScale);
   const scaledTopPageClearancePx = TOP_PAGE_CLEARANCE_PX;
+  const activePageIndexForRuler = Math.max(
+    0,
+    Math.min(pageCount - 1, state.writingActivePage - 1),
+  );
+  const scaledActivePageTopPx =
+    scaledTopPageClearancePx +
+    applyZoom(
+      activePageIndexForRuler * effectivePaginationGeometry.pageStridePx,
+      zoomScale,
+    );
 
   const contentColumnMinWidthPx =
     scaledPageWidthPx + CANVAS_SIDE_BREATHING_PX * 2;
-
-  const headerFooter = getHeaderFooterState(state);
-  const headerFooterActions = getHeaderFooterActions(actions);
 
   const updateRulerCrosshairFromClient = useCallback(
     (clientX: number, clientY: number) => {
@@ -449,7 +583,16 @@ export function KnexWriterStage({
   }, []);
 
   const handleMeasureHeaderHeight = useCallback(
-    (heightPx: number) => {
+    (heightPx: number, pageIndex: number) => {
+      if (
+        headerFooter.isEditing &&
+        headerFooter.activeTarget === "header" &&
+        headerFooter.activePageIndex !== null &&
+        pageIndex !== headerFooter.activePageIndex
+      ) {
+        return;
+      }
+
       setMeasuredHeaderHeightPx((current) =>
         updateMeasuredHeight(
           current,
@@ -458,11 +601,25 @@ export function KnexWriterStage({
         ),
       );
     },
-    [basePaginationGeometry.headerHeightPx],
+    [
+      basePaginationGeometry.headerHeightPx,
+      headerFooter.activePageIndex,
+      headerFooter.activeTarget,
+      headerFooter.isEditing,
+    ],
   );
 
   const handleMeasureFooterHeight = useCallback(
-    (heightPx: number) => {
+    (heightPx: number, pageIndex: number) => {
+      if (
+        headerFooter.isEditing &&
+        headerFooter.activeTarget === "footer" &&
+        headerFooter.activePageIndex !== null &&
+        pageIndex !== headerFooter.activePageIndex
+      ) {
+        return;
+      }
+
       setMeasuredFooterHeightPx((current) =>
         updateMeasuredHeight(
           current,
@@ -471,7 +628,12 @@ export function KnexWriterStage({
         ),
       );
     },
-    [basePaginationGeometry.footerHeightPx],
+    [
+      basePaginationGeometry.footerHeightPx,
+      headerFooter.activePageIndex,
+      headerFooter.activeTarget,
+      headerFooter.isEditing,
+    ],
   );
 
   const getHeaderFooterHitFromEvent = useCallback(
@@ -506,8 +668,9 @@ export function KnexWriterStage({
 
       event.preventDefault();
       event.stopPropagation();
+      stageActions.handleChangeWritingActivePage?.(hit.pageIndex + 1);
     },
-    [getHeaderFooterHitFromEvent, headerFooter.isEditing],
+    [getHeaderFooterHitFromEvent, headerFooter.isEditing, stageActions],
   );
 
   const handleScaledStageClickCapture = useCallback(
@@ -524,8 +687,9 @@ export function KnexWriterStage({
 
       event.preventDefault();
       event.stopPropagation();
+      stageActions.handleChangeWritingActivePage?.(hit.pageIndex + 1);
     },
-    [getHeaderFooterHitFromEvent, headerFooter.isEditing],
+    [getHeaderFooterHitFromEvent, headerFooter.isEditing, stageActions],
   );
 
   const handleScaledStageDoubleClickCapture = useCallback(
@@ -542,13 +706,19 @@ export function KnexWriterStage({
 
       event.preventDefault();
       event.stopPropagation();
+      stageActions.handleChangeWritingActivePage?.(hit.pageIndex + 1);
 
       headerFooterActions.handleOpenHeaderFooterEditor?.(
         hit.target,
         hit.pageIndex,
       );
     },
-    [getHeaderFooterHitFromEvent, headerFooter.isEditing, headerFooterActions],
+    [
+      getHeaderFooterHitFromEvent,
+      headerFooter.isEditing,
+      headerFooterActions,
+      stageActions,
+    ],
   );
 
   useEffect(() => {
@@ -583,7 +753,10 @@ export function KnexWriterStage({
         return;
       }
 
-      if (isHeaderFooterInsideClick(event.target)) {
+      if (
+        isHeaderFooterInsideClick(event.target) ||
+        isWriterChromeInteraction(event.target)
+      ) {
         resetHeaderFooterOutsideClickIntent();
         return;
       }
@@ -619,9 +792,6 @@ export function KnexWriterStage({
     headerFooterActions,
     resetHeaderFooterOutsideClickIntent,
   ]);
-
-  const isHeaderFooterPageEditing = (pageIndex: number) =>
-    headerFooter.isEditing && headerFooter.activePageIndex === pageIndex;
 
   return (
     <div
@@ -721,10 +891,13 @@ export function KnexWriterStage({
             data-knexwriter-vertical-ruler-shell="true"
             className="sticky left-0 self-start border-r"
             style={{
-              top: WRITING_HORIZONTAL_RULER_HEIGHT_PX,
+              position: "sticky",
+              left: 0,
               zIndex: 9000,
-              backgroundColor: RULER_BACKGROUND_COLOR,
+              backgroundColor: WORKSPACE_BACKGROUND_COLOR,
               borderColor: RULER_BORDER_COLOR,
+              height: scaledTopPageClearancePx + scaledStageHeightPx,
+              minHeight: scaledTopPageClearancePx + scaledStageHeightPx,
             }}
           >
             <VerticalDocumentRuler
@@ -735,17 +908,30 @@ export function KnexWriterStage({
               activePage={state.writingActivePage}
               pageGapPx={effectivePaginationGeometry.pageGapPx}
               widthPx={WRITING_VERTICAL_RULER_WIDTH_PX}
-              horizontalRulerHeightPx={WRITING_HORIZONTAL_RULER_HEIGHT_PX}
+              topOffsetPx={scaledActivePageTopPx}
               showMargins={state.rulerSettings.showMargins}
               onChangeMargins={actions.handleChangePageMargins}
-              headerDistanceFromTopPx={effectivePaginationGeometry.headerTopPx}
-              footerDistanceFromBottomPx={Math.max(
-                0,
+              editableTopPx={effectivePaginationGeometry.bodyTopPx}
+              editableBottomPx={
                 effectivePaginationGeometry.pageHeightPx -
-                  (effectivePaginationGeometry.footerTopPx +
-                    effectivePaginationGeometry.footerHeightPx),
-              )}
+                effectivePaginationGeometry.bodyBottomPx
+              }
+              headerDistanceFromTopPx={
+                effectivePaginationGeometry.headerDistanceFromTopPx
+              }
+              headerHeightPx={effectivePaginationGeometry.headerHeightPx}
+              footerDistanceFromBottomPx={
+                effectivePaginationGeometry.footerDistanceFromBottomPx
+              }
+              footerHeightPx={effectivePaginationGeometry.footerHeightPx}
+              onChangeHeaderDistanceFromTopPx={
+                headerFooterActions.handleChangeHeaderDistanceFromTop
+              }
+              onChangeFooterDistanceFromBottomPx={
+                headerFooterActions.handleChangeFooterDistanceFromBottom
+              }
               showHeaderFooterAreas
+              showHeaderFooterRulerTicks={headerFooter.isEditing}
               onRightButtonGuideStart={(point) =>
                 updateRulerCrosshairFromClient(point.clientX, point.clientY)
               }
@@ -895,8 +1081,25 @@ export function KnexWriterStage({
                       (_: unknown, index: number) => {
                         const pageTopPx =
                           index * effectivePaginationGeometry.pageStridePx;
-                        const isHeaderFooterEditingOnPage =
-                          isHeaderFooterPageEditing(index);
+                        const isHeaderTargetEditing =
+                          headerFooter.isEditing &&
+                          headerFooter.activeTarget === "header";
+                        const isFooterTargetEditing =
+                          headerFooter.isEditing &&
+                          headerFooter.activeTarget === "footer";
+                        const activeHeaderFooterPageIndex = Math.max(
+                          0,
+                          Math.min(
+                            pageCount - 1,
+                            headerFooter.activePageIndex ?? activePageIndexForRuler,
+                          ),
+                        );
+                        const isHeaderEditingOnPage =
+                          isHeaderTargetEditing &&
+                          activeHeaderFooterPageIndex === index;
+                        const isFooterEditingOnPage =
+                          isFooterTargetEditing &&
+                          activeHeaderFooterPageIndex === index;
 
                         return (
                           <div
@@ -922,8 +1125,8 @@ export function KnexWriterStage({
                               headerTopPx={effectivePaginationGeometry.headerTopPx}
                               headerHeightPx={effectivePaginationGeometry.headerHeightPx}
                               headerHtml={headerFooter.headerHtml}
-                              isEditing={isHeaderFooterEditingOnPage}
-                              showGuide={isHeaderFooterEditingOnPage}
+                              isEditing={isHeaderEditingOnPage}
+                              showGuide={isHeaderTargetEditing}
                               sameAsPrevious={false}
                               differentFirstPage={false}
                               differentOddEvenPages={false}
@@ -936,6 +1139,11 @@ export function KnexWriterStage({
                               }
                               onChangeHeaderHtml={(html) =>
                                 headerFooterActions.handleChangeHeaderHtml?.(html)
+                              }
+                              onFocusPage={(focusedPageIndex) =>
+                                stageActions.handleChangeWritingActivePage?.(
+                                  focusedPageIndex + 1,
+                                )
                               }
                             />
 
@@ -951,8 +1159,8 @@ export function KnexWriterStage({
                               footerTopPx={effectivePaginationGeometry.footerTopPx}
                               footerHeightPx={effectivePaginationGeometry.footerHeightPx}
                               footerHtml={headerFooter.footerHtml}
-                              isEditing={isHeaderFooterEditingOnPage}
-                              showGuide={isHeaderFooterEditingOnPage}
+                              isEditing={isFooterEditingOnPage}
+                              showGuide={isFooterTargetEditing}
                               sameAsPrevious={false}
                               differentFirstPage={false}
                               differentOddEvenPages={false}
@@ -965,6 +1173,11 @@ export function KnexWriterStage({
                               }
                               onChangeFooterHtml={(html) =>
                                 headerFooterActions.handleChangeFooterHtml?.(html)
+                              }
+                              onFocusPage={(focusedPageIndex) =>
+                                stageActions.handleChangeWritingActivePage?.(
+                                  focusedPageIndex + 1,
+                                )
                               }
                             />
                           </div>
@@ -993,6 +1206,11 @@ export function KnexWriterStage({
                       defaultLineHeight={1.5}
                       enableSoftPagination
                       editable={!headerFooter.isEditing}
+                      onFocusPage={(nextPageIndex) =>
+                        stageActions.handleChangeWritingActivePage?.(
+                          nextPageIndex + 1,
+                        )
+                      }
                     />
 
                     <div

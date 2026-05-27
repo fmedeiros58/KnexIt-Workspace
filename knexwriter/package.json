@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "node scripts/check-knexpdf-extension-points.mjs && node scripts/check-knexpdf-render-pipeline.mjs && eslint . --ext .ts,.tsx"
   },
   "dependencies": {
     "react": "^18.3.1",

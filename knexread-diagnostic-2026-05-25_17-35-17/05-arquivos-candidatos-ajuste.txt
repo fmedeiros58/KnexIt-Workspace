@@ -1,0 +1,7 @@
+﻿
+Score RelativePath  SizeKB MatchedTerms                                                                                                                                                                                                                                                                     
+----- ------------  ------ ------------                                                                                                                                                                                                                                                                     
+   45 web\page.js  3350,34 PdfTextLayer, PdfVisualTextLayer, SemanticTextLayer, TextCoordinateMapper, PdfPageView, PdfPageCanvas, PdfiumEmbedPdfRuntime, PdfJsPageRenderer, HiDpiCanvasRenderer, RenderQualityController, DeviceCapabilities, PdfEngineDebugPanel, RenderDebugInfo, createTextBlock, extr...
+
+
+
