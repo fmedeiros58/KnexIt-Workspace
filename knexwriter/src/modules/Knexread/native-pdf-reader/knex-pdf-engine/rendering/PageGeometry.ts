@@ -90,7 +90,7 @@ const KNEX_PDF_PDFJS_MAX_OUTPUT_SCALE = Math.min(
 );
 
 /**
- * Generic/MuPDF fallback policy.
+ * Generic backend fallback policy.
  */
 const KNEX_PDF_GENERIC_TARGET_TEXT_PHYSICAL_PX_SETTLED = 20;
 const KNEX_PDF_GENERIC_TARGET_TEXT_PHYSICAL_PX_PREVIEW = 12;

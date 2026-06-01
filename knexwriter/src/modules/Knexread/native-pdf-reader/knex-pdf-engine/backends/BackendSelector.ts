@@ -20,7 +20,10 @@ type BackendAttemptFailure = {
   reason: string;
 };
 
-const AUTO_BACKEND_ORDER: KnexPdfBackendId[] = ["pdfium", "mupdf", "pdfjs"];
+const AUTO_BACKEND_ORDER: KnexPdfBackendId[] = [
+  "pdfjs", // Default backend - always available
+  // TODO: "pdfium" - add when PDFium backend is implemented (Phase 3)
+];
 
 function createUnavailableCapabilities(reason: string): PdfBackendCapabilities {
   return {
@@ -37,7 +40,9 @@ function createUnavailableCapabilities(reason: string): PdfBackendCapabilities {
 }
 
 function isKnownBackendId(id: string): id is KnexPdfBackendId {
-  return id === "pdfjs" || id === "pdfium" || id === "mupdf";
+  // Current known backends: only pdfjs is active
+  // TODO: Add "pdfium" when backend is implemented
+  return id === "pdfjs" || id === "pdfium"; // pdfium kept for type compatibility, not yet implemented
 }
 
 function describeFailures(

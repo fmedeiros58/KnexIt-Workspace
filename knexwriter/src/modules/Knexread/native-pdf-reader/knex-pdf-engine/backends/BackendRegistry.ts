@@ -2,8 +2,9 @@ import type { KnexPdfBackendId } from "../core/engineTypes";
 import type { KnexPdfBackendSelectionMode } from "../core/engineState";
 import type { PdfRenderBackend } from "./PdfRenderBackend";
 import { PdfJsBackend } from "./pdfjs/PdfJsBackend";
-import { PdfiumBackend } from "./future-pdfium";
-import { MuPdfBackend } from "./future-mupdf";
+
+// TODO: PDFium backend planned for future phases
+// import { PdfiumBackend } from "./future-pdfium";
 
 export type { KnexPdfBackendSelectionMode };
 
@@ -58,18 +59,14 @@ export class BackendRegistry {
 
 export function createDefaultBackendRegistry(options: {
   pdfJsBackend?: PdfJsBackend;
-  pdfiumBackend?: PdfiumBackend;
-  muPdfBackend?: MuPdfBackend;
+  // TODO: Add pdfiumBackend option when PDFium backend is implemented
 } = {}): BackendRegistry {
   const registry = new BackendRegistry();
 
+  // Register PDF.js as the default backend
   registry.register(options.pdfJsBackend ?? new PdfJsBackend());
-  registry.register(options.pdfiumBackend ?? new PdfiumBackend(), {
-    experimental: true,
-  });
-  registry.register(options.muPdfBackend ?? new MuPdfBackend(), {
-    experimental: true,
-  });
+
+  // TODO: Register PDFium backend here in future phases (Phase 3)
 
   return registry;
 }

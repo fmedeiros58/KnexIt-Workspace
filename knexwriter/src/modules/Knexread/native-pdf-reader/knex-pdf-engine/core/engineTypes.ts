@@ -11,7 +11,7 @@ export type KnexPdfRenderQualityInput =
   | "economy"
   | "very-high";
 
-export type KnexPdfBackendId = "pdfjs" | "mupdf" | "pdfium";
+export type KnexPdfBackendId = "pdfjs" | "pdfium";
 
 export type KnexPdfRuntimePlatform = "web" | "pwa" | "desktop" | "mobile";
 
@@ -26,22 +26,11 @@ export type KnexPdfPageRenderNature =
 export type KnexPdfRenderMode =
   | "bitmap-only"
   | "hybrid-semantic"
-  | "hybrid-visual"
   | "scanned-document";
 
 export type KnexPdfTextLayerRenderMode =
   | "disabled"
-  | "semantic"
-  | "visual"
-  | "hybrid";
-
-/**
- * Alias mantido por compatibilidade com arquivos existentes,
- * como SemanticTextLayer.ts.
- *
- * A partir de agora, preferir KnexPdfTextLayerRenderMode.
- */
-export type KnexPdfVisualTextLayerMode = KnexPdfTextLayerRenderMode;
+  | "semantic";
 
 export type KnexPdfBitmapDescriptor = {
   width: number;

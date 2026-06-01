@@ -1,7 +1,6 @@
 import type { KnexPdfRenderPhase } from "../rendering/RenderQualityController";
 
 export type KnexPdfVisualRenderMode =
-  | "page-canvas"
   | "tiled-canvas"
   | "server-tiled"
   | "auto-professional";
@@ -24,7 +23,16 @@ export type KnexPdfTileRect = {
   cssTop: number;
   cssWidth: number;
   cssHeight: number;
+  renderCssLeft?: number;
+  renderCssTop?: number;
+  renderCssWidth?: number;
+  renderCssHeight?: number;
+  cellCssLeft?: number;
+  cellCssTop?: number;
+  cellCssWidth?: number;
+  cellCssHeight?: number;
   overlapPx: number;
+  bleedPx?: number;
 };
 
 export type KnexPdfTileGeometry = {
@@ -39,7 +47,10 @@ export type KnexPdfTileGeometry = {
   outputScale: number;
   dpi?: number;
   tileCssSize: number;
+  tileRows: number;
+  tileColumns: number;
   overlapPx: number;
+  bleedPx?: number;
   renderPhase: KnexPdfRenderPhase;
   renderVersion: number;
   finalRenderVersion: number;
@@ -67,7 +78,6 @@ export type KnexPdfTileIdentity = {
 };
 
 export type KnexPdfResolvedTileRenderMode =
-  | "page-canvas"
   | "tiled-canvas"
   | "server-tiled";
 

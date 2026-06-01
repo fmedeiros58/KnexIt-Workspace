@@ -13,7 +13,16 @@ export function toKnexPdfTileRect(tile: KnexPdfPageTile): KnexPdfTileRect {
     cssTop: tile.cssY,
     cssWidth: tile.cssWidth,
     cssHeight: tile.cssHeight,
+    renderCssLeft: tile.renderCssX,
+    renderCssTop: tile.renderCssY,
+    renderCssWidth: tile.renderCssWidth,
+    renderCssHeight: tile.renderCssHeight,
+    cellCssLeft: tile.cellCssX,
+    cellCssTop: tile.cellCssY,
+    cellCssWidth: tile.cellCssWidth,
+    cellCssHeight: tile.cellCssHeight,
     overlapPx: tile.overlapPx,
+    bleedPx: tile.bleedPx,
   };
 }
 
@@ -22,7 +31,10 @@ export function createKnexPdfTileGeometry(input: {
   geometry: KnexPdfPageGeometry;
   tiles: KnexPdfPageTile[];
   tileCssSize: number;
+  tileRows?: number;
+  tileColumns?: number;
   overlapPx: number;
+  bleedPx?: number;
   renderPhase: KnexPdfRenderPhase;
   renderVersion: number;
   finalRenderVersion: number;
@@ -40,7 +52,18 @@ export function createKnexPdfTileGeometry(input: {
     outputScale: input.geometry.outputScale,
     dpi: input.dpi,
     tileCssSize: input.tileCssSize,
+    tileRows:
+      input.tileRows ??
+      input.tiles.reduce((maxRow, tile) => Math.max(maxRow, tile.row), 0) + 1,
+    tileColumns:
+      input.tileColumns ??
+      input.tiles.reduce(
+        (maxColumn, tile) => Math.max(maxColumn, tile.column),
+        0,
+      ) +
+        1,
     overlapPx: input.overlapPx,
+    bleedPx: input.bleedPx,
     renderPhase: input.renderPhase,
     renderVersion: input.renderVersion,
     finalRenderVersion: input.finalRenderVersion,

@@ -52,7 +52,8 @@
     "rag:reindex:gaps": "node scripts/rag-reindex-gapped-docs.mjs --auto-gaps",
     "bench:rag:router": "node scripts/bench-rag-router.mjs",
     "bench:rag:router:wsl": "powershell -ExecutionPolicy Bypass -File scripts/bench-rag-router-wsl.ps1",
-    "verify:public-api": "powershell -ExecutionPolicy Bypass -File scripts/check-public-api.ps1"
+    "verify:public-api": "powershell -ExecutionPolicy Bypass -File scripts/check-public-api.ps1",
+    "verify:knexread-tiles": "node scripts/check-knexread-tile-renderer-guard.mjs"
   },
   "dependencies": {
     "@embedpdf/pdfium": "^2.14.3",

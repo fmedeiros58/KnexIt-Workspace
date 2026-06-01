@@ -167,12 +167,12 @@ function createPdfRenderWindow(input: {
   }
 
   for (const pageNumber of visible) {
-    for (const offset of [1, 2, 3, 4, 5]) {
+    for (const offset of [1, 2, 3]) {
       addBoundedPageNumber(warmup, pageNumber - offset, pageCount);
       addBoundedPageNumber(warmup, pageNumber + offset, pageCount);
     }
 
-    for (const offset of [6, 7, 8, 9, 10]) {
+    for (const offset of [4, 5, 6]) {
       addBoundedPageNumber(preload, pageNumber - offset, pageCount);
       addBoundedPageNumber(preload, pageNumber + offset, pageCount);
     }
@@ -204,7 +204,7 @@ function getPageRenderPriorityForWindow(input: {
   if (input.isActivePage) return 100;
   if (input.isVisiblePage) return 90;
   if (input.isWarmupPage) return 82;
-  if (input.isPreloadPage) return 58;
+  if (input.isPreloadPage) return 32;
   return 10;
 }
 
@@ -218,7 +218,8 @@ function resolvePageRenderPhaseForWindow(input: {
   /**
    * Não rebaixar a geometria visual da página para interactive-preview.
    *
-   * O PdfPageCanvas já recebe isZooming/isScrolling e sabe adiar a renderização
+   * O renderizador por tiles recebe isZooming/isScrolling e sabe preservar
+   * a camada visual atual durante a interação.
    * pesada durante o gesto. Se o Shell também troca a fase da página para
    * interactive-preview, a text layer pode ser desmontada e a página pode ficar
    * sem texto em zoom alto.
@@ -652,11 +653,11 @@ function PdfReaderShellContent({
 
   const shouldRenderPageDuringZoom = useCallback(
     (pageNumber: number) => {
-      if (!isZoomGestureActive) return true;
+      if (!isZoomGestureActive) return false;
       return (
         pageNumber === page ||
         visiblePageNumbers.has(pageNumber) ||
-        Math.abs(pageNumber - page) <= 8
+        Math.abs(pageNumber - page) <= 3
       );
     },
     [isZoomGestureActive, page, visiblePageNumbers],
@@ -2319,7 +2320,7 @@ function PdfReaderShellContent({
           >
             {session ? (
               translationViewMode === "side-by-side" ? (
-                <div className="flex w-fit min-w-full flex-col gap-5">
+                <div className="flex w-fit min-w-full flex-col gap-2">
                   <div className="grid grid-cols-1 gap-3 px-2 xl:grid-cols-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-zinc-600">
                       Original
@@ -2373,7 +2374,6 @@ function PdfReaderShellContent({
                       isActivePage ||
                       isVisiblePage ||
                       isWarmupPage ||
-                      isPreloadPage ||
                       shouldRenderPageNow;
 
                     return (
@@ -2425,7 +2425,7 @@ function PdfReaderShellContent({
                 </div>
               ) : (
                 <>
-                  <div className="flex w-fit min-w-full flex-col gap-5">
+                  <div className="flex w-fit min-w-full flex-col gap-1">
                     {pageNumbers.map((pageNumber) => {
                       const isActivePage = pageNumber === page;
                       const isVisiblePage =
@@ -2472,7 +2472,6 @@ function PdfReaderShellContent({
                         isActivePage ||
                         isVisiblePage ||
                         isWarmupPage ||
-                        isPreloadPage ||
                         shouldRenderPageNow;
 
                       return (
@@ -2480,7 +2479,7 @@ function PdfReaderShellContent({
                           key={`knexread-page-${pageNumber}`}
                           ref={(node) => setPageNodeRef(pageNumber, node)}
                           data-page-number={pageNumber}
-                          className="relative scroll-mt-4"
+                          className="relative scroll-mt-2"
                         >
                           {showTranslationPageInMain ? (
                             <PdfTranslationPage
@@ -2516,7 +2515,7 @@ function PdfReaderShellContent({
                               onNavigateToPage={(nextPage) => goToPageAndScroll(nextPage)}
                             />
                           )}
-                          <p className="mt-1 text-center text-xs text-zinc-600">
+                          <p className="mt-0.5 text-center text-xs leading-4 text-zinc-600">
                             Página {pageNumber} / {pageCount}
                           </p>
                         </div>

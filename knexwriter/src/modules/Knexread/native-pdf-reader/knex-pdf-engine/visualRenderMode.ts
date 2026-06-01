@@ -10,8 +10,7 @@ const VISUAL_RENDER_MODE_KEYS = [
 function normalizeKnexPdfVisualRenderMode(
   value: unknown,
 ): KnexPdfVisualRenderMode | null {
-  return value === "page-canvas" ||
-    value === "tiled-canvas" ||
+  return value === "tiled-canvas" ||
     value === "server-tiled" ||
     value === "auto-professional"
     ? value
@@ -50,10 +49,16 @@ function getEnvVisualRenderMode(): KnexPdfVisualRenderMode | null {
 }
 
 export function getKnexPdfVisualRenderMode(): KnexPdfVisualRenderMode {
+  const envMode = getEnvVisualRenderMode();
+
+  if (envMode === "tiled-canvas") {
+    return envMode;
+  }
+
   return (
     getGlobalVisualRenderMode() ??
     getLocalStorageVisualRenderMode() ??
-    getEnvVisualRenderMode() ??
-    "page-canvas"
+    envMode ??
+    "tiled-canvas"
   );
 }

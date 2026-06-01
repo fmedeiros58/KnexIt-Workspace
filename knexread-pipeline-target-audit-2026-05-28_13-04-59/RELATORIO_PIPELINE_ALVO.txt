@@ -1,0 +1,23 @@
+﻿RELATÓRIO ALVO DO PIPELINE KNEXREAD/PDF
+Data: 05/28/2026 13:04:59
+BaseRoot: C:\knexit-workspace\knexit-workspace
+ScanRoot: C:\knexit-workspace\knexit-workspace\src
+
+VEREDITO: INCONCLUSIVO
+PDFJS total: 
+PDFIUM total: 
+
+ARQUIVOS CORE
+
+TOP 40 GERAL
+
+ARQUIVOS GERADOS
+- C:\knexit-workspace\knexit-workspace\knexread-pipeline-target-audit-2026-05-28_13-04-59\RELATORIO_PIPELINE_ALVO.txt
+- C:\knexit-workspace\knexit-workspace\knexread-pipeline-target-audit-2026-05-28_13-04-59\ranking_pipeline_alvo.csv
+- C:\knexit-workspace\knexit-workspace\knexread-pipeline-target-audit-2026-05-28_13-04-59\hits_pipeline_alvo.csv
+
+INTERPRETAÇÃO
+- O arquivo mais relevante é o primeiro Core=SIM com Engine=PDFJS e Render/Tiles/Scale maiores que zero.
+- Se PDFium aparecer sem Core=SIM, provavelmente é legado, fallback ou backend não ativo.
+- Para duplicação de tiles, procure no arquivo core por renderTask, cancel(), generationId/renderVersion e cache.
+- Para nitidez, procure no arquivo core por outputScale, canvas.width, canvas.height, devicePixelRatio, imageSmoothingEnabled e TextLayer.

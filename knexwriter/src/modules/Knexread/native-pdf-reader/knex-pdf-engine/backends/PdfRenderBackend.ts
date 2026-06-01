@@ -12,7 +12,7 @@ import type { KnexPdfPageTile } from "../rendering/TileGridCalculator";
  * Origem comum para abertura de documento em qualquer backend.
  *
  * PDF.js pode usar `pdf` já carregado ou `data`.
- * PDFium/MuPDF devem usar preferencialmente `data`.
+ * PDFium deve usar preferencialmente `data`.
  */
 export type PdfBackendDocumentSource = {
   id: string;
@@ -22,7 +22,7 @@ export type PdfBackendDocumentSource = {
 
   /**
    * Bytes do PDF.
-   * Use Uint8Array porque PDFium/MuPDF/WASM normalmente trabalham melhor assim.
+   * Use Uint8Array porque PDFium/WASM normalmente trabalha melhor assim.
    */
   data?: Uint8Array;
 
@@ -41,7 +41,7 @@ export type PdfBackendDocumentSource = {
 export type PdfBackendCapabilities = {
   /**
    * Indica se o backend está realmente disponível no runtime atual.
-   * Exemplo: PDFium WASM carregado, MuPDF instalado, PDF.js importado etc.
+   * Exemplo: PDFium WASM carregado, PDF.js importado etc.
    */
   available: boolean;
 
@@ -90,7 +90,7 @@ export type PdfBackendCapabilities = {
    *
    * canvas sem texto
    * +
-   * PdfVisualTextLayer visível
+   * camada textual semantica invisivel
    *
    * Se false/undefined, o frontend NÃO deve ativar texto visual sobre o canvas,
    * para evitar duplicação.
@@ -112,7 +112,6 @@ export type PdfBackendDocumentHandle = {
    * Objeto nativo do backend:
    * - PDF.js document;
    * - PDFium document;
-   * - MuPDF document;
    * - outro handle futuro.
    */
   backendDocument?: unknown;
@@ -182,11 +181,11 @@ export type PdfBackendRenderPageInput = {
    *
    * false:
    *   solicita que o backend renderize a página sem texto rasterizado.
-   *   Esse modo é necessário para o hybrid-visual profissional:
+   *   Esse modo é necessário para o tile renderer profissional:
    *
    *   canvas sem texto
    *   +
-   *   PdfVisualTextLayer visível
+   *   camada textual semantica invisivel
    *
    * Importante:
    * Nem todo backend consegue cumprir isso.
@@ -267,7 +266,7 @@ export interface PdfRenderBackend {
 
   /**
    * Nome humano para debug/UI.
-   * Exemplo: "PDF.js", "PDFium WASM", "MuPDF WASM".
+   * Exemplo: "PDF.js", "PDFium WASM".
    */
   readonly label?: string;
 
@@ -277,7 +276,6 @@ export interface PdfRenderBackend {
    *
    * Sugestão:
    * pdfium: 90
-   * mupdf: 80
    * pdfjs: 10
    */
   readonly priority?: number;
@@ -295,7 +293,7 @@ export interface PdfRenderBackend {
    * - pode receber `pdf` já aberto;
    * - ou futuramente abrir por `data`.
    *
-   * Para PDFium/MuPDF:
+   * Para PDFium:
    * - deve receber `data`.
    */
   createDocumentHandle?(
@@ -364,7 +362,7 @@ export interface PdfRenderBackend {
 
   /**
    * Fecha/libera documento do backend.
-   * Importante para PDFium/MuPDF/WASM.
+   * Importante para PDFium/WASM.
    */
   destroyDocument?(document: PdfBackendDocumentHandle): Promise<void> | void;
 

@@ -23,7 +23,7 @@ export type PdfInteractionIdleListener = (
 export type PdfInteractionIdleSubscribeOptions = {
   /**
    * Quando true, chama o listener também se a interação já estiver idle.
-   * Use com cuidado no PdfPageCanvas para evitar loop de render.
+   * Use com cuidado no visual por tiles para evitar loop de render.
    */
   notifyIfAlreadyIdle?: boolean;
 

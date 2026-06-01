@@ -4,7 +4,7 @@ import {
   buildKnexPdfTileRenderPlan,
   type KnexPdfRenderedPage as RenderedPdfPage,
 } from "../knex-pdf-engine";
-import type { PdfCanvasTextRenderState } from "./PdfPageCanvas";
+import type { PdfTileRenderState } from "./pdf-tiles/PdfTileCanvasTypes";
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
   return typeof value === "number" && Number.isFinite(value)
@@ -34,7 +34,7 @@ export function PdfDebugOverlay({
 }: {
   pageNumber: number;
   renderedPage: RenderedPdfPage | null;
-  canvasState: PdfCanvasTextRenderState | null;
+  canvasState: PdfTileRenderState | null;
   textBlockCount: number;
   annotationCount: number;
   highlightCount: number;

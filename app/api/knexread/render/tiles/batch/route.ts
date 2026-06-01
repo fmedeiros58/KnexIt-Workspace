@@ -96,13 +96,16 @@ export async function POST(request: Request) {
   }
 
   if (!isKnexReadTileRendererEnabled()) {
+    const reason =
+      "native-server-renderer-unavailable:server-tile-renderer-disabled";
+
     return NextResponse.json(
       {
         ok: false,
         fallback: "tiled-canvas",
-        reason: "server-tile-renderer-disabled",
+        reason,
         tiles: validated.map(() =>
-          createTileFallbackResponse("server-tile-renderer-disabled"),
+          createTileFallbackResponse(reason),
         ),
       } satisfies KnexReadServerTileBatchResponse,
       { status: 503 },

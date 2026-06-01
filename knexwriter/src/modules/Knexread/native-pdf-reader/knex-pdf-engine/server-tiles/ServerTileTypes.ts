@@ -67,7 +67,7 @@ export type KnexReadServerTileReadyResponse = {
 export type KnexReadServerTileFallbackResponse = {
   ok: false;
   status: "fallback-required" | "error";
-  fallback: "tiled-canvas" | "page-canvas";
+  fallback: "tiled-canvas";
   reason: string;
   retryable: boolean;
 };
@@ -83,7 +83,7 @@ export type KnexReadServerTileBatchRequest = {
 export type KnexReadServerTileBatchResponse = {
   ok: boolean;
   tiles: KnexReadServerTileResponse[];
-  fallback?: "tiled-canvas" | "page-canvas";
+  fallback?: "tiled-canvas";
   reason?: string;
 };
 
@@ -103,7 +103,7 @@ export type NativePdfTileRendererRenderedTile = {
 };
 
 export interface NativePdfTileRenderer {
-  id: "pdfium-native" | "mupdf" | "poppler" | string;
+  id: "pdfium-native" | "poppler" | string;
   getPageInfo(input: {
     pdfFileId?: string;
     documentId: string;

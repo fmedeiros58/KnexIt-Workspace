@@ -4,7 +4,7 @@ import type {
 } from "../tiles/TileRenderTypes";
 
 export type ServerTileFallbackDecision = {
-  renderMode: "server-tiled" | "tiled-canvas" | "page-canvas";
+  renderMode: "server-tiled" | "tiled-canvas";
   fallbackUsed: boolean;
   reason?: KnexPdfServerTileFallbackReason | string;
 };
@@ -16,13 +16,6 @@ export function resolveServerTileFallbackPolicy(input: {
   reason?: KnexPdfServerTileFallbackReason | string;
 }): ServerTileFallbackDecision {
   const localTilesAvailable = input.localTilesAvailable !== false;
-
-  if (input.visualRenderMode === "page-canvas") {
-    return {
-      renderMode: "page-canvas",
-      fallbackUsed: false,
-    };
-  }
 
   if (input.visualRenderMode === "tiled-canvas") {
     return {
@@ -47,7 +40,7 @@ export function resolveServerTileFallbackPolicy(input: {
   }
 
   return {
-    renderMode: "page-canvas",
+    renderMode: "tiled-canvas",
     fallbackUsed: true,
     reason: input.reason ?? "server-disabled",
   };

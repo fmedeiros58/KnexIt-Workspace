@@ -15,8 +15,6 @@ import {
   extractKnexPdfTextBlocksWithBackend,
   getKnexPdfDocumentHandleWithBackend,
   getKnexPdfVisualRenderMode,
-  resolveKnexPdfRenderPolicy,
-  type KnexPdfCanvasTextSuppressionStatus,
   type KnexPdfRenderPhase,
   type KnexPdfPageLinkAnnotation as PdfPageLinkAnnotation,
   type KnexPdfRenderedPage as RenderedPdfPage,
@@ -26,14 +24,13 @@ import {
 } from "../knex-pdf-engine";
 import { PdfAnnotationLayer } from "./PdfAnnotationLayer";
 import { PdfDebugOverlay } from "./PdfDebugOverlay";
-import { PdfExperimentalVisualTextLayer } from "./PdfExperimentalVisualTextLayer";
 import { PdfHighlightLayer } from "./PdfHighlightLayer";
 import { PdfInvisibleTextLayer } from "./PdfInvisibleTextLayer";
-import {
-  type PdfCanvasTextRenderState,
-} from "./PdfPageCanvas";
-import { PdfRasterLayer } from "./PdfRasterLayer";
+import { PdfTextLayer } from "./PdfTextLayer";
+import { type PdfTileRenderState } from "./pdf-tiles/PdfTileCanvasTypes";
 import { PdfTiledPageCanvas } from "./pdf-tiles/PdfTiledPageCanvas";
+import { PdfModularPageStage } from "../../rendering/composition/PdfModularPageStage";
+import { PdfPageComposition } from "../../rendering/composition/PdfPageComposition";
 
 type PdfPageBaseSize = {
   width: number;
@@ -58,15 +55,7 @@ const LINK_EXTRACTION_IDLE_DELAY_MS = 180;
  * layoutScale.
  */
 const TEXT_LAYER_BASE_SCALE = 1;
-const PAGEVIEW_AUDIT_VERSION = "hybrid-visual-audit-003";
-const EXPERIMENTAL_VISUAL_TEXT_LAYER_FLAG =
-  "KNEX_PDF_EXPERIMENTAL_VISUAL_TEXT_LAYER";
-const HYBRID_VISUAL_TEXT_LAYER_ENABLE_FLAG =
-  "KNEX_PDF_ENABLE_HYBRID_VISUAL_TEXT_LAYER";
-const HYBRID_VISUAL_TEXT_LAYER_DISABLE_FLAG =
-  "KNEX_PDF_DISABLE_HYBRID_VISUAL_TEXT_LAYER";
-const HYBRID_VISUAL_TEXT_LAYER_FORCE_FLAG =
-  "KNEX_PDF_FORCE_VISUAL_TEXT_LAYER";
+const PAGEVIEW_AUDIT_VERSION = "tile-only-audit-001";
 
 function safeNumber(
   value: number | null | undefined,
@@ -204,24 +193,6 @@ function getGlobalBoolean(key: string): boolean {
   return value === true || value === "true" || value === "1";
 }
 
-function isExperimentalVisualTextLayerAllowed(): boolean {
-  return getGlobalBoolean(EXPERIMENTAL_VISUAL_TEXT_LAYER_FLAG);
-}
-
-function isHybridVisualTextLayerEnabled(): boolean {
-  return (
-    isExperimentalVisualTextLayerAllowed() &&
-    getGlobalBoolean(HYBRID_VISUAL_TEXT_LAYER_ENABLE_FLAG)
-  );
-}
-
-function isForcedVisualTextLayerEnabled(): boolean {
-  return (
-    isExperimentalVisualTextLayerAllowed() &&
-    getGlobalBoolean(HYBRID_VISUAL_TEXT_LAYER_FORCE_FLAG)
-  );
-}
-
 function isKnexPdfPageDebugEnabled(): boolean {
   return (
     getGlobalBoolean("KNEX_PDF_DEBUG_RENDER") ||
@@ -230,64 +201,80 @@ function isKnexPdfPageDebugEnabled(): boolean {
   );
 }
 
-function getCanvasTextMode(
-  state: PdfCanvasTextRenderState | null,
-): string | undefined {
-  return (
-    state as (PdfCanvasTextRenderState & { canvasTextMode?: string }) | null
-  )?.canvasTextMode;
+type VisualTextOverrideFlags = {
+  forceVisualTextLayer: boolean;
+  hideCanvasTextWhenVisualLayerIsActive: boolean;
+};
+
+function readVisualTextOverrideFlags(): VisualTextOverrideFlags {
+  return {
+    forceVisualTextLayer: getGlobalBoolean("KNEX_PDF_FORCE_VISUAL_TEXT_LAYER"),
+    hideCanvasTextWhenVisualLayerIsActive: getGlobalBoolean(
+      "KNEX_PDF_HIDE_CANVAS_TEXT_WHEN_VISUAL",
+    ),
+  };
 }
 
-function getCanvasTextSuppressionStatus(
-  state: PdfCanvasTextRenderState | null,
-): string | undefined {
-  return (
-    state as
-      | (PdfCanvasTextRenderState & { textSuppressionStatus?: string })
-      | null
-  )?.textSuppressionStatus;
-}
-
-function hasConfirmedTextlessCanvas(input: {
-  renderedPage: RenderedPdfPage | null;
-  canvasTextRenderState: PdfCanvasTextRenderState | null;
+/**
+ * Determina se o pipeline modular (HTML text sobre canvas) deve ser ativado.
+ * 
+ * Ativação automática (padrão):
+ * - Ativado para PDFs não-legados (PDF.js 3.x+)
+ * - Desativado para PDFs legados (PDF.js 2.x) para compatibilidade
+ * 
+ * Pode ser forçado via flags globais para testes/debug.
+ */
+function shouldUseModularPagePipeline(input: {
+  isLegacyPdf: boolean;
+  forceViaGlobal?: boolean;
 }): boolean {
-  const canvasTextMode = getCanvasTextMode(input.canvasTextRenderState);
-  const textSuppressionStatus = getCanvasTextSuppressionStatus(
-    input.canvasTextRenderState,
-  );
-
+  // Se forçado globalmente, usar esse valor
   if (
-    input.canvasTextRenderState?.renderText !== false ||
-    canvasTextMode !== "without-text"
-  ) {
-    return false;
-  }
-
-  if (
-    input.renderedPage?.renderMode === "hybrid-visual" &&
-    input.renderedPage?.textLayerMode === "visual"
+    getGlobalBoolean("KNEX_PDF_USE_MODULAR_PAGE_PIPELINE") ||
+    getGlobalBoolean("KNEX_PDF_FORCE_SINGLE_CANVAS_PAGE")
   ) {
     return true;
   }
 
-  return textSuppressionStatus === "applied";
+  // Ativar automaticamente para PDFs não-legados
+  return !input.isLegacyPdf;
 }
 
-function areScalesCompatible(
-  a: number | null | undefined,
-  b: number | null | undefined,
-): boolean {
-  if (typeof a !== "number" || typeof b !== "number") return false;
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-
-  return Math.abs(a - b) <= 0.01;
+function shouldRequestVisualTextLayer(input: {
+  semanticLayersEnabled: boolean;
+  effectiveShowTextLayer: boolean;
+  forceVisualTextLayer: boolean;
+}): boolean {
+  return (
+    input.forceVisualTextLayer &&
+    input.semanticLayersEnabled &&
+    input.effectiveShowTextLayer
+  );
 }
 
-function hasValidTextBlockScale(value: number | null | undefined): boolean {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
+function shouldEnableVisualTextLayer(input: {
+  visualTextLayerRequested: boolean;
+  blockCount: number;
+}): boolean {
+  /*
+   * A camada visual só é montada quando os blocos existem.
+   * Mas o canvas deve parar de desenhar texto assim que o modo visual for
+   * solicitado, antes mesmo da extração textual terminar. Isso evita que o
+   * canvas seja renderizado com texto e depois receba a camada visual por cima,
+   * causando duplicação.
+   */
+  return input.visualTextLayerRequested && input.blockCount > 0;
 }
 
+function shouldHideCanvasTextWhenVisualLayerIsRequested(input: {
+  visualTextLayerRequested: boolean;
+  hideCanvasTextWhenVisualLayerIsActive: boolean;
+}): boolean {
+  return (
+    input.visualTextLayerRequested &&
+    input.hideCanvasTextWhenVisualLayerIsActive
+  );
+}
 function scaleTextBlockToCss(
   block: PdfTextBlock,
   scale: number,
@@ -306,280 +293,15 @@ function scaleTextBlockToCss(
   };
 }
 
-type HybridVisualFitness = {
-  allowed: boolean;
-  reason: string;
-  blockCount: number;
-  averageFontSize: number;
-  tinyBlockRatio: number;
-  smallFontRatio: number;
-  largeFontRatio: number;
-  pageCoverage: number;
-};
-
-function analyzeHybridVisualFitness(input: {
-  blocks: PdfTextBlock[];
-  blocksScale: number | null;
-  layoutScale: number;
-  averageTextConfidence?: number;
-}): HybridVisualFitness {
-  if (!hasValidTextBlockScale(input.blocksScale)) {
-    return {
-      allowed: false,
-      reason: "escala-textual-invalida",
-      blockCount: input.blocks.length,
-      averageFontSize: 0,
-      tinyBlockRatio: 1,
-      smallFontRatio: 1,
-      largeFontRatio: 0,
-      pageCoverage: 0,
-    };
-  }
-
-  const blocks = input.blocks.filter((block) => {
-    return (
-      Boolean(block.text?.trim()) &&
-      safeNumber(block.width, 0) > 0 &&
-      safeNumber(block.height, 0) > 0
-    );
-  });
-
-  const blockCount = blocks.length;
-
-  if (blockCount === 0) {
-    return {
-      allowed: false,
-      reason: "sem-blocos-textuais",
-      blockCount: 0,
-      averageFontSize: 0,
-      tinyBlockRatio: 1,
-      smallFontRatio: 1,
-      largeFontRatio: 0,
-      pageCoverage: 0,
-    };
-  }
-
-  let totalFontSize = 0;
-  let tinyCount = 0;
-  let smallCount = 0;
-  let largeCount = 0;
-  let totalArea = 0;
-
-  for (const block of blocks) {
-    const fontSize = safeNumber(block.fontSize, 0);
-    const height = safeNumber(block.height, 0);
-    const width = safeNumber(block.width, 0);
-
-    totalFontSize += fontSize;
-    totalArea += Math.max(0, width * height);
-
-    if (fontSize < 6.5 || height < 4) {
-      tinyCount += 1;
-    }
-
-    if (fontSize < 9) {
-      smallCount += 1;
-    }
-
-    if (fontSize >= 12 || height >= 11) {
-      largeCount += 1;
-    }
-  }
-
-  const averageFontSize = totalFontSize / Math.max(1, blockCount);
-  const tinyBlockRatio = tinyCount / Math.max(1, blockCount);
-  const smallFontRatio = smallCount / Math.max(1, blockCount);
-  const largeFontRatio = largeCount / Math.max(1, blockCount);
-  const pageCoverage = totalArea;
-
-  const confidence = safeNumber(input.averageTextConfidence, 0);
-
-  /**
-   * Regra central:
-   * O HTML visual não deve substituir o PDFium em páginas densas com texto
-   * pequeno. Nesses casos, o rasterizador do PDFium é mais fiel, principalmente
-   * em zoom baixo.
-   */
-  if (confidence < 0.55) {
-    return {
-      allowed: false,
-      reason: "confianca-baixa",
-      blockCount,
-      averageFontSize,
-      tinyBlockRatio,
-      smallFontRatio,
-      largeFontRatio,
-      pageCoverage,
-    };
-  }
-
-  if (blockCount > 220 && averageFontSize < 10.5) {
-    return {
-      allowed: false,
-      reason: "pagina-densa-com-fonte-pequena",
-      blockCount,
-      averageFontSize,
-      tinyBlockRatio,
-      smallFontRatio,
-      largeFontRatio,
-      pageCoverage,
-    };
-  }
-
-  if (tinyBlockRatio > 0.35) {
-    return {
-      allowed: false,
-      reason: "muitos-blocos-minusculos",
-      blockCount,
-      averageFontSize,
-      tinyBlockRatio,
-      smallFontRatio,
-      largeFontRatio,
-      pageCoverage,
-    };
-  }
-
-  if (blockCount > 120 && smallFontRatio > 0.6 && largeFontRatio < 0.25) {
-    return {
-      allowed: false,
-      reason: "texto-corrido-pequeno",
-      blockCount,
-      averageFontSize,
-      tinyBlockRatio,
-      smallFontRatio,
-      largeFontRatio,
-      pageCoverage,
-    };
-  }
-
-  /**
-   * Liberar visual HTML apenas para páginas com baixa densidade ou predominância
-   * de texto grande, como capas, folhas de rosto, slides ou páginas simples.
-   */
-  const allowed =
-    blockCount <= 140 ||
-    averageFontSize >= 11.5 ||
-    largeFontRatio >= 0.35;
-
-  return {
-    allowed,
-    reason: allowed ? "perfil-visual-seguro" : "perfil-visual-nao-seguro",
-    blockCount,
-    averageFontSize,
-    tinyBlockRatio,
-    smallFontRatio,
-    largeFontRatio,
-    pageCoverage,
-  };
-}
-
-function canRequestHybridVisualCanvas(input: {
-  activeBackend: string;
-  renderPhase: KnexPdfRenderPhase;
-  isZooming: boolean;
-  isScrolling: boolean;
-  isWarmupPage: boolean;
-  isActivePage: boolean;
-  isNearViewport: boolean;
-  priority: boolean;
-  blocks: PdfTextBlock[];
-  blocksScale: number | null;
-  layoutScale: number;
-  averageTextConfidence?: number;
-  forceVisualTextLayer: boolean;
-  enableHybridVisualTextLayer: boolean;
-  visualFitness: HybridVisualFitness;
-}): boolean {
-  if (input.activeBackend === "pdfjs") return false;
-
-  if (getGlobalBoolean(HYBRID_VISUAL_TEXT_LAYER_DISABLE_FLAG)) {
-    return false;
-  }
-
-  if (input.renderPhase !== "settled-final") return false;
-  if (input.isZooming || input.isScrolling || input.isWarmupPage) return false;
-
-  const isPreparedBand =
-    input.isActivePage ||
-    input.isNearViewport ||
-    input.priority;
-
-  if (!isPreparedBand) return false;
-
-  /**
-   * Mudança importante:
-   * Não pedimos mais canvas sem texto como padrão universal.
-   *
-   * Antes, páginas densas eram renderizadas sem texto e ficavam dependentes da
-   * camada HTML. Em artigos científicos e textos pequenos, isso gerava letras
-   * minúsculas, traços, apagamento visual e sumiço ao trocar zoom.
-   *
-   * Agora, só pedimos canvas sem texto quando a página já possui blocos
-   * extraídos e o perfil visual é seguro.
-   */
-  if (input.blocks.length === 0 || !hasValidTextBlockScale(input.blocksScale)) {
-    return false;
-  }
-
-  if (input.forceVisualTextLayer) {
-    return true;
-  }
-
-  if (!input.enableHybridVisualTextLayer) {
-    return false;
-  }
-
-  return input.visualFitness.allowed;
-}
-
-function canShowHybridVisualTextLayer(input: {
-  renderedPage: RenderedPdfPage | null;
-  canvasTextRenderState: PdfCanvasTextRenderState | null;
-  blocks: PdfTextBlock[];
-  blocksScale: number | null;
-  layoutScale: number;
-  renderPhase: KnexPdfRenderPhase;
-  isZooming: boolean;
-  isScrolling: boolean;
-  isWarmupPage: boolean;
-  forceVisualTextLayer: boolean;
-  shouldRequestHybridVisualCanvas: boolean;
-}): boolean {
-  if (input.blocks.length === 0) return false;
-  if (safeNumber(input.blocksScale, 0) <= 0) return false;
-
-  /**
-   * A camada vetorial visual só pode aparecer quando o canvas já foi confirmado
-   * como canvas sem texto. Isso elimina a sobreposição: se o canvas atual ainda
-   * for antigo, com texto rasterizado, o vetorial fica aguardando.
-   */
-  return hasConfirmedTextlessCanvas({
-    renderedPage: input.renderedPage,
-    canvasTextRenderState: input.canvasTextRenderState,
-  });
-}
-
-
-
 /**
  * PdfPageView
  * ------------------------------------------------------------
- * Modo profissional real:
+ * Visual oficial: tiles.
  *
- * hybrid-semantic:
- *   canvas completo, com texto rasterizado
- *   +
- *   camada textual semântica invisível
- *
- * hybrid-visual:
- *   canvas sem texto rasterizado
- *   +
- *   camada textual visual HTML/CSS
- *   +
- *   camada semântica invisível para seleção
- *
- * Regra de segurança:
- *   nunca exibir texto vetorial visível quando o canvas ainda contém texto.
+ * A camada textual invisível continua responsável por seleção, cópia,
+ * busca e ancoragem. A camada textual visual é montada por padrão quando
+ * há blocos de texto disponíveis, para melhorar a nitidez do texto sem
+ * depender apenas da rasterização do canvas.
  */
 export function PdfPageView({
   session,
@@ -636,10 +358,6 @@ export function PdfPageView({
   const engine = useKnexPdfEngine();
   const engineState = useKnexPdfEngineState();
   const visualRenderMode = getKnexPdfVisualRenderMode();
-  const shouldUseTiledCanvas =
-    visualRenderMode === "tiled-canvas" ||
-    visualRenderMode === "server-tiled" ||
-    visualRenderMode === "auto-professional";
   const rootRef = useRef<HTMLDivElement | null>(null);
   const textExtractionTicketRef = useRef(0);
   const linkExtractionTicketRef = useRef(0);
@@ -652,21 +370,21 @@ export function PdfPageView({
   const [renderedPage, setRenderedPage] = useState<RenderedPdfPage | null>(null);
   const [blocks, setBlocks] = useState<PdfTextBlock[]>([]);
   const [blocksScale, setBlocksScale] = useState<number | null>(null);
-  const [textExtractionReady, setTextExtractionReady] = useState(false);
   const [canvasTextRenderState, setCanvasTextRenderState] =
-    useState<PdfCanvasTextRenderState | null>(null);
+    useState<PdfTileRenderState | null>(null);
   const [links, setLinks] = useState<PdfPageLinkAnnotation[]>([]);
   const [isNearViewport, setIsNearViewport] = useState(priority);
   const [pageSize, setPageSize] = useState<PdfPageBaseSize | null>(() =>
     readCachedPageBaseSize(session, pageNumber),
   );
-  const [forceVisualTextLayer, setForceVisualTextLayer] = useState(() =>
-    isForcedVisualTextLayerEnabled(),
-  );
-  const [enableHybridVisualTextLayer, setEnableHybridVisualTextLayer] =
-    useState(() => isHybridVisualTextLayerEnabled());
   const [debugOverlayEnabled, setDebugOverlayEnabled] = useState(() =>
     isKnexPdfPageDebugEnabled(),
+  );
+  const [visualTextOverrideFlags, setVisualTextOverrideFlags] = useState(
+    readVisualTextOverrideFlags,
+  );
+  const [modularPagePipelineEnabled, setModularPagePipelineEnabled] = useState(
+    () => shouldUseModularPagePipeline({ isLegacyPdf: session.isLegacy }),
   );
 
   const layoutScale = useMemo(
@@ -721,16 +439,18 @@ export function PdfPageView({
   );
 
   const isPreloadRender = safeNumber(renderPriority, 0) >= 50;
-  const canRenderCanvas =
-    shouldRenderCanvas &&
-    (isActivePage ||
-      isWarmupPage ||
-      priority ||
-      isNearViewport ||
-      isPreloadRender);
+  const shouldMountCanvasNow = shouldRenderCanvas || isNearViewport;
+  const [holdCanvasDuringInteraction, setHoldCanvasDuringInteraction] =
+    useState(shouldMountCanvasNow);
+  const canRenderCanvas = shouldMountCanvasNow || holdCanvasDuringInteraction;
 
   const shouldLoadPageGeometry =
-    isActivePage || isWarmupPage || isNearViewport || priority;
+    shouldMountCanvasNow ||
+    isActivePage ||
+    isWarmupPage ||
+    isNearViewport ||
+    priority ||
+    isPreloadRender;
 
   const semanticLayersEnabled =
     renderPhase === "settled-final" &&
@@ -741,162 +461,71 @@ export function PdfPageView({
   const effectiveShowTextLayer =
     semanticLayersEnabled && (showTextLayer || enableSelection);
 
-  const devicePixelRatio =
-    typeof globalThis.devicePixelRatio === "number"
-      ? globalThis.devicePixelRatio
-      : 1;
+  const visualTextLayerRequested =
+    shouldRequestVisualTextLayer({
+      semanticLayersEnabled,
+      effectiveShowTextLayer,
+      forceVisualTextLayer: visualTextOverrideFlags.forceVisualTextLayer,
+    }) ||
+    (modularPagePipelineEnabled &&
+      semanticLayersEnabled &&
+      effectiveShowTextLayer);
 
-  const averageTextConfidence = useMemo(() => {
-    if (blocks.length === 0) return undefined;
+  const hasVisualTextBlocks = textBlocksInCssSpace.length > 0;
 
-    const total = blocks.reduce(
-      (sum, block) => sum + safeNumber(block.confidence, 0),
-      0,
+  const visualTextLayerEnabled = shouldEnableVisualTextLayer({
+    visualTextLayerRequested,
+    blockCount: textBlocksInCssSpace.length,
+  });
+
+  /*
+   * Regra refinada:
+   *
+   * Só removemos o texto do canvas quando já existem blocos visuais para
+   * desenhar a camada HTML. Se visualRequested=true, mas blockCount=0,
+   * mantemos o texto no canvas para evitar páginas sem texto.
+   *
+   * Quando os blocos chegam, canvasRenderVersion muda e força uma nova
+   * geração dos tiles sem texto, permitindo o híbrido real.
+   */
+  const shouldHideCanvasTextForModularPipeline =
+    modularPagePipelineEnabled && visualTextLayerRequested && hasVisualTextBlocks;
+
+  const shouldRenderCanvasText =
+    !hasVisualTextBlocks ||
+    !(
+      shouldHideCanvasTextForModularPipeline ||
+      shouldHideCanvasTextWhenVisualLayerIsRequested({
+        visualTextLayerRequested,
+        hideCanvasTextWhenVisualLayerIsActive:
+          visualTextOverrideFlags.hideCanvasTextWhenVisualLayerIsActive,
+      })
     );
 
-    return total / blocks.length;
-  }, [blocks]);
-
-  const hybridVisualFitness = useMemo(
-    () =>
-      analyzeHybridVisualFitness({
-        blocks,
-        blocksScale,
-        layoutScale,
-        averageTextConfidence,
-      }),
-    [averageTextConfidence, blocks, blocksScale, layoutScale],
-  );
-
-  const shouldRequestHybridVisualCanvas = canRequestHybridVisualCanvas({
-    activeBackend: engineState.activeBackend,
-    renderPhase,
-    isZooming,
-    isScrolling,
-    isWarmupPage,
-    isActivePage,
-    isNearViewport,
-    priority,
-    blocks,
-    blocksScale,
-    layoutScale,
-    averageTextConfidence,
-    forceVisualTextLayer,
-    enableHybridVisualTextLayer,
-    visualFitness: hybridVisualFitness,
-  });
-
-  /**
-   * Quando false, o canvas será renderizado sem texto.
-   *
-   * No modo híbrido visual real, não esperamos mais os blocos chegarem para
-   * pedir o canvas sem texto. Esperar os blocos causava exatamente o flash do
-   * texto original durante a rolagem.
+  /*
+   * Quando a camada visual está ativa, não montamos a camada invisível.
+   * Quando não há blocos visuais, a camada visual não é montada e o canvas
+   * continua com texto, evitando branco/fuga de renderização.
    */
-  const shouldRenderCanvasText = !shouldRequestHybridVisualCanvas;
+  const shouldMountInvisibleTextLayer =
+    semanticLayersEnabled &&
+    effectiveShowTextLayer &&
+    !visualTextLayerEnabled &&
+    !modularPagePipelineEnabled;
 
-  const shouldDelayCanvasUntilTextExtraction =
-    shouldRequestHybridVisualCanvas && !textExtractionReady;
-
-  const canvasRenderVersion = useMemo(
-    () => finalRenderVersion * 10 + (shouldRenderCanvasText ? 0 : 1),
-    [finalRenderVersion, shouldRenderCanvasText],
-  );
-
-  const hasConfirmedCanvasWithoutText = hasConfirmedTextlessCanvas({
-    renderedPage,
-    canvasTextRenderState,
-  });
-
-  const canRenderVectorTextLayer = canShowHybridVisualTextLayer({
-    renderedPage,
-    canvasTextRenderState,
-    blocks,
-    blocksScale,
-    layoutScale,
-    renderPhase,
-    isZooming,
-    isScrolling,
-    isWarmupPage,
-    forceVisualTextLayer,
-    shouldRequestHybridVisualCanvas,
-  });
-
-  const canvasTextSuppressionStatus: KnexPdfCanvasTextSuppressionStatus =
-    "unknown";
-
-  const renderPolicy = useMemo(
-    () =>
-      resolveKnexPdfRenderPolicy({
-        activeBackend: engineState.activeBackend,
-        preferredBackend: engineState.preferredBackend,
-        zoom,
-        devicePixelRatio,
-        renderPhase,
-        isZooming,
-        isScrolling,
-        isActivePage,
-        isPageVisible: isNearViewport,
-        isWarmupPage,
-        textBlockCount: blocks.length,
-        averageTextConfidence,
-        requestedQuality: effectiveCanvasRenderQuality,
-        cssWidth: pageCssWidth,
-        cssHeight: pageCssHeight,
-        canvasTextSuppressionStatus,
-      }),
-    [
-      averageTextConfidence,
-      blocks.length,
-      canvasTextSuppressionStatus,
-      devicePixelRatio,
-      effectiveCanvasRenderQuality,
-      engineState.activeBackend,
-      engineState.preferredBackend,
-      isActivePage,
-      isNearViewport,
-      isScrolling,
-      isWarmupPage,
-      isZooming,
-      pageCssHeight,
-      pageCssWidth,
-      renderPhase,
-      zoom,
-    ],
-  );
-
-  const hasVectorTextBlocks =
-    blocks.length > 0 && blocksScale !== null && blocksScale > 0;
-
-  const canvasTextHiddenForVectorLayer = shouldRequestHybridVisualCanvas;
-
-  const shouldHideCanvasUntilTextlessRender =
-    shouldRequestHybridVisualCanvas &&
-    !shouldDelayCanvasUntilTextExtraction &&
-    !hasConfirmedCanvasWithoutText;
-
-  /**
-   * A extração textual deve ocorrer em paralelo ao primeiro render sem texto.
-   *
-   * O primeiro render normalmente será hybrid-semantic.
-   * Depois de extrair blocos confiáveis, a página ativa poderá pedir
-   * um novo render sem texto e, se confirmado, montar a camada visual.
+  /*
+   * Quando alternamos entre canvas com texto e canvas sem texto, precisamos
+   * forçar nova geração dos tiles. Caso contrário, uma geração antiga com
+   * texto pode permanecer em cache e receber a camada HTML por cima.
    */
-  const textPreparationEnabled =
-    forceVisualTextLayer ||
-    engineState.activeBackend !== "pdfjs" ||
-    (!isZooming && !isScrolling);
+  const canvasRenderVersion =
+    finalRenderVersion + (shouldRenderCanvasText ? 0 : 100_000);
 
   const shouldExtractText =
-    textPreparationEnabled &&
+    !modularPagePipelineEnabled &&
     canRenderCanvas &&
     (isActivePage || isNearViewport || isWarmupPage || priority) &&
-    (forceVisualTextLayer ||
-      effectiveShowTextLayer ||
-      engineState.activeBackend !== "pdfjs" ||
-      renderPolicy.visualTextLayerCandidate ||
-      Boolean(onBlocksChange));
-
+    (effectiveShowTextLayer || Boolean(onBlocksChange));
   const shouldExtractLinks =
     semanticLayersEnabled &&
     canRenderCanvas &&
@@ -904,39 +533,105 @@ export function PdfPageView({
 
   const nearViewportRootMargin = useMemo(() => {
     if (engineState.activeBackend === "pdfjs") {
-      return isZooming ? "2000px 0px 2000px 0px" : "3200px 0px 3200px 0px";
+      return isZooming ? "2200px 0px 2200px 0px" : "3200px 0px 3200px 0px";
     }
 
     return isZooming
-      ? "1800px 0px 1800px 0px"
-      : "2600px 0px 2600px 0px";
+      ? "2000px 0px 2000px 0px"
+      : "3000px 0px 3000px 0px";
   }, [engineState.activeBackend, isZooming]);
 
   useEffect(() => {
+    if (shouldMountCanvasNow) {
+      setHoldCanvasDuringInteraction(true);
+      return;
+    }
+
+    if (isZooming || isScrolling) {
+      return;
+    }
+
+    const releaseTimer = window.setTimeout(() => {
+      setHoldCanvasDuringInteraction(false);
+    }, 1200);
+
+    return () => {
+      window.clearTimeout(releaseTimer);
+    };
+  }, [isScrolling, isZooming, shouldMountCanvasNow]);
+
+  useEffect(() => {
     setCanvasTextRenderState(null);
-    setTextExtractionReady(false);
   }, [pageNumber, session]);
 
   useEffect(() => {
-    const syncForcedVisualTextLayer = () => {
-      setForceVisualTextLayer(isForcedVisualTextLayerEnabled());
-      setEnableHybridVisualTextLayer(isHybridVisualTextLayerEnabled());
+    const syncDebugOverlay = () => {
       setDebugOverlayEnabled(isKnexPdfPageDebugEnabled());
     };
 
-    syncForcedVisualTextLayer();
+    syncDebugOverlay();
 
-    const intervalId = window.setInterval(syncForcedVisualTextLayer, 250);
+    const intervalId = window.setInterval(syncDebugOverlay, 250);
 
-    window.addEventListener("focus", syncForcedVisualTextLayer);
-    window.addEventListener("keydown", syncForcedVisualTextLayer);
+    window.addEventListener("focus", syncDebugOverlay);
+    window.addEventListener("keydown", syncDebugOverlay);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", syncForcedVisualTextLayer);
-      window.removeEventListener("keydown", syncForcedVisualTextLayer);
+      window.removeEventListener("focus", syncDebugOverlay);
+      window.removeEventListener("keydown", syncDebugOverlay);
     };
   }, []);
+
+  useEffect(() => {
+    const syncVisualTextFlags = () => {
+      const next = readVisualTextOverrideFlags();
+
+      setVisualTextOverrideFlags((current) =>
+        current.forceVisualTextLayer === next.forceVisualTextLayer &&
+        current.hideCanvasTextWhenVisualLayerIsActive ===
+          next.hideCanvasTextWhenVisualLayerIsActive
+          ? current
+          : next,
+      );
+    };
+
+    syncVisualTextFlags();
+
+    const intervalId = window.setInterval(syncVisualTextFlags, 250);
+
+    window.addEventListener("focus", syncVisualTextFlags);
+    window.addEventListener("keydown", syncVisualTextFlags);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncVisualTextFlags);
+      window.removeEventListener("keydown", syncVisualTextFlags);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncModularPipelineFlag = () => {
+      const next = shouldUseModularPagePipeline({ isLegacyPdf: session.isLegacy });
+
+      setModularPagePipelineEnabled((current) =>
+        current === next ? current : next,
+      );
+    };
+
+    syncModularPipelineFlag();
+
+    const intervalId = window.setInterval(syncModularPipelineFlag, 250);
+
+    window.addEventListener("focus", syncModularPipelineFlag);
+    window.addEventListener("keydown", syncModularPipelineFlag);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncModularPipelineFlag);
+      window.removeEventListener("keydown", syncModularPipelineFlag);
+    };
+  }, [session.isLegacy]);
 
   useEffect(() => {
     const cachedSize = readCachedPageBaseSize(session, pageNumber);
@@ -1076,8 +771,6 @@ export function PdfPageView({
         .then((nextBlocks) => {
           if (cancelled || ticket !== textExtractionTicketRef.current) return;
 
-          setTextExtractionReady(true);
-
           if (nextBlocks.length > 0) {
             lastGoodTextBlocksRef.current = {
               pageNumber,
@@ -1106,8 +799,6 @@ export function PdfPageView({
         })
         .catch(() => {
           if (cancelled || ticket !== textExtractionTicketRef.current) return;
-
-          setTextExtractionReady(true);
 
           const lastGood = lastGoodTextBlocksRef.current;
 
@@ -1229,27 +920,22 @@ export function PdfPageView({
   ]);
 
   useEffect(() => {
-    if (!getGlobalBoolean("KNEX_PDF_DEBUG_VISUAL_TEXT")) return;
+    if (!getGlobalBoolean("KNEX_PDF_DEBUG_RENDER")) return;
 
     // eslint-disable-next-line no-console
     console.debug("[KnexRead][PdfPageViewAudit]", {
       auditVersion: PAGEVIEW_AUDIT_VERSION,
       pageNumber,
-      forceVisualTextLayer,
       canRenderCanvas,
       shouldExtractText,
-      shouldRequestHybridVisualCanvas,
       shouldRenderCanvasText,
-      shouldDelayCanvasUntilTextExtraction,
-      textExtractionReady,
       canvasRenderVersion,
-      hasConfirmedCanvasWithoutText,
-      shouldHideCanvasUntilTextlessRender,
-      canRenderVectorTextLayer,
       blocksCount: blocks.length,
       blocksScale,
       layoutScale,
       textLayerScale,
+      modularPagePipelineEnabled,
+      visualTextLayerEnabled,
       renderPhase,
       isZooming,
       isScrolling,
@@ -1267,27 +953,22 @@ export function PdfPageView({
     blocksScale,
     canvasTextRenderState,
     canRenderCanvas,
-    canRenderVectorTextLayer,
     canvasRenderVersion,
     engineState.activeBackend,
-    hasConfirmedCanvasWithoutText,
-    forceVisualTextLayer,
     isActivePage,
     isNearViewport,
     isScrolling,
     isWarmupPage,
     isZooming,
     layoutScale,
+    modularPagePipelineEnabled,
     pageNumber,
     renderPhase,
     renderedPage,
-    shouldDelayCanvasUntilTextExtraction,
     shouldExtractText,
-    shouldHideCanvasUntilTextlessRender,
     shouldRenderCanvasText,
-    shouldRequestHybridVisualCanvas,
-    textExtractionReady,
     textLayerScale,
+    visualTextLayerEnabled,
   ]);
 
   const handleRendered = useCallback(
@@ -1299,7 +980,7 @@ export function PdfPageView({
   );
 
   const handleCanvasTextRenderStateChange = useCallback(
-    (state: PdfCanvasTextRenderState) => {
+    (state: PdfTileRenderState) => {
       if (state.pageNumber !== pageNumber) return;
 
       setCanvasTextRenderState(state);
@@ -1438,21 +1119,39 @@ export function PdfPageView({
       data-knexread-page-scrolling={isScrolling ? "true" : "false"}
       data-knexread-page-render-phase={renderPhase}
       data-knexread-page-render-mode={
-        canRenderVectorTextLayer ? "hybrid-visual" : renderPolicy.renderMode
+        modularPagePipelineEnabled ? "single-canvas-html-text" : "tiled-canvas"
+      }
+      data-knexread-page-modular-pipeline={
+        modularPagePipelineEnabled ? "true" : "false"
       }
       data-knexread-page-visual-render-mode={visualRenderMode}
-      data-knexread-page-text-layer-mode={
-        canRenderVectorTextLayer ? "visual" : renderPolicy.textLayerMode
+      data-knexread-page-visual-text-layer={visualTextLayerEnabled ? "true" : "false"}
+      data-knexread-page-visual-text-requested={
+        visualTextLayerRequested ? "true" : "false"
       }
-      data-knexread-page-render-policy-reason={renderPolicy.reason}
-      data-knexread-page-zoom-bucket={renderPolicy.zoomBucket}
+      data-knexread-page-has-visual-text-blocks={
+        hasVisualTextBlocks ? "true" : "false"
+      }
+      data-knexread-page-force-visual-text-layer={
+        visualTextOverrideFlags.forceVisualTextLayer ? "true" : "false"
+      }
+      data-knexread-page-hide-canvas-text-when-visual={
+        visualTextOverrideFlags.hideCanvasTextWhenVisualLayerIsActive
+          ? "true"
+          : "false"
+      }
+      data-knexread-page-hide-canvas-text-for-modular-pipeline={
+        shouldHideCanvasTextForModularPipeline ? "true" : "false"
+      }
+      data-knexread-tile-text-render={shouldRenderCanvasText ? "true" : "false"}
+      data-knexread-page-text-layer-mode={visualTextLayerEnabled ? "hybrid-visible" : "semantic-invisible"}
+      data-knexread-page-invisible-text-layer-mounted={
+        shouldMountInvisibleTextLayer ? "true" : "false"
+      }
       data-knexread-page-render-priority={renderPriority ?? ""}
-      data-knexread-page-canvas-enabled={canRenderCanvas ? "true" : "false"}
-      data-knexread-page-canvas-text-render={
+      data-knexread-page-tile-enabled={canRenderCanvas ? "true" : "false"}
+      data-knexread-page-tile-text-render={
         shouldRenderCanvasText ? "true" : "false"
-      }
-      data-knexread-page-request-hybrid-visual-canvas={
-        shouldRequestHybridVisualCanvas ? "true" : "false"
       }
       data-knexread-page-text-block-count={blocks.length}
       data-knexread-page-blocks-scale={blocksScale ?? ""}
@@ -1463,52 +1162,8 @@ export function PdfPageView({
       data-knexread-page-text-layer-css-block-count={
         textBlocksInCssSpace.length
       }
-      data-knexread-page-canvas-text-hidden={
-        canvasTextHiddenForVectorLayer ? "true" : "false"
-      }
-      data-knexread-page-canvas-textless-confirmed={
-        hasConfirmedCanvasWithoutText ? "true" : "false"
-      }
-      data-knexread-page-canvas-hidden-until-textless={
-        shouldHideCanvasUntilTextlessRender ? "true" : "false"
-      }
-      data-knexread-page-canvas-delayed-until-text-extraction={
-        shouldDelayCanvasUntilTextExtraction ? "true" : "false"
-      }
-      data-knexread-page-text-extraction-ready={
-        textExtractionReady ? "true" : "false"
-      }
       data-knexread-page-filtered-text-operations={
         canvasTextRenderState?.filteredTextOperationCount ?? ""
-      }
-      data-knexread-page-visual-text-enabled={
-        canRenderVectorTextLayer ? "true" : "false"
-      }
-      data-knexread-page-visual-text-forced={
-        forceVisualTextLayer ? "true" : "false"
-      }
-      data-knexread-page-hybrid-visual-explicitly-enabled={
-        enableHybridVisualTextLayer ? "true" : "false"
-      }
-      data-knexread-page-hybrid-visual-fitness={hybridVisualFitness.reason}
-      data-knexread-page-hybrid-visual-average-font-size={
-        hybridVisualFitness.averageFontSize
-      }
-      data-knexread-page-hybrid-visual-tiny-ratio={
-        hybridVisualFitness.tinyBlockRatio
-      }
-      data-knexread-page-hybrid-visual-small-ratio={
-        hybridVisualFitness.smallFontRatio
-      }
-      data-knexread-page-hybrid-visual-large-ratio={
-        hybridVisualFitness.largeFontRatio
-      }
-      data-knexread-page-visual-text-pending={
-        shouldRequestHybridVisualCanvas &&
-        hasVectorTextBlocks &&
-        !canRenderVectorTextLayer
-          ? "true"
-          : "false"
       }
       style={{
         width: `${pageCssWidth}px`,
@@ -1518,18 +1173,59 @@ export function PdfPageView({
         maxWidth: `${pageCssWidth}px`,
       }}
     >
+      <PdfPageComposition
+        width={pageCssWidth}
+        height={pageCssHeight}
+        mode={
+          modularPagePipelineEnabled
+            ? "single-canvas-html-text"
+            : "legacy-tiled-canvas"
+        }
+      >
       {canRenderCanvas ? (
-        shouldUseTiledCanvas ? (
-          <div
-            className="absolute inset-0 z-0"
-            data-knexread-page-raster-layer="true"
-            data-knexread-page-visual-layer="true"
-            data-knexread-page-visual-render-mode={visualRenderMode}
-            style={{
-              width: `${pageCssWidth}px`,
-              height: `${pageCssHeight}px`,
-            }}
-          >
+        <div
+          className="absolute inset-0 z-0"
+          data-knexread-page-raster-layer="true"
+          data-knexread-page-visual-layer="true"
+          data-knexread-page-visual-render-mode={visualRenderMode}
+          data-knexread-page-visual-render-official={
+            modularPagePipelineEnabled ? "single-canvas" : "tiled-canvas"
+          }
+          style={{
+            width: `${pageCssWidth}px`,
+            height: `${pageCssHeight}px`,
+          }}
+        >
+          {modularPagePipelineEnabled ? (
+            <PdfModularPageStage
+              session={session}
+              pageNumber={pageNumber}
+              zoom={zoom}
+              pageCssWidth={pageCssWidth}
+              pageCssHeight={pageCssHeight}
+              renderQuality={effectiveCanvasRenderQuality}
+              onRendered={handleRendered}
+              renderPhase={renderPhase}
+              finalRenderVersion={canvasRenderVersion}
+              highlightedRunIds={highlightBlockIds}
+              onTextBlocksChange={(nextPageNumber, nextBlocks, nextScale) => {
+                if (nextPageNumber !== pageNumber) return;
+
+                if (nextBlocks.length > 0) {
+                  lastGoodTextBlocksRef.current = {
+                    pageNumber,
+                    blocks: nextBlocks,
+                    scale: nextScale,
+                  };
+                }
+
+                setBlocks(nextBlocks);
+                setBlocksScale(nextScale);
+                onBlocksChange?.(nextPageNumber, nextBlocks, nextScale);
+              }}
+              onCanvasRenderStateChange={handleCanvasTextRenderStateChange}
+            />
+          ) : (
             <PdfTiledPageCanvas
               session={session}
               pdfFileId={pdfFileId}
@@ -1544,7 +1240,7 @@ export function PdfPageView({
               isActivePage={isActivePage}
               isPageVisible={isActivePage || isWarmupPage || isNearViewport}
               isWarmupPage={isWarmupPage}
-              renderText={true}
+              renderText={shouldRenderCanvasText}
               visualRenderMode={visualRenderMode}
               onCanvasTextRenderStateChange={handleCanvasTextRenderStateChange}
               renderPriority={
@@ -1558,43 +1254,12 @@ export function PdfPageView({
                       : 10)
               }
             />
-          </div>
-        ) : (
-          <PdfRasterLayer
-            cssWidth={pageCssWidth}
-            cssHeight={pageCssHeight}
-            hiddenUntilTextlessRender={shouldHideCanvasUntilTextlessRender}
-            delayedUntilTextExtraction={shouldDelayCanvasUntilTextExtraction}
-            session={session}
-            pageNumber={pageNumber}
-            zoom={zoom}
-            renderQuality={effectiveCanvasRenderQuality}
-            onRendered={handleRendered}
-            isZooming={isZooming}
-            isScrolling={isScrolling}
-            renderPhase={renderPhase}
-            finalRenderVersion={canvasRenderVersion}
-            isActivePage={isActivePage}
-            isPageVisible={isActivePage || isWarmupPage || isNearViewport}
-            isWarmupPage={isWarmupPage}
-            renderText={shouldRenderCanvasText}
-            onCanvasTextRenderStateChange={handleCanvasTextRenderStateChange}
-            renderPriority={
-              renderPriority ??
-              (renderBand === "active"
-                ? 100
-                : renderBand === "warmup"
-                  ? 92
-                  : renderBand === "prefetch"
-                    ? 70
-                    : 10)
-            }
-          />
-        )
+          )}
+        </div>
       ) : (
         <div
-          className="absolute inset-0 z-0 rounded border border-zinc-300 bg-white shadow-sm"
-          data-knexread-page-placeholder="true"
+          className="absolute inset-0 z-0 border border-zinc-300 bg-white shadow-sm"
+          data-knexread-page-tile-skeleton="true"
           style={{
             width: `${pageCssWidth}px`,
             height: `${pageCssHeight}px`,
@@ -1602,8 +1267,25 @@ export function PdfPageView({
         />
       )}
 
-      {(canRenderCanvas || forceVisualTextLayer) &&
-      (semanticLayersEnabled || canRenderVectorTextLayer || forceVisualTextLayer) ? (
+      {!modularPagePipelineEnabled && visualTextLayerEnabled ? (
+        <div
+          className="absolute inset-0 z-[5]"
+          data-knexread-page-visual-text-layer-host="true"
+          style={{
+            width: `${pageCssWidth}px`,
+            height: `${pageCssHeight}px`,
+          }}
+        >
+          <PdfTextLayer
+            blocks={textBlocksInCssSpace}
+            pageNumber={pageNumber}
+            highlightedBlockIds={highlightBlockIds}
+            mode="visual"
+          />
+        </div>
+      ) : null}
+
+      {canRenderCanvas && semanticLayersEnabled ? (
         <>
           {semanticLayersEnabled ? (
             <div
@@ -1639,19 +1321,7 @@ export function PdfPageView({
             </div>
           ) : null}
 
-          {canRenderVectorTextLayer ? (
-            <PdfExperimentalVisualTextLayer
-              blocks={textBlocksInCssSpace}
-              pageNumber={pageNumber}
-              pageWidth={pageCssWidth}
-              pageHeight={pageCssHeight}
-              highlightedBlockIds={highlightBlockIds}
-              forced={forceVisualTextLayer}
-              auditLabel={`PV-AUDIT ${PAGEVIEW_AUDIT_VERSION}`}
-            />
-          ) : null}
-
-          {semanticLayersEnabled && effectiveShowTextLayer ? (
+          {shouldMountInvisibleTextLayer ? (
             <PdfInvisibleTextLayer
               blocks={textBlocksInCssSpace}
               pageNumber={pageNumber}
@@ -1676,6 +1346,7 @@ export function PdfPageView({
           }
         />
       ) : null}
+      </PdfPageComposition>
     </div>
   );
 }

@@ -48,6 +48,9 @@
     "node_modules",
     "app/api/livekit-token/route.ts",
     "backups",
+    "knexread-source-diagnostic-*",
+    "knexread-diagnostic-*",
+    "knexwriter/src/modules/Knexread/native-pdf-reader/_backup_*",
     "portal"
   ]
 }

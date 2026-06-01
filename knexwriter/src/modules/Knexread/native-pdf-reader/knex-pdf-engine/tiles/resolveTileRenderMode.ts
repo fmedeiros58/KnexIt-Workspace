@@ -8,10 +8,6 @@ export function resolveTileRenderMode(input: {
   serverAvailable?: boolean;
   localAvailable?: boolean;
 }): KnexPdfResolvedTileRenderMode {
-  if (input.visualRenderMode === "page-canvas") {
-    return "page-canvas";
-  }
-
   if (input.visualRenderMode === "tiled-canvas") {
     return "tiled-canvas";
   }
@@ -24,5 +20,5 @@ export function resolveTileRenderMode(input: {
     return "server-tiled";
   }
 
-  return input.localAvailable === false ? "page-canvas" : "tiled-canvas";
+  return "tiled-canvas";
 }

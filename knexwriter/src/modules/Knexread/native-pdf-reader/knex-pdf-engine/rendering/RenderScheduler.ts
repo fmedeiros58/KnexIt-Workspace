@@ -8,7 +8,7 @@ export {
   PDFIUM_INTERACTIVE_RENDER_BUDGET_MS,
 } from "./RenderQualityController";
 
-type KnexPdfQueuedRenderBackend = "pdfjs" | "pdfium" | "mupdf" | string;
+type KnexPdfQueuedRenderBackend = "pdfjs" | "pdfium" | string;
 
 type QueuedRenderTask<T> = {
   id: number;
@@ -41,7 +41,7 @@ let pumpScheduled = false;
 const queue: QueuedRenderTask<unknown>[] = [];
 
 function isPdfiumLikeBackend(backend: string) {
-  return backend === "pdfium" || backend === "mupdf";
+  return backend === "pdfium";
 }
 
 function getMaxConcurrentRenders(backend: string) {

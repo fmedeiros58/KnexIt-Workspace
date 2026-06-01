@@ -26,13 +26,13 @@ export type KnexPdfRenderPhase =
   | "warmup-preview"
   | "settled-final";
 
-export type KnexPdfRenderBackendKind = "pdfjs" | "pdfium" | "mupdf";
+export type KnexPdfRenderBackendKind = "pdfjs" | "pdfium";
 
 export const PDFIUM_INTERACTIVE_RENDER_BUDGET_MS = 120;
 export const PDFIUM_FINAL_RENDER_WARNING_MS = 800;
 
 /**
- * PDFium/MuPDF no Knexread passam por:
+ * PDFium no Knexread passa por:
  * PDF WASM -> bitmap BGRA/RGBA -> ImageData/Canvas.
  *
  * Durante o gesto de zoom, a prioridade é fluidez.
@@ -61,7 +61,7 @@ export const PDFIUM_FINAL_MIN_OUTPUT_SCALE = 5;
 export const PDFIUM_FINAL_MAX_OUTPUT_SCALE = 6;
 
 /**
- * Qualidade final padrão para PDFium/MuPDF.
+ * Qualidade final padrão para PDFium.
  *
  * Agora o settled-final usa "extreme" por padrão.
  * Isso é importante para testar a melhor nitidez possível antes de decidir
@@ -293,7 +293,7 @@ function resolveWasmFinalQualityCap(): KnexPdfRenderQuality {
    * globalThis.KNEX_PDFIUM_FINAL_RENDER_QUALITY = "ultra";
    * globalThis.KNEX_PDFIUM_FINAL_RENDER_QUALITY = "extreme";
    *
-   * Também aceitamos a chave genérica para MuPDF/PDFium.
+   * Também aceitamos a chave genérica para PDFium.
    */
   return (
     normalizeGlobalRenderQuality(
@@ -310,7 +310,7 @@ function resolveWasmFinalQualityCap(): KnexPdfRenderQuality {
 }
 
 function isWasmPdfBackend(backend: KnexPdfRenderBackendKind): boolean {
-  return backend === "pdfium" || backend === "mupdf";
+  return backend === "pdfium";
 }
 
 export function resolveRenderQualityForPhase(input: {
@@ -331,7 +331,7 @@ export function resolveRenderQualityForPhase(input: {
     }
 
     /**
-     * Settled-final de PDFium/MuPDF:
+     * Settled-final de PDFium:
      * usa "extreme" por padrão, salvo override global.
      */
     return capQualityAt(requestedQuality, resolveWasmFinalQualityCap());
@@ -587,7 +587,7 @@ export function explainKnexPdfOutputScale(input: {
 /**
  * Debug específico para fase/backend.
  * Útil para comparar se o valor calculado está sendo corretamente capado
- * quando o backend é PDFium/MuPDF.
+ * quando o backend é PDFium.
  */
 export function explainKnexPdfOutputScaleForRenderPhase(input: {
   backend: KnexPdfRenderBackendKind;

@@ -1,2 +1,0 @@
-﻿  - page.js
-  - page_client-reference-manifest.js

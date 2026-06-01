@@ -20,7 +20,6 @@ const BACKEND_SELECTION_MODES = new Set<KnexPdfBackendSelectionMode>([
   "auto",
   "pdfjs",
   "pdfium",
-  "mupdf",
 ]);
 
 /**

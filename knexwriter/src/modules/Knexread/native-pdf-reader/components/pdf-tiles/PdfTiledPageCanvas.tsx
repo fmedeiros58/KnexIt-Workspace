@@ -14,11 +14,17 @@ import {
   type KnexPdfRenderPhase,
   type KnexPdfRenderedPage as RenderedPdfPage,
 } from "../../knex-pdf-engine";
+import {
+  SERVER_TILE_CIRCUIT_BREAKER_EVENT,
+  getServerTileCircuitBreakerState,
+  getServerTileCircuitOpenReason,
+  isServerTileCircuitBreakerOpen,
+} from "../../knex-pdf-engine/server-tiles/requestServerRenderedTile";
 import { resolveServerTileFallbackPolicy } from "../../knex-pdf-engine/server-tiles/serverTileFallbackPolicy";
 import type {
-  PdfCanvasTextRenderState,
-  PdfPageCanvasProps,
-} from "../PdfPageCanvas";
+  PdfTiledVisualPageProps,
+  PdfTileRenderState,
+} from "./PdfTileCanvasTypes";
 import { TileRenderDiagnostics } from "./TileRenderDiagnostics";
 import {
   TileViewportObserver,
@@ -45,13 +51,20 @@ type TileLayerSnapshot = {
   tiles: KnexPdfPageTile[];
   renderQuality: PdfRenderQualityMode;
   renderPhase: KnexPdfRenderPhase;
+  tileRenderMode: "server-tiled" | "tiled-canvas";
   backendVersion: number;
   finalRenderVersion: number;
+  renderVersion: number;
+  activeBackend: string;
+  preferredBackend: string;
   tileSizeCss: number;
+  tileRows: number;
+  tileColumns: number;
   overlapPx: number;
+  bleedPx: number;
 };
 
-export type PdfTiledPageCanvasProps = PdfPageCanvasProps & {
+export type PdfTiledPageCanvasProps = PdfTiledVisualPageProps & {
   visualRenderMode?: KnexPdfVisualRenderMode;
   pdfFileId?: string;
 };
@@ -59,16 +72,24 @@ export type PdfTiledPageCanvasProps = PdfPageCanvasProps & {
 const FALLBACK_PAGE_WIDTH_PT = 612;
 const FALLBACK_PAGE_HEIGHT_PT = 792;
 const MIN_LAYOUT_SCALE = 0.01;
+const TILE_GRID_ROWS = 16;
+const TILE_GRID_COLUMNS = 2;
 const TILE_OVERLAP_PX = 2;
+const TILE_BLEED_CSS_PX = 10;
+const TILE_TARGET_EFFECTIVE_BITMAP_SCALE = 5;
+const TILE_MIN_EFFECTIVE_BITMAP_SCALE = 4.75;
+const TILE_MAX_EFFECTIVE_BITMAP_SCALE = 6;
 const TILE_GEOMETRY_MAX_BITMAP_PIXELS = 1_000_000_000;
 const TILE_GEOMETRY_MAX_BITMAP_SIDE = 1_000_000;
-const TILE_GEOMETRY_PREVIEW_MAX_OUTPUT_SCALE = 4;
-const TILE_GEOMETRY_WARMUP_MAX_OUTPUT_SCALE = 4.5;
-const TILE_GEOMETRY_FINAL_MAX_OUTPUT_SCALE = 6;
-const TILE_GEOMETRY_PREVIEW_MIN_OUTPUT_SCALE = 3.75;
-const TILE_GEOMETRY_WARMUP_MIN_OUTPUT_SCALE = 4;
-const TILE_GEOMETRY_FINAL_MIN_OUTPUT_SCALE = 4.5;
-const INTERACTION_TILE_LAYER_DEBOUNCE_MS = 48;
+const TILE_GEOMETRY_PREVIEW_MAX_OUTPUT_SCALE = 2.25;
+const TILE_GEOMETRY_WARMUP_MAX_OUTPUT_SCALE = 3.25;
+const TILE_GEOMETRY_FINAL_MAX_OUTPUT_SCALE = TILE_MAX_EFFECTIVE_BITMAP_SCALE;
+const TILE_GEOMETRY_PREVIEW_MIN_OUTPUT_SCALE = 1.75;
+const TILE_GEOMETRY_WARMUP_MIN_OUTPUT_SCALE = 2.75;
+const TILE_GEOMETRY_FINAL_MIN_OUTPUT_SCALE =
+  TILE_TARGET_EFFECTIVE_BITMAP_SCALE;
+const INTERACTION_TILE_LAYER_DEBOUNCE_MS = 12;
+const STABLE_TILE_RENDER_VERSION = 0;
 
 function safeNumber(
   value: number | null | undefined,
@@ -93,9 +114,9 @@ function getRenderDocumentId(session: NativePdfSession): string {
 }
 
 function resolveTileCssSize(renderPhase: KnexPdfRenderPhase): number {
-  if (renderPhase === "settled-final") return 512;
+  if (renderPhase === "settled-final") return 768;
   if (renderPhase === "interactive-preview") return 1024;
-  return 768;
+  return 1024;
 }
 
 function resolveTileGeometryMaxOutputScale(
@@ -166,6 +187,58 @@ function canUseServerTileMode(mode: KnexPdfVisualRenderMode): boolean {
   return mode === "server-tiled" || mode === "auto-professional";
 }
 
+function getGlobalBoolean(key: string): boolean {
+  const value = (globalThis as unknown as Record<string, unknown>)[key];
+
+  return value === true || value === "true" || value === "1";
+}
+
+function resolveEffectiveVisualRenderMode(input: {
+  visualRenderMode: KnexPdfVisualRenderMode;
+  renderPhase: KnexPdfRenderPhase;
+  isActivePage: boolean;
+  isPageVisible: boolean;
+  isWarmupPage: boolean;
+  forceServerTiles: boolean;
+  forceLocalTiles: boolean;
+}): KnexPdfVisualRenderMode {
+  /*
+   * Para avaliar a nitidez real, precisamos conseguir forçar o pipeline
+   * server/native sem alterar o resto do reader.
+   *
+   * No console:
+   * globalThis.KNEX_PDF_FORCE_SERVER_TILES = true
+   *
+   * Para voltar ao modo local PDF.js:
+   * globalThis.KNEX_PDF_FORCE_LOCAL_TILES = true
+   *
+   * Importante:
+   * os valores globais são lidos por estado React sincronizado abaixo.
+   * Assim, mudar a flag no console passa a surtir efeito sem depender de
+   * Fast Refresh ou de remount manual do componente.
+   */
+  if (input.forceLocalTiles) {
+    return "tiled-canvas";
+  }
+
+  const canForceServer =
+    input.renderPhase === "settled-final" &&
+    (input.isActivePage || input.isPageVisible || input.isWarmupPage);
+
+  if (canForceServer && input.forceServerTiles) {
+    return "server-tiled";
+  }
+
+  return input.visualRenderMode;
+}
+
+function readTileOverrideFlags() {
+  return {
+    forceServerTiles: getGlobalBoolean("KNEX_PDF_FORCE_SERVER_TILES"),
+    forceLocalTiles: getGlobalBoolean("KNEX_PDF_FORCE_LOCAL_TILES"),
+  };
+}
+
 async function ensureServerPdfSourceUploaded(input: {
   pdfFileId: string;
   documentId: string;
@@ -189,9 +262,24 @@ async function ensureServerPdfSourceUploaded(input: {
       method: "POST",
       body: formData,
     });
+    const body = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      documentId?: string;
+      pdfFileId?: string;
+      reason?: string;
+    } | null;
 
-    if (!response.ok) {
-      throw new Error(`server-pdf-source-upload-failed-${response.status}`);
+    if (!response.ok || !body?.ok) {
+      throw new Error(
+        body?.reason ?? `server-pdf-source-upload-failed-${response.status}`,
+      );
+    }
+
+    if (
+      body.pdfFileId !== input.pdfFileId ||
+      body.documentId !== input.documentId
+    ) {
+      throw new Error("server-pdf-source-upload-id-mismatch");
     }
   })();
 
@@ -216,9 +304,13 @@ function createTileLayerGenerationId(input: {
   renderQuality: PdfRenderQualityMode;
   renderPhase: KnexPdfRenderPhase;
   backendVersion: number;
-  finalRenderVersion: number;
+  activeBackend: string;
+  preferredBackend: string;
   tileSizeCss: number;
+  tileRows: number;
+  tileColumns: number;
   overlapPx: number;
+  bleedPx: number;
   tileRenderMode: string;
   tileCount: number;
 }): string {
@@ -235,9 +327,12 @@ function createTileLayerGenerationId(input: {
     `q=${input.renderQuality}`,
     `phase=${input.renderPhase}`,
     `bv=${input.backendVersion}`,
-    `fv=${input.finalRenderVersion}`,
+    `activeBackend=${input.activeBackend}`,
+    `preferredBackend=${input.preferredBackend}`,
     `tile=${input.tileSizeCss}`,
+    `grid=${input.tileRows}x${input.tileColumns}`,
     `overlap=${input.overlapPx}`,
+    `bleed=${input.bleedPx}`,
     `mode=${input.tileRenderMode}`,
     `count=${input.tileCount}`,
   ].join("|");
@@ -249,10 +344,17 @@ function createTileLayerSnapshot(input: {
   tiles: KnexPdfPageTile[];
   renderQuality: PdfRenderQualityMode;
   renderPhase: KnexPdfRenderPhase;
+  tileRenderMode: "server-tiled" | "tiled-canvas";
   backendVersion: number;
   finalRenderVersion: number;
+  renderVersion: number;
+  activeBackend: string;
+  preferredBackend: string;
   tileSizeCss: number;
+  tileRows: number;
+  tileColumns: number;
   overlapPx: number;
+  bleedPx: number;
 }): TileLayerSnapshot {
   return {
     ...input,
@@ -296,7 +398,9 @@ function createTiledCanvasTextState(input: {
   renderText: boolean;
   backendVersion: number;
   finalRenderVersion: number;
-}): PdfCanvasTextRenderState {
+  activeBackend: string;
+  renderSource: string;
+}): PdfTileRenderState {
   const renderIdentity = [
     "tiled-canvas",
     `doc=${input.documentId}`,
@@ -308,13 +412,15 @@ function createTiledCanvasTextState(input: {
     `z=${input.zoom}`,
     `text=${input.renderText ? "1" : "0"}`,
     `bv=${input.backendVersion}`,
+    `active=${input.activeBackend}`,
+    `source=${input.renderSource}`,
     `fv=${input.finalRenderVersion}`,
   ].join("|");
 
   return {
     documentId: input.documentId,
     pageNumber: input.pageNumber,
-    backend: "pdfjs",
+    backend: input.renderSource,
     renderPhase: input.renderPhase,
     renderQuality: input.renderQuality,
     renderScale: input.renderScale,
@@ -359,8 +465,8 @@ function createRenderedPage(input: {
       typeof globalThis.devicePixelRatio === "number"
         ? globalThis.devicePixelRatio
         : 1,
-    renderMode: input.renderText ? "hybrid-semantic" : "hybrid-visual",
-    textLayerMode: input.renderText ? "semantic" : "visual",
+    renderMode: "hybrid-semantic",
+    textLayerMode: "semantic",
     hasTextLayer: true,
     canvasActsAsBackground: true,
     bitmapPixels: input.bitmapWidth * input.bitmapHeight,
@@ -399,8 +505,94 @@ export function PdfTiledPageCanvas({
   pdfFileId,
 }: PdfTiledPageCanvasProps) {
   const engineState = useKnexPdfEngineState();
+  const activeBackend = engineState.activeBackend || "unknown";
+  const preferredBackend = engineState.preferredBackend || "unknown";
   const frameRef = useRef<HTMLDivElement | null>(null);
   const documentId = useMemo(() => getRenderDocumentId(session), [session]);
+  const [tileOverrideFlags, setTileOverrideFlags] = useState(
+    readTileOverrideFlags,
+  );
+  const [serverTileCircuitState, setServerTileCircuitState] = useState(
+    getServerTileCircuitBreakerState,
+  );
+
+  useEffect(() => {
+    const syncServerTileCircuitState = () => {
+      setServerTileCircuitState(getServerTileCircuitBreakerState());
+    };
+
+    syncServerTileCircuitState();
+
+    const intervalId = window.setInterval(syncServerTileCircuitState, 1_000);
+
+    window.addEventListener(
+      SERVER_TILE_CIRCUIT_BREAKER_EVENT,
+      syncServerTileCircuitState,
+    );
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener(
+        SERVER_TILE_CIRCUIT_BREAKER_EVENT,
+        syncServerTileCircuitState,
+      );
+    };
+  }, []);
+
+  const serverTileCircuitOpen = isServerTileCircuitBreakerOpen();
+  const serverTileCircuitReason = serverTileCircuitOpen
+    ? getServerTileCircuitOpenReason() ||
+      serverTileCircuitState.lastReason ||
+      "server-tile-circuit-open"
+    : "";
+
+  useEffect(() => {
+    const syncTileOverrideFlags = () => {
+      const next = readTileOverrideFlags();
+
+      setTileOverrideFlags((current) =>
+        current.forceServerTiles === next.forceServerTiles &&
+        current.forceLocalTiles === next.forceLocalTiles
+          ? current
+          : next,
+      );
+    };
+
+    syncTileOverrideFlags();
+
+    const intervalId = window.setInterval(syncTileOverrideFlags, 250);
+
+    window.addEventListener("focus", syncTileOverrideFlags);
+    window.addEventListener("keydown", syncTileOverrideFlags);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncTileOverrideFlags);
+      window.removeEventListener("keydown", syncTileOverrideFlags);
+    };
+  }, []);
+
+  const effectiveVisualRenderMode = useMemo(
+    () =>
+      resolveEffectiveVisualRenderMode({
+        visualRenderMode,
+        renderPhase,
+        isActivePage,
+        isPageVisible,
+        isWarmupPage,
+        forceServerTiles: tileOverrideFlags.forceServerTiles,
+        forceLocalTiles: tileOverrideFlags.forceLocalTiles,
+      }),
+    [
+      isActivePage,
+      isPageVisible,
+      isWarmupPage,
+      renderPhase,
+      tileOverrideFlags.forceLocalTiles,
+      tileOverrideFlags.forceServerTiles,
+      visualRenderMode,
+    ],
+  );
   const [pageBaseSize, setPageBaseSize] = useState<PdfPageBaseSize>(() => {
     return (
       readCachedPageBaseSize(session, pageNumber) ?? {
@@ -409,11 +601,17 @@ export function PdfTiledPageCanvas({
       }
     );
   });
+  const [hasResolvedPageBaseSize, setHasResolvedPageBaseSize] = useState(() =>
+    Boolean(readCachedPageBaseSize(session, pageNumber)),
+  );
   const [error, setError] = useState<string | null>(null);
   const [serverPdfSourceReady, setServerPdfSourceReady] = useState(false);
 
   useEffect(() => {
-    if (!canUseServerTileMode(visualRenderMode)) {
+    if (
+      serverTileCircuitOpen ||
+      !canUseServerTileMode(effectiveVisualRenderMode)
+    ) {
       setServerPdfSourceReady(false);
       return;
     }
@@ -447,19 +645,24 @@ export function PdfTiledPageCanvas({
     pdfFileId,
     session.file,
     session.id,
-    visualRenderMode,
+    effectiveVisualRenderMode,
+    serverTileCircuitOpen,
   ]);
 
   useEffect(() => {
     const cachedSize = readCachedPageBaseSize(session, pageNumber);
 
     if (cachedSize) {
+      setHasResolvedPageBaseSize(true);
       setPageBaseSize((current) =>
         arePageBaseSizesEquivalent(current, cachedSize)
           ? current
           : cachedSize,
       );
+      return;
     }
+
+    setHasResolvedPageBaseSize(false);
   }, [pageNumber, session]);
 
   useEffect(() => {
@@ -485,6 +688,7 @@ export function PdfTiledPageCanvas({
         };
 
         setError(null);
+        setHasResolvedPageBaseSize(true);
         writeCachedPageBaseSize({
           session,
           pageNumber,
@@ -551,7 +755,10 @@ export function PdfTiledPageCanvas({
       buildKnexPdfTileRenderPlan({
         geometry,
         tileSizeCss: resolveTileCssSize(renderPhase),
+        tileRows: TILE_GRID_ROWS,
+        tileColumns: TILE_GRID_COLUMNS,
         overlapPx: TILE_OVERLAP_PX,
+        bleedPx: TILE_BLEED_CSS_PX,
       }),
     [geometry, renderPhase],
   );
@@ -565,15 +772,24 @@ export function PdfTiledPageCanvas({
   const serverTileDecision = useMemo(
     () =>
       resolveServerTileFallbackPolicy({
-        visualRenderMode,
+        visualRenderMode: effectiveVisualRenderMode,
         serverAvailable:
-          canUseServerTileMode(visualRenderMode) && serverPdfSourceReady,
+          canUseServerTileMode(effectiveVisualRenderMode) &&
+          serverPdfSourceReady &&
+          !serverTileCircuitOpen,
         localTilesAvailable: true,
-        reason: serverPdfSourceReady
-          ? "server-tile-client-fallback"
-          : "server-pdf-source-upload-pending",
+        reason: serverTileCircuitOpen
+          ? serverTileCircuitReason || "server-tile-circuit-open"
+          : serverPdfSourceReady
+            ? "server-tile-client-fallback"
+            : "server-pdf-source-upload-pending",
       }),
-    [serverPdfSourceReady, visualRenderMode],
+    [
+      effectiveVisualRenderMode,
+      serverPdfSourceReady,
+      serverTileCircuitOpen,
+      serverTileCircuitReason,
+    ],
   );
   const tilesToRender = useMemo(() => {
     return tilePlan.tiles;
@@ -588,9 +804,13 @@ export function PdfTiledPageCanvas({
           renderQuality: effectiveRenderQuality,
           renderPhase,
           backendVersion: engineState.backendVersion,
-          finalRenderVersion,
+          activeBackend,
+          preferredBackend,
           tileSizeCss: tilePlan.tileSizeCss,
+          tileRows: tilePlan.tileRows,
+          tileColumns: tilePlan.tileColumns,
           overlapPx: tilePlan.overlapPx,
+          bleedPx: tilePlan.bleedPx,
           tileRenderMode: serverTileDecision.renderMode,
           tileCount: tilesToRender.length,
         }),
@@ -598,21 +818,32 @@ export function PdfTiledPageCanvas({
         tiles: tilesToRender,
         renderQuality: effectiveRenderQuality,
         renderPhase,
+        tileRenderMode: serverTileDecision.renderMode,
         backendVersion: engineState.backendVersion,
-        finalRenderVersion,
+        finalRenderVersion: STABLE_TILE_RENDER_VERSION,
+        renderVersion: STABLE_TILE_RENDER_VERSION,
+        activeBackend,
+        preferredBackend,
         tileSizeCss: tilePlan.tileSizeCss,
+        tileRows: tilePlan.tileRows,
+        tileColumns: tilePlan.tileColumns,
         overlapPx: tilePlan.overlapPx,
+        bleedPx: tilePlan.bleedPx,
       }),
     [
+      activeBackend,
       documentId,
       effectiveRenderQuality,
       engineState.backendVersion,
-      finalRenderVersion,
       geometry,
       pageNumber,
+      preferredBackend,
       renderPhase,
       serverTileDecision.renderMode,
+      tilePlan.bleedPx,
       tilePlan.overlapPx,
+      tilePlan.tileColumns,
+      tilePlan.tileRows,
       tilePlan.tileSizeCss,
       tilesToRender,
     ],
@@ -756,7 +987,10 @@ export function PdfTiledPageCanvas({
       renderText,
     });
 
-    onRendered(renderedPage);
+    if (hasResolvedPageBaseSize) {
+      onRendered(renderedPage);
+    }
+
     onCanvasTextRenderStateChange?.(
       createTiledCanvasTextState({
         documentId,
@@ -769,9 +1003,15 @@ export function PdfTiledPageCanvas({
         renderText,
         backendVersion: engineState.backendVersion,
         finalRenderVersion,
+        activeBackend,
+        renderSource:
+          serverTileDecision.renderMode === "server-tiled"
+            ? "server"
+            : "pdfjs",
       }),
     );
   }, [
+    activeBackend,
     documentId,
     effectiveRenderQuality,
     engineState.backendVersion,
@@ -784,11 +1024,13 @@ export function PdfTiledPageCanvas({
     geometry.cssWidth,
     geometry.outputScale,
     geometry.zoom,
+    hasResolvedPageBaseSize,
     onCanvasTextRenderStateChange,
     onRendered,
     pageNumber,
     renderPhase,
     renderText,
+    serverTileDecision.renderMode,
     zoom,
   ]);
 
@@ -799,15 +1041,48 @@ export function PdfTiledPageCanvas({
         layerGeometry: visibleLayer.geometry,
       })
     : "none";
+  const pendingLayerVisible = Boolean(
+    pendingLayer &&
+      (!activeLayer || (pendingLayerReady && pendingLayerMatchesCurrent)),
+  );
+  const activeLayerVisible = Boolean(visibleLayer && !pendingLayerVisible);
+  const visibleGenerationId =
+    (pendingLayerVisible ? pendingLayer?.id : visibleLayer?.id) ?? "";
 
   return (
     <div
       ref={frameRef}
-      className="relative shrink-0 overflow-hidden rounded bg-white"
-      data-knexread-page-canvas-frame="true"
+      className="relative shrink-0 overflow-hidden bg-white"
+      data-knexread-page-tile-frame="true"
       data-knex-pdf-visual-render-mode={visualRenderMode}
-      data-knex-pdf-effective-visual-render-mode={
+      data-knex-pdf-requested-visual-render-mode={visualRenderMode}
+      data-knex-pdf-effective-visual-render-mode={effectiveVisualRenderMode}
+      data-knex-pdf-effective-tile-render-mode={
         serverTileDecision.renderMode
+      }
+      data-knex-pdf-force-server-tiles={
+        tileOverrideFlags.forceServerTiles ? "true" : "false"
+      }
+      data-knex-pdf-force-local-tiles={
+        tileOverrideFlags.forceLocalTiles ? "true" : "false"
+      }
+      data-knex-pdf-active-backend={activeBackend}
+      data-knex-pdf-preferred-backend={preferredBackend}
+      data-knex-pdf-backend-version={engineState.backendVersion}
+      data-knex-pdf-render-source={
+        serverTileDecision.renderMode === "server-tiled" ? "server" : "pdfjs"
+      }
+      data-knex-pdf-renderer={
+        serverTileDecision.renderMode === "server-tiled"
+          ? "server-tile-renderer"
+          : "pdfjs-tile-canvas"
+      }
+      data-knex-pdf-generation-id={visibleGenerationId}
+      data-knex-pdf-render-version={STABLE_TILE_RENDER_VERSION}
+      data-knex-pdf-final-render-version={
+        (pendingLayerVisible
+          ? pendingLayer?.finalRenderVersion
+          : visibleLayer?.finalRenderVersion) ?? STABLE_TILE_RENDER_VERSION
       }
       data-knex-pdf-server-tile-fallback-used={
         serverTileDecision.fallbackUsed ? "true" : "false"
@@ -818,16 +1093,33 @@ export function PdfTiledPageCanvas({
       data-knex-pdf-server-pdf-source-ready={
         serverPdfSourceReady ? "true" : "false"
       }
+      data-knex-pdf-server-circuit-open={
+        serverTileCircuitOpen ? "true" : "false"
+      }
+      data-knex-pdf-server-circuit-reason={serverTileCircuitReason}
       data-knex-pdf-tiled-page="true"
       data-page-number={pageNumber}
       data-knex-pdf-css-width={geometry.cssWidth}
       data-knex-pdf-css-height={geometry.cssHeight}
       data-knex-pdf-output-scale={geometry.outputScale}
       data-knex-pdf-tile-size-css={tilePlan.tileSizeCss}
+      data-knex-pdf-tile-rows={tilePlan.tileRows}
+      data-knex-pdf-tile-columns={tilePlan.tileColumns}
       data-knex-pdf-tile-overlap-px={tilePlan.overlapPx}
+      data-knex-pdf-tile-bleed-css-px={tilePlan.bleedPx}
       data-knex-pdf-tile-count={tilePlan.totalTiles}
+      data-knex-pdf-target-effective-bitmap-scale={
+        TILE_TARGET_EFFECTIVE_BITMAP_SCALE
+      }
+      data-knex-pdf-min-effective-bitmap-scale={
+        TILE_MIN_EFFECTIVE_BITMAP_SCALE
+      }
+      data-knex-pdf-max-effective-bitmap-scale={
+        TILE_MAX_EFFECTIVE_BITMAP_SCALE
+      }
       data-knex-pdf-active-tile-count={tilesToRender.length}
       data-knex-pdf-active-tile-layer-id={visibleLayer?.id ?? ""}
+      data-knex-pdf-visible-tile-layer-id={visibleGenerationId}
       data-knex-pdf-pending-tile-layer-id={pendingLayer?.id ?? ""}
       data-knex-pdf-pending-tile-ready-count={pendingReadyCount}
       data-knex-pdf-pending-tile-ready={pendingLayerReady ? "true" : "false"}
@@ -854,7 +1146,7 @@ export function PdfTiledPageCanvas({
         boxShadow: "0 0 0 1px rgb(212 212 216)",
       }}
     >
-      <TileRenderDiagnostics visualRenderMode={visualRenderMode} />
+      <TileRenderDiagnostics visualRenderMode={effectiveVisualRenderMode} />
       <TileViewportObserver
         containerRef={frameRef}
         pageNumber={pageNumber}
@@ -866,16 +1158,23 @@ export function PdfTiledPageCanvas({
           className="absolute left-0 top-0"
           data-knex-pdf-tile-page-surface="active"
           data-knex-pdf-tile-generation-id={visibleLayer.id}
+          data-knex-pdf-generation-id={visibleLayer.id}
+          data-knex-pdf-layer-visible={activeLayerVisible ? "true" : "false"}
+          data-knex-pdf-active-backend={visibleLayer.activeBackend}
+          data-knex-pdf-preferred-backend={visibleLayer.preferredBackend}
+          data-knex-pdf-backend-version={visibleLayer.backendVersion}
+          data-knex-pdf-render-version={visibleLayer.renderVersion}
+          data-knex-pdf-final-render-version={visibleLayer.finalRenderVersion}
           data-knex-pdf-tile-layer-transform={visibleLayerTransform}
           style={{
             width: `${visibleLayer.geometry.cssWidth}px`,
             height: `${visibleLayer.geometry.cssHeight}px`,
-            opacity: pendingLayerReady && pendingLayerMatchesCurrent ? 0 : 1,
+            opacity: activeLayerVisible ? 1 : 0,
             pointerEvents: "none",
             transform: visibleLayerTransform,
             transformOrigin: "0 0",
             willChange: isInteractionActive ? "transform" : "auto",
-            zIndex: pendingLayerReady && pendingLayerMatchesCurrent ? 1 : 2,
+            zIndex: activeLayerVisible ? 2 : 0,
           }}
         >
           <PdfTileLayer
@@ -887,12 +1186,19 @@ export function PdfTiledPageCanvas({
             renderQuality={visibleLayer.renderQuality}
             renderPhase={visibleLayer.renderPhase}
             renderText={renderText}
-            tileRenderMode={serverTileDecision.renderMode}
+            tileRenderMode={visibleLayer.tileRenderMode}
             pagePriority={pagePriority}
             isActivePage={isActivePage}
             backendVersion={visibleLayer.backendVersion}
             finalRenderVersion={visibleLayer.finalRenderVersion}
+            renderVersion={visibleLayer.renderVersion}
             generationId={visibleLayer.id}
+            activeBackend={visibleLayer.activeBackend}
+            preferredBackend={visibleLayer.preferredBackend}
+            tileRows={visibleLayer.tileRows}
+            tileColumns={visibleLayer.tileColumns}
+            layerSurface="active"
+            layerVisible={activeLayerVisible}
           />
         </div>
       ) : null}
@@ -902,16 +1208,23 @@ export function PdfTiledPageCanvas({
           className="absolute left-0 top-0"
           data-knex-pdf-tile-page-surface="pending"
           data-knex-pdf-tile-generation-id={pendingLayer.id}
+          data-knex-pdf-generation-id={pendingLayer.id}
+          data-knex-pdf-layer-visible={pendingLayerVisible ? "true" : "false"}
+          data-knex-pdf-active-backend={pendingLayer.activeBackend}
+          data-knex-pdf-preferred-backend={pendingLayer.preferredBackend}
+          data-knex-pdf-backend-version={pendingLayer.backendVersion}
+          data-knex-pdf-render-version={pendingLayer.renderVersion}
+          data-knex-pdf-final-render-version={pendingLayer.finalRenderVersion}
           data-knex-pdf-tile-ready-count={pendingReadyCount}
           aria-hidden={pendingLayerReady ? "false" : "true"}
           style={{
             width: `${pendingLayer.geometry.cssWidth}px`,
             height: `${pendingLayer.geometry.cssHeight}px`,
-            opacity: pendingLayerReady && pendingLayerMatchesCurrent ? 1 : 0,
+            opacity: pendingLayerVisible ? 1 : 0,
             pointerEvents: "none",
             transform: "none",
             transformOrigin: "0 0",
-            zIndex: pendingLayerReady && pendingLayerMatchesCurrent ? 3 : 0,
+            zIndex: pendingLayerVisible ? 3 : 0,
           }}
         >
           <PdfTileLayer
@@ -923,12 +1236,19 @@ export function PdfTiledPageCanvas({
             renderQuality={pendingLayer.renderQuality}
             renderPhase={pendingLayer.renderPhase}
             renderText={renderText}
-            tileRenderMode={serverTileDecision.renderMode}
+            tileRenderMode={pendingLayer.tileRenderMode}
             pagePriority={pagePriority}
             isActivePage={isActivePage}
             backendVersion={pendingLayer.backendVersion}
             finalRenderVersion={pendingLayer.finalRenderVersion}
+            renderVersion={pendingLayer.renderVersion}
             generationId={pendingLayer.id}
+            activeBackend={pendingLayer.activeBackend}
+            preferredBackend={pendingLayer.preferredBackend}
+            tileRows={pendingLayer.tileRows}
+            tileColumns={pendingLayer.tileColumns}
+            layerSurface="pending"
+            layerVisible={pendingLayerVisible}
             onTileReady={handlePendingTileReady}
           />
         </div>

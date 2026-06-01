@@ -17,49 +17,73 @@ function getLocalPdfSourcePath(pdfFileId: string): string {
 }
 
 export async function POST(request: Request) {
-  const formData = await request.formData().catch(() => null);
+  try {
+    const formData = await request.formData().catch(() => null);
 
-  if (!formData) {
-    return NextResponse.json(
-      { ok: false, reason: "multipart-form-data-required" },
-      { status: 400 },
-    );
+    if (!formData) {
+      return NextResponse.json(
+        { ok: false, reason: "multipart-form-data-required" },
+        { status: 400 },
+      );
+    }
+
+    const pdfFileId = formData.get("pdfFileId");
+    const documentId = formData.get("documentId");
+    const file = formData.get("file");
+
+    if (typeof pdfFileId !== "string" || pdfFileId.trim().length === 0) {
+      return NextResponse.json(
+        { ok: false, reason: "pdfFileId-required" },
+        { status: 400 },
+      );
+    }
+
+    if (typeof documentId !== "string" || documentId.trim().length === 0) {
+      return NextResponse.json(
+        { ok: false, reason: "documentId-required" },
+        { status: 400 },
+      );
+    }
+
+    if (!(file instanceof File)) {
+      return NextResponse.json(
+        { ok: false, reason: "file-required" },
+        { status: 400 },
+      );
+    }
+
+    if (file.type && file.type !== "application/pdf") {
+      return NextResponse.json(
+        { ok: false, reason: "application-pdf-required" },
+        { status: 415 },
+      );
+    }
+
+    const targetPath = getLocalPdfSourcePath(pdfFileId.trim());
+    const bytes = Buffer.from(await file.arrayBuffer());
+
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, bytes);
+
+    return NextResponse.json({
+      ok: true,
+      documentId: documentId.trim(),
+      pdfFileId: pdfFileId.trim(),
+      byteSize: bytes.byteLength,
+      source: "local-renderer-cache",
+    });
+  } catch (error) {
+    const reason =
+      error instanceof Error
+        ? `server-pdf-source-upload-failed:${error.message}`
+        : "server-pdf-source-upload-failed";
+
+    // eslint-disable-next-line no-console
+    console.error("[KnexRead][server-pdf-source-route]", {
+      reason,
+      error,
+    });
+
+    return NextResponse.json({ ok: false, reason }, { status: 500 });
   }
-
-  const pdfFileId = formData.get("pdfFileId");
-  const file = formData.get("file");
-
-  if (typeof pdfFileId !== "string" || pdfFileId.trim().length === 0) {
-    return NextResponse.json(
-      { ok: false, reason: "pdfFileId-required" },
-      { status: 400 },
-    );
-  }
-
-  if (!(file instanceof File)) {
-    return NextResponse.json(
-      { ok: false, reason: "file-required" },
-      { status: 400 },
-    );
-  }
-
-  if (file.type && file.type !== "application/pdf") {
-    return NextResponse.json(
-      { ok: false, reason: "application-pdf-required" },
-      { status: 415 },
-    );
-  }
-
-  const targetPath = getLocalPdfSourcePath(pdfFileId.trim());
-  const bytes = Buffer.from(await file.arrayBuffer());
-
-  await mkdir(dirname(targetPath), { recursive: true });
-  await writeFile(targetPath, bytes);
-
-  return NextResponse.json({
-    ok: true,
-    pdfFileId: pdfFileId.trim(),
-    byteSize: bytes.byteLength,
-    source: "local-renderer-cache",
-  });
 }

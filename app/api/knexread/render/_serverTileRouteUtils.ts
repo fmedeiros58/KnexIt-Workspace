@@ -8,6 +8,7 @@ const VALID_RENDER_PHASES = new Set([
   "warmup-preview",
   "settled-final",
 ]);
+const VALID_IMAGE_FORMATS = new Set(["png", "webp", "jpeg"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -38,7 +39,7 @@ export function isKnexReadTileRendererEnabled() {
 
 export function createTileFallbackResponse(
   reason: string,
-  fallback: "tiled-canvas" | "page-canvas" = "tiled-canvas",
+  fallback: "tiled-canvas" = "tiled-canvas",
   retryable = true,
 ): KnexReadServerTileFallbackResponse {
   return {
@@ -67,6 +68,13 @@ export function validateServerTileRequest(
 
   if (!hasString(body, "documentId")) errors.push("documentId-required");
   if (
+    body.pdfFileId !== undefined &&
+    (typeof body.pdfFileId !== "string" ||
+      body.pdfFileId.trim().length === 0)
+  ) {
+    errors.push("pdfFileId-non-empty-string-required");
+  }
+  if (
     body.pdfUrl !== undefined &&
     (typeof body.pdfUrl !== "string" ||
       !/^https?:\/\//i.test(body.pdfUrl.trim()))
@@ -79,6 +87,13 @@ export function validateServerTileRequest(
       body.pdfBytesBase64.trim().length === 0)
   ) {
     errors.push("pdfBytesBase64-non-empty-string-required");
+  }
+  if (
+    !hasString(body, "pdfFileId") &&
+    !hasString(body, "pdfUrl") &&
+    !hasString(body, "pdfBytesBase64")
+  ) {
+    errors.push("pdf-source-required");
   }
   if (!hasPositiveNumber(body, "pageNumber")) {
     errors.push("pageNumber-positive-number-required");
@@ -93,6 +108,19 @@ export function validateServerTileRequest(
     !VALID_RENDER_PHASES.has(body.renderPhase)
   ) {
     errors.push("renderPhase-invalid");
+  }
+  if (
+    body.format !== undefined &&
+    (typeof body.format !== "string" ||
+      !VALID_IMAGE_FORMATS.has(body.format))
+  ) {
+    errors.push("format-invalid");
+  }
+  if (
+    body.quality !== undefined &&
+    (!isFiniteNumber(body.quality) || body.quality < 1 || body.quality > 100)
+  ) {
+    errors.push("quality-1-100-required");
   }
 
   const tile = body.tile;

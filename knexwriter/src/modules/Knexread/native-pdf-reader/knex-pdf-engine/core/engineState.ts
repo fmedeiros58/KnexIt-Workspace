@@ -10,7 +10,6 @@ import type {
  *
  * - "pdfjs": força PDF.js.
  * - "pdfium": força PDFium, quando disponível.
- * - "mupdf": força MuPDF, quando disponível.
  * - "auto": deixa o engine escolher o melhor backend disponível.
  */
 export type KnexPdfBackendSelectionMode = KnexPdfBackendId | "auto";

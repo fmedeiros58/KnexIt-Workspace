@@ -107,6 +107,11 @@ export type NativePdfSession = {
   pageCount: number;
   pdf: PdfDocumentProxy;
   file: File;
+  /**
+   * true se carregado com runtime PDF.js legado (versão 2.x)
+   * false se carregado com runtime moderno (versão 3.x+)
+   */
+  isLegacy: boolean;
 };
 
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
@@ -409,5 +414,6 @@ export async function loadNativePdfSession(
     pageCount: pdf.numPages,
     pdf,
     file,
+    isLegacy: isLegacyPdfJsRuntime(pdfjs),
   };
 }

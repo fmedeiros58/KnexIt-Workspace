@@ -1,19 +1,22 @@
 "use client";
 
-import { memo, useEffect } from "react";
+import { memo, useEffect, useMemo } from "react";
 import type { CSSProperties } from "react";
 import type { KnexPdfTextBlock as PdfTextBlock } from "../knex-pdf-engine";
 
-export type PdfTextLayerMode = "semantic" | "visual";
+export type PdfTextLayerMode = "semantic" | "visual" | "hybrid";
 
 const TEXT_LAYER_STYLE_ELEMENT_ID = "knex-pdf-text-layer-global-style";
 
 const DEFAULT_SELECTION_BACKGROUND = "transparent";
 const VISIBLE_SELECTION_BACKGROUND = "rgba(80, 120, 255, 0.08)";
-const DEFAULT_VISUAL_TEXT_COLOR = "rgb(17, 24, 39)";
+const DEFAULT_VISUAL_TEXT_COLOR = "rgb(0, 0, 0)";
 const DEBUG_VISUAL_TEXT_COLOR = "rgb(220, 38, 38)";
-const MIN_VISUAL_TEXT_FIT_SCALE_X = 0.72;
-const MAX_VISUAL_TEXT_FIT_SCALE_X = 1.38;
+const MIN_VISUAL_TEXT_FIT_SCALE_X = 0.92;
+const MAX_VISUAL_TEXT_FIT_SCALE_X = 1.08;
+const DEFAULT_VISUAL_TEXT_MAX_LETTER_SPACING_ADJUST = 0.85;
+const DEFAULT_VISUAL_TEXT_OPACITY = 0.94;
+const DEFAULT_VISUAL_TEXT_FONT_WEIGHT_CAP = 520;
 
 type PdfTextLayerBlock = Omit<
   PdfTextBlock,
@@ -133,6 +136,9 @@ const GLOBAL_TEXT_LAYER_CSS = `
     animation: none !important;
     background: transparent !important;
     text-shadow: none !important;
+    font-kerning: normal;
+    font-variant-ligatures: normal;
+    font-feature-settings: "kern" 1, "liga" 1;
     overflow: hidden;
   }
 
@@ -166,6 +172,13 @@ const GLOBAL_TEXT_LAYER_CSS = `
     visibility: visible !important;
     pointer-events: none !important;
     mix-blend-mode: normal !important;
+    text-rendering: geometricPrecision !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    font-synthesis: none !important;
+    font-kerning: normal !important;
+    font-variant-ligatures: normal !important;
+    font-feature-settings: "kern" 1, "liga" 1 !important;
   }
 
   .knex-pdf-text-layer[data-knexread-text-layer-mode="visual"]
@@ -270,6 +283,34 @@ function getGlobalString(key: string): string | undefined {
   return undefined;
 }
 
+function getGlobalNumber(
+  key: string,
+  fallback: number,
+  min = Number.NEGATIVE_INFINITY,
+  max = Number.POSITIVE_INFINITY,
+): number {
+  const value = (globalThis as unknown as Record<string, unknown>)[key];
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function getDefaultVisualTextFontFamily(): string {
+  return (
+    getGlobalString("KNEX_PDF_VISUAL_TEXT_DEFAULT_FONT_FAMILY") ??
+    `"Times New Roman", Times, serif`
+  );
+}
+
 function clamp(value: number, min: number, max: number): number {
   const safeMin = safeNumber(min, 0);
   const safeMax = Math.max(safeMin, safeNumber(max, safeMin));
@@ -367,6 +408,53 @@ function measureVisualTextWidth(input: {
   );
 }
 
+function getCharacterSpacingDivisor(text: string): number {
+  /*
+   * letter-spacing é aplicado entre glifos. Para palavras curtas, usar
+   * text.length - 1 pode criar saltos visuais exagerados. Este divisor
+   * suaviza o ajuste e reduz serrilhado causado por scaleX.
+   */
+  const graphemeCount = Array.from(text).length;
+
+  return Math.max(1, graphemeCount - 1);
+}
+
+function resolveVisualLetterSpacing(input: {
+  block: PdfTextLayerBlock;
+  text: string;
+  targetWidth: number;
+  measuredTextWidth: number;
+}): number | undefined {
+  if (typeof input.block.letterSpacing === "number" && Number.isFinite(input.block.letterSpacing)) {
+    return input.block.letterSpacing;
+  }
+
+  const maxAdjust = getGlobalNumber(
+    "KNEX_PDF_VISUAL_TEXT_MAX_LETTER_SPACING_ADJUST",
+    DEFAULT_VISUAL_TEXT_MAX_LETTER_SPACING_ADJUST,
+    0,
+    3,
+  );
+
+  const divisor = getCharacterSpacingDivisor(input.text);
+  const rawAdjust = (input.targetWidth - input.measuredTextWidth) / divisor;
+
+  if (Math.abs(rawAdjust) < 0.005) {
+    return undefined;
+  }
+
+  return clamp(rawAdjust, -maxAdjust, maxAdjust);
+}
+
+function shouldUseVisualScaleX(): boolean {
+  /*
+   * Transform scaleX em texto tende a gerar blur/serrilhado. Deixe desligado
+   * por padrão e use letter-spacing para ajuste fino. Para diagnóstico:
+   * globalThis.KNEX_PDF_VISUAL_TEXT_USE_SCALE_X = true
+   */
+  return getGlobalBoolean("KNEX_PDF_VISUAL_TEXT_USE_SCALE_X");
+}
+
 function safeNumber(
   value: number | null | undefined,
   fallback = 0,
@@ -448,7 +536,7 @@ function resolveFontFamily(block: PdfTextLayerBlock): string {
       : "";
 
   if (!rawFont) {
-    return "Arial, Helvetica, sans-serif";
+    return getDefaultVisualTextFontFamily();
   }
 
   const normalized = rawFont.toLowerCase();
@@ -469,7 +557,7 @@ function resolveFontFamily(block: PdfTextLayerBlock): string {
     normalized.includes("segoe") ||
     normalized.includes("sans")
   ) {
-    return "Arial, Helvetica, sans-serif";
+    return getDefaultVisualTextFontFamily();
   }
 
   if (
@@ -487,40 +575,98 @@ function resolveFontFamily(block: PdfTextLayerBlock): string {
   }
 
   if (rawFont.includes(" ")) {
-    return `"${rawFont}", Arial, Helvetica, sans-serif`;
+    return `"${rawFont}", ${getDefaultVisualTextFontFamily()}`;
   }
 
-  return `${rawFont}, Arial, Helvetica, sans-serif`;
+  return `${rawFont}, ${getDefaultVisualTextFontFamily()}`;
 }
 
 function resolveFontWeight(
   block: PdfTextLayerBlock,
 ): CSSProperties["fontWeight"] {
-  if (block.fontWeight) {
-    return block.fontWeight;
-  }
-
-  const fontName = `${block.fontName ?? ""} ${block.fontFamily ?? ""}`
+  const fontDescriptor = `${block.fontName ?? ""} ${block.fontFamily ?? ""}`
     .toLowerCase()
     .trim();
 
-  if (fontName.includes("bold") || fontName.includes("black")) {
+  /*
+   * Muitos backends preenchem fontWeight como "normal" mesmo quando
+   * o nome real da fonte contém Bold/Semibold. Por isso a inferência pelo
+   * nome da fonte vem antes do fallback explícito "normal".
+   */
+  if (
+    fontDescriptor.includes("bold") ||
+    fontDescriptor.includes("black") ||
+    fontDescriptor.includes("heavy")
+  ) {
     return 700;
   }
 
-  if (fontName.includes("semibold") || fontName.includes("demibold")) {
+  if (
+    fontDescriptor.includes("semibold") ||
+    fontDescriptor.includes("demibold")
+  ) {
     return 600;
   }
 
-  if (fontName.includes("medium")) {
+  if (fontDescriptor.includes("medium")) {
     return 500;
   }
 
-  if (fontName.includes("light")) {
+  if (fontDescriptor.includes("light")) {
     return 300;
   }
 
-  return "normal";
+  if (
+    block.fontWeight &&
+    block.fontWeight !== "normal" &&
+    block.fontWeight !== 400
+  ) {
+    return block.fontWeight;
+  }
+
+  return 400;
+}
+function resolveVisualFontWeight(
+  block: PdfTextLayerBlock,
+): CSSProperties["fontWeight"] {
+  const forcedWeight = getGlobalNumber(
+    "KNEX_PDF_VISUAL_TEXT_FORCE_FONT_WEIGHT",
+    Number.NaN,
+    100,
+    900,
+  );
+
+  if (Number.isFinite(forcedWeight)) {
+    return Math.round(forcedWeight);
+  }
+
+  const resolved = resolveFontWeight(block);
+  const numericWeight =
+    typeof resolved === "number"
+      ? resolved
+      : typeof resolved === "string"
+        ? Number(resolved)
+        : Number.NaN;
+
+  if (!Number.isFinite(numericWeight)) {
+    return resolved;
+  }
+
+  /*
+   * A camada visual fica muito parecida com negrito quando há fonte substituta,
+   * antialiasing forte ou pequenos resíduos de sobreposição. Por padrão,
+   * limitamos o peso visual. Se quiser preservar negritos fortes:
+   *
+   * globalThis.KNEX_PDF_VISUAL_TEXT_MAX_FONT_WEIGHT = 700
+   */
+  const maxWeight = getGlobalNumber(
+    "KNEX_PDF_VISUAL_TEXT_MAX_FONT_WEIGHT",
+    DEFAULT_VISUAL_TEXT_FONT_WEIGHT_CAP,
+    300,
+    900,
+  );
+
+  return Math.min(Math.round(numericWeight), Math.round(maxWeight));
 }
 
 function resolveFontStyle(block: PdfTextLayerBlock): CSSProperties["fontStyle"] {
@@ -598,16 +744,19 @@ function shouldRenderBlock(
 function resolveVisualTransform(input: {
   block: PdfTextLayerBlock;
   fitScaleX: number;
+  enableScaleX: boolean;
 }): string | undefined {
   const transforms: string[] = [];
 
   const rotation = safeNumber(input.block.rotation, 0);
   const scaleY = safeNumber(input.block.scaleY, 1);
-  const scaleX = clamp(
-    input.fitScaleX,
-    MIN_VISUAL_TEXT_FIT_SCALE_X,
-    MAX_VISUAL_TEXT_FIT_SCALE_X,
-  );
+  const scaleX = input.enableScaleX
+    ? clamp(
+        input.fitScaleX,
+        MIN_VISUAL_TEXT_FIT_SCALE_X,
+        MAX_VISUAL_TEXT_FIT_SCALE_X,
+      )
+    : 1;
 
   if (Math.abs(rotation) > 0.001) {
     transforms.push(`rotate(${rotation}deg)`);
@@ -656,19 +805,55 @@ function resolveVisualSpanStyle(
   lineHeight: number,
 ): CSSProperties {
   const visualColor = resolveVisualTextColor(block);
-  const visualOpacity = clampNumber(block.opacity, 0, 1, 1);
+  const visualOpacity = getGlobalNumber("KNEX_PDF_VISUAL_TEXT_OPACITY", DEFAULT_VISUAL_TEXT_OPACITY, 0, 1);
   const fontFamily = resolveFontFamily(block);
-  const fontWeight = resolveFontWeight(block);
+  const fontWeight = resolveVisualFontWeight(block);
   const fontStyle = resolveFontStyle(block);
-  const safeFontSize = Math.max(1, fontSize);
+
+  /**
+   * Ajustes controláveis em runtime para calibração fina sem recompilar.
+   *
+   * Exemplos no console:
+   * globalThis.KNEX_PDF_VISUAL_TEXT_FONT_SCALE = 1.02
+   * globalThis.KNEX_PDF_VISUAL_TEXT_Y_OFFSET = -0.5
+   * globalThis.KNEX_PDF_VISUAL_TEXT_FIT_MIN = 0.65
+   * globalThis.KNEX_PDF_VISUAL_TEXT_FIT_MAX = 1.5
+   */
+  const fontScale = getGlobalNumber(
+    "KNEX_PDF_VISUAL_TEXT_FONT_SCALE",
+    1,
+    0.75,
+    1.35,
+  );
+  const lineHeightScale = getGlobalNumber(
+    "KNEX_PDF_VISUAL_TEXT_LINE_HEIGHT_SCALE",
+    1,
+    0.75,
+    1.5,
+  );
+  const offsetX = getGlobalNumber("KNEX_PDF_VISUAL_TEXT_X_OFFSET", 0, -20, 20);
+  const offsetY = getGlobalNumber("KNEX_PDF_VISUAL_TEXT_Y_OFFSET", 0, -20, 20);
+  const minFitScaleX = getGlobalNumber(
+    "KNEX_PDF_VISUAL_TEXT_FIT_MIN",
+    MIN_VISUAL_TEXT_FIT_SCALE_X,
+    0.4,
+    1,
+  );
+  const maxFitScaleX = getGlobalNumber(
+    "KNEX_PDF_VISUAL_TEXT_FIT_MAX",
+    MAX_VISUAL_TEXT_FIT_SCALE_X,
+    1,
+    2.5,
+  );
+
+  const safeFontSize = Math.max(1, fontSize * fontScale);
 
   /**
    * Para o modo visual por palavra, o texto precisa caber na caixa local do PDF.
    *
-   * Agora os blocos vindos do PDFium são palavras. Por isso o ajuste de
-   * largura fica local e discreto, sem acumular erro ao longo de uma linha
-   * inteira. A escala horizontal foi limitada de forma conservadora para não
-   * deformar a letra em zoom baixo.
+   * A largura natural é medida com a fonte CSS resolvida. Depois o scaleX
+   * ajusta a palavra para a caixa do PDF. Isso evita que o span fique
+   * comprimido por width CSS e mantém o texto nítido.
    */
   const measuredTextWidth = measureVisualTextWidth({
     text: block.text,
@@ -681,13 +866,24 @@ function resolveVisualSpanStyle(
   const targetWidth = Math.max(1, safeNumber(block.width, measuredTextWidth));
   const fitScaleX = clamp(
     targetWidth / measuredTextWidth,
-    MIN_VISUAL_TEXT_FIT_SCALE_X,
-    MAX_VISUAL_TEXT_FIT_SCALE_X,
+    minFitScaleX,
+    maxFitScaleX,
   );
+  const enableScaleX = shouldUseVisualScaleX();
+  const resolvedLetterSpacing = enableScaleX
+    ? typeof block.letterSpacing === "number" && Number.isFinite(block.letterSpacing)
+      ? block.letterSpacing
+      : undefined
+    : resolveVisualLetterSpacing({
+        block,
+        text: block.text,
+        targetWidth,
+        measuredTextWidth,
+      });
 
   const safeLineHeight = Math.max(
     safeFontSize,
-    safeNumber(lineHeight, safeFontSize),
+    safeNumber(lineHeight, safeFontSize) * lineHeightScale,
   );
 
   const visualHeight = Math.max(
@@ -698,16 +894,18 @@ function resolveVisualSpanStyle(
   const transform = resolveVisualTransform({
     block,
     fitScaleX,
+    enableScaleX,
   });
 
   return {
-    left: px(block.x),
-    top: px(block.y),
-    /**
-     * A largura layout do span é a largura natural medida.
-     * O transform scaleX ajusta visualmente para a largura do PDF.
+    left: px(safeNumber(block.x) + offsetX),
+    top: px(safeNumber(block.y) + offsetY),
+    /*
+     * Sem scaleX por padrão. O layout usa a largura-alvo do PDF e o ajuste
+     * fino horizontal é feito por letter-spacing. Isso preserva o texto como
+     * fonte vetorial real no navegador e reduz blur/serrilhado.
      */
-    width: `${measuredTextWidth}px`,
+    width: `${enableScaleX ? measuredTextWidth : targetWidth}px`,
     height: `${visualHeight}px`,
     minHeight: `${visualHeight}px`,
     fontFamily,
@@ -716,9 +914,9 @@ function resolveVisualSpanStyle(
     fontStyle,
     lineHeight: `${safeLineHeight}px`,
     letterSpacing:
-      typeof block.letterSpacing === "number" &&
-      Number.isFinite(block.letterSpacing)
-        ? `${block.letterSpacing}px`
+      typeof resolvedLetterSpacing === "number" &&
+      Number.isFinite(resolvedLetterSpacing)
+        ? `${resolvedLetterSpacing}px`
         : undefined,
     color: visualColor,
     WebkitTextFillColor: visualColor,
@@ -731,7 +929,97 @@ function resolveVisualSpanStyle(
     transformOrigin: "0 0",
     overflow: "visible",
     zIndex: 2,
+    fontKerning: "normal",
+    fontVariantLigatures: "normal",
+    fontSynthesis: "none",
+    textRendering: "geometricPrecision",
+    WebkitFontSmoothing: "antialiased",
   };
+}
+
+function roundForVisualSignature(value: number, precision = 2): number {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+}
+
+function getVisualBlockSignature(block: PdfTextLayerBlock): string {
+  return [
+    block.text.replace(/\s+/g, " ").trim(),
+    roundForVisualSignature(safeNumber(block.x), 1),
+    roundForVisualSignature(safeNumber(block.y), 1),
+    roundForVisualSignature(safeNumber(block.width), 1),
+    roundForVisualSignature(safeNumber(block.height), 1),
+    roundForVisualSignature(safeNumber(block.fontSize), 1),
+  ].join("|");
+}
+
+function visualBlocksOverlap(a: PdfTextLayerBlock, b: PdfTextLayerBlock): boolean {
+  const ax = safeNumber(a.x);
+  const ay = safeNumber(a.y);
+  const aw = safeNumber(a.width);
+  const ah = safeNumber(a.height);
+  const bx = safeNumber(b.x);
+  const by = safeNumber(b.y);
+  const bw = safeNumber(b.width);
+  const bh = safeNumber(b.height);
+
+  const overlapX = Math.max(0, Math.min(ax + aw, bx + bw) - Math.max(ax, bx));
+  const overlapY = Math.max(0, Math.min(ay + ah, by + bh) - Math.max(ay, by));
+  const overlapArea = overlapX * overlapY;
+  const minArea = Math.max(1, Math.min(aw * ah, bw * bh));
+
+  return overlapArea / minArea > 0.82;
+}
+
+function shouldDropAsVisualDuplicate(input: {
+  candidate: PdfTextLayerBlock;
+  accepted: PdfTextLayerBlock[];
+}): boolean {
+  const candidateText = input.candidate.text.replace(/\s+/g, " ").trim();
+
+  if (!candidateText) return true;
+
+  return input.accepted.some((accepted) => {
+    const acceptedText = accepted.text.replace(/\s+/g, " ").trim();
+
+    if (!acceptedText) return false;
+
+    if (candidateText === acceptedText && visualBlocksOverlap(input.candidate, accepted)) {
+      return true;
+    }
+
+    /*
+     * Alguns PDFs entregam o mesmo texto duas vezes: uma como palavra/frase e
+     * outra como bloco maior praticamente no mesmo retângulo. Nesse caso,
+     * renderizar ambos dá aparência de negrito.
+     */
+    const textContains =
+      acceptedText.includes(candidateText) || candidateText.includes(acceptedText);
+
+    return textContains && visualBlocksOverlap(input.candidate, accepted);
+  });
+}
+
+function dedupeVisualTextBlocks(blocks: PdfTextLayerBlock[]): PdfTextLayerBlock[] {
+  const seen = new Set<string>();
+  const accepted: PdfTextLayerBlock[] = [];
+
+  for (const block of blocks) {
+    const signature = getVisualBlockSignature(block);
+
+    if (seen.has(signature)) {
+      continue;
+    }
+
+    if (shouldDropAsVisualDuplicate({ candidate: block, accepted })) {
+      continue;
+    }
+
+    seen.add(signature);
+    accepted.push(block);
+  }
+
+  return accepted;
 }
 
 /**
@@ -758,7 +1046,7 @@ export const PdfTextLayer = memo(function PdfTextLayer({
     ensureGlobalTextLayerStyles();
   }, []);
 
-  const isVisualMode = mode === "visual";
+  const isVisualMode = mode === "visual" || mode === "hybrid";
 
   const selectionBackground = showNativeSelectionOverlay
     ? VISIBLE_SELECTION_BACKGROUND
@@ -774,6 +1062,11 @@ export const PdfTextLayer = memo(function PdfTextLayer({
     ? DEBUG_VISUAL_TEXT_COLOR
     : DEFAULT_VISUAL_TEXT_COLOR;
 
+  const renderBlocks = useMemo(
+    () => (isVisualMode ? dedupeVisualTextBlocks(blocks) : blocks),
+    [blocks, isVisualMode],
+  );
+
   return (
     <div
       className={rootClassName}
@@ -781,17 +1074,25 @@ export const PdfTextLayer = memo(function PdfTextLayer({
       data-knexread-text-layer-mode={mode}
       data-knexread-visual-debug={visualDebug ? "true" : "false"}
       data-knexread-text-layer-block-count={blocks.length}
+      data-knexread-text-layer-rendered-block-count={renderBlocks.length}
       data-pdf-page-number={pageNumber}
       aria-hidden={isVisualMode ? true : undefined}
       style={
         {
           "--knex-pdf-selection-background": selectionBackground,
           "--knex-pdf-visual-text-color": visualTextColor,
-          "--knex-pdf-visual-text-opacity": 1,
+          "--knex-pdf-visual-text-opacity": isVisualMode
+            ? getGlobalNumber(
+                "KNEX_PDF_VISUAL_TEXT_OPACITY",
+                DEFAULT_VISUAL_TEXT_OPACITY,
+                0,
+                1,
+              )
+            : 1,
         } as CSSProperties
       }
     >
-      {blocks.map((block) => {
+      {renderBlocks.map((block) => {
         if (!shouldRenderBlock(block, mode)) {
           return null;
         }
@@ -828,6 +1129,18 @@ export const PdfTextLayer = memo(function PdfTextLayer({
             data-pdf-height={block.height}
             data-pdf-font-size={block.fontSize}
             data-pdf-layer-mode={mode}
+            data-pdf-computed-font-family={
+              isVisualMode ? String(style.fontFamily ?? "") : undefined
+            }
+            data-pdf-computed-font-weight={
+              isVisualMode ? String(style.fontWeight ?? "") : undefined
+            }
+            data-pdf-computed-letter-spacing={
+              isVisualMode ? String(style.letterSpacing ?? "") : undefined
+            }
+            data-pdf-computed-transform={
+              isVisualMode ? String(style.transform ?? "") : undefined
+            }
             className={`knex-pdf-text-layer__span ${
               isHighlighted ? "knex-pdf-text-layer__highlight" : ""
             }`}
