@@ -74,7 +74,19 @@ function getDevicePixelRatio(): number {
   return Math.max(1, window.devicePixelRatio || 1);
 }
 
-function resolveOutputScale(renderQuality: PdfRenderQualityMode): number {
+/**
+ * Limites defensivos para o caminho single-canvas.
+ *
+ * Mesmo com o ZoomController limitado a 2000%, este componente não pode tentar
+ * criar um bitmap único gigantesco. Em zoom alto, o caminho recomendado é
+ * tiled-canvas; quando single-canvas for usado, ele precisa reduzir outputScale
+ * automaticamente para evitar tela preta e estouro de memória.
+ */
+const SINGLE_CANVAS_MAX_BITMAP_PIXELS = 72_000_000;
+const SINGLE_CANVAS_MAX_BITMAP_SIDE = 24_576;
+const SINGLE_CANVAS_MIN_OUTPUT_SCALE = 0.25;
+
+function getBaseOutputScale(renderQuality: PdfRenderQualityMode): number {
   const dpr = getDevicePixelRatio();
 
   if (renderQuality === "extreme") {
@@ -86,6 +98,50 @@ function resolveOutputScale(renderQuality: PdfRenderQualityMode): number {
   }
 
   return Math.min(2, dpr);
+}
+
+function resolveMemorySafeOutputScale(input: {
+  cssWidth: number;
+  cssHeight: number;
+  requestedOutputScale: number;
+}): number {
+  const cssWidth = Math.max(1, input.cssWidth);
+  const cssHeight = Math.max(1, input.cssHeight);
+  const requestedOutputScale = Math.max(
+    SINGLE_CANVAS_MIN_OUTPUT_SCALE,
+    input.requestedOutputScale,
+  );
+
+  const maxByArea = Math.sqrt(
+    SINGLE_CANVAS_MAX_BITMAP_PIXELS / Math.max(1, cssWidth * cssHeight),
+  );
+  const maxBySide = Math.min(
+    SINGLE_CANVAS_MAX_BITMAP_SIDE / cssWidth,
+    SINGLE_CANVAS_MAX_BITMAP_SIDE / cssHeight,
+  );
+
+  const safeOutputScale = Math.min(
+    requestedOutputScale,
+    maxByArea,
+    maxBySide,
+  );
+
+  return Math.max(
+    SINGLE_CANVAS_MIN_OUTPUT_SCALE,
+    Math.round(safeOutputScale * 1000) / 1000,
+  );
+}
+
+function resolveOutputScale(input: {
+  renderQuality: PdfRenderQualityMode;
+  cssWidth: number;
+  cssHeight: number;
+}): number {
+  return resolveMemorySafeOutputScale({
+    cssWidth: input.cssWidth,
+    cssHeight: input.cssHeight,
+    requestedOutputScale: getBaseOutputScale(input.renderQuality),
+  });
 }
 
 function createRenderIdentity(input: {
@@ -196,33 +252,47 @@ function commitRenderedCanvas(input: {
   cssHeight: number;
   setCommittedGeometry: (geometry: CommittedCanvasGeometry) => void;
 }) {
+  /*
+   * Commit atômico com CSS sempre ancorado no alvo visual.
+   *
+   * A dimensão VISUAL do canvas precisa acompanhar pageCssWidth/pageCssHeight
+   * no mesmo frame das demais camadas da página. Por isso, o CSS do canvas
+   * visível fica sempre no tamanho alvo atual.
+   *
+   * O bitmap real só é trocado quando o render em workCanvas termina. Assim:
+   * - durante o gesto de zoom, o bitmap anterior é escalado pelo próprio CSS;
+   * - quando o bitmap final chega, ele substitui o anterior sem reposicionar
+   *   a camada nem aplicar um segundo transform independente.
+   *
+   * Isso evita o deslocamento perceptível principalmente no zoom-out.
+   */
+  input.visibleCanvas.style.width = `${input.cssWidth}px`;
+  input.visibleCanvas.style.height = `${input.cssHeight}px`;
+
+  input.visibleCanvas.width = input.renderedCanvas.width;
+  input.visibleCanvas.height = input.renderedCanvas.height;
+
   const context = input.visibleCanvas.getContext("2d", { alpha: false });
 
   if (!context) {
     throw new Error("Canvas 2D context unavailable.");
   }
 
-  /*
-   * Commit atômico:
-   *
-   * O canvas visível não é redimensionado no início do render.
-   * Primeiro renderizamos tudo em um canvas temporário. Só quando o bitmap novo
-   * está pronto copiamos para o canvas visível e atualizamos a dimensão CSS.
-   *
-   * Isso evita o efeito de texto "solto/agarrando" durante o zoom, causado pelo
-   * canvas visível sendo esticado para o novo tamanho antes de o conteúdo interno
-   * terminar de renderizar.
-   */
-  input.visibleCanvas.width = input.renderedCanvas.width;
-  input.visibleCanvas.height = input.renderedCanvas.height;
-  input.visibleCanvas.style.width = `${input.cssWidth}px`;
-  input.visibleCanvas.style.height = `${input.cssHeight}px`;
-
   context.save();
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.clearRect(0, 0, input.visibleCanvas.width, input.visibleCanvas.height);
   context.drawImage(input.renderedCanvas, 0, 0);
   context.restore();
+
+  /*
+   * Libera o bitmap temporário assim que o commit é feito.
+   * Isso reduz pico de memória no fallback single-canvas, especialmente em
+   * documentos imagem ou páginas grandes.
+   */
+  if (input.renderedCanvas !== input.visibleCanvas) {
+    input.renderedCanvas.width = 1;
+    input.renderedCanvas.height = 1;
+  }
 
   input.setCommittedGeometry({
     cssWidth: input.cssWidth,
@@ -247,8 +317,13 @@ export function PdfCanvasLayer({
   const documentId = useMemo(() => getDocumentId(session), [session]);
   const renderScale = useMemo(() => getRenderScale(zoom), [zoom]);
   const outputScale = useMemo(
-    () => resolveOutputScale(renderQuality),
-    [renderQuality],
+    () =>
+      resolveOutputScale({
+        renderQuality,
+        cssWidth: pageCssWidth,
+        cssHeight: pageCssHeight,
+      }),
+    [pageCssHeight, pageCssWidth, renderQuality],
   );
   const renderIdentity = useMemo(
     () =>
@@ -332,6 +407,12 @@ export function PdfCanvasLayer({
       canvas.dataset.knexPdfCssHeight = String(pageCssHeight);
       canvas.dataset.knexPdfBitmapWidth = String(canvas.width);
       canvas.dataset.knexPdfBitmapHeight = String(canvas.height);
+      canvas.dataset.knexPdfBitmapPixels = String(canvas.width * canvas.height);
+      canvas.dataset.knexPdfMaxBitmapPixels = String(
+        SINGLE_CANVAS_MAX_BITMAP_PIXELS,
+      );
+      canvas.dataset.knexPdfMaxBitmapSide = String(SINGLE_CANVAS_MAX_BITMAP_SIDE);
+      canvas.dataset.knexPdfMemorySafeOutputScale = String(outputScale);
 
       if (input.rendered) {
         canvas.dataset.knexPdfPageWidthPt = String(input.rendered.pageWidthPt);
@@ -636,10 +717,13 @@ export function PdfCanvasLayer({
     zoom,
   ]);
 
+  const isCanvasBitmapStale =
+    Math.abs(pageCssWidth - committedCanvasGeometry.cssWidth) > 0.5 ||
+    Math.abs(pageCssHeight - committedCanvasGeometry.cssHeight) > 0.5;
+
   return (
-    <canvas
-      ref={canvasRef}
-      data-knexread-single-canvas-layer="true"
+    <div
+      data-knexread-single-canvas-visual-frame="true"
       data-knex-pdf-render-status={status}
       data-knex-pdf-render-source={renderSource}
       data-knex-pdf-render-text={renderText ? "true" : "false"}
@@ -647,12 +731,64 @@ export function PdfCanvasLayer({
       data-knex-pdf-target-css-height={pageCssHeight}
       data-knex-pdf-committed-css-width={committedCanvasGeometry.cssWidth}
       data-knex-pdf-committed-css-height={committedCanvasGeometry.cssHeight}
+      data-knex-pdf-bitmap-stale={isCanvasBitmapStale ? "true" : "false"}
+      data-knex-pdf-canvas-retarget-policy="target-size-sync-with-text"
+      data-knex-pdf-coordinate-space="render"
+      data-knex-pdf-scale-owner="PdfModularPageStage"
+      data-knex-pdf-memory-safe-output-scale={outputScale}
+      data-knex-pdf-max-bitmap-pixels={SINGLE_CANVAS_MAX_BITMAP_PIXELS}
+      data-knex-pdf-max-bitmap-side={SINGLE_CANVAS_MAX_BITMAP_SIDE}
       style={{
-        display: "block",
-        width: `${committedCanvasGeometry.cssWidth}px`,
-        height: `${committedCanvasGeometry.cssHeight}px`,
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: `${pageCssWidth}px`,
+        minWidth: `${pageCssWidth}px`,
+        maxWidth: `${pageCssWidth}px`,
+        height: `${pageCssHeight}px`,
+        minHeight: `${pageCssHeight}px`,
+        maxHeight: `${pageCssHeight}px`,
+        overflow: "hidden",
         background: "#ffffff",
+        contain: "layout paint size",
+        boxSizing: "border-box",
+        transform: "none",
+        transformOrigin: "0 0",
       }}
-    />
+    >
+      <canvas
+        ref={canvasRef}
+        data-knexread-single-canvas-layer="true"
+        data-knex-pdf-render-status={status}
+        data-knex-pdf-render-source={renderSource}
+        data-knex-pdf-render-text={renderText ? "true" : "false"}
+        data-knex-pdf-target-css-width={pageCssWidth}
+        data-knex-pdf-target-css-height={pageCssHeight}
+        data-knex-pdf-committed-css-width={committedCanvasGeometry.cssWidth}
+        data-knex-pdf-committed-css-height={committedCanvasGeometry.cssHeight}
+        data-knex-pdf-bitmap-stale={isCanvasBitmapStale ? "true" : "false"}
+        data-knex-pdf-canvas-retarget-policy="target-size-sync-with-text"
+        data-knex-pdf-coordinate-space="render"
+        data-knex-pdf-scale-owner="PdfModularPageStage"
+        style={{
+          display: "block",
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: `${pageCssWidth}px`,
+          minWidth: `${pageCssWidth}px`,
+          maxWidth: `${pageCssWidth}px`,
+          height: `${pageCssHeight}px`,
+          minHeight: `${pageCssHeight}px`,
+          maxHeight: `${pageCssHeight}px`,
+          background: "#ffffff",
+          transform: "none",
+          transformOrigin: "0 0",
+          willChange: "auto",
+          imageRendering: "auto",
+          boxSizing: "border-box",
+        }}
+      />
+    </div>
   );
 }

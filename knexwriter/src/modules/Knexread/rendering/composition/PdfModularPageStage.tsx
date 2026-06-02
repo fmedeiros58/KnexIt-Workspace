@@ -41,6 +41,36 @@ function getLayoutScale(zoom: number): number {
   return Math.max(0.01, zoom / 100);
 }
 
+function safeZoomPercent(value: number | null | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function resolveRenderCssSize(input: {
+  pageCssWidth: number;
+  pageCssHeight: number;
+  visualZoom: number;
+  renderZoom: number;
+}) {
+  const visualScale = getLayoutScale(input.visualZoom);
+  const renderScale = getLayoutScale(input.renderZoom);
+  const visualToRenderScaleRatio = visualScale / Math.max(0.01, renderScale);
+
+  return {
+    visualScale,
+    renderScale,
+    visualToRenderScaleRatio,
+    renderPageCssWidth: Math.max(1, input.pageCssWidth / visualToRenderScaleRatio),
+    renderPageCssHeight: Math.max(1, input.pageCssHeight / visualToRenderScaleRatio),
+  };
+}
+
+function getScaledSurfaceTransform(ratio: number): string {
+  if (Math.abs(ratio - 1) <= 0.0001) return "none";
+  return `matrix(${ratio}, 0, 0, ${ratio}, 0, 0)`;
+}
+
 function getGlobalBoolean(key: string): boolean {
   if (typeof globalThis === "undefined") return false;
 
@@ -62,7 +92,25 @@ function shouldUseBlueprintStage(): boolean {
 export type PdfModularPageStageProps = {
   session: NativePdfSession;
   pageNumber: number;
+
+  /**
+   * Mantido por compatibilidade. Quando visualZoom/renderZoom não forem
+   * informados, este valor será usado para ambos.
+   */
   zoom: number;
+
+  /**
+   * Zoom visual/interativo: muda imediatamente durante wheel/zoom e controla o
+   * tamanho externo da página no palco.
+   */
+  visualZoom?: number;
+
+  /**
+   * Zoom comprometido de renderização: só deve mudar após estabilização do
+   * gesto. Controla canvas, blueprint, OCR/text extraction e render pesado.
+   */
+  renderZoom?: number;
+
   pageCssWidth: number;
   pageCssHeight: number;
   renderQuality: PdfRenderQualityMode;
@@ -82,6 +130,8 @@ export function PdfModularPageStage({
   session,
   pageNumber,
   zoom,
+  visualZoom,
+  renderZoom,
   pageCssWidth,
   pageCssHeight,
   renderQuality,
@@ -94,39 +144,101 @@ export function PdfModularPageStage({
 }: PdfModularPageStageProps) {
   const [blueprintStageEnabled] = useState(shouldUseBlueprintStage);
 
-  if (blueprintStageEnabled) {
-    return (
-      <PdfBlueprintStage
-        session={session}
-        pageNumber={pageNumber}
-        zoom={zoom}
-        pageCssWidth={pageCssWidth}
-        pageCssHeight={pageCssHeight}
-        renderQuality={renderQuality}
-        renderPhase={renderPhase}
-        finalRenderVersion={finalRenderVersion}
-        onRendered={onRendered}
-        onTextBlocksChange={onTextBlocksChange}
-        onCanvasRenderStateChange={onCanvasRenderStateChange}
-      />
-    );
-  }
+  const effectiveRenderZoom = safeZoomPercent(renderZoom, zoom);
+  const effectiveVisualZoom = safeZoomPercent(visualZoom, effectiveRenderZoom);
+  const {
+    renderPageCssWidth,
+    renderPageCssHeight,
+    visualScale,
+    renderScale,
+    visualToRenderScaleRatio,
+  } = resolveRenderCssSize({
+    pageCssWidth,
+    pageCssHeight,
+    visualZoom: effectiveVisualZoom,
+    renderZoom: effectiveRenderZoom,
+  });
+  const scaledSurfaceTransform = getScaledSurfaceTransform(
+    visualToRenderScaleRatio,
+  );
 
+  /*
+   * Regra estrutural:
+   *
+   * O frame externo usa o tamanho visual imediato. A superfície interna usa o
+   * tamanho de renderização comprometido e é escalada por transform.
+   *
+   * Assim, canvas e texto/blueprint ficam sempre sincronizados durante
+   * zoom-in/zoom-out, enquanto o render pesado só muda após o settle.
+   */
   return (
-    <PdfLegacyModularPageStage
-      session={session}
-      pageNumber={pageNumber}
-      zoom={zoom}
-      pageCssWidth={pageCssWidth}
-      pageCssHeight={pageCssHeight}
-      renderQuality={renderQuality}
-      renderPhase={renderPhase}
-      finalRenderVersion={finalRenderVersion}
-      highlightedRunIds={highlightedRunIds}
-      onRendered={onRendered}
-      onTextBlocksChange={onTextBlocksChange}
-      onCanvasRenderStateChange={onCanvasRenderStateChange}
-    />
+    <div
+      className="absolute inset-0 overflow-hidden"
+      data-knexread-modular-page-stage="true"
+      data-knexread-modular-page-number={pageNumber}
+      data-knexread-modular-stage-mode={
+        blueprintStageEnabled ? "blueprint" : "legacy"
+      }
+      data-knexread-modular-visual-zoom={effectiveVisualZoom}
+      data-knexread-modular-render-zoom={effectiveRenderZoom}
+      data-knexread-modular-visual-scale={visualScale}
+      data-knexread-modular-render-scale={renderScale}
+      data-knexread-modular-visual-to-render-scale-ratio={
+        visualToRenderScaleRatio
+      }
+      data-knexread-modular-render-css-width={renderPageCssWidth}
+      data-knexread-modular-render-css-height={renderPageCssHeight}
+      style={{
+        width: `${pageCssWidth}px`,
+        height: `${pageCssHeight}px`,
+      }}
+    >
+      <div
+        className="absolute left-0 top-0"
+        data-knexread-modular-scaled-render-surface="true"
+        style={{
+          width: `${renderPageCssWidth}px`,
+          height: `${renderPageCssHeight}px`,
+          transform: scaledSurfaceTransform,
+          transformOrigin: "0 0",
+          willChange:
+            Math.abs(visualToRenderScaleRatio - 1) > 0.0001
+              ? "transform"
+              : "auto",
+        }}
+      >
+        {blueprintStageEnabled ? (
+          <PdfBlueprintStage
+            session={session}
+            pageNumber={pageNumber}
+            zoom={effectiveRenderZoom}
+            pageCssWidth={renderPageCssWidth}
+            pageCssHeight={renderPageCssHeight}
+            renderQuality={renderQuality}
+            renderPhase={renderPhase}
+            finalRenderVersion={finalRenderVersion}
+            onRendered={onRendered}
+            onTextBlocksChange={onTextBlocksChange}
+            onCanvasRenderStateChange={onCanvasRenderStateChange}
+          />
+        ) : (
+          <PdfLegacyModularPageStage
+            session={session}
+            pageNumber={pageNumber}
+            zoom={effectiveRenderZoom}
+            pageCssWidth={renderPageCssWidth}
+            pageCssHeight={renderPageCssHeight}
+            renderQuality={renderQuality}
+            renderPhase={renderPhase}
+            finalRenderVersion={finalRenderVersion}
+            highlightedRunIds={highlightedRunIds}
+            onRendered={onRendered}
+            onTextBlocksChange={onTextBlocksChange}
+            onCanvasRenderStateChange={onCanvasRenderStateChange}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 

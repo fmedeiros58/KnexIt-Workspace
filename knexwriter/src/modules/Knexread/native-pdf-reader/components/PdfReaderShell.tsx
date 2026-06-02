@@ -57,6 +57,12 @@ import {
   beginKnexPdfRenderInteraction,
   clearKnexPdfRenderInteraction,
 } from "./PdfInteractionRenderGuard";
+import {
+  getAcceleratedPdfWheelDeltaForController,
+  getAcceleratedPdfWheelScrollDelta,
+  resolvePdfWheelInteractionPolicy,
+  shouldHandlePdfWheelZoom,
+} from "../../core/interaction/zoom-scroll/PdfWheelInteractionPolicy";
 
 type KnexreadShellProps = {
   file: File;
@@ -116,7 +122,23 @@ const AUTOMATIC_READER_RENDER_QUALITY: PdfRenderQualityMode = "extreme";
 const ZOOM_GESTURE_RENDER_QUALITY: PdfRenderQualityMode = "extreme";
 const ZOOM_GESTURE_SETTLE_MS = 120;
 const VIEWPORT_INTERACTION_SETTLE_MS = 180;
-const WHEEL_ZOOM_IMMEDIATE_FLUSH_MS = 8;
+const WHEEL_ZOOM_IMMEDIATE_FLUSH_MS = 16;
+
+/**
+ * Janela de qualidade ao redor do palco.
+ *
+ * Em zoom baixo/médio, mantemos 6 páginas próximas para a rolagem continuar
+ * fluida. Em zoom alto, a janela precisa diminuir para evitar que muitas
+ * páginas em extreme disputem memória/GPU ao mesmo tempo.
+ */
+const LOW_ZOOM_WARMUP_PAGE_OFFSETS = [1, 2, 3, 4, 5, 6] as const;
+const LOW_ZOOM_PRELOAD_PAGE_OFFSETS = [7, 8, 9, 10, 11, 12] as const;
+const MID_ZOOM_WARMUP_PAGE_OFFSETS = [1, 2, 3] as const;
+const MID_ZOOM_PRELOAD_PAGE_OFFSETS = [4, 5, 6] as const;
+const HIGH_ZOOM_WARMUP_PAGE_OFFSETS = [1, 2] as const;
+const HIGH_ZOOM_PRELOAD_PAGE_OFFSETS = [3, 4] as const;
+const EXTREME_ZOOM_WARMUP_PAGE_OFFSETS = [1] as const;
+const EXTREME_ZOOM_PRELOAD_PAGE_OFFSETS = [2] as const;
 
 type ViewportInteractionReason = "wheel-zoom" | "scroll" | "resize";
 
@@ -150,15 +172,121 @@ function toSortedPageNumbers(values: Set<number>): number[] {
   return Array.from(values).sort((a, b) => a - b);
 }
 
+function getAdaptiveRenderWindowOffsets(zoomPercent: number): {
+  warmupOffsets: readonly number[];
+  preloadOffsets: readonly number[];
+} {
+  const safeZoom = Math.max(10, Number.isFinite(zoomPercent) ? zoomPercent : 100);
+
+  if (safeZoom > 1200) {
+    return {
+      warmupOffsets: EXTREME_ZOOM_WARMUP_PAGE_OFFSETS,
+      preloadOffsets: EXTREME_ZOOM_PRELOAD_PAGE_OFFSETS,
+    };
+  }
+
+  if (safeZoom > 800) {
+    return {
+      warmupOffsets: HIGH_ZOOM_WARMUP_PAGE_OFFSETS,
+      preloadOffsets: HIGH_ZOOM_PRELOAD_PAGE_OFFSETS,
+    };
+  }
+
+  if (safeZoom > 400) {
+    return {
+      warmupOffsets: MID_ZOOM_WARMUP_PAGE_OFFSETS,
+      preloadOffsets: MID_ZOOM_PRELOAD_PAGE_OFFSETS,
+    };
+  }
+
+  return {
+    warmupOffsets: LOW_ZOOM_WARMUP_PAGE_OFFSETS,
+    preloadOffsets: LOW_ZOOM_PRELOAD_PAGE_OFFSETS,
+  };
+}
+
+function getNearbyFinalQualityPageRadius(zoomPercent: number): number {
+  return getAdaptiveRenderWindowOffsets(zoomPercent).warmupOffsets.length;
+}
+
+function getZoomGestureCanvasRenderRadius(zoomPercent: number): number {
+  const safeZoom = Math.max(10, Number.isFinite(zoomPercent) ? zoomPercent : 100);
+
+  /*
+   * Durante o gesto de zoom, a camada ativa deve ser preservada e escalada.
+   * Renderizar páginas próximas enquanto o usuário ainda está girando o wheel
+   * aumenta muito o pico de memória em 800%+.
+   */
+  if (safeZoom >= 800) return 0;
+  if (safeZoom >= 400) return 1;
+
+  return getNearbyFinalQualityPageRadius(safeZoom);
+}
+
+function shouldRenderCanvasDuringZoom(input: {
+  stageZoom: number;
+  isActivePage: boolean;
+  isVisiblePage: boolean;
+  isWarmupPage: boolean;
+  shouldRenderPageNow: boolean;
+}): boolean {
+  if (input.stageZoom >= 800) {
+    return input.isActivePage || input.isVisiblePage;
+  }
+
+  if (input.stageZoom >= 400) {
+    return input.isActivePage || input.isVisiblePage || input.shouldRenderPageNow;
+  }
+
+  return (
+    input.isActivePage ||
+    input.isVisiblePage ||
+    input.isWarmupPage ||
+    input.shouldRenderPageNow
+  );
+}
+
+function getPageMetricBaseWidth(metrics: {
+  width: number;
+  pageWidthPt: number;
+  renderScale: number;
+}): number {
+  if (metrics.pageWidthPt > 0) return metrics.pageWidthPt;
+
+  if (metrics.width > 0 && metrics.renderScale > 0) {
+    return metrics.width / metrics.renderScale;
+  }
+
+  return 0;
+}
+
+function getPageMetricBaseHeight(metrics: {
+  height: number;
+  pageHeightPt: number;
+  renderScale: number;
+}): number {
+  if (metrics.pageHeightPt > 0) return metrics.pageHeightPt;
+
+  if (metrics.height > 0 && metrics.renderScale > 0) {
+    return metrics.height / metrics.renderScale;
+  }
+
+  return 0;
+}
+
 function createPdfRenderWindow(input: {
   activePageNumber: number;
   visiblePageNumbers: Set<number>;
   pageCount: number;
+  zoomPercent: number;
 }): PdfRenderWindow {
   const pageCount = Math.max(1, input.pageCount);
   const visible = new Set<number>();
   const warmup = new Set<number>();
   const preload = new Set<number>();
+  const { warmupOffsets, preloadOffsets } = getAdaptiveRenderWindowOffsets(
+    input.zoomPercent,
+  );
 
   addBoundedPageNumber(visible, input.activePageNumber, pageCount);
 
@@ -167,12 +295,12 @@ function createPdfRenderWindow(input: {
   }
 
   for (const pageNumber of visible) {
-    for (const offset of [1, 2, 3]) {
+    for (const offset of warmupOffsets) {
       addBoundedPageNumber(warmup, pageNumber - offset, pageCount);
       addBoundedPageNumber(warmup, pageNumber + offset, pageCount);
     }
 
-    for (const offset of [4, 5, 6]) {
+    for (const offset of preloadOffsets) {
       addBoundedPageNumber(preload, pageNumber - offset, pageCount);
       addBoundedPageNumber(preload, pageNumber + offset, pageCount);
     }
@@ -271,16 +399,63 @@ function PdfReaderShellContent({
     goToPage,
   } = usePdfPageNavigation(1, 1);
   const {
-    zoom: displayedStageZoom,
     zoomScale: stageZoomScale,
     setZoomScale: setStageZoomScale,
   } = usePdfZoom();
-  const stageZoom = stageZoomScale * 100;
-  const setStageZoom = useCallback(
+
+  /*
+   * Zoom dividido em duas camadas:
+   *
+   * - stageZoom / visualStageZoom:
+   *   muda imediatamente durante wheel/zoom e controla layout visual,
+   *   largura do palco, régua, scroll e sensação de resposta.
+   *
+   * - renderStageZoom / committedRenderZoom:
+   *   só muda depois que o gesto estabiliza e é o zoom usado para renderização
+   *   pesada de canvas/tiles. Isso impede backlog de render em zoom-in alto e
+   *   deixa o zoom-out responder imediatamente.
+   */
+  const committedRenderZoom = stageZoomScale * 100;
+  const [visualStageZoom, setVisualStageZoomState] = useState(
+    () => committedRenderZoom,
+  );
+  const stageZoom = visualStageZoom;
+  const renderStageZoom = committedRenderZoom;
+
+  const setCommittedRenderZoom = useCallback(
     (value: number) => {
       setStageZoomScale(clampStageZoom(value) / 100);
     },
     [setStageZoomScale],
+  );
+
+  const setStageZoom = useCallback(
+    (value: number) => {
+      const safeZoom = clampStageZoom(value);
+      setVisualStageZoomState(safeZoom);
+      setStageZoomScale(safeZoom / 100);
+    },
+    [setStageZoomScale],
+  );
+
+  const wheelInteractionPolicy = useMemo(
+    () =>
+      resolvePdfWheelInteractionPolicy({
+        /*
+         * Rolagem segue forte em zoom alto, mas o zoom por wheel precisa ser
+         * menos agressivo para não criar backlog de renderizações.
+         */
+        wheelScrollMultiplier: 4,
+        wheelZoomMultiplier: 3,
+        maxWheelScrollStepPx: 260,
+        maxWheelZoomStepPercent: 18,
+        maxWheelZoomControllerDeltaPx: 140,
+        baseWheelZoomStepPercent: 4,
+        minZoomPercent: 10,
+        maxZoomPercent: 2000,
+        zoomModifierMode: "ctrl-or-meta",
+      }),
+    [],
   );
 
   const { highlights, loadHighlights, addHighlight } = usePdfHighlights();
@@ -347,6 +522,7 @@ function PdfReaderShellContent({
   const pageElementRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const didInitialScrollRef = useRef(false);
   const currentZoomRef = useRef(stageZoom);
+  const committedRenderZoomRef = useRef(renderStageZoom);
   const suppressAutoPageSyncRef = useRef(false);
   const horizontalOverflowLayoutKeyRef = useRef("");
   const wheelDeltaRef = useRef(0);
@@ -428,16 +604,23 @@ function PdfReaderShellContent({
     () => Array.from({ length: Math.max(pageCount, 1) }, (_, index) => index + 1),
     [pageCount],
   );
-  const sourceContentWidth = useMemo(() => {
-    const widths = Object.values(pageRenderMetrics)
-      .map((item) =>
-        item.pageWidthPt
-          ? item.pageWidthPt * (stageZoom / 100)
-          : item.width * (stageZoom / Math.max(1, item.renderScale * 100)),
-      )
-      .filter(Boolean);
-    return widths.length ? Math.max(...widths) : 612 * (stageZoom / 100);
-  }, [pageRenderMetrics, stageZoom]);
+  const pageRenderMetricValues = useMemo(
+    () => Object.values(pageRenderMetrics),
+    [pageRenderMetrics],
+  );
+
+  const canonicalPageWidthPt = useMemo(() => {
+    const widths = pageRenderMetricValues
+      .map(getPageMetricBaseWidth)
+      .filter((value) => value > 0);
+
+    return Math.max(612, ...widths);
+  }, [pageRenderMetricValues]);
+
+  const sourceContentWidth = useMemo(
+    () => canonicalPageWidthPt * (stageZoom / 100),
+    [canonicalPageWidthPt, stageZoom],
+  );
 
   const readingContentWidth = useMemo(() => {
     return calculateKnexPdfContentWidth({
@@ -448,40 +631,72 @@ function PdfReaderShellContent({
   }, [sourceContentWidth, translationViewMode]);
 
   const activePageRenderMetrics = useMemo(() => {
-    return pageRenderMetrics[page] ?? Object.values(pageRenderMetrics)[0];
-  }, [page, pageRenderMetrics]);
+    return pageRenderMetrics[page] ?? pageRenderMetricValues[0];
+  }, [page, pageRenderMetricValues, pageRenderMetrics]);
 
-  const activePageContentHeight = useMemo(() => {
-    if (!activePageRenderMetrics) return 792 * (stageZoom / 100);
-    if (activePageRenderMetrics.pageHeightPt) {
-      return activePageRenderMetrics.pageHeightPt * (stageZoom / 100);
-    }
-    return (
-      activePageRenderMetrics.height *
-      (stageZoom / Math.max(1, activePageRenderMetrics.renderScale * 100))
-    );
-  }, [activePageRenderMetrics, stageZoom]);
+  const getPageViewZoomForStageZoom = useCallback(
+    (pageNumber: number, stageZoomValue: number) => {
+      const metrics = pageRenderMetrics[pageNumber] ?? activePageRenderMetrics;
+      if (!metrics) return clampStageZoom(stageZoomValue);
+
+      const baseWidth = Math.max(
+        1,
+        getPageMetricBaseWidth(metrics) || canonicalPageWidthPt,
+      );
+
+      /*
+       * Normalização visual por página:
+       * se uma página/imagem tem largura base menor, ela recebe um zoom interno
+       * proporcionalmente maior para ocupar a mesma largura canônica do leitor.
+       *
+       * O clamp continua protegendo o teto global de renderização.
+       */
+      return clampStageZoom(
+        stageZoomValue * (canonicalPageWidthPt / baseWidth),
+      );
+    },
+    [activePageRenderMetrics, canonicalPageWidthPt, pageRenderMetrics],
+  );
 
   const getPageDisplaySize = useCallback(
     (pageNumber: number) => {
       const metrics = pageRenderMetrics[pageNumber] ?? activePageRenderMetrics;
+      const pageViewZoom = getPageViewZoomForStageZoom(pageNumber, stageZoom);
+      const pageViewScale = pageViewZoom / 100;
+
       if (!metrics) {
         return {
-          width: 612 * (stageZoom / 100),
-          height: 792 * (stageZoom / 100),
+          width: canonicalPageWidthPt * pageViewScale,
+          height: canonicalPageWidthPt * pageViewScale * (792 / 612),
         };
       }
 
-      const width = metrics.pageWidthPt
-        ? metrics.pageWidthPt * (stageZoom / 100)
-        : metrics.width * (stageZoom / Math.max(1, metrics.renderScale * 100));
-      const height = metrics.pageHeightPt
-        ? metrics.pageHeightPt * (stageZoom / 100)
-        : metrics.height * (stageZoom / Math.max(1, metrics.renderScale * 100));
+      const baseWidth = Math.max(
+        1,
+        getPageMetricBaseWidth(metrics) || canonicalPageWidthPt,
+      );
+      const baseHeight = Math.max(
+        1,
+        getPageMetricBaseHeight(metrics) || 792,
+      );
 
-      return { width, height };
+      return {
+        width: baseWidth * pageViewScale,
+        height: baseHeight * pageViewScale,
+      };
     },
-    [activePageRenderMetrics, pageRenderMetrics, stageZoom],
+    [
+      activePageRenderMetrics,
+      canonicalPageWidthPt,
+      getPageViewZoomForStageZoom,
+      pageRenderMetrics,
+      stageZoom,
+    ],
+  );
+
+  const activePageContentHeight = useMemo(
+    () => getPageDisplaySize(page).height,
+    [getPageDisplaySize, page],
   );
 
   useEffect(() => {
@@ -591,8 +806,10 @@ function PdfReaderShellContent({
 
   const markViewportInteracting = useCallback(
     (reason: ViewportInteractionReason) => {
+      const isWheelZoom = reason === "wheel-zoom";
+
       beginKnexPdfRenderInteraction(
-        reason === "wheel-zoom" ? "zoom" : "scroll",
+        isWheelZoom ? "zoom" : "scroll",
         VIEWPORT_INTERACTION_SETTLE_MS,
       );
 
@@ -608,7 +825,19 @@ function PdfReaderShellContent({
       interactionSettleTimerRef.current = window.setTimeout(() => {
         isViewportInteractingRef.current = false;
         setIsViewportInteracting(false);
-        setFinalRenderVersion((version) => version + 1);
+
+        /*
+         * No zoom por wheel, o próprio zoom/renderScale já invalida o canvas.
+         * Forçar uma nova rodada global no settle cria uma segunda troca visual,
+         * percebida como "piscada" ou ajuste tardio de qualidade.
+         *
+         * Mantemos o bump para scroll/resize, onde ele ainda ajuda a finalizar
+         * páginas que entraram na janela de renderização.
+         */
+        if (!isWheelZoom && (reason === "resize" || currentZoomRef.current < 800)) {
+          setFinalRenderVersion((version) => version + 1);
+        }
+
         clearKnexPdfRenderInteraction();
         interactionSettleTimerRef.current = null;
       }, VIEWPORT_INTERACTION_SETTLE_MS);
@@ -633,19 +862,23 @@ function PdfReaderShellContent({
     }
 
     zoomGestureSettleTimerRef.current = window.setTimeout(() => {
+      const finalVisualZoom = clampStageZoom(currentZoomRef.current);
+
+      /*
+       * Ponto estrutural:
+       * somente agora o zoom de renderização pesada é comprometido.
+       * Durante o wheel, apenas o zoom visual foi alterado.
+       */
+      committedRenderZoomRef.current = finalVisualZoom;
+      setCommittedRenderZoom(finalVisualZoom);
+
       isZoomGestureActiveRef.current = false;
       setIsZoomGestureActive(false);
-
-      /**
-       * Assim que o zoom estabiliza, força uma nova rodada de render final.
-       * Isso evita que o último buffer preview/warmup permaneça ativo.
-       */
-      setFinalRenderVersion((version) => version + 1);
 
       clearKnexPdfRenderInteraction("zoom");
       zoomGestureSettleTimerRef.current = null;
     }, ZOOM_GESTURE_SETTLE_MS);
-  }, []);
+  }, [setCommittedRenderZoom]);
 
   const beginScrollGesture = useCallback(() => {
     markViewportInteracting("scroll");
@@ -654,13 +887,16 @@ function PdfReaderShellContent({
   const shouldRenderPageDuringZoom = useCallback(
     (pageNumber: number) => {
       if (!isZoomGestureActive) return false;
+
+      const nearbyRadius = getZoomGestureCanvasRenderRadius(stageZoom);
+
       return (
         pageNumber === page ||
         visiblePageNumbers.has(pageNumber) ||
-        Math.abs(pageNumber - page) <= 3
+        Math.abs(pageNumber - page) <= nearbyRadius
       );
     },
-    [isZoomGestureActive, page, visiblePageNumbers],
+    [isZoomGestureActive, page, stageZoom, visiblePageNumbers],
   );
 
   const getPageRenderQuality = useCallback(
@@ -713,7 +949,10 @@ function PdfReaderShellContent({
         const anchorRect = anchorElement?.getBoundingClientRect();
 
         if (anchorRect?.width && anchorRect.height) {
-          const oldScale = Math.max(0.1, oldZoom / 100);
+          const oldScale = Math.max(
+            0.1,
+            getPageViewZoomForStageZoom(anchorPageNumber, oldZoom) / 100,
+          );
 
           const elementLeft = anchorRect.left - rootRect.left + root.scrollLeft;
           const elementTop = anchorRect.top - rootRect.top + root.scrollTop;
@@ -748,13 +987,20 @@ function PdfReaderShellContent({
 
       currentZoomRef.current = nextZoom;
       setZoomMode(mode);
-      setStageZoom(nextZoom);
+
+      /*
+       * Durante o gesto, atualizar somente o zoom visual.
+       * O renderStageZoom será atualizado apenas no settle, em
+       * scheduleZoomGestureRelease().
+       */
+      setVisualStageZoomState(nextZoom);
       scheduleZoomGestureRelease();
     },
     [
       beginZoomGesture,
       getAnchorPageNumber,
       getPageAnchorElement,
+      getPageViewZoomForStageZoom,
       scheduleZoomGestureRelease,
       setStageZoom,
       showRuler,
@@ -778,45 +1024,57 @@ function PdfReaderShellContent({
 
   const setFitWidthZoom = useCallback(() => {
     const root = stageScrollRef.current;
-    const pageWidth =
-      activePageRenderMetrics?.pageWidthPt ||
-      (activePageRenderMetrics?.renderScale
-        ? activePageRenderMetrics.width / activePageRenderMetrics.renderScale
-        : 0);
-    if (!root || !pageWidth) {
+    if (!root || !canonicalPageWidthPt) {
       applyZoomTransactional(140, "fit-width");
       return;
     }
+
     const rulerWidth = showRuler ? 28 : 0;
     const availableWidth = Math.max(320, root.clientWidth - rulerWidth - 56);
-    applyZoomTransactional((availableWidth / pageWidth) * 100, "fit-width");
-  }, [activePageRenderMetrics, applyZoomTransactional, showRuler]);
+
+    applyZoomTransactional(
+      (availableWidth / canonicalPageWidthPt) * 100,
+      "fit-width",
+    );
+  }, [applyZoomTransactional, canonicalPageWidthPt, showRuler]);
 
   const setFitPageZoom = useCallback(() => {
     const root = stageScrollRef.current;
-    const pageWidth =
-      activePageRenderMetrics?.pageWidthPt ||
-      (activePageRenderMetrics?.renderScale
-        ? activePageRenderMetrics.width / activePageRenderMetrics.renderScale
-        : 0);
-    const pageHeight =
-      activePageRenderMetrics?.pageHeightPt ||
-      (activePageRenderMetrics?.renderScale
-        ? activePageRenderMetrics.height / activePageRenderMetrics.renderScale
-        : 0);
-    if (!root || !pageWidth || !pageHeight) {
+    if (!root || !canonicalPageWidthPt) {
       applyZoomTransactional(120, "fit-page");
       return;
     }
+
+    const activeBaseWidth = activePageRenderMetrics
+      ? Math.max(
+          1,
+          getPageMetricBaseWidth(activePageRenderMetrics) || canonicalPageWidthPt,
+        )
+      : canonicalPageWidthPt;
+    const activeBaseHeight = activePageRenderMetrics
+      ? Math.max(1, getPageMetricBaseHeight(activePageRenderMetrics) || 792)
+      : 792;
+    const normalizedActiveHeight =
+      canonicalPageWidthPt * (activeBaseHeight / activeBaseWidth);
+
     const rulerWidth = showRuler ? 28 : 0;
     const rulerHeight = showRuler ? 24 : 0;
     const availableWidth = Math.max(320, root.clientWidth - rulerWidth - 56);
     const availableHeight = Math.max(320, root.clientHeight - rulerHeight - 56);
+
     applyZoomTransactional(
-      Math.min(availableWidth / pageWidth, availableHeight / pageHeight) * 100,
+      Math.min(
+        availableWidth / canonicalPageWidthPt,
+        availableHeight / normalizedActiveHeight,
+      ) * 100,
       "fit-page",
     );
-  }, [activePageRenderMetrics, applyZoomTransactional, showRuler]);
+  }, [
+    activePageRenderMetrics,
+    applyZoomTransactional,
+    canonicalPageWidthPt,
+    showRuler,
+  ]);
 
   const setActualSizeZoom = useCallback(() => {
     applyZoomTransactional(100, "manual");
@@ -1068,6 +1326,20 @@ function PdfReaderShellContent({
   }, [stageZoom]);
 
   useEffect(() => {
+    committedRenderZoomRef.current = renderStageZoom;
+
+    /*
+     * Quando o zoom comprometido muda por carregamento de sessão, preferência,
+     * fit-width, toolbar ou commit final do gesto, sincronizamos o visual apenas
+     * se o usuário não estiver em wheel ativo.
+     */
+    if (isZoomGestureActiveRef.current) return;
+
+    currentZoomRef.current = renderStageZoom;
+    setVisualStageZoomState(renderStageZoom);
+  }, [renderStageZoom]);
+
+  useEffect(() => {
     activePageRef.current = page;
 
     const nextVisible = new Set(visiblePageNumbersRef.current);
@@ -1217,7 +1489,10 @@ function PdfReaderShellContent({
 
       if (anchorRect?.width && anchorRect.height) {
         const rootRect = root.getBoundingClientRect();
-        const nextScale = Math.max(0.1, stageZoom / 100);
+        const nextScale = Math.max(
+          0.1,
+          getPageViewZoomForStageZoom(currentAnchor.pageNumber, stageZoom) / 100,
+        );
 
         const elementLeft = anchorRect.left - rootRect.left + root.scrollLeft;
         const elementTop = anchorRect.top - rootRect.top + root.scrollTop;
@@ -1287,17 +1562,11 @@ function PdfReaderShellContent({
         window.cancelAnimationFrame(secondFrame);
       }
     };
-  }, [getPageAnchorElement, stageZoom]);
+  }, [getPageAnchorElement, getPageViewZoomForStageZoom, stageZoom]);
 
   useEffect(() => {
     const stageRoot = stageScrollRef.current;
     if (!stageRoot) return;
-
-    const normalizeWheelDeltaToPixels = (event: WheelEvent) => {
-      if (event.deltaMode === 1) return event.deltaY * 16;
-      if (event.deltaMode === 2) return event.deltaY * 800;
-      return event.deltaY;
-    };
 
     const getWheelZoomTime = () =>
       typeof performance !== "undefined" &&
@@ -1314,11 +1583,13 @@ function PdfReaderShellContent({
       wheelFrameRef.current = null;
 
       if (delta === 0) return;
+
       lastWheelZoomFlushAtRef.current = getWheelZoomTime();
 
       /**
-       * Zoom suave exponencial, em vez de pulo fixo de 5%.
-       * Isso reduz a sensação de salto no scroll zoom.
+       * O delta já chega normalizado e acelerado pela política centralizada
+       * de wheel. Mantemos computeWheelZoom como controlador de curva para não
+       * alterar de uma vez a semântica do ZoomController.
        */
       const nextZoom =
         computeWheelZoom({
@@ -1334,37 +1605,76 @@ function PdfReaderShellContent({
       );
     };
 
-    const handleCtrlWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
+    const scheduleWheelZoomFlush = () => {
+      if (wheelFrameRef.current != null) return;
 
+      const elapsedSinceFlush =
+        getWheelZoomTime() - lastWheelZoomFlushAtRef.current;
+
+      if (elapsedSinceFlush >= WHEEL_ZOOM_IMMEDIATE_FLUSH_MS) {
+        flushWheelZoom();
+        return;
+      }
+
+      wheelFrameRef.current = window.requestAnimationFrame(flushWheelZoom);
+    };
+
+    const handleWheel = (event: WheelEvent) => {
       const target = event.target as Node | null;
       if (target && !stageRoot.contains(target)) return;
 
-      event.preventDefault();
-      markViewportInteracting("wheel-zoom");
+      if (shouldHandlePdfWheelZoom(event, wheelInteractionPolicy)) {
+        event.preventDefault();
+        markViewportInteracting("wheel-zoom");
 
-      wheelDeltaRef.current += normalizeWheelDeltaToPixels(event);
-      wheelAnchorPointRef.current = {
-        clientX: event.clientX,
-        clientY: event.clientY,
-      };
+        wheelDeltaRef.current += getAcceleratedPdfWheelDeltaForController({
+          deltaY: event.deltaY,
+          deltaMode: event.deltaMode,
+          currentZoomPercent: currentZoomRef.current,
+          policy: wheelInteractionPolicy,
+        });
 
-      if (wheelFrameRef.current == null) {
-        const elapsedSinceFlush =
-          getWheelZoomTime() - lastWheelZoomFlushAtRef.current;
+        wheelAnchorPointRef.current = {
+          clientX: event.clientX,
+          clientY: event.clientY,
+        };
 
-        if (elapsedSinceFlush >= WHEEL_ZOOM_IMMEDIATE_FLUSH_MS) {
-          flushWheelZoom();
-        } else {
-          wheelFrameRef.current = window.requestAnimationFrame(flushWheelZoom);
-        }
+        scheduleWheelZoomFlush();
+        return;
       }
+
+      /**
+       * Rolagem comum acelerada.
+       *
+       * Como usamos preventDefault para substituir a rolagem nativa, o ganho de
+       * velocidade fica previsível e centralizado em PdfWheelInteractionPolicy.
+       */
+      const acceleratedScrollDelta = getAcceleratedPdfWheelScrollDelta({
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        currentZoomPercent: currentZoomRef.current,
+        policy: wheelInteractionPolicy,
+      });
+
+      if (acceleratedScrollDelta === 0) return;
+
+      event.preventDefault();
+      markViewportInteracting("scroll");
+
+      if (event.shiftKey) {
+        stageRoot.scrollLeft += acceleratedScrollDelta;
+        return;
+      }
+
+      stageRoot.scrollTop += acceleratedScrollDelta;
     };
 
     /**
      * Preferir stageRoot em vez de window reduz interferência externa.
+     * passive:false é necessário para controlar Ctrl/Meta + wheel e para
+     * aplicar a rolagem acelerada sem duplicar com o comportamento nativo.
      */
-    stageRoot.addEventListener("wheel", handleCtrlWheel, { passive: false });
+    stageRoot.addEventListener("wheel", handleWheel, { passive: false });
 
     return () => {
       if (wheelFrameRef.current != null) {
@@ -1376,9 +1686,13 @@ function PdfReaderShellContent({
       wheelAnchorPointRef.current = null;
       lastWheelZoomFlushAtRef.current = 0;
 
-      stageRoot.removeEventListener("wheel", handleCtrlWheel);
+      stageRoot.removeEventListener("wheel", handleWheel);
     };
-  }, [applyZoomTransactional, markViewportInteracting]);
+  }, [
+    applyZoomTransactional,
+    markViewportInteracting,
+    wheelInteractionPolicy,
+  ]);
 
   useEffect(() => {
     const stageRoot = stageScrollRef.current;
@@ -1506,7 +1820,7 @@ function PdfReaderShellContent({
         try {
           const scaleFactor = Math.max(
             0.5,
-            renderScale ?? stageZoom / 100,
+            renderScale ?? renderStageZoom / 100,
           );
           const normalizedBlocks = blocks.map((item) => ({
             ...item,
@@ -1551,8 +1865,8 @@ function PdfReaderShellContent({
     [
       mergePageTranslationBlocks,
       pdfFile,
+      renderStageZoom,
       resolvedDocumentId,
-      stageZoom,
       sourceLanguage,
       targetLanguage,
     ],
@@ -2087,8 +2401,9 @@ function PdfReaderShellContent({
         activePageNumber: page,
         visiblePageNumbers,
         pageCount,
+        zoomPercent: renderStageZoom,
       }),
-    [page, pageCount, visiblePageNumbers],
+    [page, pageCount, renderStageZoom, visiblePageNumbers],
   );
   const visibleRenderPageNumbers = useMemo(
     () => new Set(renderWindow.visiblePageNumbers),
@@ -2354,6 +2669,14 @@ function PdfReaderShellContent({
                       activeRibbonTab === "traducao" ||
                       activeRibbonTab === "revisao";
                     const translationPageSize = getPageDisplaySize(pageNumber);
+                    const pageVisualZoom = getPageViewZoomForStageZoom(
+                      pageNumber,
+                      stageZoom,
+                    );
+                    const pageRenderZoom = getPageViewZoomForStageZoom(
+                      pageNumber,
+                      renderStageZoom,
+                    );
 
                     const shouldRenderPageNow = shouldRenderPageDuringZoom(pageNumber);
                     const pageRenderQuality = getPageRenderQuality(pageNumber);
@@ -2370,11 +2693,18 @@ function PdfReaderShellContent({
                     const shouldPersistPageBlocksNow =
                       !isRenderInteractionActive &&
                       persistPageBlocks;
-                    const shouldRenderCanvasNow =
-                      isActivePage ||
-                      isVisiblePage ||
-                      isWarmupPage ||
-                      shouldRenderPageNow;
+                    const shouldRenderCanvasNow = isZoomGestureActive
+                      ? shouldRenderCanvasDuringZoom({
+                          stageZoom,
+                          isActivePage,
+                          isVisiblePage,
+                          isWarmupPage,
+                          shouldRenderPageNow,
+                        })
+                      : isActivePage ||
+                        isVisiblePage ||
+                        isWarmupPage ||
+                        shouldRenderPageNow;
 
                     return (
                       <div
@@ -2389,7 +2719,9 @@ function PdfReaderShellContent({
                             session={session}
                             pdfFileId={pdfFile?.id}
                             pageNumber={pageNumber}
-                            zoom={stageZoom}
+                            zoom={pageRenderZoom}
+                            visualZoom={pageVisualZoom}
+                            renderZoom={pageRenderZoom}
                             renderQuality={pageRenderQuality}
                             highlights={highlights}
                             onSelectText={handleSelectedText}
@@ -2452,6 +2784,14 @@ function PdfReaderShellContent({
                         activeRibbonTab === "revisao" ||
                         translationViewMode === "focus-review";
                       const translationPageSize = getPageDisplaySize(pageNumber);
+                      const pageVisualZoom = getPageViewZoomForStageZoom(
+                        pageNumber,
+                        stageZoom,
+                      );
+                      const pageRenderZoom = getPageViewZoomForStageZoom(
+                        pageNumber,
+                        renderStageZoom,
+                      );
 
                       const shouldRenderPageNow = shouldRenderPageDuringZoom(pageNumber);
                       const pageRenderQuality = getPageRenderQuality(pageNumber);
@@ -2468,11 +2808,18 @@ function PdfReaderShellContent({
                       const shouldPersistPageBlocksNow =
                         !isRenderInteractionActive &&
                         persistPageBlocks;
-                      const shouldRenderCanvasNow =
-                        isActivePage ||
-                        isVisiblePage ||
-                        isWarmupPage ||
-                        shouldRenderPageNow;
+                      const shouldRenderCanvasNow = isZoomGestureActive
+                        ? shouldRenderCanvasDuringZoom({
+                            stageZoom,
+                            isActivePage,
+                            isVisiblePage,
+                            isWarmupPage,
+                            shouldRenderPageNow,
+                          })
+                        : isActivePage ||
+                          isVisiblePage ||
+                          isWarmupPage ||
+                          shouldRenderPageNow;
 
                       return (
                         <div
@@ -2493,7 +2840,9 @@ function PdfReaderShellContent({
                               session={session}
                               pdfFileId={pdfFile?.id}
                               pageNumber={pageNumber}
-                              zoom={stageZoom}
+                              zoom={pageRenderZoom}
+                              visualZoom={pageVisualZoom}
+                              renderZoom={pageRenderZoom}
                               renderQuality={pageRenderQuality}
                               highlights={highlights}
                               onSelectText={handleSelectedText}
@@ -2602,7 +2951,7 @@ function PdfReaderShellContent({
         <PdfToolbar
           page={page}
           pageCount={pageCount}
-          zoom={displayedStageZoom}
+          zoom={stageZoom}
           sidebarMode={sidebarMode}
           onGoToPreviousPage={() => goToPageAndScroll(page - 1)}
           onGoToNextPage={() => goToPageAndScroll(page + 1)}

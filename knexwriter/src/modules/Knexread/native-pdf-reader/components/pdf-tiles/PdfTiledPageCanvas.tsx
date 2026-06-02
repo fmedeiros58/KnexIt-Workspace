@@ -65,6 +65,28 @@ type TileLayerSnapshot = {
 };
 
 export type PdfTiledPageCanvasProps = PdfTiledVisualPageProps & {
+  /**
+   * Zoom visual/interativo.
+   *
+   * Muda imediatamente durante wheel/zoom e serve apenas para escala visual da
+   * camada já ativa e para o tamanho externo do frame.
+   */
+  visualZoom?: number;
+
+  /**
+   * Zoom de renderização pesada.
+   *
+   * Só deve mudar depois que o gesto estabiliza. É usado para geometria real,
+   * tiles, cacheKey, generationId e bitmap.
+   */
+  renderZoom?: number;
+
+  /**
+   * Razão visual/render já calculada pelo PdfPageView.
+   * Quando ausente, é recalculada localmente.
+   */
+  visualToRenderScaleRatio?: number;
+
   visualRenderMode?: KnexPdfVisualRenderMode;
   pdfFileId?: string;
 };
@@ -76,19 +98,40 @@ const TILE_GRID_ROWS = 16;
 const TILE_GRID_COLUMNS = 2;
 const TILE_OVERLAP_PX = 2;
 const TILE_BLEED_CSS_PX = 10;
-const TILE_TARGET_EFFECTIVE_BITMAP_SCALE = 5;
-const TILE_MIN_EFFECTIVE_BITMAP_SCALE = 4.75;
-const TILE_MAX_EFFECTIVE_BITMAP_SCALE = 6;
-const TILE_GEOMETRY_MAX_BITMAP_PIXELS = 1_000_000_000;
-const TILE_GEOMETRY_MAX_BITMAP_SIDE = 1_000_000;
-const TILE_GEOMETRY_PREVIEW_MAX_OUTPUT_SCALE = 2.25;
-const TILE_GEOMETRY_WARMUP_MAX_OUTPUT_SCALE = 3.25;
+const TILE_TARGET_EFFECTIVE_BITMAP_SCALE = 4;
+const TILE_MIN_EFFECTIVE_BITMAP_SCALE = 1;
+const TILE_MAX_EFFECTIVE_BITMAP_SCALE = 4.5;
+const TILE_GEOMETRY_MAX_BITMAP_PIXELS = 96_000_000;
+const TILE_GEOMETRY_MAX_BITMAP_SIDE = 32_768;
+const TILE_GEOMETRY_PREVIEW_MAX_OUTPUT_SCALE = 2;
+const TILE_GEOMETRY_WARMUP_MAX_OUTPUT_SCALE = 3;
 const TILE_GEOMETRY_FINAL_MAX_OUTPUT_SCALE = TILE_MAX_EFFECTIVE_BITMAP_SCALE;
-const TILE_GEOMETRY_PREVIEW_MIN_OUTPUT_SCALE = 1.75;
-const TILE_GEOMETRY_WARMUP_MIN_OUTPUT_SCALE = 2.75;
-const TILE_GEOMETRY_FINAL_MIN_OUTPUT_SCALE =
-  TILE_TARGET_EFFECTIVE_BITMAP_SCALE;
+const TILE_GEOMETRY_PREVIEW_MIN_OUTPUT_SCALE = 1;
+const TILE_GEOMETRY_WARMUP_MIN_OUTPUT_SCALE = 1.25;
+const TILE_GEOMETRY_FINAL_MIN_OUTPUT_SCALE = 1.5;
 const INTERACTION_TILE_LAYER_DEBOUNCE_MS = 12;
+const ZOOM_TILE_LAYER_DEBOUNCE_MS = 40;
+
+/**
+ * Promoção conservadora de camadas.
+ *
+ * Durante zoom/scroll, a camada ativa permanece totalmente opaca e transformada
+ * para acompanhar a geometria atual. A nova camada é renderizada em background,
+ * mas só substitui a ativa quando a interação estabiliza.
+ *
+ * Isso reduz a "piscada" no zoom-in e também evita microtrocas perceptíveis no
+ * zoom-out. O valor pode ser ajustado entre 180 e 300ms.
+ */
+const TILE_LAYER_PROMOTION_IDLE_DELAY_MS = 150;
+
+/**
+ * Em zoom alto, renderizar novas tiles enquanto o wheel ainda está ativo
+ * deixa o zoom pesado. A camada ativa já acompanha o gesto por transform;
+ * portanto, acima deste limite congelamos a criação da pendingLayer durante
+ * o gesto e só renderizamos a camada nítida quando o wheel estabiliza.
+ */
+const HIGH_ZOOM_INTERACTION_RENDER_FREEZE_SCALE = 8;
+const EXTREME_ZOOM_INTERACTION_RENDER_FREEZE_SCALE = 12;
 const STABLE_TILE_RENDER_VERSION = 0;
 
 function safeNumber(
@@ -113,34 +156,89 @@ function getRenderDocumentId(session: NativePdfSession): string {
   );
 }
 
-function resolveTileCssSize(renderPhase: KnexPdfRenderPhase): number {
-  if (renderPhase === "settled-final") return 768;
-  if (renderPhase === "interactive-preview") return 1024;
+function resolveTileCssSize(input: {
+  renderPhase: KnexPdfRenderPhase;
+  renderScale: number;
+}): number {
+  /*
+   * Em zoom alto, tiles menores reduzem o pico de memória por canvas.
+   * O número de tiles aumenta, mas cada tile fica muito menos perigoso para
+   * GPU/RAM e evita tela preta por bitmap grande demais.
+   */
+  if (input.renderScale >= 12) return 384;
+  if (input.renderScale >= 8) return 448;
+  if (input.renderScale >= 4) return 512;
+
+  if (input.renderPhase === "settled-final") return 768;
+  if (input.renderPhase === "interactive-preview") return 1024;
+
   return 1024;
 }
 
-function resolveTileGeometryMaxOutputScale(
-  renderPhase: KnexPdfRenderPhase,
-): number {
-  if (renderPhase === "settled-final") {
+function resolveTileGridRows(renderScale: number): number {
+  /*
+   * Mais linhas em zoom alto diminuem a altura real de cada tile.
+   */
+  if (renderScale >= 16) return 48;
+  if (renderScale >= 12) return 40;
+  if (renderScale >= 8) return 32;
+  if (renderScale >= 4) return 24;
+
+  return TILE_GRID_ROWS;
+}
+
+function resolveTileGridColumns(renderScale: number): number {
+  /*
+   * O antigo grid 16x2 gerava tiles largos demais em 800%+.
+   * Em zoom alto, aumentar colunas é essencial para não estourar memória.
+   */
+  if (renderScale >= 16) return 10;
+  if (renderScale >= 12) return 8;
+  if (renderScale >= 8) return 6;
+  if (renderScale >= 4) return 4;
+
+  return TILE_GRID_COLUMNS;
+}
+
+function resolveTileGeometryMaxOutputScale(input: {
+  renderPhase: KnexPdfRenderPhase;
+  renderScale: number;
+}): number {
+  /*
+   * Quanto maior o zoom CSS, menor precisa ser o outputScale.
+   * Em 100%/200%, outputScale alto melhora nitidez.
+   * Em 800%/2000%, outputScale alto explode bitmap e memória.
+   */
+  if (input.renderScale >= 16) return 1.15;
+  if (input.renderScale >= 12) return 1.25;
+  if (input.renderScale >= 8) return 1.5;
+  if (input.renderScale >= 4) return 2;
+  if (input.renderScale >= 2) return 3;
+
+  if (input.renderPhase === "settled-final") {
     return TILE_GEOMETRY_FINAL_MAX_OUTPUT_SCALE;
   }
 
-  if (renderPhase === "warmup-preview") {
+  if (input.renderPhase === "warmup-preview") {
     return TILE_GEOMETRY_WARMUP_MAX_OUTPUT_SCALE;
   }
 
   return TILE_GEOMETRY_PREVIEW_MAX_OUTPUT_SCALE;
 }
 
-function resolveTileGeometryMinOutputScale(
-  renderPhase: KnexPdfRenderPhase,
-): number {
-  if (renderPhase === "settled-final") {
+function resolveTileGeometryMinOutputScale(input: {
+  renderPhase: KnexPdfRenderPhase;
+  renderScale: number;
+}): number {
+  if (input.renderScale >= 8) return 1;
+  if (input.renderScale >= 4) return 1.15;
+  if (input.renderScale >= 2) return 1.5;
+
+  if (input.renderPhase === "settled-final") {
     return TILE_GEOMETRY_FINAL_MIN_OUTPUT_SCALE;
   }
 
-  if (renderPhase === "warmup-preview") {
+  if (input.renderPhase === "warmup-preview") {
     return TILE_GEOMETRY_WARMUP_MIN_OUTPUT_SCALE;
   }
 
@@ -363,11 +461,12 @@ function createTileLayerSnapshot(input: {
 }
 
 function getLayerTransform(input: {
-  currentGeometry: KnexPdfPageGeometry;
+  targetZoom: number;
   layerGeometry: KnexPdfPageGeometry;
 }): string {
   const scale =
-    input.currentGeometry.zoom / Math.max(0.0001, input.layerGeometry.zoom);
+    Math.max(MIN_LAYOUT_SCALE, input.targetZoom) /
+    Math.max(MIN_LAYOUT_SCALE, input.layerGeometry.zoom);
 
   if (Math.abs(scale - 1) <= 0.0001) {
     return "none";
@@ -489,6 +588,9 @@ export function PdfTiledPageCanvas({
   session,
   pageNumber,
   zoom,
+  visualZoom,
+  renderZoom,
+  visualToRenderScaleRatio,
   renderQuality,
   onRendered,
   isZooming = false,
@@ -715,16 +817,56 @@ export function PdfTiledPageCanvas({
     };
   }, [pageNumber, session]);
 
-  const renderScale = useMemo(() => zoomPercentToScale(zoom), [zoom]);
+  const effectiveRenderZoom = useMemo(
+    () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(renderZoom, zoom)),
+    [renderZoom, zoom],
+  );
+  const effectiveVisualZoom = useMemo(
+    () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(visualZoom, effectiveRenderZoom)),
+    [effectiveRenderZoom, visualZoom],
+  );
+
+  const renderScale = useMemo(
+    () => zoomPercentToScale(effectiveRenderZoom),
+    [effectiveRenderZoom],
+  );
+  const visualScale = useMemo(
+    () => zoomPercentToScale(effectiveVisualZoom),
+    [effectiveVisualZoom],
+  );
+  const effectiveVisualToRenderScaleRatio = useMemo(() => {
+    const fallbackRatio = visualScale / Math.max(MIN_LAYOUT_SCALE, renderScale);
+    const ratio = safeNumber(visualToRenderScaleRatio, fallbackRatio);
+
+    return Math.max(MIN_LAYOUT_SCALE, ratio);
+  }, [renderScale, visualScale, visualToRenderScaleRatio]);
+
+  const visualCssWidth = useMemo(
+    () => Math.max(1, pageBaseSize.width * visualScale),
+    [pageBaseSize.width, visualScale],
+  );
+  const visualCssHeight = useMemo(
+    () => Math.max(1, pageBaseSize.height * visualScale),
+    [pageBaseSize.height, visualScale],
+  );
+
+  const tileGridRows = useMemo(
+    () => resolveTileGridRows(renderScale),
+    [renderScale],
+  );
+  const tileGridColumns = useMemo(
+    () => resolveTileGridColumns(renderScale),
+    [renderScale],
+  );
   const effectiveRenderQuality = useMemo(
     () =>
       resolveRenderQualityForPhase({
         backend: "pdfjs",
         phase: renderPhase,
         requestedQuality: renderQuality,
-        zoom,
+        zoom: effectiveRenderZoom,
       }),
-    [renderPhase, renderQuality, zoom],
+    [effectiveRenderZoom, renderPhase, renderQuality],
   );
   const geometry = useMemo(
     () =>
@@ -738,8 +880,14 @@ export function PdfTiledPageCanvas({
         renderPhase,
         maxBitmapPixels: TILE_GEOMETRY_MAX_BITMAP_PIXELS,
         maxBitmapSide: TILE_GEOMETRY_MAX_BITMAP_SIDE,
-        minimumOutputScale: resolveTileGeometryMinOutputScale(renderPhase),
-        maxOutputScale: resolveTileGeometryMaxOutputScale(renderPhase),
+        minimumOutputScale: resolveTileGeometryMinOutputScale({
+          renderPhase,
+          renderScale,
+        }),
+        maxOutputScale: resolveTileGeometryMaxOutputScale({
+          renderPhase,
+          renderScale,
+        }),
       }),
     [
       effectiveRenderQuality,
@@ -754,13 +902,16 @@ export function PdfTiledPageCanvas({
     () =>
       buildKnexPdfTileRenderPlan({
         geometry,
-        tileSizeCss: resolveTileCssSize(renderPhase),
-        tileRows: TILE_GRID_ROWS,
-        tileColumns: TILE_GRID_COLUMNS,
+        tileSizeCss: resolveTileCssSize({
+          renderPhase,
+          renderScale,
+        }),
+        tileRows: tileGridRows,
+        tileColumns: tileGridColumns,
         overlapPx: TILE_OVERLAP_PX,
         bleedPx: TILE_BLEED_CSS_PX,
       }),
-    [geometry, renderPhase],
+    [geometry, renderPhase, renderScale, tileGridColumns, tileGridRows],
   );
   const pagePriority =
     renderPriority ??
@@ -857,11 +1008,27 @@ export function PdfTiledPageCanvas({
   const [viewportSnapshot, setViewportSnapshot] =
     useState<TileViewportSnapshot | null>(null);
   const pendingReadyTilesRef = useRef<Set<string>>(new Set());
+  const [promotablePendingLayerId, setPromotablePendingLayerId] =
+    useState<string | null>(null);
   const isInteractionActive =
     isZooming || isScrolling || renderPhase !== "settled-final";
+
+  const shouldFreezeTileRefreshDuringHighZoom =
+    isZooming &&
+    visualScale >= HIGH_ZOOM_INTERACTION_RENDER_FREEZE_SCALE;
+
+  const shouldFreezeTileRefreshDuringExtremeZoom =
+    isZooming &&
+    visualScale >= EXTREME_ZOOM_INTERACTION_RENDER_FREEZE_SCALE;
+
+  /*
+   * Durante zoom baixo/médio, podemos preparar a próxima camada em background.
+   * Em zoom alto, isso pesa demais: a camada ativa já escala por transform,
+   * então congelamos a criação da pendingLayer até o wheel estabilizar.
+   */
   const shouldRefreshTilesDuringInteraction =
     isInteractionActive &&
-    !isZooming &&
+    !shouldFreezeTileRefreshDuringHighZoom &&
     (isActivePage || isPageVisible || isWarmupPage);
 
   useEffect(() => {
@@ -872,6 +1039,7 @@ export function PdfTiledPageCanvas({
 
       pendingReadyTilesRef.current = new Set();
       setPendingReadyCount(0);
+      setPromotablePendingLayerId(null);
       setPendingLayer(currentLayer);
       return;
     }
@@ -880,6 +1048,7 @@ export function PdfTiledPageCanvas({
       if (pendingLayer && pendingLayer.id !== activeLayer.id) {
         pendingReadyTilesRef.current = new Set();
         setPendingReadyCount(0);
+        setPromotablePendingLayerId(null);
         setPendingLayer(null);
       }
 
@@ -897,13 +1066,16 @@ export function PdfTiledPageCanvas({
     const queuePendingLayer = () => {
       pendingReadyTilesRef.current = new Set();
       setPendingReadyCount(0);
+      setPromotablePendingLayerId(null);
       setPendingLayer(currentLayer);
     };
 
     if (shouldRefreshTilesDuringInteraction) {
       const timerId = window.setTimeout(
         queuePendingLayer,
-        INTERACTION_TILE_LAYER_DEBOUNCE_MS,
+        isZooming
+          ? ZOOM_TILE_LAYER_DEBOUNCE_MS
+          : INTERACTION_TILE_LAYER_DEBOUNCE_MS,
       );
 
       return () => {
@@ -916,6 +1088,7 @@ export function PdfTiledPageCanvas({
     activeLayer,
     currentLayer,
     isInteractionActive,
+    isZooming,
     pendingLayer,
     shouldRefreshTilesDuringInteraction,
   ]);
@@ -944,33 +1117,92 @@ export function PdfTiledPageCanvas({
   );
   const pendingLayerMatchesCurrent = pendingLayer?.id === currentLayer.id;
 
+  /*
+   * Só promovemos a camada nova quando a interação estabiliza.
+   *
+   * Enquanto o usuário está aplicando zoom ou rolagem, a activeLayer continua
+   * sendo a única camada visível. A pendingLayer renderiza em background e fica
+   * pronta, mas não entra visualmente no palco. Isso evita a troca de opacidade
+   * e o "salto" de nitidez durante zoom-in/zoom-out.
+   */
+  const canPromotePendingLayer =
+    !isZooming && !isScrolling && renderPhase === "settled-final";
+
   useEffect(() => {
     if (!pendingLayer || !pendingLayerReady || !pendingLayerMatchesCurrent) {
+      setPromotablePendingLayerId((current) =>
+        current === pendingLayer?.id ? null : current,
+      );
       return;
     }
 
-    let settleFrameId: number | null = null;
+    /*
+     * Primeira renderização da página: não há activeLayer para preservar.
+     * Nesse caso, promovemos imediatamente para não deixar a página vazia.
+     */
+    if (!activeLayer) {
+      setPromotablePendingLayerId(pendingLayer.id);
+      return;
+    }
+
+    if (!canPromotePendingLayer) {
+      setPromotablePendingLayerId((current) =>
+        current === pendingLayer.id ? null : current,
+      );
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setPromotablePendingLayerId((current) =>
+        current === null || current === pendingLayer.id ? pendingLayer.id : current,
+      );
+    }, TILE_LAYER_PROMOTION_IDLE_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [
+    activeLayer,
+    canPromotePendingLayer,
+    pendingLayer,
+    pendingLayerMatchesCurrent,
+    pendingLayerReady,
+  ]);
+
+  const pendingLayerPromotable = Boolean(
+    pendingLayer &&
+      pendingLayerReady &&
+      pendingLayerMatchesCurrent &&
+      promotablePendingLayerId === pendingLayer.id,
+  );
+
+  useEffect(() => {
+    if (!pendingLayer || !pendingLayerPromotable) {
+      return;
+    }
 
     const promoteFrameId = window.requestAnimationFrame(() => {
+      /*
+       * Atualização atômica:
+       * em vez de mostrar pendingLayer por cima e esconder a activeLayer,
+       * trocamos a referência ativa e limpamos a pending no mesmo frame.
+       * Isso reduz a impressão de crossfade/piscada.
+       */
       setActiveLayer(pendingLayer);
-
-      settleFrameId = window.requestAnimationFrame(() => {
-        setPendingLayer((current) =>
-          current?.id === pendingLayer.id ? null : current,
-        );
-        pendingReadyTilesRef.current = new Set();
-        setPendingReadyCount(0);
-      });
+      setPendingLayer((current) =>
+        current?.id === pendingLayer.id ? null : current,
+      );
+      pendingReadyTilesRef.current = new Set();
+      setPendingReadyCount(0);
+      setPromotablePendingLayerId((current) =>
+        current === pendingLayer.id ? null : current,
+      );
     });
 
     return () => {
       window.cancelAnimationFrame(promoteFrameId);
-
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId);
-      }
     };
-  }, [pendingLayer, pendingLayerMatchesCurrent, pendingLayerReady]);
+  }, [pendingLayer, pendingLayerPromotable]);
 
   useEffect(() => {
     const renderedPage = createRenderedPage({
@@ -983,7 +1215,7 @@ export function PdfTiledPageCanvas({
       bitmapHeight: geometry.bitmapHeight,
       renderScale: geometry.zoom,
       outputScale: geometry.outputScale,
-      zoom,
+      zoom: effectiveRenderZoom,
       renderText,
     });
 
@@ -999,7 +1231,7 @@ export function PdfTiledPageCanvas({
         renderQuality: effectiveRenderQuality,
         renderScale: geometry.zoom,
         outputScale: geometry.outputScale,
-        zoom,
+        zoom: effectiveRenderZoom,
         renderText,
         backendVersion: engineState.backendVersion,
         finalRenderVersion,
@@ -1031,23 +1263,32 @@ export function PdfTiledPageCanvas({
     renderPhase,
     renderText,
     serverTileDecision.renderMode,
-    zoom,
+    effectiveRenderZoom,
   ]);
 
   const visibleLayer = activeLayer;
   const visibleLayerTransform = visibleLayer
     ? getLayerTransform({
-        currentGeometry: geometry,
+        targetZoom: visualScale,
         layerGeometry: visibleLayer.geometry,
       })
     : "none";
-  const pendingLayerVisible = Boolean(
-    pendingLayer &&
-      (!activeLayer || (pendingLayerReady && pendingLayerMatchesCurrent)),
-  );
-  const activeLayerVisible = Boolean(visibleLayer && !pendingLayerVisible);
+  const pendingLayerTransform = pendingLayer
+    ? getLayerTransform({
+        targetZoom: visualScale,
+        layerGeometry: pendingLayer.geometry,
+      })
+    : "none";
+  /*
+   * A pending layer só fica visível quando ainda não existe camada ativa.
+   * Depois da primeira camada, a pending renderiza em background e nunca entra
+   * por opacidade. A troca visual acontece apenas pela promoção atômica da
+   * activeLayer.
+   */
+  const pendingLayerVisible = Boolean(pendingLayer && !activeLayer);
+  const activeLayerVisible = Boolean(visibleLayer);
   const visibleGenerationId =
-    (pendingLayerVisible ? pendingLayer?.id : visibleLayer?.id) ?? "";
+    (visibleLayer?.id ?? (pendingLayerVisible ? pendingLayer?.id : "")) ?? "";
 
   return (
     <div
@@ -1101,10 +1342,21 @@ export function PdfTiledPageCanvas({
       data-page-number={pageNumber}
       data-knex-pdf-css-width={geometry.cssWidth}
       data-knex-pdf-css-height={geometry.cssHeight}
+      data-knex-pdf-visual-css-width={visualCssWidth}
+      data-knex-pdf-visual-css-height={visualCssHeight}
+      data-knex-pdf-render-zoom={effectiveRenderZoom}
+      data-knex-pdf-visual-zoom={effectiveVisualZoom}
+      data-knex-pdf-render-scale={renderScale}
+      data-knex-pdf-visual-scale={visualScale}
+      data-knex-pdf-visual-to-render-scale-ratio={
+        effectiveVisualToRenderScaleRatio
+      }
       data-knex-pdf-output-scale={geometry.outputScale}
       data-knex-pdf-tile-size-css={tilePlan.tileSizeCss}
       data-knex-pdf-tile-rows={tilePlan.tileRows}
       data-knex-pdf-tile-columns={tilePlan.tileColumns}
+      data-knex-pdf-adaptive-tile-grid-rows={tileGridRows}
+      data-knex-pdf-adaptive-tile-grid-columns={tileGridColumns}
       data-knex-pdf-tile-overlap-px={tilePlan.overlapPx}
       data-knex-pdf-tile-bleed-css-px={tilePlan.bleedPx}
       data-knex-pdf-tile-count={tilePlan.totalTiles}
@@ -1117,14 +1369,41 @@ export function PdfTiledPageCanvas({
       data-knex-pdf-max-effective-bitmap-scale={
         TILE_MAX_EFFECTIVE_BITMAP_SCALE
       }
+      data-knex-pdf-max-bitmap-pixels={TILE_GEOMETRY_MAX_BITMAP_PIXELS}
+      data-knex-pdf-max-bitmap-side={TILE_GEOMETRY_MAX_BITMAP_SIDE}
       data-knex-pdf-active-tile-count={tilesToRender.length}
       data-knex-pdf-active-tile-layer-id={visibleLayer?.id ?? ""}
       data-knex-pdf-visible-tile-layer-id={visibleGenerationId}
       data-knex-pdf-pending-tile-layer-id={pendingLayer?.id ?? ""}
       data-knex-pdf-pending-tile-ready-count={pendingReadyCount}
       data-knex-pdf-pending-tile-ready={pendingLayerReady ? "true" : "false"}
+      data-knex-pdf-pending-tile-promotable={
+        pendingLayerPromotable ? "true" : "false"
+      }
+      data-knex-pdf-can-promote-pending-layer={
+        canPromotePendingLayer ? "true" : "false"
+      }
+      data-knex-pdf-promotable-pending-layer-id={
+        promotablePendingLayerId ?? ""
+      }
       data-knex-pdf-interaction-tile-refresh={
         shouldRefreshTilesDuringInteraction ? "true" : "false"
+      }
+      data-knex-pdf-high-zoom-tile-refresh-frozen={
+        shouldFreezeTileRefreshDuringHighZoom ? "true" : "false"
+      }
+      data-knex-pdf-extreme-zoom-tile-refresh-frozen={
+        shouldFreezeTileRefreshDuringExtremeZoom ? "true" : "false"
+      }
+      data-knex-pdf-high-zoom-freeze-scale={
+        HIGH_ZOOM_INTERACTION_RENDER_FREEZE_SCALE
+      }
+      data-knex-pdf-extreme-zoom-freeze-scale={
+        EXTREME_ZOOM_INTERACTION_RENDER_FREEZE_SCALE
+      }
+      data-knex-pdf-zoom-tile-debounce-ms={ZOOM_TILE_LAYER_DEBOUNCE_MS}
+      data-knex-pdf-layer-promotion-idle-delay-ms={
+        TILE_LAYER_PROMOTION_IDLE_DELAY_MS
       }
       data-knex-pdf-visible-tile-count={
         viewportSnapshot?.visibleTileIds.length ?? 0
@@ -1136,10 +1415,10 @@ export function PdfTiledPageCanvas({
       data-knex-pdf-scrolling={isScrolling ? "true" : "false"}
       style={{
         boxSizing: "content-box",
-        width: `${geometry.cssWidth}px`,
-        height: `${geometry.cssHeight}px`,
-        minWidth: `${geometry.cssWidth}px`,
-        minHeight: `${geometry.cssHeight}px`,
+        width: `${visualCssWidth}px`,
+        height: `${visualCssHeight}px`,
+        minWidth: `${visualCssWidth}px`,
+        minHeight: `${visualCssHeight}px`,
         contain: "layout paint size style",
         isolation: "isolate",
         backgroundColor: "#ffffff",
@@ -1150,6 +1429,7 @@ export function PdfTiledPageCanvas({
       <TileViewportObserver
         containerRef={frameRef}
         pageNumber={pageNumber}
+        zoomPercent={effectiveVisualZoom}
         onSnapshot={setViewportSnapshot}
       />
 
@@ -1166,6 +1446,11 @@ export function PdfTiledPageCanvas({
           data-knex-pdf-render-version={visibleLayer.renderVersion}
           data-knex-pdf-final-render-version={visibleLayer.finalRenderVersion}
           data-knex-pdf-tile-layer-transform={visibleLayerTransform}
+          data-knex-pdf-tile-layer-render-zoom={visibleLayer.geometry.zoom}
+          data-knex-pdf-tile-layer-visual-zoom={visualScale}
+          data-knex-pdf-tile-layer-visual-ratio={
+            visualScale / Math.max(MIN_LAYOUT_SCALE, visibleLayer.geometry.zoom)
+          }
           style={{
             width: `${visibleLayer.geometry.cssWidth}px`,
             height: `${visibleLayer.geometry.cssHeight}px`,
@@ -1216,14 +1501,21 @@ export function PdfTiledPageCanvas({
           data-knex-pdf-render-version={pendingLayer.renderVersion}
           data-knex-pdf-final-render-version={pendingLayer.finalRenderVersion}
           data-knex-pdf-tile-ready-count={pendingReadyCount}
-          aria-hidden={pendingLayerReady ? "false" : "true"}
+          data-knex-pdf-tile-layer-transform={pendingLayerTransform}
+          data-knex-pdf-tile-layer-render-zoom={pendingLayer.geometry.zoom}
+          data-knex-pdf-tile-layer-visual-zoom={visualScale}
+          data-knex-pdf-tile-layer-visual-ratio={
+            visualScale / Math.max(MIN_LAYOUT_SCALE, pendingLayer.geometry.zoom)
+          }
+          aria-hidden={pendingLayerVisible ? "false" : "true"}
           style={{
             width: `${pendingLayer.geometry.cssWidth}px`,
             height: `${pendingLayer.geometry.cssHeight}px`,
             opacity: pendingLayerVisible ? 1 : 0,
             pointerEvents: "none",
-            transform: "none",
+            transform: pendingLayerTransform,
             transformOrigin: "0 0",
+            willChange: isInteractionActive ? "transform" : "auto",
             zIndex: pendingLayerVisible ? 3 : 0,
           }}
         >

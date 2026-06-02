@@ -40,10 +40,20 @@ type CachedTileBitmap = {
   key: string;
 };
 
-const TILE_BITMAP_CACHE_MAX_ENTRIES = 384;
-const TILE_BITMAP_CACHE_MAX_BYTES = 384 * 1024 * 1024;
+const TILE_BITMAP_CACHE_MAX_ENTRIES = 96;
+const TILE_BITMAP_CACHE_MAX_BYTES = 96 * 1024 * 1024;
+const TILE_VISIBLE_CANVAS_MAX_PIXELS = 6_000_000;
+const TILE_VISIBLE_CANVAS_MAX_SIDE = 8_192;
+const TILE_CACHEABLE_BITMAP_MAX_BYTES = 10 * 1024 * 1024;
 const STABLE_TILE_CACHE_RENDER_VERSION = 1;
-const tileRenderScheduler = new TileRenderScheduler({ maxConcurrency: 2 });
+
+/*
+ * Em zoom elevado, dois tiles renderizando ao mesmo tempo podem ser suficientes
+ * para estourar memória, principalmente quando há activeLayer + pendingLayer.
+ * Mantemos uma fila global conservadora; a fluidez passa a vir da camada ativa
+ * escalada por transform e da montagem progressiva.
+ */
+const tileRenderScheduler = new TileRenderScheduler({ maxConcurrency: 1 });
 
 const tileBitmapCache = new TileBitmapCache<CachedTileBitmap>({
   maxTiles: TILE_BITMAP_CACHE_MAX_ENTRIES,
@@ -125,10 +135,24 @@ function getServerRenderSource(
   return "server";
 }
 
-function resolveServerTileDpi(renderPhase: KnexPdfRenderPhase): number {
-  if (renderPhase === "settled-final") return 300;
-  if (renderPhase === "warmup-preview") return 200;
-  return 150;
+function resolveServerTileDpi(input: {
+  renderPhase: KnexPdfRenderPhase;
+  zoom: number;
+}): number {
+  /*
+   * DPI fixo em 300 era perigoso em zoom alto. O tile já carrega zoom e
+   * outputScale; manter DPI alto acima de 800% pode criar imagens grandes
+   * demais no servidor e no canvas do cliente.
+   */
+  if (input.zoom >= 16) return 90;
+  if (input.zoom >= 12) return 110;
+  if (input.zoom >= 8) return 130;
+  if (input.zoom >= 4) return 180;
+
+  if (input.renderPhase === "settled-final") return 260;
+  if (input.renderPhase === "warmup-preview") return 180;
+
+  return 140;
 }
 
 function isServerTileReadyResponse(
@@ -207,6 +231,79 @@ function clampRoundedNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+function resolveSafeTileBitmapSize(input: {
+  width: number;
+  height: number;
+}): {
+  width: number;
+  height: number;
+  scale: number;
+  capped: boolean;
+} {
+  const width = Math.max(1, Math.round(input.width));
+  const height = Math.max(1, Math.round(input.height));
+  const maxByPixels = Math.sqrt(
+    TILE_VISIBLE_CANVAS_MAX_PIXELS / Math.max(1, width * height),
+  );
+  const maxBySide = Math.min(
+    TILE_VISIBLE_CANVAS_MAX_SIDE / width,
+    TILE_VISIBLE_CANVAS_MAX_SIDE / height,
+  );
+  const scale = Math.min(1, maxByPixels, maxBySide);
+
+  if (scale >= 0.999) {
+    return {
+      width,
+      height,
+      scale: 1,
+      capped: false,
+    };
+  }
+
+  return {
+    width: Math.max(1, Math.floor(width * scale)),
+    height: Math.max(1, Math.floor(height * scale)),
+    scale,
+    capped: true,
+  };
+}
+
+function getCanvasBitmapBytes(canvas: HTMLCanvasElement): number {
+  return Math.max(0, canvas.width * canvas.height * 4);
+}
+
+function canCacheCanvasBitmap(canvas: HTMLCanvasElement): boolean {
+  return getCanvasBitmapBytes(canvas) <= TILE_CACHEABLE_BITMAP_MAX_BYTES;
+}
+
+function releaseCanvasBitmap(canvas: HTMLCanvasElement | null) {
+  if (!canvas) return;
+
+  try {
+    const context = canvas.getContext("2d");
+    context?.clearRect(0, 0, canvas.width, canvas.height);
+  } catch {
+    // Best-effort cleanup.
+  }
+
+  /*
+   * Redimensionar o canvas libera o buffer de bitmap do navegador.
+   * Usamos 1x1 em vez de 0x0 para evitar inconsistências entre engines.
+   */
+  canvas.width = 1;
+  canvas.height = 1;
+}
+
+function safeRevokeObjectUrl(value: string | null | undefined) {
+  if (!value || !value.startsWith("blob:")) return;
+
+  try {
+    URL.revokeObjectURL(value);
+  } catch {
+    // Best-effort cleanup.
+  }
+}
+
 function drawTileSourceToCanvas(input: {
   source: CanvasImageSource;
   sourceWidth: number;
@@ -274,8 +371,22 @@ function drawTileSourceToCanvas(input: {
     targetHeight = sourceCropHeight;
   }
 
+  const safeTarget = resolveSafeTileBitmapSize({
+    width: targetWidth,
+    height: targetHeight,
+  });
+
+  targetWidth = safeTarget.width;
+  targetHeight = safeTarget.height;
+
   canvas.width = targetWidth;
   canvas.height = targetHeight;
+  canvas.dataset.knexPdfTileMemoryCapped = safeTarget.capped ? "true" : "false";
+  canvas.dataset.knexPdfTileMemoryScale = String(
+    Math.round(safeTarget.scale * 1000) / 1000,
+  );
+  canvas.dataset.knexPdfTileMaxPixels = String(TILE_VISIBLE_CANVAS_MAX_PIXELS);
+  canvas.dataset.knexPdfTileMaxSide = String(TILE_VISIBLE_CANVAS_MAX_SIDE);
   canvas.style.imageRendering = "auto";
 
   const context = canvas.getContext("2d", {
@@ -316,6 +427,16 @@ async function createImageBitmapFromCanvas(
   canvas: HTMLCanvasElement,
 ): Promise<ImageBitmap | null> {
   if (typeof globalThis.createImageBitmap !== "function") {
+    return null;
+  }
+
+  /*
+   * Cachear bitmap grande demais duplica memória: canvas visível + ImageBitmap.
+   * Em zoom alto, preferimos não cachear e deixar o componente liberar o canvas
+   * no unmount.
+   */
+  if (!canCacheCanvasBitmap(canvas)) {
+    canvas.dataset.knexPdfTileCacheSkipped = "bitmap-too-large";
     return null;
   }
 
@@ -399,7 +520,10 @@ function createServerTileRequest(input: {
   tile: KnexPdfPageTile;
   renderPhase: KnexPdfRenderPhase;
 }): KnexReadServerTileRequest {
-  const dpi = resolveServerTileDpi(input.renderPhase);
+  const dpi = resolveServerTileDpi({
+    renderPhase: input.renderPhase,
+    zoom: input.geometry.zoom,
+  });
 
   return {
     documentId: input.documentId,
@@ -530,6 +654,11 @@ function writeTileDataset(input: {
         : "false";
   canvas.dataset.knexPdfTileCacheSize = String(tileBitmapCache.size);
   canvas.dataset.knexPdfTileCacheBytes = String(tileBitmapCache.bytes);
+  canvas.dataset.knexPdfTileBitmapBytes = String(canvas.width * canvas.height * 4);
+  canvas.dataset.knexPdfTileCacheMaxBytes = String(TILE_BITMAP_CACHE_MAX_BYTES);
+  canvas.dataset.knexPdfTileCacheableMaxBytes = String(
+    TILE_CACHEABLE_BITMAP_MAX_BYTES,
+  );
   canvas.dataset.knexPdfTileRenderDurationMs =
     typeof input.renderDurationMs === "number" &&
     Number.isFinite(input.renderDurationMs)
@@ -711,6 +840,7 @@ export function PdfTileCanvas({
         return () => {
           cancelled = true;
           abortController.abort();
+          releaseCanvasBitmap(canvas);
         };
       } catch {
         tileBitmapCache.delete(cachedTile.key);
@@ -835,8 +965,7 @@ export function PdfTileCanvas({
           });
         }
       } finally {
-        workerCanvas.width = 0;
-        workerCanvas.height = 0;
+        releaseCanvasBitmap(workerCanvas);
       }
     };
 
@@ -925,6 +1054,13 @@ export function PdfTileCanvas({
       hasDrawnBitmapRef.current = true;
 
       const bitmapForCache = await createImageBitmapFromCanvas(canvas);
+
+      /*
+       * Depois de desenhar no canvas, a referência do HTMLImageElement não
+       * precisa manter o recurso vivo.
+       */
+      image.src = "";
+      safeRevokeObjectUrl(response.imageUrl);
 
       if (bitmapForCache && !cancelled && !abortController.signal.aborted) {
         tileBitmapCache.set(
@@ -1052,6 +1188,7 @@ export function PdfTileCanvas({
     return () => {
       cancelled = true;
       abortController.abort();
+      releaseCanvasBitmap(canvas);
     };
   }, [
     activeBackend,
@@ -1150,6 +1287,9 @@ export function PdfTileCanvas({
         data-knex-pdf-tile-bleed-px={tile.bleedPx}
         data-knex-pdf-tile-bitmap-width={tile.bitmapWidth}
         data-knex-pdf-tile-bitmap-height={tile.bitmapHeight}
+        data-knex-pdf-tile-visible-max-pixels={TILE_VISIBLE_CANVAS_MAX_PIXELS}
+        data-knex-pdf-tile-visible-max-side={TILE_VISIBLE_CANVAS_MAX_SIDE}
+        data-knex-pdf-tile-cacheable-max-bytes={TILE_CACHEABLE_BITMAP_MAX_BYTES}
         data-knex-pdf-tile-render-duration-ms={
           renderDurationMs !== null ? Math.round(renderDurationMs) : ""
         }

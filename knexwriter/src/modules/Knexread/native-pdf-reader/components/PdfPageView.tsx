@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { capturePdfSelectionFromRange } from "../hooks";
 import type {
   PdfHighlightRecord,
@@ -31,6 +32,7 @@ import { type PdfTileRenderState } from "./pdf-tiles/PdfTileCanvasTypes";
 import { PdfTiledPageCanvas } from "./pdf-tiles/PdfTiledPageCanvas";
 import { PdfModularPageStage } from "../../rendering/composition/PdfModularPageStage";
 import { PdfPageComposition } from "../../rendering/composition/PdfPageComposition";
+import { usePdfZoomFramePolicy } from "../../core/interaction/zoom-scroll";
 
 type PdfPageBaseSize = {
   width: number;
@@ -46,6 +48,19 @@ const MAX_LAYOUT_SCALE = 80;
 
 const TEXT_EXTRACTION_IDLE_DELAY_MS = 0;
 const LINK_EXTRACTION_IDLE_DELAY_MS = 180;
+const SELECTION_AUTOSCROLL_EDGE_PX = 96;
+const SELECTION_AUTOSCROLL_MAX_STEP_PX = 28;
+
+/*
+ * A seleção precisa continuar fácil de alcançar pelo arraste, mas o
+ * destaque azul não deve pintar a altura inteira da linha.
+ *
+ * A lógica abaixo mantém o hitRect generoso e reduz apenas o visualRect.
+ */
+const SELECTION_VISUAL_HEIGHT_RATIO = 0.62;
+const SELECTION_VISUAL_MAX_HEIGHT_RATIO = 0.78;
+const SELECTION_VISUAL_MIN_HEIGHT_PX = 6;
+const SELECTION_VISUAL_VERTICAL_NUDGE_PX = 0;
 
 /**
  * A camada textual vetorial deve ser extraída em uma escala estável.
@@ -55,7 +70,9 @@ const LINK_EXTRACTION_IDLE_DELAY_MS = 180;
  * layoutScale.
  */
 const TEXT_LAYER_BASE_SCALE = 1;
-const PAGEVIEW_AUDIT_VERSION = "blueprint-default-002-no-canvas-text";
+const PAGEVIEW_AUDIT_VERSION = "blueprint-default-015-zoom-frame-policy-selection-guard";
+const PAGEVIEW_CANVAS_TEXT_SUPPRESSION_SENTINEL =
+  "blueprint-default-002-no-canvas-text";
 
 function safeNumber(
   value: number | null | undefined,
@@ -74,9 +91,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(safeMin, Math.min(safeMax, safeValue));
 }
 
-function getLayoutScaleFromZoom(zoom: number): number {
-  return clamp(safeNumber(zoom, 100) / 100, MIN_LAYOUT_SCALE, MAX_LAYOUT_SCALE);
-}
 
 function getFallbackPageSize(): PdfPageBaseSize {
   return {
@@ -332,6 +346,941 @@ function scaleTextBlockToCss(
   };
 }
 
+type PdfPointerSelectionPoint = {
+  clientX: number;
+  clientY: number;
+
+  /*
+   * Coordenadas opcionais ancoradas na página.
+   *
+   * A seleção com auto-scroll precisa manter o ponto inicial preso à página,
+   * não à viewport. Quando o viewer rola, o clientY antigo deixa de representar
+   * o mesmo ponto do PDF. pageX/pageY resolvem isso.
+   */
+  pageX?: number;
+  pageY?: number;
+};
+
+type PdfGeometrySelectionLine = {
+  text: string;
+
+  /*
+   * Hit rect: caixa usada para decidir se a linha foi alcançada pelo arrasto.
+   * Mantemos esta caixa mais generosa, baseada no outer span, para que o texto
+   * continue "ativo" mesmo quando a largura natural da fonte HTML diverge um
+   * pouco do canvas.
+   */
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+  pageLeft: number;
+  pageTop: number;
+
+  /*
+   * Visual rect: caixa usada para pintar overlay/seleção e para registrar os
+   * rects da seleção. Esta caixa é mais conservadora e tenta respeitar a
+   * largura real do texto interno.
+   */
+  visualPageLeft: number;
+  visualPageTop: number;
+  visualWidth: number;
+  visualHeight: number;
+
+  columnIndex: number;
+  flowIndex: number;
+};
+
+type PdfGeometrySelectionPreviewRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function normalizeGeometrySelectionPreviewRects(
+  rects: Array<Record<string, number>> | undefined,
+): PdfGeometrySelectionPreviewRect[] {
+  if (!rects?.length) return [];
+
+  return rects
+    .map((rect) => ({
+      x: safeNumber(rect.x ?? rect.left, 0),
+      y: safeNumber(rect.y ?? rect.top, 0),
+      width: Math.max(1, safeNumber(rect.width, 0)),
+      height: Math.max(1, safeNumber(rect.height, 0)),
+    }))
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+}
+
+function normalizeDomText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function getNormalizedClientRect(
+  start: PdfPointerSelectionPoint,
+  end: PdfPointerSelectionPoint,
+): DOMRect {
+  const left = Math.min(start.clientX, end.clientX);
+  const top = Math.min(start.clientY, end.clientY);
+  const right = Math.max(start.clientX, end.clientX);
+  const bottom = Math.max(start.clientY, end.clientY);
+
+  return new DOMRect(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
+}
+
+function bindPointerPointToPage(
+  root: HTMLElement,
+  point: PdfPointerSelectionPoint,
+): PdfPointerSelectionPoint {
+  const rootRect = root.getBoundingClientRect();
+
+  return {
+    clientX: point.clientX,
+    clientY: point.clientY,
+    pageX: point.clientX - rootRect.left,
+    pageY: point.clientY - rootRect.top,
+  };
+}
+
+function resolvePointerPointForViewport(
+  root: HTMLElement,
+  point: PdfPointerSelectionPoint,
+): PdfPointerSelectionPoint {
+  if (
+    typeof point.pageX !== "number" ||
+    typeof point.pageY !== "number" ||
+    !Number.isFinite(point.pageX) ||
+    !Number.isFinite(point.pageY)
+  ) {
+    return point;
+  }
+
+  const rootRect = root.getBoundingClientRect();
+
+  return {
+    ...point,
+    clientX: rootRect.left + point.pageX,
+    clientY: rootRect.top + point.pageY,
+  };
+}
+
+type PdfSelectionScrollContainer = HTMLElement | Window;
+
+function getSelectionScrollContainer(root: HTMLElement): PdfSelectionScrollContainer {
+  let current: HTMLElement | null = root.parentElement;
+
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const overflowY = style.overflowY;
+
+    if (
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+      current.scrollHeight > current.clientHeight + 2
+    ) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return window;
+}
+
+function getSelectionAutoScrollDelta(input: {
+  container: PdfSelectionScrollContainer;
+  clientY: number;
+}): number {
+  const containerTop =
+    input.container === window
+      ? 0
+      : (input.container as HTMLElement).getBoundingClientRect().top;
+  const containerBottom =
+    input.container === window
+      ? window.innerHeight
+      : (input.container as HTMLElement).getBoundingClientRect().bottom;
+
+  const distanceToTop = input.clientY - containerTop;
+  const distanceToBottom = containerBottom - input.clientY;
+
+  if (distanceToTop >= 0 && distanceToTop < SELECTION_AUTOSCROLL_EDGE_PX) {
+    const intensity =
+      (SELECTION_AUTOSCROLL_EDGE_PX - distanceToTop) /
+      SELECTION_AUTOSCROLL_EDGE_PX;
+
+    return -Math.ceil(intensity * SELECTION_AUTOSCROLL_MAX_STEP_PX);
+  }
+
+  if (distanceToBottom >= 0 && distanceToBottom < SELECTION_AUTOSCROLL_EDGE_PX) {
+    const intensity =
+      (SELECTION_AUTOSCROLL_EDGE_PX - distanceToBottom) /
+      SELECTION_AUTOSCROLL_EDGE_PX;
+
+    return Math.ceil(intensity * SELECTION_AUTOSCROLL_MAX_STEP_PX);
+  }
+
+  return 0;
+}
+
+function scrollSelectionContainerBy(
+  container: PdfSelectionScrollContainer,
+  deltaY: number,
+) {
+  if (deltaY === 0) return;
+
+  if (container === window) {
+    window.scrollBy({ top: deltaY, left: 0, behavior: "auto" });
+    return;
+  }
+
+  (container as HTMLElement).scrollTop += deltaY;
+}
+
+function doRectsIntersect(a: DOMRect, b: DOMRect): boolean {
+  return (
+    a.left <= b.right &&
+    a.right >= b.left &&
+    a.top <= b.bottom &&
+    a.bottom >= b.top
+  );
+}
+
+function getCompactSelectionVisualRect(input: {
+  outerRect: DOMRect;
+  innerRect?: DOMRect;
+  visualLeft?: number;
+  visualWidth?: number;
+}): DOMRect {
+  const outerRect = input.outerRect;
+  const innerRect = input.innerRect ?? outerRect;
+
+  const outerHeight = Math.max(1, safeNumber(outerRect.height, 1));
+  const innerHeight = Math.max(1, safeNumber(innerRect.height, outerHeight));
+
+  /*
+   * A altura visual parte da linha externa, mas respeita a caixa interna
+   * quando ela existe. Assim, a seleção não invade tanto o entrelinhamento
+   * nem fica fina demais em PDFs com texto pequeno.
+   */
+  const preferredHeight = Math.min(
+    outerHeight * SELECTION_VISUAL_HEIGHT_RATIO,
+    innerHeight * SELECTION_VISUAL_MAX_HEIGHT_RATIO,
+  );
+  const minHeight = Math.min(SELECTION_VISUAL_MIN_HEIGHT_PX, outerHeight);
+  const maxHeight = Math.max(
+    minHeight,
+    outerHeight * SELECTION_VISUAL_MAX_HEIGHT_RATIO,
+  );
+  const visualHeight = Math.min(
+    outerHeight,
+    clamp(preferredHeight, minHeight, maxHeight),
+  );
+
+  const innerCenterY = innerRect.top + innerHeight / 2;
+  const outerCenterY = outerRect.top + outerHeight / 2;
+  const preferredCenterY = Number.isFinite(innerCenterY)
+    ? innerCenterY
+    : outerCenterY;
+
+  const visualTop = clamp(
+    preferredCenterY - visualHeight / 2 + SELECTION_VISUAL_VERTICAL_NUDGE_PX,
+    outerRect.top,
+    outerRect.bottom - visualHeight,
+  );
+
+  const visualLeft = safeNumber(input.visualLeft, outerRect.left);
+  const requestedVisualWidth = Math.max(
+    1,
+    safeNumber(input.visualWidth, outerRect.width),
+  );
+  const maxVisualWidth = Math.max(1, outerRect.right - visualLeft);
+  const visualWidth = Math.min(requestedVisualWidth, maxVisualWidth);
+
+  return new DOMRect(
+    visualLeft,
+    visualTop,
+    visualWidth,
+    Math.max(1, visualHeight),
+  );
+}
+
+function buildCompactPreviewRectsFromClientRects(input: {
+  root: HTMLElement;
+  rects: DOMRectList;
+}): PdfGeometrySelectionPreviewRect[] {
+  const rootRect = input.root.getBoundingClientRect();
+
+  return Array.from(input.rects)
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+    .map((rect) => getCompactSelectionVisualRect({ outerRect: rect }))
+    .map((rect) => ({
+      x: Math.max(0, rect.left - rootRect.left),
+      y: Math.max(0, rect.top - rootRect.top),
+      width: Math.max(1, rect.width),
+      height: Math.max(1, rect.height),
+    }))
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+}
+
+function buildPdfSelectionRectRecords(input: {
+  pageNumber: number;
+  rects: PdfGeometrySelectionPreviewRect[];
+}): Array<Record<string, number>> {
+  return input.rects.map((rect) => ({
+    pageNumber: input.pageNumber,
+    left: rect.x,
+    top: rect.y,
+    x: rect.x,
+    y: rect.y,
+    width: Math.max(1, rect.width),
+    height: Math.max(1, rect.height),
+  }));
+}
+
+function getBlueprintSelectableTextElements(root: HTMLElement): HTMLElement[] {
+  const lineElements = Array.from(
+    root.querySelectorAll<HTMLElement>(
+      [
+        "[data-knexread-blueprint-text-line='true']",
+        "[data-knexread-blueprint-text-line-inner='true']",
+      ].join(","),
+    ),
+  ).filter((element) => normalizeDomText(element.textContent).length > 0);
+
+  if (lineElements.length > 0) {
+    /*
+     * Preferimos a linha externa quando ela existe, pois ela representa a
+     * geometria do PDF/canvas. O inner pode ter largura natural da fonte do
+     * navegador e, por isso, não é uma base confiável para retângulo.
+     */
+    const outerLines = lineElements.filter(
+      (element) =>
+        element.getAttribute("data-knexread-blueprint-text-line") === "true",
+    );
+
+    return outerLines.length > 0 ? outerLines : lineElements;
+  }
+
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      [
+        "[data-knexread-blueprint-element='text']",
+        "[data-knexread-html-text-run='true']",
+        "[data-pdf-block-id]",
+        ".knex-pdf-text-layer__span",
+        ".knex-pdf-text_layer__span",
+        ".textLayer span",
+      ].join(","),
+    ),
+  ).filter((element) => normalizeDomText(element.textContent).length > 0);
+}
+
+function getElementSelectionRects(element: HTMLElement): {
+  hitRect: DOMRect;
+  visualRect: DOMRect;
+} {
+  const outerRect = element.getBoundingClientRect();
+  const inner = element.querySelector<HTMLElement>(
+    "[data-knexread-blueprint-text-line-inner='true']",
+  );
+
+  if (!inner) {
+    return {
+      hitRect: outerRect,
+      visualRect: getCompactSelectionVisualRect({
+        outerRect,
+        innerRect: outerRect,
+      }),
+    };
+  }
+
+  const innerRect = inner.getBoundingClientRect();
+
+  if (innerRect.width <= 0 || innerRect.height <= 0) {
+    return {
+      hitRect: outerRect,
+      visualRect: getCompactSelectionVisualRect({
+        outerRect,
+        innerRect: outerRect,
+      }),
+    };
+  }
+
+  /*
+   * Hit rect:
+   * usa a caixa externa, porque ela está presa à geometria do PDF/canvas e
+   * torna a linha inteira "ativável" pelo arrasto.
+   *
+   * Visual rect:
+   * usa a largura conservadora do inner, mas agora reduz verticalmente o
+   * destaque para pintar apenas a faixa visual do texto.
+   */
+  const visualLeft = Math.max(outerRect.left, innerRect.left);
+  const visualRight = Math.min(outerRect.right, innerRect.right);
+  const visualWidth = Math.max(1, visualRight - visualLeft);
+
+  return {
+    hitRect: outerRect,
+    visualRect: getCompactSelectionVisualRect({
+      outerRect,
+      innerRect,
+      visualLeft,
+      visualWidth,
+    }),
+  };
+}
+
+function getLineAtPoint(
+  lines: PdfGeometrySelectionLine[],
+  point: PdfPointerSelectionPoint,
+): PdfGeometrySelectionLine | null {
+  if (!lines.length) return null;
+
+  const directHit = lines
+    .filter((line) => {
+      const verticalTolerance = Math.max(4, line.height * 0.35);
+
+      return (
+        point.clientX >= line.left &&
+        point.clientX <= line.right &&
+        point.clientY >= line.top - verticalTolerance &&
+        point.clientY <= line.bottom + verticalTolerance
+      );
+    })
+    .sort((a, b) => a.flowIndex - b.flowIndex)[0];
+
+  if (directHit) return directHit;
+
+  return [...lines].sort((a, b) => {
+    const aCenterX = a.left + a.width / 2;
+    const aCenterY = a.top + a.height / 2;
+    const bCenterX = b.left + b.width / 2;
+    const bCenterY = b.top + b.height / 2;
+
+    const aDistance =
+      Math.abs(point.clientX - aCenterX) + Math.abs(point.clientY - aCenterY);
+    const bDistance =
+      Math.abs(point.clientX - bCenterX) + Math.abs(point.clientY - bCenterY);
+
+    return aDistance - bDistance;
+  })[0];
+}
+
+function assignColumnAndFlowIndexes(
+  lines: Omit<PdfGeometrySelectionLine, "columnIndex" | "flowIndex">[],
+): PdfGeometrySelectionLine[] {
+  /*
+   * Colunas não devem ser inferidas pela largura total da linha, porque linhas
+   * longas/justificadas podem expandir a caixa e acabar tocando a coluna
+   * vizinha. A separação fica mais estável quando usamos o left de início da
+   * linha como assinatura da coluna.
+   */
+  const sortedByTop = [...lines].sort((a, b) => {
+    if (Math.abs(a.top - b.top) > 4) return a.top - b.top;
+    return a.left - b.left;
+  });
+
+  const columns: Array<{
+    leftSamples: number[];
+    center: number;
+    lines: Array<Omit<PdfGeometrySelectionLine, "columnIndex" | "flowIndex">>;
+  }> = [];
+
+  for (const line of sortedByTop) {
+    const lineLeft = line.left;
+    const target = columns
+      .map((column) => {
+        const sortedSamples = [...column.leftSamples].sort((a, b) => a - b);
+        const medianLeft =
+          sortedSamples[Math.floor(sortedSamples.length / 2)] ?? column.center;
+
+        return {
+          column,
+          distance: Math.abs(lineLeft - medianLeft),
+        };
+      })
+      .filter(({ distance }) => distance <= Math.max(28, line.height * 2.2))
+      .sort((a, b) => a.distance - b.distance)[0]?.column;
+
+    if (target) {
+      target.lines.push(line);
+      target.leftSamples.push(lineLeft);
+      target.center =
+        target.leftSamples.reduce((sum, value) => sum + value, 0) /
+        target.leftSamples.length;
+      continue;
+    }
+
+    columns.push({
+      leftSamples: [lineLeft],
+      center: lineLeft,
+      lines: [line],
+    });
+  }
+
+  columns.sort((a, b) => {
+    const aLeft = Math.min(...a.leftSamples);
+    const bLeft = Math.min(...b.leftSamples);
+
+    return aLeft - bLeft;
+  });
+
+  const result: PdfGeometrySelectionLine[] = [];
+
+  for (const [columnIndex, column] of columns.entries()) {
+    const columnLines = column.lines.sort((a, b) => {
+      const lineTolerance = Math.max(4, Math.min(a.height, b.height) * 0.6);
+      const sameLine = Math.abs(a.top - b.top) <= lineTolerance;
+
+      if (sameLine) return a.left - b.left;
+      return a.top - b.top;
+    });
+
+    for (const line of columnLines) {
+      result.push({
+        ...line,
+        columnIndex,
+        flowIndex: result.length,
+      });
+    }
+  }
+
+  return result;
+}
+
+function getColumnIndexes(lines: PdfGeometrySelectionLine[]): number[] {
+  return [...new Set(lines.map((line) => line.columnIndex))].sort((a, b) => a - b);
+}
+
+function getColumnBounds(lines: PdfGeometrySelectionLine[], columnIndex: number) {
+  const columnLines = lines.filter((line) => line.columnIndex === columnIndex);
+
+  if (!columnLines.length) return null;
+
+  const left = Math.min(...columnLines.map((line) => line.left));
+  const right = Math.max(...columnLines.map((line) => line.right));
+  const top = Math.min(...columnLines.map((line) => line.top));
+  const bottom = Math.max(...columnLines.map((line) => line.bottom));
+
+  return {
+    columnIndex,
+    left,
+    right,
+    top,
+    bottom,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+function getNearestLineByVerticalPoint(
+  lines: PdfGeometrySelectionLine[],
+  point: PdfPointerSelectionPoint,
+): PdfGeometrySelectionLine | null {
+  if (!lines.length) return null;
+
+  const directVerticalHit = lines
+    .filter((line) => {
+      const verticalTolerance = Math.max(4, line.height * 0.45);
+
+      return (
+        point.clientY >= line.top - verticalTolerance &&
+        point.clientY <= line.bottom + verticalTolerance
+      );
+    })
+    .sort((a, b) => {
+      const aCenterX = a.left + a.width / 2;
+      const bCenterX = b.left + b.width / 2;
+
+      return Math.abs(point.clientX - aCenterX) - Math.abs(point.clientX - bCenterX);
+    })[0];
+
+  if (directVerticalHit) return directVerticalHit;
+
+  return [...lines].sort((a, b) => {
+    const aCenterY = a.top + a.height / 2;
+    const bCenterY = b.top + b.height / 2;
+    const verticalDistance = Math.abs(point.clientY - aCenterY) - Math.abs(point.clientY - bCenterY);
+
+    if (Math.abs(verticalDistance) > 0.01) return verticalDistance;
+
+    const aCenterX = a.left + a.width / 2;
+    const bCenterX = b.left + b.width / 2;
+
+    return Math.abs(point.clientX - aCenterX) - Math.abs(point.clientX - bCenterX);
+  })[0];
+}
+
+function shouldUseMultiColumnSelection(input: {
+  allLines: PdfGeometrySelectionLine[];
+  dragRect: DOMRect;
+  startLine: PdfGeometrySelectionLine | null;
+  endLine: PdfGeometrySelectionLine | null;
+  start: PdfPointerSelectionPoint;
+  end: PdfPointerSelectionPoint;
+}): boolean {
+  const columnIndexes = getColumnIndexes(input.allLines);
+
+  if (columnIndexes.length <= 1) return false;
+
+  const allBounds = {
+    left: Math.min(...input.allLines.map((line) => line.left)),
+    right: Math.max(...input.allLines.map((line) => line.right)),
+  };
+  const allWidth = Math.max(1, allBounds.right - allBounds.left);
+
+  const startColumnIndex =
+    input.startLine?.columnIndex ??
+    inferDominantColumnFromStartPoint(input.allLines, input.start);
+  const endColumnIndex =
+    input.endLine?.columnIndex ??
+    inferDominantColumnFromStartPoint(input.allLines, input.end);
+
+  /*
+   * Seleção de página/duas colunas:
+   *
+   * Só liberamos seleção multicoluna quando há intenção horizontal clara:
+   * - início e fim caem em colunas diferentes; e
+   * - o arrasto percorreu uma faixa horizontal suficientemente larga.
+   *
+   * Assim, um arrasto vertical normal na coluna esquerda não puxa a coluna
+   * direita por acidente; mas um arrasto diagonal/largo para pegar a página
+   * inteira seleciona as colunas em ordem de leitura.
+   */
+  const crossedColumn =
+    typeof startColumnIndex === "number" &&
+    typeof endColumnIndex === "number" &&
+    startColumnIndex !== endColumnIndex;
+
+  const horizontalTravel = Math.abs(input.end.clientX - input.start.clientX);
+  const pageWideDrag = input.dragRect.width >= allWidth * 0.72;
+  const intentionalCrossColumnTravel = horizontalTravel >= allWidth * 0.42;
+
+  return crossedColumn && (pageWideDrag || intentionalCrossColumnTravel);
+}
+
+function filterLinesByColumnAwareDrag(input: {
+  allLines: PdfGeometrySelectionLine[];
+  dragRect: DOMRect;
+  start: PdfPointerSelectionPoint;
+  end: PdfPointerSelectionPoint;
+}): PdfGeometrySelectionLine[] {
+  if (!input.allLines.length) return [];
+
+  const startLine = getLineAtPoint(input.allLines, input.start);
+  const endLine = getLineAtPoint(input.allLines, input.end);
+  const multiColumnSelection = shouldUseMultiColumnSelection({
+    allLines: input.allLines,
+    dragRect: input.dragRect,
+    startLine,
+    endLine,
+    start: input.start,
+    end: input.end,
+  });
+
+  if (multiColumnSelection) {
+    const fallbackStartLine =
+      startLine ?? getNearestLineByVerticalPoint(input.allLines, input.start);
+    const fallbackEndLine =
+      endLine ?? getNearestLineByVerticalPoint(input.allLines, input.end);
+
+    if (!fallbackStartLine || !fallbackEndLine) return [];
+
+    const minFlow = Math.min(fallbackStartLine.flowIndex, fallbackEndLine.flowIndex);
+    const maxFlow = Math.max(fallbackStartLine.flowIndex, fallbackEndLine.flowIndex);
+
+    return input.allLines.filter(
+      (line) => line.flowIndex >= minFlow && line.flowIndex <= maxFlow,
+    );
+  }
+
+  /*
+   * Seleção contínua em uma coluna:
+   *
+   * Em vez de depender apenas das linhas que intersectam o retângulo bruto,
+   * escolhemos a coluna de origem e selecionamos todas as linhas entre a linha
+   * inicial e a linha mais próxima do ponto atual. Isso deixa a seleção fluida
+   * mesmo quando o mouse desvia um pouco para o espaço em branco ou para a
+   * lateral, sem atravessar para a coluna vizinha.
+   */
+  const dominantColumnIndex =
+    startLine?.columnIndex ??
+    inferDominantColumnFromStartPoint(input.allLines, input.start) ??
+    endLine?.columnIndex ??
+    inferDominantColumnFromIntersectedLines(
+      input.allLines.filter((line) =>
+        doRectsIntersect(
+          input.dragRect,
+          new DOMRect(line.left, line.top, line.width, line.height),
+        ),
+      ),
+    );
+
+  const columnLines = input.allLines.filter(
+    (line) => line.columnIndex === dominantColumnIndex,
+  );
+
+  if (!columnLines.length) return [];
+
+  const columnStartLine =
+    startLine?.columnIndex === dominantColumnIndex
+      ? startLine
+      : getNearestLineByVerticalPoint(columnLines, input.start);
+  const columnEndLine =
+    endLine?.columnIndex === dominantColumnIndex
+      ? endLine
+      : getNearestLineByVerticalPoint(columnLines, input.end);
+
+  if (!columnStartLine || !columnEndLine) return [];
+
+  const minFlow = Math.min(columnStartLine.flowIndex, columnEndLine.flowIndex);
+  const maxFlow = Math.max(columnStartLine.flowIndex, columnEndLine.flowIndex);
+
+  return columnLines.filter(
+    (line) => line.flowIndex >= minFlow && line.flowIndex <= maxFlow,
+  );
+}
+
+function inferDominantColumnFromStartPoint(
+  lines: PdfGeometrySelectionLine[],
+  point: PdfPointerSelectionPoint,
+): number | null {
+  if (!lines.length) return null;
+
+  const columnStats = new Map<
+    number,
+    {
+      minLeft: number;
+      maxRight: number;
+      centerSum: number;
+      count: number;
+    }
+  >();
+
+  for (const line of lines) {
+    const current =
+      columnStats.get(line.columnIndex) ?? {
+        minLeft: Number.POSITIVE_INFINITY,
+        maxRight: Number.NEGATIVE_INFINITY,
+        centerSum: 0,
+        count: 0,
+      };
+
+    current.minLeft = Math.min(current.minLeft, line.left);
+    current.maxRight = Math.max(current.maxRight, line.right);
+    current.centerSum += line.left + line.width / 2;
+    current.count += 1;
+
+    columnStats.set(line.columnIndex, current);
+  }
+
+  const directColumn = [...columnStats.entries()]
+    .filter(([, stats]) => {
+      const tolerance = Math.max(16, (stats.maxRight - stats.minLeft) * 0.04);
+
+      return (
+        point.clientX >= stats.minLeft - tolerance &&
+        point.clientX <= stats.maxRight + tolerance
+      );
+    })
+    .sort((a, b) => {
+      const aCenter = a[1].centerSum / Math.max(1, a[1].count);
+      const bCenter = b[1].centerSum / Math.max(1, b[1].count);
+
+      return Math.abs(point.clientX - aCenter) - Math.abs(point.clientX - bCenter);
+    })[0]?.[0];
+
+  if (typeof directColumn === "number") return directColumn;
+
+  return [...columnStats.entries()]
+    .sort((a, b) => {
+      const aCenter = a[1].centerSum / Math.max(1, a[1].count);
+      const bCenter = b[1].centerSum / Math.max(1, b[1].count);
+
+      return Math.abs(point.clientX - aCenter) - Math.abs(point.clientX - bCenter);
+    })[0]?.[0] ?? null;
+}
+
+function inferDominantColumnFromIntersectedLines(
+  lines: PdfGeometrySelectionLine[],
+): number {
+  const counts = new Map<number, number>();
+
+  for (const line of lines) {
+    counts.set(line.columnIndex, (counts.get(line.columnIndex) ?? 0) + 1);
+  }
+
+  return (
+    [...counts.entries()].sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0] - b[0];
+    })[0]?.[0] ?? 0
+  );
+}
+
+function buildGeometrySelectionAnchor(input: {
+  pageNumber: number;
+  selectedText: string;
+  rects: Array<Record<string, number>>;
+  selectedBlockIds: string[];
+}) {
+  const firstRect = input.rects[0];
+  const lastRect = input.rects[input.rects.length - 1] ?? firstRect;
+
+  return {
+    pageNumber: input.pageNumber,
+    selectedText: input.selectedText,
+    normalizedText: normalizeDomText(input.selectedText).toLowerCase(),
+    blockIds: input.selectedBlockIds,
+    startBlockId: input.selectedBlockIds[0],
+    endBlockId: input.selectedBlockIds[input.selectedBlockIds.length - 1],
+    start: firstRect
+      ? {
+          x: firstRect.left ?? firstRect.x ?? 0,
+          y: firstRect.top ?? firstRect.y ?? 0,
+        }
+      : undefined,
+    end: lastRect
+      ? {
+          x: (lastRect.left ?? lastRect.x ?? 0) + (lastRect.width ?? 0),
+          y: (lastRect.top ?? lastRect.y ?? 0) + (lastRect.height ?? 0),
+        }
+      : undefined,
+  };
+}
+
+function buildPdfGeometrySelectionFromDrag(input: {
+  root: HTMLElement;
+  pageNumber: number;
+  pageBlocks: PdfTextBlock[];
+  start: PdfPointerSelectionPoint | null;
+  end: PdfPointerSelectionPoint;
+}): PdfTextSelection | null {
+  if (!input.start) return null;
+
+  const resolvedStart = resolvePointerPointForViewport(input.root, input.start);
+  const resolvedEnd = resolvePointerPointForViewport(input.root, input.end);
+  const dragRect = getNormalizedClientRect(resolvedStart, resolvedEnd);
+
+  /*
+   * Clique simples não deve abrir toolbar de seleção. Exigimos arrasto mínimo.
+   */
+  if (dragRect.width < 3 && dragRect.height < 3) return null;
+
+  const pageRect = input.root.getBoundingClientRect();
+  const candidates = getBlueprintSelectableTextElements(input.root);
+  const allLinesWithoutFlow: Array<
+    Omit<PdfGeometrySelectionLine, "columnIndex" | "flowIndex">
+  > = [];
+  const seen = new Set<string>();
+
+  for (const element of candidates) {
+    const text = normalizeDomText(element.textContent);
+    if (!text) continue;
+
+    const { hitRect, visualRect } = getElementSelectionRects(element);
+    if (hitRect.width <= 0 || hitRect.height <= 0) continue;
+
+    const pageLeft = Math.max(0, hitRect.left - pageRect.left);
+    const pageTop = Math.max(0, hitRect.top - pageRect.top);
+    const visualPageLeft = Math.max(0, visualRect.left - pageRect.left);
+    const visualPageTop = Math.max(0, visualRect.top - pageRect.top);
+
+    const key = [
+      Math.round(pageTop * 2) / 2,
+      Math.round(pageLeft * 2) / 2,
+      Math.round(hitRect.width * 2) / 2,
+      text.toLowerCase(),
+    ].join("|");
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    allLinesWithoutFlow.push({
+      text,
+      left: hitRect.left,
+      top: hitRect.top,
+      right: hitRect.right,
+      bottom: hitRect.bottom,
+      width: hitRect.width,
+      height: hitRect.height,
+      pageLeft,
+      pageTop,
+      visualPageLeft,
+      visualPageTop,
+      visualWidth: Math.max(1, visualRect.width),
+      visualHeight: Math.max(1, visualRect.height),
+    });
+  }
+
+  if (allLinesWithoutFlow.length === 0) return null;
+
+  const allLines = assignColumnAndFlowIndexes(allLinesWithoutFlow);
+  const selectedLines = filterLinesByColumnAwareDrag({
+    allLines,
+    dragRect,
+    start: input.start,
+    end: input.end,
+  });
+
+  if (selectedLines.length === 0) return null;
+
+  selectedLines.sort((a, b) => a.flowIndex - b.flowIndex);
+
+  const selectedText = selectedLines
+    .map((line) => line.text)
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  if (!selectedText) return null;
+
+  const rects = selectedLines.map((line) => ({
+    pageNumber: input.pageNumber,
+    left: line.visualPageLeft,
+    top: line.visualPageTop,
+    x: line.visualPageLeft,
+    y: line.visualPageTop,
+    width: Math.max(1, line.visualWidth),
+    height: Math.max(1, line.visualHeight),
+  }));
+
+  const selectedBlockIds = input.pageBlocks
+    .filter((block) =>
+      rects.some((rect) => {
+        const blockRect = new DOMRect(
+          block.x,
+          block.y,
+          Math.max(1, block.width),
+          Math.max(1, block.height),
+        );
+        const selectionRect = new DOMRect(
+          rect.left,
+          rect.top,
+          rect.width,
+          rect.height,
+        );
+
+        return doRectsIntersect(blockRect, selectionRect);
+      }),
+    )
+    .map((block) => block.id);
+
+  return {
+    pageNumber: input.pageNumber,
+    selectedText,
+    rects,
+    anchor: buildGeometrySelectionAnchor({
+      pageNumber: input.pageNumber,
+      selectedText,
+      rects,
+      selectedBlockIds,
+    }),
+  } as unknown as PdfTextSelection;
+}
+
 /**
  * PdfPageView
  * ------------------------------------------------------------
@@ -346,6 +1295,8 @@ export function PdfPageView({
   pdfFileId,
   pageNumber,
   zoom,
+  visualZoom,
+  renderZoom,
   highlights,
   onSelectText,
   onBlocksChange,
@@ -368,6 +1319,23 @@ export function PdfPageView({
   pdfFileId?: string;
   pageNumber: number;
   zoom: number;
+
+  /**
+   * Zoom visual/interativo.
+   *
+   * Muda imediatamente durante wheel/zoom e controla layout, tamanho visual da
+   * página, overlays e sensação de resposta.
+   */
+  visualZoom?: number;
+
+  /**
+   * Zoom de renderização pesada.
+   *
+   * Só deve mudar depois que o gesto estabiliza. É usado para canvas/tiles,
+   * cacheKey, renderIdentity e geração real da imagem.
+   */
+  renderZoom?: number;
+
   highlights: PdfHighlightRecord[];
   onSelectText: (
     selection: PdfTextSelection,
@@ -397,6 +1365,11 @@ export function PdfPageView({
   const engineState = useKnexPdfEngineState();
   const visualRenderMode = getKnexPdfVisualRenderMode();
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const pointerSelectionStartRef = useRef<PdfPointerSelectionPoint | null>(null);
+  const latestSelectionPointerRef = useRef<PdfPointerSelectionPoint | null>(null);
+  const selectionPreviewFrameRef = useRef<number | null>(null);
+  const selectionAutoScrollFrameRef = useRef<number | null>(null);
+  const lastGeometrySelectionPreviewSignatureRef = useRef("");
   const textExtractionTicketRef = useRef(0);
   const linkExtractionTicketRef = useRef(0);
   const lastGoodTextBlocksRef = useRef<{
@@ -411,6 +1384,8 @@ export function PdfPageView({
   const [canvasTextRenderState, setCanvasTextRenderState] =
     useState<PdfTileRenderState | null>(null);
   const [links, setLinks] = useState<PdfPageLinkAnnotation[]>([]);
+  const [geometrySelectionPreviewRects, setGeometrySelectionPreviewRects] =
+    useState<PdfGeometrySelectionPreviewRect[]>([]);
   const [isNearViewport, setIsNearViewport] = useState(priority);
   const [pageSize, setPageSize] = useState<PdfPageBaseSize | null>(() =>
     readCachedPageBaseSize(session, pageNumber),
@@ -434,10 +1409,20 @@ export function PdfPageView({
       }),
     );
 
-  const layoutScale = useMemo(
-    () => getLayoutScaleFromZoom(zoom),
-    [zoom],
+  const effectiveVisualZoom = useMemo(
+    () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(visualZoom, zoom)),
+    [visualZoom, zoom],
   );
+
+  const effectiveRenderZoom = useMemo(
+    () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(renderZoom, zoom)),
+    [renderZoom, zoom],
+  );
+
+  const visualToRenderScaleRatio = useMemo(() => {
+    const render = Math.max(MIN_LAYOUT_SCALE * 100, effectiveRenderZoom);
+    return effectiveVisualZoom / render;
+  }, [effectiveRenderZoom, effectiveVisualZoom]);
 
   const renderBand = useMemo(
     () =>
@@ -464,15 +1449,24 @@ export function PdfPageView({
     return pageSize ?? renderedSize ?? getFallbackPageSize();
   }, [pageSize, renderedPage]);
 
-  const pageCssWidth = useMemo(
-    () => Math.max(1, Math.ceil(basePageSize.width * layoutScale)),
-    [basePageSize.width, layoutScale],
-  );
+  const zoomFrame = usePdfZoomFramePolicy({
+    zoom: effectiveVisualZoom,
+    basePageSize,
+    renderPhase,
+    isZooming,
+    isScrolling,
+    isWarmupPage,
+    showTextLayer,
+    enableSelection,
+    modularPagePipelineEnabled,
+    blueprintPagePipelineEnabled,
+    minLayoutScale: MIN_LAYOUT_SCALE,
+    maxLayoutScale: MAX_LAYOUT_SCALE,
+  });
 
-  const pageCssHeight = useMemo(
-    () => Math.max(1, Math.ceil(basePageSize.height * layoutScale)),
-    [basePageSize.height, layoutScale],
-  );
+  const layoutScale = zoomFrame.layoutScale;
+  const pageCssWidth = zoomFrame.pageCssWidth;
+  const pageCssHeight = zoomFrame.pageCssHeight;
 
   const textLayerScale = useMemo(() => {
     const sourceScale = Math.max(0.01, safeNumber(blocksScale, TEXT_LAYER_BASE_SCALE));
@@ -499,14 +1493,16 @@ export function PdfPageView({
     priority ||
     isPreloadRender;
 
-  const semanticLayersEnabled =
-    renderPhase === "settled-final" &&
-    !isZooming &&
-    !isScrolling &&
-    !isWarmupPage;
-
-  const effectiveShowTextLayer =
-    semanticLayersEnabled && (showTextLayer || enableSelection);
+  /*
+   * Política centralizada em core/interaction/zoom-scroll.
+   *
+   * A camada visual de texto não deve ser desmontada durante zoom/scroll.
+   * Apenas seleção, links, highlights e toolbar ficam suspensos enquanto a
+   * interação está em andamento.
+   */
+  const semanticLayersEnabled = zoomFrame.pageSemanticDataAvailable;
+  const interactionLayersEnabled = zoomFrame.canInteractWithText;
+  const effectiveShowTextLayer = zoomFrame.canPresentVisualText;
 
   const visualTextLayerRequested =
     shouldRequestVisualTextLayer({
@@ -559,7 +1555,7 @@ export function PdfPageView({
    * continua com texto, evitando branco/fuga de renderização.
    */
   const shouldMountInvisibleTextLayer =
-    semanticLayersEnabled &&
+    zoomFrame.canUseNativeSelection &&
     effectiveShowTextLayer &&
     !visualTextLayerEnabled &&
     !modularPagePipelineEnabled;
@@ -579,11 +1575,12 @@ export function PdfPageView({
 
   const shouldExtractText =
     !modularPagePipelineEnabled &&
+    zoomFrame.canRenderHighlights &&
     canRenderCanvas &&
     (isActivePage || isNearViewport || isWarmupPage || priority) &&
     (effectiveShowTextLayer || Boolean(onBlocksChange));
   const shouldExtractLinks =
-    semanticLayersEnabled &&
+    zoomFrame.canRenderLinks &&
     canRenderCanvas &&
     (isActivePage || isNearViewport || priority);
 
@@ -619,6 +1616,16 @@ export function PdfPageView({
   useEffect(() => {
     setCanvasTextRenderState(null);
   }, [pageNumber, session]);
+
+  useEffect(() => {
+    setGeometrySelectionPreviewRects([]);
+  }, [isScrolling, isZooming, pageNumber, renderPhase]);
+
+  useEffect(() => {
+    if (!zoomFrame.shouldClearNativeSelection) return;
+
+    window.getSelection()?.removeAllRanges();
+  }, [zoomFrame.shouldClearNativeSelection]);
 
   useEffect(() => {
     const syncDebugOverlay = () => {
@@ -1015,10 +2022,20 @@ export function PdfPageView({
       blocksScale,
       layoutScale,
       textLayerScale,
+      effectiveVisualZoom,
+      effectiveRenderZoom,
+      visualToRenderScaleRatio,
       modularPagePipelineEnabled,
       blueprintPagePipelineEnabled,
       pageRenderMode,
       visualTextLayerEnabled,
+      zoomFramePolicy: {
+        pageSemanticDataAvailable: zoomFrame.pageSemanticDataAvailable,
+        canPresentVisualText: zoomFrame.canPresentVisualText,
+        canInteractWithText: zoomFrame.canInteractWithText,
+        canUseNativeSelection: zoomFrame.canUseNativeSelection,
+        shouldUseGeometrySelection: zoomFrame.shouldUseGeometrySelection,
+      },
       renderPhase,
       isZooming,
       isScrolling,
@@ -1044,6 +2061,9 @@ export function PdfPageView({
     isWarmupPage,
     isZooming,
     layoutScale,
+    effectiveRenderZoom,
+    effectiveVisualZoom,
+    visualToRenderScaleRatio,
     modularPagePipelineEnabled,
     blueprintPagePipelineEnabled,
     pageNumber,
@@ -1054,6 +2074,11 @@ export function PdfPageView({
     shouldRenderCanvasText,
     textLayerScale,
     visualTextLayerEnabled,
+    zoomFrame.canInteractWithText,
+    zoomFrame.canPresentVisualText,
+    zoomFrame.canUseNativeSelection,
+    zoomFrame.pageSemanticDataAvailable,
+    zoomFrame.shouldUseGeometrySelection,
   ]);
 
   const handleRendered = useCallback(
@@ -1074,7 +2099,7 @@ export function PdfPageView({
   );
 
   const highlightBlockIds = useMemo(() => {
-    if (!highlights.length || !blocks.length || isZooming || isScrolling) {
+    if (!highlights.length || !blocks.length || !zoomFrame.canRenderHighlights) {
       return undefined;
     }
 
@@ -1094,68 +2119,486 @@ export function PdfPageView({
     }
 
     return ids;
-  }, [blocks, highlights, isScrolling, isZooming, pageNumber]);
+  }, [blocks, highlights, pageNumber, zoomFrame.canRenderHighlights]);
 
-  const handleMouseUp = useCallback(() => {
-    if (
-      !enableSelection ||
-      isZooming ||
-      isScrolling ||
-      renderPhase !== "settled-final"
-    ) {
-      return;
-    }
+  const handleMouseDown = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!interactionLayersEnabled || event.button !== 0) {
+        pointerSelectionStartRef.current = null;
+        return;
+      }
 
-    const root = rootRef.current;
-    const selection = window.getSelection();
+      if (zoomFrame.shouldUseGeometrySelection) {
+        event.preventDefault();
+        window.getSelection()?.removeAllRanges();
+      }
 
-    if (
-      !root ||
-      !selection ||
-      selection.isCollapsed ||
-      selection.rangeCount === 0
-    ) {
-      return;
-    }
+      const root = rootRef.current;
 
-    const range = selection.getRangeAt(0);
+      setGeometrySelectionPreviewRects([]);
+      lastGeometrySelectionPreviewSignatureRef.current = "";
+      latestSelectionPointerRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
 
-    if (!root.contains(range.commonAncestorContainer)) {
-      return;
-    }
+      pointerSelectionStartRef.current = root
+        ? bindPointerPointToPage(root, {
+            clientX: event.clientX,
+            clientY: event.clientY,
+          })
+        : {
+            clientX: event.clientX,
+            clientY: event.clientY,
+          };
+    },
+    [interactionLayersEnabled, zoomFrame.shouldUseGeometrySelection],
+  );
 
-    const capturedSelection = capturePdfSelectionFromRange({
+  const finishGeometrySelectionFallback = useCallback(
+    (input: PdfPointerSelectionPoint) => {
+      if (!interactionLayersEnabled) {
+        pointerSelectionStartRef.current = null;
+        return false;
+      }
+
+      const root = rootRef.current;
+      if (!root) {
+        pointerSelectionStartRef.current = null;
+        return false;
+      }
+
+      const geometrySelection = buildPdfGeometrySelectionFromDrag({
+        root,
+        pageNumber,
+        pageBlocks: blocks,
+        start: pointerSelectionStartRef.current,
+        end: input,
+      });
+
+      pointerSelectionStartRef.current = null;
+      latestSelectionPointerRef.current = null;
+
+      if (!geometrySelection) return false;
+
+      window.getSelection()?.removeAllRanges();
+
+      const lastRect =
+        geometrySelection.rects?.[geometrySelection.rects.length - 1];
+
+      const rootRect = root.getBoundingClientRect();
+      const position = lastRect
+        ? {
+            top:
+              rootRect.top +
+              window.scrollY +
+              lastRect.y +
+              lastRect.height +
+              8,
+            left: rootRect.left + window.scrollX + lastRect.x,
+          }
+        : {
+            top: input.clientY + window.scrollY + 8,
+            left: input.clientX + window.scrollX,
+          };
+
+      setGeometrySelectionPreviewRects(
+        normalizeGeometrySelectionPreviewRects(
+          geometrySelection.rects as unknown as Array<Record<string, number>>,
+        ),
+      );
+
+      if (getGlobalBoolean("KNEX_PDF_DEBUG_SELECTION")) {
+        // eslint-disable-next-line no-console
+        console.debug("[KnexRead][GeometrySelectionFallback]", {
+          pageNumber,
+          selectedText: geometrySelection.selectedText,
+          rectCount: geometrySelection.rects?.length ?? 0,
+          position,
+        });
+      }
+
+      onSelectText(geometrySelection, position);
+      return true;
+    },
+    [
+      blocks,
+      interactionLayersEnabled,
+      onSelectText,
       pageNumber,
-      pageBlocks: blocks,
-      range,
-      pageElement: root,
-    });
+    ],
+  );
 
-    if (!capturedSelection) return;
+  const updateGeometrySelectionPreview = useCallback(
+    (input: PdfPointerSelectionPoint) => {
+      if (!interactionLayersEnabled) {
+        return;
+      }
 
-    const rects = range.getClientRects();
-    const lastRect =
-      rects.item(rects.length - 1) ?? range.getBoundingClientRect();
+      const root = rootRef.current;
+      const start = pointerSelectionStartRef.current;
 
-    const position = {
-      top: lastRect.bottom + window.scrollY + 8,
-      left: lastRect.left + window.scrollX,
+      if (!root || !start) return;
+
+      const geometrySelection = buildPdfGeometrySelectionFromDrag({
+        root,
+        pageNumber,
+        pageBlocks: blocks,
+        start,
+        end: input,
+      });
+
+      const nextRects = geometrySelection
+        ? normalizeGeometrySelectionPreviewRects(
+            geometrySelection.rects as unknown as Array<Record<string, number>>,
+          )
+        : [];
+      const nextSignature = nextRects
+        .map((rect) =>
+          [
+            Math.round(rect.x),
+            Math.round(rect.y),
+            Math.round(rect.width),
+            Math.round(rect.height),
+          ].join(":"),
+        )
+        .join("|");
+
+      if (nextSignature !== lastGeometrySelectionPreviewSignatureRef.current) {
+        lastGeometrySelectionPreviewSignatureRef.current = nextSignature;
+        setGeometrySelectionPreviewRects(nextRects);
+      }
+    },
+    [
+      blocks,
+      interactionLayersEnabled,
+      pageNumber,
+    ],
+  );
+
+  const stopSelectionAutoScroll = useCallback(() => {
+    if (selectionAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(selectionAutoScrollFrameRef.current);
+      selectionAutoScrollFrameRef.current = null;
+    }
+  }, []);
+
+  const stopSelectionPreviewFrame = useCallback(() => {
+    if (selectionPreviewFrameRef.current !== null) {
+      window.cancelAnimationFrame(selectionPreviewFrameRef.current);
+      selectionPreviewFrameRef.current = null;
+    }
+  }, []);
+
+  const scheduleGeometrySelectionPreview = useCallback(
+    (point: PdfPointerSelectionPoint) => {
+      latestSelectionPointerRef.current = point;
+
+      if (selectionPreviewFrameRef.current !== null) return;
+
+      selectionPreviewFrameRef.current = window.requestAnimationFrame(() => {
+        selectionPreviewFrameRef.current = null;
+
+        const latestPoint = latestSelectionPointerRef.current;
+        if (!latestPoint || !pointerSelectionStartRef.current) return;
+
+        updateGeometrySelectionPreview(latestPoint);
+      });
+    },
+    [updateGeometrySelectionPreview],
+  );
+
+  const scheduleSelectionAutoScroll = useCallback(
+    (point: PdfPointerSelectionPoint) => {
+      const root = rootRef.current;
+
+      if (!root || !pointerSelectionStartRef.current) {
+        stopSelectionAutoScroll();
+        return;
+      }
+
+      latestSelectionPointerRef.current = point;
+
+      const container = getSelectionScrollContainer(root);
+      const initialDelta = getSelectionAutoScrollDelta({
+        container,
+        clientY: point.clientY,
+      });
+
+      if (initialDelta === 0) {
+        stopSelectionAutoScroll();
+        return;
+      }
+
+      if (selectionAutoScrollFrameRef.current !== null) return;
+
+      const tick = () => {
+        const activeRoot = rootRef.current;
+        const latestPoint = latestSelectionPointerRef.current;
+
+        if (!activeRoot || !pointerSelectionStartRef.current || !latestPoint) {
+          selectionAutoScrollFrameRef.current = null;
+          return;
+        }
+
+        const activeContainer = getSelectionScrollContainer(activeRoot);
+        const deltaY = getSelectionAutoScrollDelta({
+          container: activeContainer,
+          clientY: latestPoint.clientY,
+        });
+
+        if (deltaY === 0) {
+          selectionAutoScrollFrameRef.current = null;
+          return;
+        }
+
+        scrollSelectionContainerBy(activeContainer, deltaY);
+        scheduleGeometrySelectionPreview(latestPoint);
+
+        selectionAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+      };
+
+      selectionAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+    },
+    [scheduleGeometrySelectionPreview, stopSelectionAutoScroll],
+  );
+
+  const handleMouseUp = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!interactionLayersEnabled) {
+        pointerSelectionStartRef.current = null;
+        return;
+      }
+
+      const root = rootRef.current;
+      if (!root) {
+        pointerSelectionStartRef.current = null;
+        return;
+      }
+
+      const selection = window.getSelection();
+
+      if (
+        zoomFrame.canUseNativeSelection &&
+        selection &&
+        !selection.isCollapsed &&
+        selection.rangeCount > 0
+      ) {
+        const range = selection.getRangeAt(0);
+
+        if (root.contains(range.commonAncestorContainer)) {
+          const capturedSelection = capturePdfSelectionFromRange({
+            pageNumber,
+            pageBlocks: blocks,
+            range,
+            pageElement: root,
+          });
+
+          if (capturedSelection) {
+            const rects = range.getClientRects();
+            const lastRect =
+              rects.item(rects.length - 1) ?? range.getBoundingClientRect();
+
+            const position = {
+              top: lastRect.bottom + window.scrollY + 8,
+              left: lastRect.left + window.scrollX,
+            };
+
+            const compactPreviewRects = buildCompactPreviewRectsFromClientRects({
+              root,
+              rects,
+            });
+            setGeometrySelectionPreviewRects(compactPreviewRects);
+
+            const compactCapturedSelection = compactPreviewRects.length > 0
+              ? ({
+                  ...capturedSelection,
+                  rects: buildPdfSelectionRectRecords({
+                    pageNumber,
+                    rects: compactPreviewRects,
+                  }),
+                } as unknown as PdfTextSelection)
+              : capturedSelection;
+
+            pointerSelectionStartRef.current = null;
+            latestSelectionPointerRef.current = null;
+            window.getSelection()?.removeAllRanges();
+            onSelectText(compactCapturedSelection, position);
+            return;
+          }
+        }
+      }
+
+      /*
+       * Fallback geométrico:
+       *
+       * Em alguns PDFs/pipelines o browser cria range nativo vazio porque o
+       * caret cai no DIV da página, mesmo com texto HTML transparente montado.
+       * Nesses casos, capturamos a seleção pelo retângulo de arrasto e pelas
+       * linhas do blueprint, preservando canvas como visual e HTML como base
+       * semântica.
+       */
+      finishGeometrySelectionFallback({
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+    },
+    [
+      blocks,
+      finishGeometrySelectionFallback,
+      interactionLayersEnabled,
+      onSelectText,
+      pageNumber,
+      zoomFrame.canUseNativeSelection,
+    ],
+  );
+
+
+  useEffect(() => {
+    const shouldStartDocumentSelection = (event: MouseEvent) => {
+      if (!interactionLayersEnabled || event.button !== 0) {
+        return false;
+      }
+
+      const root = rootRef.current;
+      const target = event.target;
+
+      return Boolean(
+        root &&
+          target instanceof Node &&
+          root.contains(target),
+      );
     };
 
-    onSelectText(capturedSelection, position);
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      if (!shouldStartDocumentSelection(event)) {
+        /*
+         * O botão direito não deve limpar seleção, pois será usado pelo menu
+         * contextual do Knexread.
+         */
+        if (event.button === 0) {
+          pointerSelectionStartRef.current = null;
+          latestSelectionPointerRef.current = null;
+          stopSelectionAutoScroll();
+          stopSelectionPreviewFrame();
+        }
+
+        return;
+      }
+
+      if (zoomFrame.shouldUseGeometrySelection) {
+        event.preventDefault();
+        window.getSelection()?.removeAllRanges();
+      }
+
+      const root = rootRef.current;
+
+      setGeometrySelectionPreviewRects([]);
+      lastGeometrySelectionPreviewSignatureRef.current = "";
+      latestSelectionPointerRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+
+      pointerSelectionStartRef.current = root
+        ? bindPointerPointToPage(root, {
+            clientX: event.clientX,
+            clientY: event.clientY,
+          })
+        : {
+            clientX: event.clientX,
+            clientY: event.clientY,
+          };
+    };
+
+    const handleDocumentMouseMove = (event: MouseEvent) => {
+      if (!pointerSelectionStartRef.current) return;
+
+      const point = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+
+      if (zoomFrame.shouldUseGeometrySelection) {
+        scheduleGeometrySelectionPreview(point);
+        scheduleSelectionAutoScroll(point);
+      }
+    };
+
+    const handleDocumentMouseUp = (event: MouseEvent) => {
+      if (!pointerSelectionStartRef.current) return;
+
+      stopSelectionAutoScroll();
+      stopSelectionPreviewFrame();
+
+      if (zoomFrame.canUseNativeSelection) {
+        const root = rootRef.current;
+        const selection = window.getSelection();
+
+        if (
+          root &&
+          selection &&
+          !selection.isCollapsed &&
+          selection.rangeCount > 0 &&
+          root.contains(selection.getRangeAt(0).commonAncestorContainer)
+        ) {
+          pointerSelectionStartRef.current = null;
+          latestSelectionPointerRef.current = null;
+          return;
+        }
+      }
+
+      finishGeometrySelectionFallback({
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+    };
+
+    const handleDocumentBlur = () => {
+      pointerSelectionStartRef.current = null;
+      latestSelectionPointerRef.current = null;
+      stopSelectionAutoScroll();
+      stopSelectionPreviewFrame();
+      setGeometrySelectionPreviewRects([]);
+      lastGeometrySelectionPreviewSignatureRef.current = "";
+    };
+
+    /*
+     * Captura no document:
+     *
+     * O teste de console confirmou que a seleção geométrica funciona quando
+     * ouvimos mousedown/mouseup no document em capture. Alguns wrappers internos
+     * do leitor podem impedir que o mousedown/mouseup chegue ao React no root da
+     * página. Por isso o document agora inicia e fecha o arrasto, mas somente
+     * quando o alvo pertence a esta página.
+     */
+    document.addEventListener("mousedown", handleDocumentMouseDown, true);
+    document.addEventListener("mousemove", handleDocumentMouseMove, true);
+    document.addEventListener("mouseup", handleDocumentMouseUp, true);
+    window.addEventListener("blur", handleDocumentBlur);
+
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown, true);
+      document.removeEventListener("mousemove", handleDocumentMouseMove, true);
+      document.removeEventListener("mouseup", handleDocumentMouseUp, true);
+      window.removeEventListener("blur", handleDocumentBlur);
+      stopSelectionAutoScroll();
+      stopSelectionPreviewFrame();
+    };
   }, [
-    blocks,
-    enableSelection,
-    isScrolling,
-    isZooming,
-    onSelectText,
-    pageNumber,
-    renderPhase,
+    finishGeometrySelectionFallback,
+    interactionLayersEnabled,
+    scheduleGeometrySelectionPreview,
+    scheduleSelectionAutoScroll,
+    stopSelectionAutoScroll,
+    stopSelectionPreviewFrame,
+    zoomFrame.canUseNativeSelection,
+    zoomFrame.shouldUseGeometrySelection,
   ]);
 
   const handleLinkClick = useCallback(
     async (link: PdfPageLinkAnnotation) => {
-      if (isZooming || isScrolling || renderPhase !== "settled-final") return;
+      if (!zoomFrame.canRenderLinks) return;
 
       if (link.url) {
         window.open(link.url, "_blank", "noopener,noreferrer");
@@ -1186,15 +2629,19 @@ export function PdfPageView({
          */
       }
     },
-    [isScrolling, isZooming, onNavigateToPage, renderPhase, session],
+    [onNavigateToPage, session, zoomFrame.canRenderLinks],
   );
 
   return (
     <div
       ref={rootRef}
       className="relative block shrink-0"
-      onMouseUp={handleMouseUp}
+      onMouseDownCapture={handleMouseDown}
+      onMouseUpCapture={handleMouseUp}
       data-knexread-pageview-audit-version={PAGEVIEW_AUDIT_VERSION}
+      data-knexread-pageview-canvas-text-sentinel={
+        PAGEVIEW_CANVAS_TEXT_SUPPRESSION_SENTINEL
+      }
       data-knexread-page-number={pageNumber}
       data-knexread-page-active={isActivePage ? "true" : "false"}
       data-knexread-page-visible={isNearViewport ? "true" : "false"}
@@ -1214,6 +2661,18 @@ export function PdfPageView({
       data-knexread-page-visual-text-layer={visualTextLayerEnabled ? "true" : "false"}
       data-knexread-page-visual-text-requested={
         visualTextLayerRequested ? "true" : "false"
+      }
+      data-knexread-page-can-present-visual-text={
+        zoomFrame.canPresentVisualText ? "true" : "false"
+      }
+      data-knexread-page-can-interact-with-text={
+        zoomFrame.canInteractWithText ? "true" : "false"
+      }
+      data-knexread-page-native-selection={
+        zoomFrame.canUseNativeSelection ? "true" : "false"
+      }
+      data-knexread-page-geometry-selection={
+        zoomFrame.shouldUseGeometrySelection ? "true" : "false"
       }
       data-knexread-page-has-visual-text-blocks={
         hasVisualTextBlocks ? "true" : "false"
@@ -1235,6 +2694,9 @@ export function PdfPageView({
         shouldMountInvisibleTextLayer ? "true" : "false"
       }
       data-knexread-page-render-priority={renderPriority ?? ""}
+      data-knexread-page-visual-zoom={effectiveVisualZoom}
+      data-knexread-page-render-zoom={effectiveRenderZoom}
+      data-knexread-page-visual-to-render-scale-ratio={visualToRenderScaleRatio}
       data-knexread-page-tile-enabled={canRenderCanvas ? "true" : "false"}
       data-knexread-page-tile-text-render={
         shouldRenderCanvasText ? "true" : "false"
@@ -1257,6 +2719,9 @@ export function PdfPageView({
         minWidth: `${pageCssWidth}px`,
         minHeight: `${pageCssHeight}px`,
         maxWidth: `${pageCssWidth}px`,
+        cursor: interactionLayersEnabled ? "text" : "default",
+        userSelect: "none",
+        WebkitUserSelect: "none",
       }}
     >
       <PdfPageComposition
@@ -1275,6 +2740,17 @@ export function PdfPageView({
           data-knexread-page-raster-layer="true"
           data-knexread-page-visual-layer="true"
           data-knexread-page-visual-render-mode={visualRenderMode}
+          data-knexread-page-raster-visual-zoom={effectiveVisualZoom}
+          data-knexread-page-raster-render-zoom={effectiveRenderZoom}
+          data-knexread-page-raster-visual-to-render-scale-ratio={
+            visualToRenderScaleRatio
+          }
+          data-knexread-page-modular-stage-zoom={
+            modularPagePipelineEnabled ? effectiveVisualZoom : ""
+          }
+          data-knexread-page-tiled-render-zoom={
+            !modularPagePipelineEnabled ? effectiveRenderZoom : ""
+          }
           data-knexread-page-visual-render-official={
             pageRenderMode === "blueprint"
               ? "blueprint"
@@ -1292,7 +2768,9 @@ export function PdfPageView({
               key={blueprintPagePipelineEnabled ? "blueprint" : "modular"}
               session={session}
               pageNumber={pageNumber}
-              zoom={zoom}
+              zoom={effectiveRenderZoom}
+              visualZoom={effectiveVisualZoom}
+              renderZoom={effectiveRenderZoom}
               pageCssWidth={pageCssWidth}
               pageCssHeight={pageCssHeight}
               renderQuality={effectiveCanvasRenderQuality}
@@ -1322,7 +2800,10 @@ export function PdfPageView({
               session={session}
               pdfFileId={pdfFileId}
               pageNumber={pageNumber}
-              zoom={zoom}
+              zoom={effectiveRenderZoom}
+              visualZoom={effectiveVisualZoom}
+              renderZoom={effectiveRenderZoom}
+              visualToRenderScaleRatio={visualToRenderScaleRatio}
               renderQuality={effectiveCanvasRenderQuality}
               onRendered={handleRendered}
               isZooming={isZooming}
@@ -1377,9 +2858,12 @@ export function PdfPageView({
         </div>
       ) : null}
 
-      {canRenderCanvas && semanticLayersEnabled ? (
+      {canRenderCanvas &&
+      (zoomFrame.canRenderHighlights ||
+        zoomFrame.canRenderLinks ||
+        shouldMountInvisibleTextLayer) ? (
         <>
-          {semanticLayersEnabled ? (
+          {zoomFrame.canRenderHighlights ? (
             <div
               className="absolute inset-0 z-10"
               data-knexread-page-highlight-layer="true"
@@ -1397,7 +2881,7 @@ export function PdfPageView({
             </div>
           ) : null}
 
-          {semanticLayersEnabled ? (
+          {zoomFrame.canRenderLinks ? (
             <div
               className="absolute inset-0 z-20"
               data-knexread-page-annotation-layer="true"
@@ -1423,6 +2907,36 @@ export function PdfPageView({
             />
           ) : null}
         </>
+      ) : null}
+
+      {geometrySelectionPreviewRects.length > 0 ? (
+        <div
+          className="absolute inset-0 z-30 pointer-events-none"
+          data-knexread-page-geometry-selection-overlay="true"
+          data-knexread-page-geometry-selection-rect-count={
+            geometrySelectionPreviewRects.length
+          }
+          style={{
+            width: `${pageCssWidth}px`,
+            height: `${pageCssHeight}px`,
+          }}
+        >
+          {geometrySelectionPreviewRects.map((rect, index) => (
+            <div
+              key={`${pageNumber}-geometry-selection-${index}-${rect.x}-${rect.y}`}
+              data-knexread-page-geometry-selection-rect="true"
+              style={{
+                position: "absolute",
+                left: `${rect.x}px`,
+                top: `${rect.y}px`,
+                width: `${rect.width}px`,
+                height: `${rect.height}px`,
+                background: "rgba(59, 130, 246, 0.28)",
+                borderRadius: "2px",
+              }}
+            />
+          ))}
+        </div>
       ) : null}
 
       {debugOverlayEnabled ? (

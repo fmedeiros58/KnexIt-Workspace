@@ -75,6 +75,91 @@ function positiveNumber(value: number | null | undefined, fallback = 1): number 
     : fallback;
 }
 
+function roundScale(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function resolveSafeTileBitmapGeometry(input: {
+  renderCssWidth: number;
+  renderCssHeight: number;
+  requestedOutputScaleX: number;
+  requestedOutputScaleY: number;
+}): {
+  bitmapWidth: number;
+  bitmapHeight: number;
+  actualOutputScaleX: number;
+  actualOutputScaleY: number;
+  memoryScale: number;
+  memoryCapped: boolean;
+  requestedBitmapWidth: number;
+  requestedBitmapHeight: number;
+} {
+  const renderCssWidth = positiveNumber(input.renderCssWidth, 1);
+  const renderCssHeight = positiveNumber(input.renderCssHeight, 1);
+  const requestedOutputScaleX = positiveNumber(input.requestedOutputScaleX, 1);
+  const requestedOutputScaleY = positiveNumber(input.requestedOutputScaleY, 1);
+
+  const requestedBitmapWidth = Math.max(
+    1,
+    Math.round(renderCssWidth * requestedOutputScaleX),
+  );
+  const requestedBitmapHeight = Math.max(
+    1,
+    Math.round(renderCssHeight * requestedOutputScaleY),
+  );
+
+  const maxByArea = Math.sqrt(
+    PDFJS_TILE_MAX_BITMAP_PIXELS /
+      Math.max(1, requestedBitmapWidth * requestedBitmapHeight),
+  );
+  const maxBySide = Math.min(
+    PDFJS_TILE_MAX_BITMAP_SIDE / requestedBitmapWidth,
+    PDFJS_TILE_MAX_BITMAP_SIDE / requestedBitmapHeight,
+  );
+  const memoryScale = Math.min(1, maxByArea, maxBySide);
+
+  const actualOutputScaleX = Math.max(
+    PDFJS_TILE_MIN_OUTPUT_SCALE,
+    requestedOutputScaleX * memoryScale,
+  );
+  const actualOutputScaleY = Math.max(
+    PDFJS_TILE_MIN_OUTPUT_SCALE,
+    requestedOutputScaleY * memoryScale,
+  );
+
+  const bitmapWidth = Math.max(
+    1,
+    Math.round(renderCssWidth * actualOutputScaleX),
+  );
+  const bitmapHeight = Math.max(
+    1,
+    Math.round(renderCssHeight * actualOutputScaleY),
+  );
+
+  return {
+    bitmapWidth,
+    bitmapHeight,
+    actualOutputScaleX: roundScale(bitmapWidth / renderCssWidth),
+    actualOutputScaleY: roundScale(bitmapHeight / renderCssHeight),
+    memoryScale: roundScale(memoryScale),
+    memoryCapped: memoryScale < 0.999,
+    requestedBitmapWidth,
+    requestedBitmapHeight,
+  };
+}
+
+function releaseCanvasBitmap(canvas: HTMLCanvasElement) {
+  try {
+    const context = canvas.getContext("2d");
+    context?.clearRect(0, 0, canvas.width, canvas.height);
+  } catch {
+    // Best-effort cleanup.
+  }
+
+  canvas.width = 1;
+  canvas.height = 1;
+}
+
 type PdfJsOperatorListLike = {
   fnArray?: readonly number[];
 };
@@ -111,10 +196,24 @@ const PDFJS_TEXT_OPERATOR_NAMES = [
   "showText",
   "showSpacedText",
   "nextLineShowText",
-  "nextLineSetSpacingShowText",
   "paintChar",
   "paintCharPath",
 ];
+
+/**
+ * Limites defensivos do renderer real de tiles.
+ *
+ * Os limites do ZoomController, PdfTiledPageCanvas, PdfTileLayer e PdfTileCanvas
+ * reduzem a pressão, mas este arquivo é a última barreira antes do PDF.js
+ * criar o bitmap do workerCanvas.
+ *
+ * Em zoom alto, se renderCssWidth/renderCssHeight * outputScale gerar um bitmap
+ * grande demais, reduzimos a escala efetiva do tile. Isso preserva o leitor
+ * funcionando e evita tela preta/estouro de memória.
+ */
+const PDFJS_TILE_MAX_BITMAP_PIXELS = 5_000_000;
+const PDFJS_TILE_MAX_BITMAP_SIDE = 7_680;
+const PDFJS_TILE_MIN_OUTPUT_SCALE = 0.2;
 
 function getPdfJsOpsRecord(): Record<string, number> | null {
   const record = globalThis as unknown as Record<string, unknown>;
@@ -227,22 +326,26 @@ function configureTileCanvas(input: RenderKnexPdfTileToCanvasInput): {
 
   const renderCssWidth = positiveNumber(tile.renderCssWidth, tile.cssWidth);
   const renderCssHeight = positiveNumber(tile.renderCssHeight, tile.cssHeight);
+  const requestedOutputScaleX = positiveNumber(tile.outputScaleX, 1);
+  const requestedOutputScaleY = positiveNumber(tile.outputScaleY, 1);
 
   /*
-   * O bitmap precisa ser derivado do retângulo REAL que será renderizado.
-   * Usamos Math.round em vez de ceil para reduzir microdiferenças de escala
-   * entre largura/altura, mas depois calculamos a escala real a partir do
-   * tamanho final do canvas. Essa escala real é a que deve ser usada no
-   * transform do PDF.js.
+   * O bitmap precisa ser derivado do retângulo REAL que será renderizado,
+   * mas agora passa por uma trava de memória antes do PDF.js receber o canvas.
    */
-  const bitmapWidth = Math.max(
-    1,
-    Math.round(renderCssWidth * positiveNumber(tile.outputScaleX, 1)),
-  );
-  const bitmapHeight = Math.max(
-    1,
-    Math.round(renderCssHeight * positiveNumber(tile.outputScaleY, 1)),
-  );
+  const safeBitmap = resolveSafeTileBitmapGeometry({
+    renderCssWidth,
+    renderCssHeight,
+    requestedOutputScaleX,
+    requestedOutputScaleY,
+  });
+
+  const {
+    bitmapWidth,
+    bitmapHeight,
+    actualOutputScaleX,
+    actualOutputScaleY,
+  } = safeBitmap;
 
   canvas.width = bitmapWidth;
   canvas.height = bitmapHeight;
@@ -256,9 +359,6 @@ function configureTileCanvas(input: RenderKnexPdfTileToCanvasInput): {
   canvas.style.width = `${renderCssWidth}px`;
   canvas.style.height = `${renderCssHeight}px`;
   canvas.style.imageRendering = "auto";
-
-  const actualOutputScaleX = bitmapWidth / renderCssWidth;
-  const actualOutputScaleY = bitmapHeight / renderCssHeight;
 
   canvas.dataset.knexPdfTile = "true";
   canvas.dataset.knexPdfPageNumber = String(tile.pageNumber);
@@ -275,6 +375,20 @@ function configureTileCanvas(input: RenderKnexPdfTileToCanvasInput): {
   canvas.dataset.knexPdfOutputScaleY = String(actualOutputScaleY);
   canvas.dataset.knexPdfRequestedOutputScaleX = String(tile.outputScaleX);
   canvas.dataset.knexPdfRequestedOutputScaleY = String(tile.outputScaleY);
+  canvas.dataset.knexPdfTileMemoryCapped = safeBitmap.memoryCapped
+    ? "true"
+    : "false";
+  canvas.dataset.knexPdfTileMemoryScale = String(safeBitmap.memoryScale);
+  canvas.dataset.knexPdfTileRequestedBitmapWidth = String(
+    safeBitmap.requestedBitmapWidth,
+  );
+  canvas.dataset.knexPdfTileRequestedBitmapHeight = String(
+    safeBitmap.requestedBitmapHeight,
+  );
+  canvas.dataset.knexPdfTileMaxBitmapPixels = String(
+    PDFJS_TILE_MAX_BITMAP_PIXELS,
+  );
+  canvas.dataset.knexPdfTileMaxBitmapSide = String(PDFJS_TILE_MAX_BITMAP_SIDE);
   canvas.dataset.knexPdfTileCssLeft = String(tile.cssX);
   canvas.dataset.knexPdfTileCssTop = String(tile.cssY);
   canvas.dataset.knexPdfTileCssWidth = String(tile.cssWidth);
@@ -401,6 +515,12 @@ export async function renderKnexPdfTileToCanvas(
       throw createAbortError();
     }
   } catch (error) {
+    /*
+     * Em cancelamento/erro, liberar imediatamente o workerCanvas evita que
+     * uma geração antiga continue segurando bitmap grande após novo zoom.
+     */
+    releaseCanvasBitmap(input.canvas);
+
     if (input.signal?.aborted || isAbortError(error)) {
       throw createAbortError();
     }
@@ -431,6 +551,9 @@ export async function renderKnexPdfTileToCanvas(
   };
 
   input.canvas.dataset.knexPdfRenderText = renderText ? "true" : "false";
+  input.canvas.dataset.knexPdfTileBitmapBytes = String(
+    input.canvas.width * input.canvas.height * 4,
+  );
 
   if (isTileDebugEnabled()) {
     // eslint-disable-next-line no-console

@@ -88,6 +88,21 @@ export function PdfBlueprintStage({
 }: PdfBlueprintStageProps) {
   const documentId = useMemo(() => getDocumentId(session), [session]);
   const layoutScale = useMemo(() => getLayoutScale(zoom), [zoom]);
+
+  /*
+   * O PdfBlueprintStage agora trabalha exclusivamente no espaço de renderização
+   * comprometido.
+   *
+   * A escala visual imediata durante wheel/zoom é aplicada pelo
+   * PdfModularPageStage em uma superfície externa única. Portanto, aqui dentro
+   * canvas, blueprint e texto HTML devem usar o mesmo zoom/renderScale e o
+   * mesmo pageCssWidth/pageCssHeight. Isso evita a desconexão vertical/horizontal
+   * entre texto e canvas no zoom-in e no zoom-out.
+   */
+  const blueprintCssWidth = pageCssWidth;
+  const blueprintCssHeight = pageCssHeight;
+  const blueprintScale = layoutScale;
+
   const [status, setStatus] = useState<BlueprintStageStatus>("idle");
   const [reason, setReason] = useState("");
   const [blueprint, setBlueprint] = useState<KnexPdfPageBlueprint | null>(null);
@@ -111,9 +126,9 @@ export function PdfBlueprintStage({
       const result = await buildKnexPdfPageBlueprintFromSession({
         session,
         pageNumber,
-        cssWidth: pageCssWidth,
-        cssHeight: pageCssHeight,
-        scale: layoutScale,
+        cssWidth: blueprintCssWidth,
+        cssHeight: blueprintCssHeight,
+        scale: blueprintScale,
         signal: abortController.signal,
         config: {
           extractNativeText: true,
@@ -142,7 +157,7 @@ export function PdfBlueprintStage({
           result.warnings[0] ??
           (result.success ? "blueprint-ready" : "blueprint-build-failed"),
       );
-      onTextBlocksChange?.(pageNumber, result.textBlocks, layoutScale);
+      onTextBlocksChange?.(pageNumber, result.textBlocks, blueprintScale);
     };
 
     void build().catch((error) => {
@@ -150,7 +165,7 @@ export function PdfBlueprintStage({
       setBlueprint(null);
       setStatus("error");
       setReason(error instanceof Error ? error.message : "blueprint-build-failed");
-      onTextBlocksChange?.(pageNumber, [], layoutScale);
+      onTextBlocksChange?.(pageNumber, [], blueprintScale);
     });
 
     return () => {
@@ -158,10 +173,10 @@ export function PdfBlueprintStage({
       abortController.abort();
     };
   }, [
-    layoutScale,
+    blueprintCssHeight,
+    blueprintCssWidth,
+    blueprintScale,
     onTextBlocksChange,
-    pageCssHeight,
-    pageCssWidth,
     pageNumber,
     session,
   ]);
@@ -171,6 +186,16 @@ export function PdfBlueprintStage({
       className="absolute inset-0"
       data-knexread-blueprint-canvas-host="true"
       data-knexread-blueprint-canvas-text-render="false"
+      style={{
+        width: "100%",
+        minWidth: "100%",
+        maxWidth: "100%",
+        height: "100%",
+        minHeight: "100%",
+        maxHeight: "100%",
+        overflow: "hidden",
+        contain: "layout paint size",
+      }}
     >
       <PdfCanvasLayer
         session={session}
@@ -204,9 +229,21 @@ export function PdfBlueprintStage({
       data-knexread-blueprint-form-field-count={formFieldCount}
       data-knexread-blueprint-annotation-count={annotationCount}
       data-knexread-blueprint-warning-count={warningCount}
+      data-knexread-blueprint-layout-scale={layoutScale}
+      data-knexread-blueprint-css-width={blueprintCssWidth}
+      data-knexread-blueprint-css-height={blueprintCssHeight}
+      data-knexread-blueprint-scale={blueprintScale}
       style={{
         width: `${pageCssWidth}px`,
+        minWidth: `${pageCssWidth}px`,
+        maxWidth: `${pageCssWidth}px`,
         height: `${pageCssHeight}px`,
+        minHeight: `${pageCssHeight}px`,
+        maxHeight: `${pageCssHeight}px`,
+        flex: `0 0 ${pageCssWidth}px`,
+        overflow: "hidden",
+        contain: "layout paint size",
+        boxSizing: "border-box",
       }}
     >
       <PdfPagePresentationSurface

@@ -26,7 +26,8 @@ export type KnexPdfZoomState = {
    * Escala real.
    * 1.0 = 100%
    * 4.0 = 400%
-   * 80.0 = 8000%
+   * 20.0 = 2000%
+   * 80.0 = 8000% apenas em configuração extrema/debug
    */
   zoom: number;
 
@@ -147,20 +148,45 @@ const PAGE_DELTA_PIXEL_FACTOR = 800;
 const ZOOM_CHANGE_EPSILON = 0.000001;
 
 /**
- * Limites base.
+ * Limite seguro do leitor.
  *
- * A versão anterior estava rígida demais e causava sensação de zoom agarrado,
- * principalmente em zoom alto. Aqui usamos limites maiores e, mais abaixo,
- * aplicamos uma política adaptativa.
+ * O engineConfig pode permitir valores muito altos para testes, mas o viewer
+ * interativo não deve deixar o zoom crescer indefinidamente. O teto seguro
+ * abaixo fica em 2000%, bem menor que 8000%, mas suficiente para leitura
+ * ampliada sem abrir completamente a porta para renderizações extremas.
+ *
+ * Se no futuro houver um modo técnico/debug para zoom extremo, ele deve ser
+ * isolado do fluxo comum de leitura.
  */
-const DEFAULT_MAX_WHEEL_DELTA_PIXELS_PER_EVENT = 420;
-const DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT = 1.22;
+const KNEX_PDF_SAFE_MIN_ZOOM = 0.1;
+const KNEX_PDF_SAFE_MAX_ZOOM = 20;
+
+/**
+ * Limites efetivos.
+ *
+ * Respeitam engineConfig quando ele for mais restritivo, mas impedem que um
+ * KNEX_PDF_MAX_ZOOM muito alto, como 80.0, vaze para o leitor comum.
+ */
+const EFFECTIVE_MIN_ZOOM = Math.max(KNEX_PDF_MIN_ZOOM, KNEX_PDF_SAFE_MIN_ZOOM);
+const EFFECTIVE_MAX_ZOOM = Math.min(KNEX_PDF_MAX_ZOOM, KNEX_PDF_SAFE_MAX_ZOOM);
+
+/**
+ * Limites base para wheel.
+ *
+ * Mantêm fluidez sem permitir saltos grandes demais. O multiplicador externo
+ * do Shell pode acelerar o delta, então este controlador precisa continuar
+ * sendo a trava final antes da renderização.
+ */
+const DEFAULT_MAX_WHEEL_DELTA_PIXELS_PER_EVENT = 320;
+const DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT = 1.16;
 const DEFAULT_MIN_ZOOM_FACTOR_PER_EVENT =
   1 / DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT;
 
 /**
- * Presets em percentual.
- * Compatível com zoom até 8000%, desde que KNEX_PDF_MAX_ZOOM seja 80.0.
+ * Presets em percentual para o leitor comum.
+ *
+ * Teto em 2000%. Esse valor ainda exige cuidado no renderizador por tiles,
+ * mas é muito mais seguro que 8000% e atende ao uso de ampliação forte.
  */
 export const KNEX_PDF_ZOOM_PERCENT_PRESETS = [
   10,
@@ -174,17 +200,15 @@ export const KNEX_PDF_ZOOM_PERCENT_PRESETS = [
   200,
   250,
   300,
+  350,
   400,
   500,
   600,
   800,
   1000,
+  1200,
   1600,
-  2400,
-  3200,
-  4000,
-  6400,
-  8000,
+  2000,
 ] as const;
 
 export function safeNumber(
@@ -221,12 +245,11 @@ export function percentToZoom(percent: number): number {
 }
 
 /**
- * Limita o zoom real pela configuração global do engine.
+ * Limita o zoom real do leitor.
  *
- * IMPORTANTE:
- * Para permitir 8000%, o engineConfig deve conter:
- * KNEX_PDF_MIN_ZOOM = 0.1
- * KNEX_PDF_MAX_ZOOM = 80.0
+ * Este é o ponto principal de proteção contra tela preta e sobrecarga de
+ * memória. Mesmo que o engineConfig esteja aberto para testes extremos, o
+ * viewer comum fica limitado ao intervalo efetivo definido acima.
  */
 export function clampKnexPdfZoom(
   zoom: number | null | undefined,
@@ -234,8 +257,8 @@ export function clampKnexPdfZoom(
   return roundZoom(
     clampValue(
       safeNumber(zoom, 1),
-      KNEX_PDF_MIN_ZOOM,
-      KNEX_PDF_MAX_ZOOM,
+      EFFECTIVE_MIN_ZOOM,
+      EFFECTIVE_MAX_ZOOM,
     ),
   );
 }
@@ -335,51 +358,59 @@ function getWheelZoomFluidityProfile(input: {
    */
   if (currentZoom >= 16) {
     if (isZoomingOut) {
-      sensitivity = 0.0034;
-      maxDeltaPixelsPerEvent = 820;
-      maxZoomFactorPerEvent = 1.14;
-      minZoomFactorPerEvent = 0.68;
+      /*
+       * Em 1600%+, a saída precisa continuar responsiva para o usuário não
+       * ficar "preso" no zoom alto.
+       */
+      sensitivity = 0.00275;
+      maxDeltaPixelsPerEvent = 520;
+      maxZoomFactorPerEvent = 1.08;
+      minZoomFactorPerEvent = 0.78;
     } else {
-      sensitivity = 0.0018;
-      maxDeltaPixelsPerEvent = 360;
-      maxZoomFactorPerEvent = 1.105;
-      minZoomFactorPerEvent = 1 / 1.105;
+      /*
+       * Entrada perto do teto de 2000% deve ser bem controlada para evitar
+       * renderizações sucessivas tentando ultrapassar o limite.
+       */
+      sensitivity = 0.00125;
+      maxDeltaPixelsPerEvent = 180;
+      maxZoomFactorPerEvent = 1.035;
+      minZoomFactorPerEvent = 1 / 1.035;
     }
   } else if (currentZoom >= 8) {
     if (isZoomingOut) {
-      sensitivity = 0.00305;
-      maxDeltaPixelsPerEvent = 680;
-      maxZoomFactorPerEvent = 1.16;
-      minZoomFactorPerEvent = 0.72;
+      sensitivity = 0.00265;
+      maxDeltaPixelsPerEvent = 500;
+      maxZoomFactorPerEvent = 1.1;
+      minZoomFactorPerEvent = 0.8;
     } else {
-      sensitivity = 0.00195;
-      maxDeltaPixelsPerEvent = 420;
-      maxZoomFactorPerEvent = 1.13;
-      minZoomFactorPerEvent = 1 / 1.13;
+      sensitivity = 0.00145;
+      maxDeltaPixelsPerEvent = 220;
+      maxZoomFactorPerEvent = 1.045;
+      minZoomFactorPerEvent = 1 / 1.045;
     }
   } else if (currentZoom >= 4) {
     if (isZoomingOut) {
-      sensitivity = 0.00275;
-      maxDeltaPixelsPerEvent = 560;
-      maxZoomFactorPerEvent = 1.18;
-      minZoomFactorPerEvent = 0.76;
+      sensitivity = 0.00255;
+      maxDeltaPixelsPerEvent = 480;
+      maxZoomFactorPerEvent = 1.12;
+      minZoomFactorPerEvent = 0.82;
     } else {
-      sensitivity = 0.0021;
-      maxDeltaPixelsPerEvent = 460;
-      maxZoomFactorPerEvent = 1.16;
-      minZoomFactorPerEvent = 1 / 1.16;
+      sensitivity = 0.00165;
+      maxDeltaPixelsPerEvent = 260;
+      maxZoomFactorPerEvent = 1.06;
+      minZoomFactorPerEvent = 1 / 1.06;
     }
   } else if (currentZoom >= 2) {
     if (isZoomingOut) {
       sensitivity = 0.00245;
       maxDeltaPixelsPerEvent = 500;
-      maxZoomFactorPerEvent = 1.2;
-      minZoomFactorPerEvent = 0.8;
+      maxZoomFactorPerEvent = 1.16;
+      minZoomFactorPerEvent = 0.84;
     } else {
-      sensitivity = 0.00225;
-      maxDeltaPixelsPerEvent = 460;
-      maxZoomFactorPerEvent = 1.2;
-      minZoomFactorPerEvent = 1 / 1.2;
+      sensitivity = 0.00205;
+      maxDeltaPixelsPerEvent = 360;
+      maxZoomFactorPerEvent = 1.12;
+      minZoomFactorPerEvent = 1 / 1.12;
     }
   }
 
@@ -495,6 +526,20 @@ export function computeWheelZoom(input: ComputeWheelZoomInput): number {
   });
 
   const signedDelta = limitedDelta * directionMultiplier;
+
+  /*
+   * Trava curta para evitar trabalho inútil no limite.
+   *
+   * signedDelta > 0 = zoom-in.
+   * signedDelta < 0 = zoom-out.
+   */
+  if (signedDelta > 0 && currentZoom >= EFFECTIVE_MAX_ZOOM - ZOOM_CHANGE_EPSILON) {
+    return EFFECTIVE_MAX_ZOOM;
+  }
+
+  if (signedDelta < 0 && currentZoom <= EFFECTIVE_MIN_ZOOM + ZOOM_CHANGE_EPSILON) {
+    return EFFECTIVE_MIN_ZOOM;
+  }
 
   if (input.smooth ?? true) {
     const rawZoomFactor = Math.exp(signedDelta * profile.sensitivity);

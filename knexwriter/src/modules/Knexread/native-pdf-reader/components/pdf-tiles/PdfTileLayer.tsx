@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { NativePdfSession } from "../../services";
 import type {
   KnexPdfPageGeometry,
@@ -15,6 +15,138 @@ const TILE_PRIORITY_WEIGHT: Record<KnexPdfTilePriority, number> = {
   nearby: 15,
   background: 0,
 };
+
+/**
+ * Política de montagem progressiva de tiles.
+ *
+ * O ponto crítico aqui é memória: o PdfTiledPageCanvas pode manter uma camada
+ * ativa e uma camada pending montadas ao mesmo tempo para evitar piscada.
+ * Se o PdfTileLayer montar todos os canvases de todos os tiles imediatamente,
+ * a memória pode explodir em zoom alto, mesmo com o zoom global limitado.
+ *
+ * Esta política mantém a qualidade final, mas evita o pico abrupto:
+ * - tiles mais importantes entram primeiro;
+ * - pending invisível renderiza em ritmo mais lento;
+ * - zoom alto usa lotes menores;
+ * - todos os tiles continuam sendo renderizados ao final, apenas sem rajada.
+ */
+const VISIBLE_LAYER_BASE_INITIAL_TILE_BUDGET = 24;
+const VISIBLE_LAYER_BASE_TILE_CHUNK_SIZE = 16;
+const HIDDEN_PENDING_BASE_INITIAL_TILE_BUDGET = 8;
+const HIDDEN_PENDING_BASE_TILE_CHUNK_SIZE = 6;
+
+type TileMountPolicy = {
+  initialBudget: number;
+  chunkSize: number;
+  delayMs: number;
+};
+
+function clampTileBudget(value: number, tileCount: number): number {
+  return Math.max(0, Math.min(Math.max(0, tileCount), Math.ceil(value)));
+}
+
+function resolveTileLayerMountPolicy(input: {
+  tileCount: number;
+  zoom: number;
+  layerSurface: "active" | "pending";
+  layerVisible: boolean;
+}): TileMountPolicy {
+  const tileCount = Math.max(0, input.tileCount);
+  const zoom = Math.max(0.01, input.zoom);
+  const isHiddenPending =
+    input.layerSurface === "pending" && !input.layerVisible;
+
+  if (tileCount <= 0) {
+    return {
+      initialBudget: 0,
+      chunkSize: 0,
+      delayMs: 0,
+    };
+  }
+
+  if (isHiddenPending) {
+    /*
+     * Política anti-estouro:
+     *
+     * Em zoom alto, uma pendingLayer invisível é o maior risco de pico de
+     * memória, porque ela duplica canvases enquanto a activeLayer ainda está
+     * montada. A partir de 800%, não montamos tiles invisíveis; a nova geração
+     * deve ser preparada somente depois que virar camada ativa/promovida.
+     */
+    if (zoom >= 8) {
+      return {
+        initialBudget: 0,
+        chunkSize: 0,
+        delayMs: 0,
+      };
+    }
+
+    if (zoom >= 4) {
+      return {
+        initialBudget: clampTileBudget(2, tileCount),
+        chunkSize: clampTileBudget(2, tileCount),
+        delayMs: 120,
+      };
+    }
+
+    return {
+      initialBudget: clampTileBudget(
+        Math.min(4, HIDDEN_PENDING_BASE_INITIAL_TILE_BUDGET),
+        tileCount,
+      ),
+      chunkSize: clampTileBudget(
+        Math.min(3, HIDDEN_PENDING_BASE_TILE_CHUNK_SIZE),
+        tileCount,
+      ),
+      delayMs: 80,
+    };
+  }
+
+  /*
+   * Camada visível em zoom alto também deve montar poucos tiles por lote.
+   * A qualidade final continua a mesma; apenas evitamos rajadas de canvases.
+   */
+  if (zoom >= 16) {
+    return {
+      initialBudget: clampTileBudget(4, tileCount),
+      chunkSize: clampTileBudget(3, tileCount),
+      delayMs: 64,
+    };
+  }
+
+  if (zoom >= 12) {
+    return {
+      initialBudget: clampTileBudget(5, tileCount),
+      chunkSize: clampTileBudget(4, tileCount),
+      delayMs: 56,
+    };
+  }
+
+  if (zoom >= 8) {
+    return {
+      initialBudget: clampTileBudget(6, tileCount),
+      chunkSize: clampTileBudget(4, tileCount),
+      delayMs: 48,
+    };
+  }
+
+  if (zoom >= 4) {
+    return {
+      initialBudget: clampTileBudget(10, tileCount),
+      chunkSize: clampTileBudget(6, tileCount),
+      delayMs: 36,
+    };
+  }
+
+  return {
+    initialBudget: clampTileBudget(
+      VISIBLE_LAYER_BASE_INITIAL_TILE_BUDGET,
+      tileCount,
+    ),
+    chunkSize: clampTileBudget(VISIBLE_LAYER_BASE_TILE_CHUNK_SIZE, tileCount),
+    delayMs: 12,
+  };
+}
 
 function getTilePriority(input: {
   tile: KnexPdfPageTile;
@@ -93,6 +225,50 @@ export function PdfTileLayer({
     [isActivePage, pagePriority, tiles],
   );
 
+  const mountPolicy = useMemo(
+    () =>
+      resolveTileLayerMountPolicy({
+        tileCount: orderedTiles.length,
+        zoom: geometry.zoom,
+        layerSurface,
+        layerVisible,
+      }),
+    [geometry.zoom, layerSurface, layerVisible, orderedTiles.length],
+  );
+
+  const [mountedTileCount, setMountedTileCount] = useState(() =>
+    mountPolicy.initialBudget,
+  );
+
+  useEffect(() => {
+    setMountedTileCount(mountPolicy.initialBudget);
+  }, [generationId, mountPolicy.initialBudget]);
+
+  useEffect(() => {
+    if (mountedTileCount >= orderedTiles.length) return;
+    if (mountPolicy.chunkSize <= 0) return;
+
+    const timerId = window.setTimeout(() => {
+      setMountedTileCount((current) =>
+        Math.min(orderedTiles.length, current + mountPolicy.chunkSize),
+      );
+    }, mountPolicy.delayMs);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [
+    mountedTileCount,
+    mountPolicy.chunkSize,
+    mountPolicy.delayMs,
+    orderedTiles.length,
+  ]);
+
+  const mountedTiles = useMemo(
+    () => orderedTiles.slice(0, mountedTileCount),
+    [mountedTileCount, orderedTiles],
+  );
+
   /*
    * Importante:
    * O PdfTiledPageCanvas pode manter uma camada ativa e uma pending montadas
@@ -114,6 +290,15 @@ export function PdfTileLayer({
       data-knex-pdf-tile-layer="true"
       data-knex-pdf-page-number={geometry.pageNumber}
       data-knex-pdf-tile-count={orderedTiles.length}
+      data-knex-pdf-mounted-tile-count={mountedTiles.length}
+      data-knex-pdf-tile-mount-initial-budget={mountPolicy.initialBudget}
+      data-knex-pdf-tile-mount-chunk-size={mountPolicy.chunkSize}
+      data-knex-pdf-tile-mount-delay-ms={mountPolicy.delayMs}
+      data-knex-pdf-tile-mount-suspended={
+        mountPolicy.initialBudget === 0 && mountPolicy.chunkSize === 0
+          ? "true"
+          : "false"
+      }
       data-knex-pdf-tile-generation-id={generationId}
       data-knex-pdf-generation-id={generationId}
       data-knex-pdf-active-backend={activeBackend}
@@ -135,7 +320,7 @@ export function PdfTileLayer({
         contain: "layout paint style",
       }}
     >
-      {orderedTiles.map((tile) => (
+      {mountedTiles.map((tile) => (
         <PdfTileCanvas
           key={`${generationId}:${tileRenderMode}:${tile.row}:${tile.column}`}
           documentId={documentId}
