@@ -6,6 +6,7 @@ import { HomeRibbonTab } from "./tabs/home/HomeRibbonTab";
 import { InsertRibbonTab } from "./tabs/insert/InsertRibbonTab";
 import { LayoutRibbonTab } from "./tabs/layout/LayoutRibbonTab";
 import { MailingsRibbonTab } from "./tabs/mailings/MailingsRibbonTab";
+import { KnexreadPdfRibbonTab } from "./tabs/knexread/KnexreadPdfRibbonTab";
 import { ReferencesRibbonTab } from "./tabs/references/ReferencesRibbonTab";
 import { ReviewRibbonTab } from "./tabs/review/ReviewRibbonTab";
 import { ViewRibbonTab } from "./tabs/view/ViewRibbonTab";
@@ -32,6 +33,8 @@ export function WriterRibbon(props: WriterRibbonProps) {
       return <ReviewRibbonTab {...props} />;
     case "view":
       return <ViewRibbonTab {...props} />;
+    case "knexreadPdf":
+      return <KnexreadPdfRibbonTab {...props} />;
     case "help":
       return <HelpRibbonTab {...props} />;
     default:

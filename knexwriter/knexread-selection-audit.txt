@@ -1,0 +1,971 @@
+﻿=== KNEXREAD SELECTION AUDIT ===
+
+=== EVENTOS/BLOQUEIOS ===
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\annotations\domain\KnexPdfAnnotationTypes.ts:23: source?: "selection" | "import" | "manual";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\config\KnexPdfDefaultConfig.ts:72: TEXT_SELECTION_TIMEOUT_MS: 2000,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\config\KnexPdfDefaultConfig.ts:115: // Selection
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\config\KnexPdfDefaultConfig.ts:116: ENABLE_TEXT_SELECTION: true,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\config\KnexPdfDefaultConfig.ts:117: ENABLE_SELECTION_TOOLBAR: true,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:120: getSelection(): string | null;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:125: clearSelection(): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:155: clearSelection(): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:300: layerOrder: Array<'canvas' | 'annotations-behind' | 'text' | 'annotations-above' | 'search' | 'selection'>;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:303: enableTextSelection: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:215: export interface IKnexPdfTextSelectionService {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:219: startSelection(x: number, y: number): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:224: updateSelection(x: number, y: number): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:229: endSelection(): string | null;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:234: clearSelection(): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:239: getSelection(): string | null;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfTypes.ts:166: export interface KnexPdfTextSelection {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\api\pdf-reader.service.ts:17: createPdfCitationFromSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\api\pdf-reader.service.ts:162: createCitation: typeof createPdfCitationFromSelection =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\api\pdf-reader.service.ts:163: createPdfCitationFromSelection;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfAnnotationLayer.tsx:7: onClickLink,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfAnnotationLayer.tsx:10: onClickLink?: (link: PdfPageLinkAnnotation) => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfAnnotationLayer.tsx:26: onClick={(event) => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfAnnotationLayer.tsx:27: event.stopPropagation();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfAnnotationLayer.tsx:28: onClickLink?.(link);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfCommentPopover.tsx:33: onClick={onCancel}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfCommentPopover.tsx:40: onClick={() => onSave(text)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfFileBackstage.tsx:58: onClick={() => onSectionChange(sectionId)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfFileBackstage.tsx:81: onClick={onOpenComputer}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfFileBackstage.tsx:94: onClick={onCloseReader}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfFileBackstage.tsx:111: onClick={() => onOpenRecent?.(item.id)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightLayer.tsx:20: onClickHighlight,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightLayer.tsx:26: onClickHighlight?: (highlight: PdfHighlightRecord) => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightLayer.tsx:56: onClick={(event) => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightLayer.tsx:57: event.stopPropagation();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightLayer.tsx:58: onClickHighlight?.(highlight);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:11: onTranslateSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:20: onTranslateSelection?: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:32: onClick={onHighlight}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:39: onClick={onComment}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:46: onClick={onCopy}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:53: onClick={onCreateDirectCitation}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:60: onClick={onCreateIndirectCitation}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:67: onClick={onCreateReference}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:72: {onTranslateSelection ? (
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightPopover.tsx:75: onClick={onTranslateSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:143: onClick={onOpenComputer}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:181: onClick={onOpenComputer}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:209: onClick={() => onOpenRecent(file.id)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:4: import { capturePdfSelectionFromRange } from "../hooks";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:8: PdfTextSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:350: onSelectText,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:354: enableSelection = true,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:372: onSelectText: (
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:373: selection: PdfTextSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:383: enableSelection?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:509: semanticLayersEnabled && (showTextLayer || enableSelection);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1101: !enableSelection ||
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1110: const selection = window.getSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1114: !selection ||
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1115: selection.isCollapsed ||
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1116: selection.rangeCount === 0
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1121: const range = selection.getRangeAt(0);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1127: const capturedSelection = capturePdfSelectionFromRange({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1134: if (!capturedSelection) return;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1145: onSelectText(capturedSelection, position);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1148: enableSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1151: onSelectText,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1411: onClickLink={handleLinkClick}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:12: usePdfSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:21: PdfTextSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:28: createPdfCitationFromSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:289: const { selection, setSelection, clearSelection } = usePdfSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:404: event.preventDefault();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:409: event.preventDefault();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:878: "PDF likely image-based. Automatic OCR is not active yet; text selection and extraction may be limited.",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1343: event.preventDefault();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1484: const closeSelectionActions = useCallback(() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1485: window.getSelection()?.removeAllRanges();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1489: (nextSelection: PdfTextSelection, _position: { top: number; left: number }) => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1490: setSelection(nextSelection);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1494: [setSelection],
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1561: const ensureHighlightFromSelection = useCallback(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1562: async (currentSelection: PdfTextSelection | null) => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1563: if (!currentSelection || !pdfFile) return null;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1568: selection: currentSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1576: const highlight = await ensureHighlightFromSelection(selection);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1580: closeSelectionActions();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1581: clearSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1582: }, [clearSelection, closeSelectionActions, ensureHighlightFromSelection, selection]);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1584: const handleCreateCommentFromSelection = useCallback(async () => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1585: if (!selection || !pdfFile) return;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1591: const highlight = await ensureHighlightFromSelection(selection);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1596: pageNumber: selection.pageNumber,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1603: closeSelectionActions();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1604: clearSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1607: clearSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1608: closeSelectionActions,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1609: ensureHighlightFromSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1612: selection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1615: const handleCopySelection = useCallback(async () => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1616: if (!selection?.selectedText) return;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1617: await navigator.clipboard?.writeText?.(selection.selectedText);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1619: closeSelectionActions();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1620: }, [closeSelectionActions, selection?.selectedText]);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1624: if (!selection || !pdfFile) return;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1626: const highlight = await ensureHighlightFromSelection(selection);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1627: const citation = await createPdfCitationFromSelection({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1633: pageNumber: selection.pageNumber,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1634: selectedText: selection.selectedText,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1643: selection.selectedText;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1655: closeSelectionActions();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1656: clearSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1659: clearSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1660: closeSelectionActions,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1661: ensureHighlightFromSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1665: selection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1759: const handleTranslateSelection = useCallback(async () => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1760: if (!selection || !pdfFile) return;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1761: const pageBlocks = translationBlocks.filter((block) => block.pageNumber === selection.pageNumber);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1763: block.originalText.toLowerCase().includes(selection.selectedText.toLowerCase()),
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1769: setStatusNotice("Selection sent to page translation.");
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1770: closeSelectionActions();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1771: }, [closeSelectionActions, handleTranslatePage, pdfFile, selection, translationBlocks]);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1836: closeSelectionActions();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1837: clearSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1839: }, [clearSelection, closeSelectionActions, onClose]);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1875: "PDF likely image-based. Automatic OCR is not active yet; text selection and extraction may be limited.",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2148: hasSelection={Boolean(selection?.selectedText)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2157: onTranslateSelection={() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2158: void handleTranslateSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2160: onHighlightSelection={() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2163: onCommentSelection={() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2164: void handleCreateCommentFromSelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2166: onCopySelection={() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2167: void handleCopySelection();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2175: onCreateReferenceFromSelection={() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2240: onSelectPage={(nextPage) => goToPageAndScroll(nextPage)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2254: onSelectMatch={(match) => goToPageAndScroll(match.pageNumber)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2291: onClick={() => setToggleShowsTranslation(false)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2302: onClick={() => setToggleShowsTranslation(true)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2367: const shouldAllowSelectionNow =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2395: onSelectText={handleSelectedText}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2401: enableSelection={shouldAllowSelectionNow}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2465: const shouldAllowSelectionNow =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2499: onSelectText={handleSelectedText}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2505: enableSelection={shouldAllowSelectionNow}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2648: <div className="absolute inset-0" onClick={handleClose} />
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSearchPanel.tsx:13: onSelectMatch,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSearchPanel.tsx:18: onSelectMatch: (match: PdfSearchMatch) => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSearchPanel.tsx:33: onClick={() => onSelectMatch(match)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:35: onSelectPage,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:50: onSelectPage: (pageNumber: number) => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:71: event.preventDefault();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:113: onClick={onToggleCollapsed}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:126: onClick={() => handleSelectMode("thumbnails")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:132: onClick={() => handleSelectMode("search")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:138: onClick={() => handleSelectMode("annotations")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:144: onClick={() => handleSelectMode("source-info")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:150: onClick={() => handleSelectMode("annotations")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:156: onClick={() => handleSelectMode("annotations")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:162: onClick={() => handleSelectMode("annotations")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:168: onClick={() => handleSelectMode("source-info")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:186: onClick={() => handleSelectMode("thumbnails")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:193: onClick={() => handleSelectMode("search")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:200: onClick={() => handleSelectMode("annotations")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:207: onClick={() => handleSelectMode("source-info")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:225: onClick={() => onSelectPage(highlight.pageNumber)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:238: onClick={() => onSelectPage(annotation.pageNumber)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:251: onClick={() => onSelectPage(citation.pageNumber ?? 1)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:270: onClick={() => onSelectPage(block.pageNumber)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:286: onMouseDown={startResize}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:287: onClick={handleDividerClick}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:310: onClick,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:315: onClick: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:321: onClick={onClick}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:338: onClick,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:343: onClick: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:348: onClick={onClick}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSourceInfoPanel.tsx:18: onClick={onCreateReferenceCandidate}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:11: const DEFAULT_SELECTION_BACKGROUND = "transparent";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:12: const VISIBLE_SELECTION_BACKGROUND = "rgba(80, 120, 255, 0.08)";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:80: showNativeSelectionOverlay?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:100: --knex-pdf-selection-background: transparent;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:208: .knex-pdf-text-layer__span::selection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:209: .knex-pdf-text-layer[data-knexread-text-layer-mode="semantic"] ::selection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:210: .knex-pdf-text-layer[data-knexread-text-layer-mode="semantic"] *::selection {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:213: background: var(--knex-pdf-selection-background, transparent) !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:218: .knex-pdf-text-layer__span::-moz-selection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:219: .knex-pdf-text-layer[data-knexread-text-layer-mode="semantic"] ::-moz-selection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:220: .knex-pdf-text-layer[data-knexread-text-layer-mode="semantic"] *::-moz-selection {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:222: background: var(--knex-pdf-selection-background, transparent) !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1041: showNativeSelectionOverlay = false,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1051: const selectionBackground = showNativeSelectionOverlay
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1052: ? VISIBLE_SELECTION_BACKGROUND
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1053: : DEFAULT_SELECTION_BACKGROUND;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1082: "--knex-pdf-selection-background": selectionBackground,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfThumbnailsPanel.tsx:39: onClick={() => onGoToPage(page)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfToolbar.tsx:63: onClick={onGoToPreviousPage}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfToolbar.tsx:70: onClick={onGoToNextPage}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfToolbar.tsx:87: onClick={onZoomOut}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfToolbar.tsx:127: onClick={onZoomIn}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfToolbar.tsx:151: onClick={onClose}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\index.ts:8: export * from "./usePdfSelection";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfHighlights.ts:2: import type { PdfHighlightRecord, PdfTextSelection } from "../types";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfHighlights.ts:24: selection: PdfTextSelection;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:2: import type { PdfTextSelection } from "../types";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:4: import { buildTextAnchorFromSelection } from "../services";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:7: export function usePdfSelection() {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:8: const [selection, setSelection] = useState<PdfTextSelection | null>(null);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:10: const clearSelection = useCallback(() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:11: setSelection(null);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:13: window.getSelection()?.removeAllRanges();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:18: selection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:19: setSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:20: clearSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:24: export function capturePdfSelectionFromRange(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:29: }): PdfTextSelection | null {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\hooks\usePdfSelection.ts:50: const anchor = buildTextAnchorFromSelection({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendRegistry.ts:2: import type { KnexPdfBackendSelectionMode } from "../core/engineState";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendRegistry.ts:9: export type { KnexPdfBackendSelectionMode };
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendSelector.ts:1: import type { KnexPdfBackendSelectionMode } from "../core/engineState";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendSelector.ts:9: export type BackendSelectionResult = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendSelector.ts:10: requestedBackend: KnexPdfBackendSelectionMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendSelector.ts:59: requestedBackend: KnexPdfBackendSelectionMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendSelector.ts:75: preferredBackend: KnexPdfBackendSelectionMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendSelector.ts:76: ): Promise<BackendSelectionResult> {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineEvents.ts:6: import type { KnexPdfBackendSelectionMode } from "./engineState";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineEvents.ts:38: preferredBackend: KnexPdfBackendSelectionMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineEvents.ts:45: requestedBackend: KnexPdfBackendSelectionMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineState.ts:15: export type KnexPdfBackendSelectionMode = KnexPdfBackendId | "auto";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineState.ts:21: preferredBackend: KnexPdfBackendSelectionMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineState.ts:101: preferredBackend?: KnexPdfBackendSelectionMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:629: export type KnexPdfSelectionRectangle = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\selection\SelectionOverlayLayer.ts:1: import type { KnexPdfSelectionRectangle } from "../core/engineTypes";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\selection\SelectionOverlayLayer.ts:3: export type SelectionOverlayLayerModel = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\selection\SelectionOverlayLayer.ts:4: rectangles: KnexPdfSelectionRectangle[];
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\selection\SelectionOverlayLayer.ts:8: export function createSelectionOverlayLayer(rectangles: KnexPdfSelectionRectangle[]): SelectionOverlayLayerModel {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\selection\SelectionRectangleCalculator.ts:1: import type { KnexPdfSelectionRectangle, KnexPdfSemanticTextBlock } from "../core/engineTypes";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\selection\SelectionRectangleCalculator.ts:3: export function calculateSelectionRectangles(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\selection\SelectionRectangleCalculator.ts:5: }): KnexPdfSelectionRectangle[] {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:120: export * from "./selection/SelectedTextExtractor";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:121: export * from "./selection/SelectionOverlayLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:122: export * from "./selection/SelectionRectangleCalculator";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:4: type BackendSelectionResult,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:15: type KnexPdfBackendSelectionMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:83: preferredBackend: KnexPdfBackendSelectionMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:169: getPreferredBackend(): KnexPdfBackendSelectionMode {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:186: preferredBackend: KnexPdfBackendSelectionMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:193: preferredBackend: KnexPdfBackendSelectionMode = this.state.preferredBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:194: ): Promise<BackendSelectionResult> {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:196: const selection = await this.backendSelector.select(preferredBackend);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:197: this.commitBackendSelection(selection);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:198: return selection;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:213: requestedBackend?: KnexPdfBackendSelectionMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:270: backend: KnexPdfBackendId | KnexPdfBackendSelectionMode | string;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:511: preferredBackend: KnexPdfBackendSelectionMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:537: .then((selection) => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:539: selection.activeBackend === "pdfjs" &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:540: shouldRecoverBackend(selection.requestedBackend)
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:543: selection.requestedBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:544: selection.reason ?? reason,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:564: private commitBackendSelection(selection: BackendSelectionResult): void {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:568: if (selection.activeBackend !== "pdfjs" && !selection.fallbackUsed) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:572: this.activeRenderBackend = selection.backend;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:574: preferredBackend: selection.requestedBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:575: activeBackend: selection.activeBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:576: failedBackend: selection.failedBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:577: backendFallbackReason: selection.fallbackUsed ? selection.reason : undefined,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:581: requestedBackend: selection.requestedBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:582: activeBackend: selection.activeBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:583: fallbackUsed: selection.fallbackUsed,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:584: failedBackend: selection.failedBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:585: reason: selection.reason,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:600: if (selection.fallbackUsed && selection.failedBackend && selection.reason) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:603: requestedBackend: selection.requestedBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:604: failedBackend: selection.failedBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:605: fallbackBackend: selection.activeBackend,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:606: reason: selection.reason,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:610: this.scheduleBackendRecovery(selection.requestedBackend, selection.reason);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:620: *   event.preventDefault();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:13: KnexPdfBackendSelectionMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:19: const BACKEND_SELECTION_MODES = new Set<KnexPdfBackendSelectionMode>([
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:41: const FALLBACK_VISUAL_BACKEND_FOR_TEST: KnexPdfBackendSelectionMode = "pdfjs";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:43: function normalizeBackendSelectionMode(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:45: ): KnexPdfBackendSelectionMode | null {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:50: return BACKEND_SELECTION_MODES.has(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:51: normalized as KnexPdfBackendSelectionMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:53: ? (normalized as KnexPdfBackendSelectionMode)
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:57: function getConfiguredDefaultBackend(): KnexPdfBackendSelectionMode | null {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:61: normalizeBackendSelectionMode(globalRecord.KNEX_PDF_DEFAULT_BACKEND) ??
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:62: normalizeBackendSelectionMode(globalRecord.__KNEX_PDF_DEFAULT_BACKEND__);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:82: const localBackend = normalizeBackendSelectionMode(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:96: const normalizedEnvBackend = normalizeBackendSelectionMode(envBackend);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfCitation.service.ts:30: export async function createPdfCitationFromSelection(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfHighlight.service.ts:2: import type { PdfHighlightColor, PdfHighlightRecord, PdfTextSelection } from "../types";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfHighlight.service.ts:16: selection: PdfTextSelection;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfHighlight.service.ts:26: pageNumber: input.selection.pageNumber,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfHighlight.service.ts:27: selectedText: input.selection.selectedText,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfHighlight.service.ts:28: normalizedText: normalizePdfText(input.selection.selectedText),
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfHighlight.service.ts:31: rects: input.selection.rects,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfHighlight.service.ts:32: anchor: input.selection.anchor,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfTextExtraction.service.ts:6: export function buildTextAnchorFromSelection(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\types\index.ts:11: export * from "./PdfTextSelection";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\types\PdfHighlight.ts:2: import type { PdfTextAnchor } from "./PdfTextSelection";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\types\PdfTextSelection.ts:13: export type PdfTextSelection = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:36: hasSelection = false,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:45: onTranslateSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:46: onHighlightSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:47: onCommentSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:48: onCopySelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:51: onCreateReferenceFromSelection,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:85: hasSelection?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:94: onTranslateSelection: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:95: onHighlightSelection?: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:96: onCommentSelection?: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:97: onCopySelection?: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:100: onCreateReferenceFromSelection?: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:126: <button type="button" className={cmdClass()} onClick={onOpenPdf}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:129: <button type="button" className={cmdClass()} onClick={onSaveSession}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:132: <button type="button" className={cmdClass()} onClick={onClosePdf}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:142: <button type="button" className={cmdClass()} onClick={onOpenPdf}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:145: <button type="button" className={cmdClass()} onClick={onSaveSession}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:148: <button type="button" className={cmdClass()} onClick={onClosePdf}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:158: <button type="button" className={cmdClass()} onClick={onZoomOut}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:161: <button type="button" className={cmdClass()} onClick={onZoomIn}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:164: <button type="button" className={cmdClass()} onClick={onFitWidth}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:167: <button type="button" className={cmdClass()} onClick={onFitPage}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:170: <button type="button" className={cmdClass()} onClick={onActualSize}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:213: <button type="button" className={cmdClass()} onClick={onTranslateSelection}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:214: Translate selection
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:216: <button type="button" className={cmdClass()} onClick={onTranslatePage}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:219: <button type="button" className={cmdClass()} onClick={onTranslateDocument}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:229: <button type="button" className={cmdClass()} onClick={onPreviousReviewBlock}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:232: <button type="button" className={cmdClass()} onClick={onNextReviewBlock}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:235: <button type="button" className={cmdClass()} onClick={onMarkFocusedAsReviewed}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:238: <button type="button" className={cmdClass()} onClick={onRebuildFocusedBlock}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:250: disabled={!hasSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:251: className={cmdClass(false, !hasSelection)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:252: onClick={onHighlightSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:258: disabled={!hasSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:259: className={cmdClass(false, !hasSelection)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:260: onClick={onCommentSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:266: disabled={!hasSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:267: className={cmdClass(false, !hasSelection)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:268: onClick={onCopySelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:274: disabled={!hasSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:275: className={cmdClass(false, !hasSelection)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:276: onClick={onCreateDirectCitation}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:282: disabled={!hasSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:283: className={cmdClass(false, !hasSelection)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:284: onClick={onCreateIndirectCitation}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:290: disabled={!hasSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:291: className={cmdClass(false, !hasSelection)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:292: onClick={onCreateReferenceFromSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:298: disabled={!hasSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:299: className={cmdClass(false, !hasSelection)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:300: onClick={onTranslateSelection}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:314: onClick={() => onTranslationViewModeChange("normal")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:321: onClick={() => onTranslationViewModeChange("side-by-side")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:328: onClick={() => onTranslationViewModeChange("toggle")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:335: onClick={() => onTranslationViewModeChange("focus-review")}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:340: <button type="button" className={cmdClass(showRuler)} onClick={onToggleRuler}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:343: <button type="button" className={cmdClass(showMargins)} onClick={onToggleMargins}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:349: onClick={onToggleViewportCenter}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:356: onClick={onTogglePageCenter}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:363: onClick={onToggleTextLayer}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:374: <button type="button" className={cmdClass()} onClick={onExportTranslated}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:377: <button type="button" className={cmdClass()} onClick={onExportBilingual}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:380: <button type="button" className={cmdClass()} onClick={onExportWithAnnotations}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:389: <button type="button" className={cmdClass()} onClick={onRunPageOcr}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:392: <button type="button" className={cmdClass()} onClick={onRunDocumentOcr}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:398: onClick={onToggleOcrDebugBoxes}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\tabs\KnexreadTabs.tsx:37: onClick={() => onTabChange(tab.id)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:203: event.preventDefault();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:211: event.preventDefault();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:516: onClick={() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:528: onClick={() => handleCloseGuide(guide.id)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:555: <button type="button" className="knexread-icon-btn" aria-label="Abrir PDF" onClick={handlePickFile}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:579: <button type="button" className="knexread-window-btn danger" aria-label="Fechar leitor" onClick={() => router.push("/knexwriter/web")}>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:615: hasSelection={false}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:624: onTranslateSelection={() => {}}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:625: onHighlightSelection={() => {}}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:626: onCommentSelection={() => {}}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:627: onCopySelection={() => {}}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:630: onCreateReferenceFromSelection={() => {}}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:57: * Não usar preventDefault aqui.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:59: * preventDefault bloqueia a seleção nativa. O objetivo é apenas impedir que
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:62: event.stopPropagation();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:392: .knex-pdf-blueprint-html-text-line__inner::selection {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:399: .knex-pdf-blueprint-html-text-line__inner::-moz-selection {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:500: onPointerDownCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:501: onMouseDownCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:502: onMouseMoveCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:504: onClickCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:505: onDoubleClickCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:6: | "selection"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:20: { id: "selection", zIndex: 40, pointerEvents: "none" },
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\index.ts:13: export * from "./PdfTextSelectionController";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\index.ts:14: export * from "./PdfTextSelectionGeometry";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:2: import type { PdfTextSelectionSnapshot } from "./PdfTextSelectionGeometry";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:4: export function createHighlightDraftFromSelection(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:5: selection: PdfTextSelectionSnapshot,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:9: documentId: selection.documentId,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:10: pageIndex: selection.pageIndex,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:12: pdfRects: selection.pdfRects,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:19: source: "selection",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfSelectedTextActions.ts:20: textQuote: selection.text,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:3: PdfTextSelectionMapper,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:4: PdfTextSelectionSnapshot,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:5: } from "./PdfTextSelectionGeometry";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:6: import { mapPdfTextSelectionToPdfRects } from "./PdfTextSelectionGeometry";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:8: export interface PdfTextSelectionControllerInput {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:11: mapper: PdfTextSelectionMapper;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:14: export class PdfTextSelectionController {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:15: constructor(private readonly input: PdfTextSelectionControllerInput) {}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:21: }): PdfTextSelectionSnapshot {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionController.ts:27: pdfRects: mapPdfTextSelectionToPdfRects(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionGeometry.ts:15: export interface PdfTextSelectionSnapshot {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionGeometry.ts:24: export interface PdfTextSelectionMapper {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionGeometry.ts:28: export function mapPdfTextSelectionToPdfRects(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextSelectionGeometry.ts:30: mapper: PdfTextSelectionMapper,
+
+=== CSS/ESTILOS ===
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\backends\pdfium\PdfiumNonTextRenderer.ts:386: zIndex: 0,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfBlueprintTypes.ts:151: /** Z-index relativo (para ordem de renderização) */
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfBlueprintTypes.ts:152: zIndex?: number;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:23: /** Z-index da camada */
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:24: zIndex: number;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:68: * Altera z-index
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:70: setZIndex(zIndex: number): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:158: * Retorna anotação sob cursor
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:238: * Retorna todas as camadas em ordem de z-index
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:243: * Altera z-index de uma camada
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:245: setZIndex(layerId: string, zIndex: number): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:273: addLayer(id: string, layer: HTMLElement, zIndex: number): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:281: * Altera ordem z-index
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfRenderContracts.ts:283: setZIndex(id: string, zIndex: number): void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\extraction\blueprint\KnexPdfBlueprintBuilder.ts:526: zIndex: 0,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\extraction\blueprint\KnexPdfBlueprintBuilder.ts:629: zIndex: 10,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:1085: className="absolute block overflow-hidden bg-white"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:1098: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:1100: zIndex: layerVisible ? 2 : 0,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:1166: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1055: className="relative shrink-0 overflow-hidden bg-white"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1173: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1177: zIndex: activeLayerVisible ? 2 : 0,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1224: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1227: zIndex: pendingLayerVisible ? 3 : 0,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1258: <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-rose-50/90 p-4 text-center text-xs text-rose-700">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:102: * visuais em cenários de z-index/stacking.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:134: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfAnnotationLayer.tsx:13: <div className="pointer-events-none absolute inset-0 z-10">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfAnnotationLayer.tsx:18: className="pointer-events-auto absolute rounded-sm outline-none hover:bg-blue-300/20 focus-visible:bg-blue-300/25 focus-visible:ring-2 focus-visible:ring-blue-500"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfDebugOverlay.tsx:57: className="pointer-events-none absolute left-2 top-2 z-[80] max-w-[360px] rounded border border-zinc-900/20 bg-zinc-950/85 px-2 py-1 font-mono text-[10px] leading-snug text-zinc-50 shadow-lg"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfFileBackstage.tsx:50: <div className="flex h-full min-h-full w-full min-w-0 flex-1 overflow-hidden bg-zinc-100">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfFileBackstage.tsx:105: <div className="min-h-0 flex-1 overflow-auto">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfFileBackstage.tsx:113: className="block w-full py-2 text-left transition hover:bg-zinc-200/50 disabled:cursor-default disabled:hover:bg-transparent"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightLayer.tsx:33: <div className="pointer-events-none absolute inset-0 z-10">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHighlightLayer.tsx:46: className={`pointer-events-auto absolute rounded-sm ${
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:127: <div className="flex min-h-0 flex-1 overflow-hidden bg-zinc-100">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:150: <section className="min-w-0 flex flex-1 flex-col overflow-hidden px-5 py-4">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:158: <div className="mt-4 overflow-x-auto">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:197: <div className="min-h-0 flex-1 overflow-hidden rounded border border-zinc-200 bg-white">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfHomePage.tsx:203: <div className="h-full overflow-auto">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfInvisibleTextLayer.tsx:28: overflow: "hidden",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:35: computeHorizontalOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:351: const horizontalOverflowLayoutKeyRef = useRef("");
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:388: const [stageHasHorizontalOverflow, setStageHasHorizontalOverflow] = useState(false);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1114: const readOverflow = () => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1137: const overflowState = computeHorizontalOverflow({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1143: const hasOverflow = overflowState.hasOverflow;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1145: setStageHasHorizontalOverflow((current) =>
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1146: current === hasOverflow ? current : hasOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1157: * Aqui só calculamos se há overflow para a UI. O navegador já cuida da
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1158: * barra horizontal quando usamos overflow-x-auto.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1160: horizontalOverflowLayoutKeyRef.current = layoutKey;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1165: frameId = window.requestAnimationFrame(readOverflow);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1173: readOverflow();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1258: * HorizontalOverflowController sobrescreva scrollLeft.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2119: className={`relative flex min-h-0 flex-1 flex-col overflow-hidden border border-zinc-300 bg-white shadow-2xl ${
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2215: className={`absolute inset-0 flex min-h-0 flex-1 overflow-hidden transition-opacity duration-75 ${
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2216: isFileTab ? "pointer-events-none opacity-0" : "opacity-100"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2271: className="relative isolate min-h-0 flex-1 overflow-y-auto overflow-x-auto overscroll-contain bg-zinc-200 [overflow-anchor:none] [scrollbar-gutter:stable]"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2555: focusedTranslationBlock.status === "overflow"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2643: return <div className="flex h-full min-h-0 flex-1 overflow-hidden">{readerSurface}</div>;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2649: <div className="relative z-[5001] m-6 flex h-[calc(100%-3rem)] min-h-0 flex-col overflow-hidden">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:67: * entre página centralizada e página com overflow.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:657: className="pointer-events-none fixed z-40 box-border overflow-hidden border border-black bg-white [animation:none] [contain:layout_paint] [transition:none]"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:699: className="pointer-events-none absolute inset-y-0 w-px bg-blue-500/80"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:712: className="pointer-events-none absolute inset-y-0 w-px bg-emerald-500/80"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:724: className="pointer-events-none fixed z-50 box-border border border-black bg-white [animation:none] [transition:none]"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:734: className="pointer-events-none fixed z-30 box-border overflow-hidden border border-black bg-white [animation:none] [transition:none]"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:803: className="pointer-events-none absolute inset-y-0 z-10 w-px bg-zinc-400/70"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:807: className="pointer-events-none absolute inset-y-0 z-10 w-px bg-zinc-400/70"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReadingFrame.tsx:814: <span className="pointer-events-none absolute inset-y-0 left-1/2 z-10 w-px -translate-x-1/2 bg-emerald-500/80" />
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSearchPanel.tsx:28: <div className="max-h-64 space-y-1 overflow-y-auto">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:214: <div className="min-h-0 flex-1 overflow-y-auto p-3">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:261: emptyText="Sem overflow/erro."
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:264: .filter((block) => block.status === "overflow" || block.status === "error")
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfSidebar.tsx:288: className="relative flex w-3 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-zinc-300 bg-zinc-100 hover:bg-zinc-200"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:90: overflow: hidden;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:94: touch-action: auto;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:109: z-index: 30;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:110: pointer-events: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:111: user-select: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:112: -webkit-user-select: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:116: z-index: 25;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:117: pointer-events: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:118: user-select: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:119: -webkit-user-select: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:142: overflow: hidden;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:157: cursor: text;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:158: pointer-events: auto;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:159: user-select: text;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:160: -webkit-user-select: text;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:170: z-index: 40 !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:173: pointer-events: none !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:186: cursor: default;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:187: pointer-events: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:188: user-select: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:189: -webkit-user-select: none;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:194: overflow: visible !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:195: z-index: 2 !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:796: userSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:797: WebkitUserSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:798: pointerEvents: "auto",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:925: userSelect: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:926: WebkitUserSelect: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:927: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:930: overflow: "visible",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:931: zIndex: 2,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfThumbnailsPanel.tsx:159: draggable={false}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTranslationLayer.tsx:41: <div className="pointer-events-none absolute inset-0 z-20">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTranslationLayer.tsx:49: className={`pointer-events-auto absolute rounded-sm ${
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTranslationLayer.tsx:65: editable ? "cursor-text" : "cursor-default"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTranslationLayer.tsx:89: {block.fit.overflow ? (
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTranslationPage.tsx:18: className="relative inline-block overflow-hidden rounded border border-zinc-300 bg-white shadow-sm"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTranslationPage.tsx:36: className="pointer-events-none absolute inset-0 z-[3]"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineEvents.ts:3: KnexPdfHorizontalOverflowState,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineEvents.ts:29: type: "overflow-updated";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineEvents.ts:30: overflow: KnexPdfHorizontalOverflowState;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:275: export type KnexPdfHorizontalOverflowState = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:276: hasOverflow: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\diagnostics\PdfEngineDebugPanel.tsx:15: <aside className="pointer-events-none fixed bottom-3 right-3 z-[100] max-w-sm rounded border border-zinc-700 bg-zinc-950/90 p-3 text-[11px] text-zinc-100 shadow-xl">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\integration\KnexReadIntegration.ts:2: import { computeHorizontalOverflow } from "../viewport/HorizontalOverflowController";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\integration\KnexReadIntegration.ts:17: overflow: computeHorizontalOverflow({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\TileGridCalculator.ts:246: * - O wrapper visual precisa cortar a área extra com overflow:hidden.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:1: import type { KnexPdfHorizontalOverflowState } from "../core/engineTypes";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:3: export type HorizontalOverflowReason =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:18: export type HorizontalOverflowMode = "hidden" | "auto";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:30: *   não escreve scrollLeft. Apenas atualiza overflowX e chama hooks.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:47: export type HorizontalOverflowMetrics = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:56: export type HorizontalOverflowDecision = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:57: hasOverflow: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:58: mode: HorizontalOverflowMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:65: reason: HorizontalOverflowReason;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:68: export type HorizontalOverflowApplyResult = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:69: state: KnexPdfHorizontalOverflowState;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:70: decision: HorizontalOverflowDecision;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:72: appliedOverflowX: HorizontalOverflowMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:74: didChangeOverflowMode: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:79: export type HorizontalOverflowHooks = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:82: * de scrollLeft ou overflow-x.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:92: export type ComputeHorizontalOverflowInput = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:114: reason?: HorizontalOverflowReason;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:117: export type ApplyHorizontalOverflowInput = ComputeHorizontalOverflowInput & {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:119: hooks?: HorizontalOverflowHooks;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:136: * Quando false, evita forçar scrollLeft = 0 quando não há overflow.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:140: resetScrollWhenNoOverflow?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:144: * Se informado, impede aplicação de overflow/scroll com layout antigo.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:188: export function shouldHaveHorizontalOverflow(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:225: export function normalizeHorizontalOverflowMetrics(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:226: input: ComputeHorizontalOverflowInput,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:227: ): HorizontalOverflowMetrics {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:266: export function computeHorizontalOverflowDecision(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:267: input: ComputeHorizontalOverflowInput,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:268: ): HorizontalOverflowDecision {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:269: const metrics = normalizeHorizontalOverflowMetrics(input);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:271: const hasOverflow = shouldHaveHorizontalOverflow({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:277: const desiredScrollLeft = hasOverflow
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:286: hasOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:287: mode: hasOverflow ? "auto" : "hidden",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:301: * Retorna apenas os campos esperados por KnexPdfHorizontalOverflowState
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:304: export function computeHorizontalOverflow(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:309: }): KnexPdfHorizontalOverflowState {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:310: const decision = computeHorizontalOverflowDecision({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:319: hasOverflow: decision.hasOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:327: reason: HorizontalOverflowReason | undefined,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:337: reason: HorizontalOverflowReason | undefined,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:351: reason?: HorizontalOverflowReason;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:367: * O HorizontalOverflowController não deve recentralizar depois dele,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:411: export function createHorizontalOverflowState(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:412: decision: HorizontalOverflowDecision,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:413: ): KnexPdfHorizontalOverflowState {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:415: hasOverflow: decision.hasOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:422: export function applyHorizontalOverflowToViewport(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:423: input: ApplyHorizontalOverflowInput,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:424: ): HorizontalOverflowApplyResult {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:425: const decision = computeHorizontalOverflowDecision({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:435: const state = createHorizontalOverflowState(decision);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:449: input.hooks?.onDebug?.("horizontalOverflow.discardedByLayoutVersion", {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:461: appliedOverflowX:
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:462: input.viewportEl.style.overflowX === "auto" ? "auto" : "hidden",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:464: didChangeOverflowMode: false,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:470: const previousOverflowX =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:471: input.viewportEl.style.overflowX === "auto" ? "auto" : "hidden";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:473: if (previousOverflowX !== decision.mode) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:474: input.viewportEl.style.overflowX = decision.mode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:479: if (!decision.hasOverflow) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:481: * Quando não há overflow real, a barra deve sumir.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:485: if (input.resetScrollWhenNoOverflow !== false && input.viewportEl.scrollLeft !== 0) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:532: const didChangeOverflowMode = previousOverflowX !== decision.mode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:535: * Sempre sincronizar a régua após alteração de overflow ou decisão de scroll.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:540: input.hooks?.onDebug?.("horizontalOverflow.applied", {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:544: appliedOverflowX: decision.mode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:546: didChangeOverflowMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:555: appliedOverflowX: decision.mode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:557: didChangeOverflowMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:576: * Mede viewport e conteúdo real e aplica overflow.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:581: export function updateHorizontalOverflowFromElements(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:586: reason?: HorizontalOverflowReason;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:587: hooks?: HorizontalOverflowHooks;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:590: resetScrollWhenNoOverflow?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:593: }): HorizontalOverflowApplyResult {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:598: return applyHorizontalOverflowToViewport({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:610: resetScrollWhenNoOverflow: input.resetScrollWhenNoOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:616: export class HorizontalOverflowController {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:618: private hooks: HorizontalOverflowHooks;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:622: hooks?: HorizontalOverflowHooks;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:628: compute(input: ComputeHorizontalOverflowInput): HorizontalOverflowDecision {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:629: return computeHorizontalOverflowDecision(input);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:633: input: Omit<ApplyHorizontalOverflowInput, "viewportEl" | "hooks">,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:634: ): HorizontalOverflowApplyResult {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:635: return applyHorizontalOverflowToViewport({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:646: reason?: HorizontalOverflowReason;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:649: resetScrollWhenNoOverflow?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:652: }): HorizontalOverflowApplyResult {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:653: return updateHorizontalOverflowFromElements({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:662: resetScrollWhenNoOverflow: input.resetScrollWhenNoOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:676: * 5. HorizontalOverflowController roda com:
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:678: * horizontalOverflowController.updateFromContentElement({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:683: *   resetScrollWhenNoOverflow: false,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:688: * Isso impede o HorizontalOverflowController de sobrescrever o scrollLeft
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:11: * - Proteger contra NaN, Infinity, layout antigo e overflow falso.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:41: | "overflow-change"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:132: export type HorizontalOverflowDecision = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:589: * Decide se o overflow horizontal deve ser ocultado.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:592: export function shouldHideHorizontalOverflow(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:605: export function getHorizontalOverflowDecision(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:609: }): HorizontalOverflowDecision {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:613: shouldHide: shouldHideHorizontalOverflow({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:833: export function centerAfterOverflowChange(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:850: reason: "overflow-change",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:862: export function setHorizontalOverflowMode(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:866: input.viewportEl.style.overflowX = input.hide ? "hidden" : "auto";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:871: * Antes, ao esconder overflow horizontal, o coordenador podia forçar
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:875: * O navegador já limita visualmente o overflow quando overflowX = hidden.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:880: * Fluxo recomendado para overflow:
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:882: * 2. decide se overflow aparece;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:883: * 3. aplica overflow;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:887: export function updateHorizontalOverflowAndCenter(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:895: const decision = getHorizontalOverflowDecision({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:901: setHorizontalOverflowMode({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:906: input.hooks?.onDebug?.("overflow.horizontal.decision", decision);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:917: return centerAfterOverflowChange({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:1015: updateOverflowAndCenter(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:1021: return updateHorizontalOverflowAndCenter({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:54: *   preserva o ponto sob o cursor/gesto.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:107: * Útil em alguns ajustes de overflow horizontal.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:134: * Para wheel/pinch, pode ser a posição do cursor ou do gesto.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:444: *   preserva o ponto sob o cursor/gesto antes do zoom.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:635: * Útil para HorizontalOverflowController e RulerScrollSyncController.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:52: computeHorizontalOverflow,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:53: computeHorizontalOverflowDecision,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:54: HorizontalOverflowController,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:55: } from "./viewport/HorizontalOverflowController";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:57: HorizontalOverflowApplyResult,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:58: HorizontalOverflowMetrics,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:59: HorizontalOverflowMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:60: HorizontalOverflowReason,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts:62: } from "./viewport/HorizontalOverflowController";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:50: * - wheel-zoom: ScrollCoordinator deve preservar âncora e HorizontalOverflowController
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:112: * 5. HorizontalOverflowController atualiza overflow sem sobrescrever wheel-zoom;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:651: *     horizontalOverflowController.updateFromContentElement({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:656: *       resetScrollWhenNoOverflow: false,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\reconstruction\reconstructionEngine.service.ts:19: overflow: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\reconstruction\reconstructionEngine.service.ts:25: overflowCount: number;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\reconstruction\reconstructionEngine.service.ts:68: overflow: totalHeight > input.height,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\reconstruction\reconstructionEngine.service.ts:103: overflowCount: reconstructed.filter((item) => item.fit.overflow).length,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\types\PdfTranslation.ts:9: | "overflow"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:13: ? "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:21: "flex shrink-0 items-center gap-2 overflow-hidden border-b border-zinc-200 bg-white px-3";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\styles\knexread.css:6: overflow: hidden;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\styles\knexread.css:182: overflow: hidden;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:486: className="flex shrink-0 items-end gap-0.5 overflow-x-auto border-b border-zinc-300 bg-white px-0 pt-1"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:600: <div className="flex h-full w-full flex-col overflow-hidden">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:679: <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 shadow">
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:15: zIndex?: number;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:30: zIndex?: number;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:41: zIndex: element.zIndex,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:95: zIndex: element.zIndex ?? 10,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:111: draggable={false}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:115: userSelect: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:116: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:135: overflow: "visible",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:136: pointerEvents: "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:232: pointerEvents: interactiveFormFields ? "auto" : "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintRenderer.tsx:50: pointerEvents: "auto",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintRenderer.tsx:51: userSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:366: pointer-events: auto !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:367: user-select: text !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:368: -webkit-user-select: text !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:373: pointer-events: auto !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:374: user-select: text !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:375: -webkit-user-select: text !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:385: pointer-events: auto !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:386: user-select: text !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:387: -webkit-user-select: text !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:388: cursor: text !important;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:447: pointerEvents: "auto",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:448: userSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:449: WebkitUserSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:475: draggable={false}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:487: overflow: "visible",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:489: pointerEvents: "auto",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:490: userSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:491: WebkitUserSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:499: draggable={false}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:514: overflow: "visible",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:528: pointerEvents: "auto",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:529: userSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:530: WebkitUserSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:531: cursor: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfNonTextElementRenderer.tsx:36: pointerEvents: interactiveFormFields ? "auto" : "none",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:88: overflow: "hidden",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:11: zIndex: number;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:12: pointerEvents: "auto" | "none";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:16: { id: "canvas", zIndex: 0, pointerEvents: "none" },
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:17: { id: "annotation-behind-text", zIndex: 10, pointerEvents: "none" },
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:18: { id: "text", zIndex: 20, pointerEvents: "auto" },
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:19: { id: "annotation-above-text", zIndex: 30, pointerEvents: "auto" },
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:20: { id: "selection", zIndex: 40, pointerEvents: "none" },
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfPageLayerConfig.ts:21: { id: "debug", zIndex: 50, pointerEvents: "none" },
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfHtmlTextLayer.tsx:30: pointerEvents: "auto",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfHtmlTextLayer.tsx:31: userSelect: "text",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextCssFactory.ts:111: overflow: "visible",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextCssFactory.ts:124: pointerEvents: "auto",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfTextCssFactory.ts:125: userSelect: "text",
+
+=== PAGE / VIEW / SURFACE / TEXT LAYER ===
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\cache\PdfCacheKeyBuilder.ts:11: export type KnexPdfCacheTextLayerMode =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\cache\PdfCacheKeyBuilder.ts:36: textLayerMode?: KnexPdfCacheTextLayerMode | string;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\cache\PdfCacheKeyBuilder.ts:70: appendPart(parts, "text", input.textLayerMode);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\config\KnexPdfDefaultConfig.ts:20: showTextLayer: true,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:91: export interface IKnexPdfCanvasLayer extends IKnexPdfLayer {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:111: export interface IKnexPdfTextLayer extends IKnexPdfLayer {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfLayerContracts.ts:291: showTextLayer: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\core\KnexPdfTypes.ts:341: showTextLayer: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:469: textLayerMode: "semantic",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:470: hasTextLayer: true,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\index.ts:8: export * from "./PdfInvisibleTextLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\index.ts:9: export * from "./PdfPageView";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\index.ts:15: export * from "./PdfTextLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfInvisibleTextLayer.tsx:4: import { PdfTextLayer } from "./PdfTextLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfInvisibleTextLayer.tsx:6: export function PdfInvisibleTextLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfInvisibleTextLayer.tsx:39: <PdfTextLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:28: import { PdfInvisibleTextLayer } from "./PdfInvisibleTextLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:29: import { PdfTextLayer } from "./PdfTextLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:205: forceVisualTextLayer: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:211: forceVisualTextLayer: getGlobalBoolean("KNEX_PDF_FORCE_VISUAL_TEXT_LAYER"),
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:282: function shouldRequestVisualTextLayer(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:284: effectiveShowTextLayer: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:285: forceVisualTextLayer: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:288: input.forceVisualTextLayer &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:290: input.effectiveShowTextLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:294: function shouldEnableVisualTextLayer(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:295: visualTextLayerRequested: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:305: return input.visualTextLayerRequested && input.blockCount > 0;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:309: visualTextLayerRequested: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:313: input.visualTextLayerRequested &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:336: * PdfPageView
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:344: export function PdfPageView({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:353: showTextLayer = true,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:382: showTextLayer?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:477: const textLayerScale = useMemo(() => {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:484: () => blocks.map((block) => scaleTextBlockToCss(block, textLayerScale)),
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:485: [blocks, textLayerScale],
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:508: const effectiveShowTextLayer =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:509: semanticLayersEnabled && (showTextLayer || enableSelection);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:511: const visualTextLayerRequested =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:512: shouldRequestVisualTextLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:514: effectiveShowTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:515: forceVisualTextLayer: visualTextOverrideFlags.forceVisualTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:519: effectiveShowTextLayer);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:523: const visualTextLayerEnabled = shouldEnableVisualTextLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:524: visualTextLayerRequested,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:532: * PdfPagePresentationSurface. O canvas pode continuar existindo como fallback
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:541: (modularPagePipelineEnabled && visualTextLayerRequested && hasVisualTextBlocks);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:550: visualTextLayerRequested,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:561: const shouldMountInvisibleTextLayer =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:563: effectiveShowTextLayer &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:564: !visualTextLayerEnabled &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:584: (effectiveShowTextLayer || Boolean(onBlocksChange));
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:647: current.forceVisualTextLayer === next.forceVisualTextLayer &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1007: console.debug("[KnexRead][PdfPageViewAudit]", {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1017: textLayerScale,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1021: visualTextLayerEnabled,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1030: renderedTextLayerMode: renderedPage?.textLayerMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1055: textLayerScale,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1056: visualTextLayerEnabled,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1214: data-knexread-page-visual-text-layer={visualTextLayerEnabled ? "true" : "false"}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1216: visualTextLayerRequested ? "true" : "false"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1222: visualTextOverrideFlags.forceVisualTextLayer ? "true" : "false"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1233: data-knexread-page-text-layer-mode={visualTextLayerEnabled ? "hybrid-visible" : "semantic-invisible"}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1235: shouldMountInvisibleTextLayer ? "true" : "false"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1245: data-knexread-page-text-layer-scale={textLayerScale}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1362: {!modularPagePipelineEnabled && visualTextLayerEnabled ? (
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1371: <PdfTextLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1416: {shouldMountInvisibleTextLayer ? (
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx:1417: <PdfInvisibleTextLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:29: probePdfTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:48: import { PdfPageView } from "./PdfPageView";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:308: const [textLayerNotice, setTextLayerNotice] = useState<string | null>(null);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:324: const [showTextLayer, setShowTextLayer] = useState(true);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:868: setTextLayerNotice(null);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:870: void probePdfTextLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:877: setTextLayerNotice(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:882: setTextLayerNotice(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:888: setTextLayerNotice(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:942: setShowTextLayer(preferences.showTextLayer ?? true);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1032: showTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1057: showTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1866: setTextLayerNotice(null);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1868: void probePdfTextLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1874: setTextLayerNotice(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1879: setTextLayerNotice(
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1884: setTextLayerNotice("Could not verify PDF text layer.");
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:1931: setShowTextLayer(preferences.showTextLayer ?? true);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2115: const showTextLayerInMain = showTextLayer && !showTranslationPageInMain;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2146: showTextLayer={showTextLayer}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2192: onToggleTextLayer={() => setShowTextLayer((value) => !value)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2364: const shouldAllowTextLayerNow =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2365: showTextLayer &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2388: <PdfPageView
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2400: showTextLayer={shouldAllowTextLayerNow}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2462: const shouldAllowTextLayerNow =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2463: showTextLayerInMain &&
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2492: <PdfPageView
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx:2504: showTextLayer={shouldAllowTextLayerNow}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:7: export type PdfTextLayerMode = "semantic" | "visual" | "hybrid";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:21: type PdfTextLayerBlock = Omit<
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:59: type PdfTextLayerProps = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:60: blocks: PdfTextLayerBlock[];
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:71: mode?: PdfTextLayerMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:237: function ensureGlobalTextLayerStyles() {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:246: * Isso fazia o navegador continuar usando o CSS antigo da TextLayer, mesmo
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:247: * depois de substituir o PdfTextLayer.tsx.
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:423: block: PdfTextLayerBlock;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:509: function resolveFontFamily(block: PdfTextLayerBlock): string {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:585: block: PdfTextLayerBlock,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:630: block: PdfTextLayerBlock,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:672: function resolveFontStyle(block: PdfTextLayerBlock): CSSProperties["fontStyle"] {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:692: function resolveVisualTextColor(block: PdfTextLayerBlock): string {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:704: function isInvisibleTextBlock(block: PdfTextLayerBlock): boolean {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:726: block: PdfTextLayerBlock,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:727: mode: PdfTextLayerMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:745: block: PdfTextLayerBlock;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:773: block: PdfTextLayerBlock,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:803: block: PdfTextLayerBlock,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:945: function getVisualBlockSignature(block: PdfTextLayerBlock): string {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:956: function visualBlocksOverlap(a: PdfTextLayerBlock, b: PdfTextLayerBlock): boolean {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:975: candidate: PdfTextLayerBlock;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:976: accepted: PdfTextLayerBlock[];
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1003: function dedupeVisualTextBlocks(blocks: PdfTextLayerBlock[]): PdfTextLayerBlock[] {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1005: const accepted: PdfTextLayerBlock[] = [];
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1026: * PdfTextLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1037: export const PdfTextLayer = memo(function PdfTextLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1044: }: PdfTextLayerProps) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx:1046: ensureGlobalTextLayerStyles();
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:31: export type KnexPdfTextLayerRenderMode =
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:111: export type KnexPdfPageViewport = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:240: textLayerMode?: KnexPdfTextLayerRenderMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:570: hasTextLayer?: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:585: textLayerMode?: KnexPdfTextLayerRenderMode;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\integration\KnexPdfViewerRuntime.ts:170: textLayerMode: input.rendered.textLayerMode,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts:4: KnexPdfPageViewport,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts:22: getViewport: (params: { scale: number }) => KnexPdfPageViewport;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts:30: viewport: KnexPdfPageViewport;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\translation\translationLayerCore.service.ts:173: showTextLayer: false,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfTextExtraction.service.ts:37: export async function probePdfTextLayer(input: {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfTextExtraction.service.ts:68: const hasTextLayer = pagesWithText > 0;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfTextExtraction.service.ts:69: const likelyImageOnly = !hasTextLayer;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfTextExtraction.service.ts:72: hasTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\types\PdfTranslation.ts:68: showTextLayer: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:34: showTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:62: onToggleTextLayer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:83: showTextLayer: boolean;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:111: onToggleTextLayer: () => void;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:362: className={cmdClass(showTextLayer)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\ui\ribbons\KnexreadRibbon.tsx:363: onClick={onToggleTextLayer}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:121: const [landingShowTextLayer, setLandingShowTextLayer] = useState(false);
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:613: showTextLayer={landingShowTextLayer}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx:641: onToggleTextLayer={() => setLandingShowTextLayer((value) => !value)}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\index.ts:1: export * from "./KnexPdfBlueprintElementRenderer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\index.ts:3: export * from "./PdfHtmlTextRenderer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\index.ts:5: export * from "./PdfPagePresentationSurface";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:18: export type KnexPdfBlueprintElementRendererProps = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:290: export function KnexPdfBlueprintElementRenderer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintElementRenderer.tsx:293: }: KnexPdfBlueprintElementRendererProps) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintRenderer.tsx:4: import { PdfHtmlTextRenderer } from "./PdfHtmlTextRenderer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\KnexPdfBlueprintRenderer.tsx:58: <PdfHtmlTextRenderer elements={blueprint.elements} />
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:9: } from "../text/PdfTextLayerDiagnostics";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:11: export type PdfHtmlTextRendererProps = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:55: function stopTextLayerEvent(event: SyntheticEvent) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:364: [data-knexread-presentation-html-text-surface="true"],
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:365: .knex-pdf-blueprint-html-text-renderer {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:406: export function PdfHtmlTextRenderer({ elements }: PdfHtmlTextRendererProps) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:431: className="knex-pdf-blueprint-html-text-renderer"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:432: data-knexread-blueprint-html-text-renderer="true"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:472: data-knexread-blueprint-text-line="true"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:473: data-knexread-blueprint-text-line-page-number={line.pageNumber}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:474: data-knexread-blueprint-text-line-run-count={line.runCount}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:498: data-knexread-blueprint-text-line-inner="true"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:500: onPointerDownCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:501: onMouseDownCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:502: onMouseMoveCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:503: onMouseUpCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:504: onClickCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfHtmlTextRenderer.tsx:505: onDoubleClickCapture={stopTextLayerEvent}
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfNonTextElementRenderer.tsx:4: import { KnexPdfBlueprintElementRenderer } from "./KnexPdfBlueprintElementRenderer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfNonTextElementRenderer.tsx:40: <KnexPdfBlueprintElementRenderer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:7: PdfHtmlTextRenderer,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:8: } from "./PdfHtmlTextRenderer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:14: export type PdfPagePresentationSurfaceProps = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:25: export function PdfPagePresentationSurface({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:34: }: PdfPagePresentationSurfaceProps) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:118: data-knexread-presentation-html-text-surface="true"
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\blueprint\PdfPagePresentationSurface.tsx:121: <PdfHtmlTextRenderer elements={textElements} />
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\index.ts:10: export { PdfCanvasLayer } from './PdfCanvasLayer';
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\index.ts:11: export type { PdfCanvasLayerProps } from './PdfCanvasLayer';
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:13: type PdfCanvasLayerRenderSource = "pdfium" | "pdfjs" | "unknown";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:50: export type PdfCanvasLayerProps = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:233: export function PdfCanvasLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:245: }: PdfCanvasLayerProps) {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:278: useState<PdfCanvasLayerRenderSource>("unknown");
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:295: source: PdfCanvasLayerRenderSource;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:297: activeBackend?: PdfCanvasLayerRenderSource;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:344: source: PdfCanvasLayerRenderSource;
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:420: hasTextLayer: !renderText,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:421: textLayerMode: "semantic",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:499: hasTextLayer: true,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:500: textLayerMode: "semantic",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:564: hasTextLayer: !renderText,
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\canvas\PdfCanvasLayer.tsx:565: textLayerMode: renderText ? "semantic" : "semantic",
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfBlueprintStage.tsx:14: import { PdfCanvasLayer } from "../canvas/PdfCanvasLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfBlueprintStage.tsx:15: import { PdfPagePresentationSurface } from "../blueprint/PdfPagePresentationSurface";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfBlueprintStage.tsx:175: <PdfCanvasLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfBlueprintStage.tsx:212: <PdfPagePresentationSurface
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfModularPageStage.tsx:15: import { PdfCanvasLayer } from "../canvas/PdfCanvasLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfModularPageStage.tsx:16: import { PdfHtmlTextLayer } from "../text/PdfHtmlTextLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfModularPageStage.tsx:261: <PdfCanvasLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\composition\PdfModularPageStage.tsx:281: <PdfHtmlTextLayer
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\index.ts:8: export * from "./PdfHtmlTextLayer";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\index.ts:12: export * from "./PdfTextLayerDiagnostics";
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfHtmlTextLayer.tsx:6: export type PdfHtmlTextLayerProps = {
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfHtmlTextLayer.tsx:12: export function PdfHtmlTextLayer({
+C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\rendering\text\PdfHtmlTextLayer.tsx:16: }: PdfHtmlTextLayerProps) {

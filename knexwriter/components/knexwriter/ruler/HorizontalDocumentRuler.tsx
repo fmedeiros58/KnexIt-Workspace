@@ -109,10 +109,10 @@ const MARKER_STROKE = "#1f2937";
 
 /**
  * Captura SVG transparente.
- * Usada com pointerEvents="all" para capturar o path vetorial,
+ * Usada com pointerEvents="fill" para capturar o path vetorial,
  * sem criar preenchimento visual nem sombra/borda indesejada.
  */
-const SVG_CAPTURE_FILL = "transparent";
+const SVG_CAPTURE_FILL = "rgba(0, 0, 0, 0.001)";
 
 /**
  * Tamanho visual da seta que indica a zona de transição entre margem e texto.
@@ -157,6 +157,13 @@ const TOP_INDENT_MARKER_TOP_PX = 1;
  * Todos os marcadores escalam proporcionalmente a partir daqui.
  */
 const RULER_BASE_HEIGHT_PX = 28;
+
+/**
+ * Referência visual do marcador de recuo esquerdo (base do design).
+ * Os demais marcadores de recuo devem seguir a mesma escala vetorial.
+ */
+const LEFT_INDENT_REFERENCE_WIDTH_PX = 15.4;
+const SINGLE_INDENT_MARKER_REFERENCE_HEIGHT_PX = 12.6;
 
 type RulerMarkerVisualKind =
   | "firstLineIndent"
@@ -217,10 +224,10 @@ const RULER_MARKER_VISUAL_ADJUSTMENTS: Record<
     offsetYPx: -0.95,
     svgOffsetXPx: 0,
     svgOffsetYPx: 0,
-    buttonWidthPx: 17,
-    buttonHeightPx: 10.4,
-    svgWidthPx: 13.2,
-    svgHeightPx: 10.4,
+    buttonWidthPx: 20,
+    buttonHeightPx: SINGLE_INDENT_MARKER_REFERENCE_HEIGHT_PX,
+    svgWidthPx: LEFT_INDENT_REFERENCE_WIDTH_PX,
+    svgHeightPx: SINGLE_INDENT_MARKER_REFERENCE_HEIGHT_PX,
     zIndex: 60,
   },
 
@@ -245,10 +252,10 @@ const RULER_MARKER_VISUAL_ADJUSTMENTS: Record<
     offsetYPx: 0,
     svgOffsetXPx: 0,
     svgOffsetYPx: 0,
-    buttonWidthPx: 18,
-    buttonHeightPx: 13.5,
-    svgWidthPx: 13.6,
-    svgHeightPx: 10.8,
+    buttonWidthPx: 20,
+    buttonHeightPx: SINGLE_INDENT_MARKER_REFERENCE_HEIGHT_PX,
+    svgWidthPx: LEFT_INDENT_REFERENCE_WIDTH_PX,
+    svgHeightPx: SINGLE_INDENT_MARKER_REFERENCE_HEIGHT_PX,
     zIndex: 53,
   },
 
@@ -379,6 +386,27 @@ function getTabStopVisualKind(type: TabStopType): RulerMarkerVisualKind {
   if (type === "decimal") return "tabDecimal";
   if (type === "bar") return "tabBar";
   return "tabLeft";
+}
+
+function getLocalPointInSvgPath(
+  event: ReactPointerEvent<SVGPathElement>,
+) {
+  const path = event.currentTarget;
+  const svg = path.ownerSVGElement;
+  if (!svg) return null;
+
+  const matrix = path.getScreenCTM() ?? svg.getScreenCTM();
+  if (!matrix) return null;
+
+  try {
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const local = point.matrixTransform(matrix.inverse());
+    return { x: local.x, y: local.y };
+  } catch {
+    return null;
+  }
 }
 
 function createQuarterTicks(widthPx: number): QuarterTick[] {
@@ -774,7 +802,12 @@ export function HorizontalDocumentRuler({
     rulerHeightPx - rightMarkerVisualHeightPx - wordRulerBottomBorderGapPx;
 
   const cursorClassName =
-    activeDragMode === "none" ? "cursor-default" : "cursor-ew-resize";
+    activeDragMode === "none"
+      ? "cursor-default"
+      : activeDragMode === "margin-left" || activeDragMode === "margin-right"
+        ? "cursor-ew-resize"
+        : "cursor-crosshair";
+  const rulerCenterYPx = Math.round(rulerHeightPx / 2);
 
   return (
     <div
@@ -867,6 +900,7 @@ export function HorizontalDocumentRuler({
         }
 
         const tickHeight = tick.isCentimeter ? 7 : tick.isHalfCentimeter ? 5 : 3;
+        const tickTopPx = Math.round(rulerCenterYPx - tickHeight / 2);
 
         return (
           <span
@@ -874,7 +908,7 @@ export function HorizontalDocumentRuler({
             className="pointer-events-none absolute block w-px"
             style={{
               left: x,
-              top: 2,
+              top: tickTopPx,
               height: tickHeight,
               backgroundColor: WORD_RULER_TICK_MUTED,
               opacity: 0.5,
@@ -889,6 +923,8 @@ export function HorizontalDocumentRuler({
         const tickHeight = tick.isCentimeter ? 8 : tick.isHalfCentimeter ? 5 : 3;
         const shouldShowNumber = tick.isCentimeter && tick.index > 0;
         const label = Math.round(tick.cmValue);
+        const shouldShowTick = !shouldShowNumber;
+        const tickTopPx = Math.round(rulerCenterYPx - tickHeight / 2);
 
         return (
           <span
@@ -896,24 +932,26 @@ export function HorizontalDocumentRuler({
             className="pointer-events-none absolute block"
             style={{ left: x }}
           >
-            <span
-              className="absolute block w-px"
-              style={{
-                top: 2,
-                height: tickHeight,
-                backgroundColor: WORD_RULER_TICK,
-                opacity: shouldShowNumber ? 0.9 : 0.72,
-              }}
-            />
+            {shouldShowTick ? (
+              <span
+                className="absolute block w-px"
+                style={{
+                  top: tickTopPx,
+                  height: tickHeight,
+                  backgroundColor: WORD_RULER_TICK,
+                  opacity: 0.72,
+                }}
+              />
+            ) : null}
 
             {shouldShowNumber ? (
               <span
-                className="absolute -translate-x-1/2 whitespace-nowrap text-center"
+                className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-center"
                 style={{
-                  top: 15,
-                  minWidth: 14,
-                  fontSize: 10,
-                  lineHeight: "10px",
+                  top: rulerCenterYPx,
+                  minWidth: 12,
+                  fontSize: 9,
+                  lineHeight: "9px",
                   fontWeight: 400,
                   color: WORD_RULER_NUMBER,
                   fontVariantNumeric: "tabular-nums",
@@ -1209,7 +1247,7 @@ function FirstLineIndentMarker({
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          Recuo da primeira linha {value.toFixed(1)} cm
+          Recuo da primeira linha {value.toFixed(2)} cm
         </span>
       ) : null}
 
@@ -1219,7 +1257,7 @@ function FirstLineIndentMarker({
         className="absolute -translate-x-1/2 overflow-visible"
         style={{
           ...layout.svgStyle,
-          pointerEvents: "auto",
+          pointerEvents: "none",
         }}
       >
         {/*
@@ -1247,7 +1285,8 @@ function FirstLineIndentMarker({
           d="M3.35 1.15H12.65V6.55L8 11.55L3.35 6.55Z"
           fill={SVG_CAPTURE_FILL}
           stroke="none"
-          pointerEvents="all"
+          pointerEvents="fill"
+          style={{ cursor: "crosshair" }}
           onPointerEnter={() => setIsHovered(true)}
           onPointerLeave={() => setIsHovered(false)}
           onPointerDown={(event) => onPointerDown(event, mode)}
@@ -1313,7 +1352,7 @@ function LeftIndentCompositeMarker({
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          Recuo à esquerda {leftValue.toFixed(1)} cm
+          Recuo à esquerda {leftValue.toFixed(2)} cm
         </span>
       ) : null}
 
@@ -1323,7 +1362,7 @@ function LeftIndentCompositeMarker({
         className="absolute left-1/2 top-0 -translate-x-1/2 overflow-visible"
         style={{
           ...layout.svgStyle,
-          pointerEvents: "auto",
+          pointerEvents: "none",
         }}
       >
         {/*
@@ -1353,39 +1392,30 @@ function LeftIndentCompositeMarker({
         />
 
         {/*
-          Zona vetorial real da parte superior.
-          Mantém a funcionalidade upper.
+          Zona vetorial única do marcador composto esquerdo.
+          A separação funcional upper/lower ocorre por hit-test em 50/50
+          da própria geometria do vetor, evitando competição com outros marcadores.
         */}
         <path
           data-ruler-control="true"
-          data-ruler-region="upper-left-indent"
-          d="M8 0.65L12.65 5.05V8H3.35V5.05Z"
+          data-ruler-region="left-indent-composite"
+          d="M8 0.65L12.65 5.05V14.85H3.35V5.05Z"
           fill={SVG_CAPTURE_FILL}
           stroke="none"
-          pointerEvents="all"
+          pointerEvents="fill"
+          style={{ cursor: "crosshair" }}
           onPointerEnter={() => setIsHovered(true)}
           onPointerLeave={() => setIsHovered(false)}
-          onPointerDown={(event) =>
-            onPointerDown(event, "indent-left", undefined, "upper")
-          }
-        />
+          onPointerDown={(event) => {
+            const localPoint = getLocalPointInSvgPath(event);
+            const markerTopY = 0.65;
+            const markerBottomY = 14.85;
+            const splitY = markerTopY + (markerBottomY - markerTopY) / 2;
+            const region: "upper" | "lower" =
+              localPoint && localPoint.y <= splitY ? "upper" : "lower";
 
-        {/*
-          Zona vetorial real da base inferior.
-          Mantém a funcionalidade lower.
-        */}
-        <path
-          data-ruler-control="true"
-          data-ruler-region="lower-left-indent"
-          d="M3.35 8H12.65V14.85H3.35Z"
-          fill={SVG_CAPTURE_FILL}
-          stroke="none"
-          pointerEvents="all"
-          onPointerEnter={() => setIsHovered(true)}
-          onPointerLeave={() => setIsHovered(false)}
-          onPointerDown={(event) =>
-            onPointerDown(event, "indent-left", undefined, "lower")
-          }
+            onPointerDown(event, "indent-left", undefined, region);
+          }}
         />
       </svg>
     </div>
@@ -1404,6 +1434,8 @@ function RightIndentMarker({
   value,
   onPointerDown,
 }: MarkerButtonProps) {
+  const [isHovered, setIsHovered] = useState(false);
+
   const layout = resolveMarkerVisualLayout({
     kind: "rightIndent",
     x,
@@ -1421,15 +1453,36 @@ function RightIndentMarker({
       aria-valuemin={min}
       aria-valuemax={max}
       aria-valuenow={Number(value.toFixed(2))}
-      className="absolute -translate-x-1/2 cursor-ew-resize bg-transparent p-0"
-      style={layout.buttonStyle}
-      onPointerDown={(event) => onPointerDown(event, mode)}
+      className="absolute -translate-x-1/2 bg-transparent p-0"
+      style={{
+        ...layout.buttonStyle,
+        pointerEvents: "none",
+      }}
     >
+      {isHovered ? (
+        <span
+          className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border px-1.5 py-[2px] text-[10px] leading-none shadow-sm"
+          style={{
+            top: getMarkerTooltipTopPx(rulerHeightPx, y),
+            borderColor: WORD_RULER_BORDER,
+            backgroundColor: "#ffffff",
+            color: WORD_RULER_NUMBER,
+            zIndex: 120,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          Recuo direito {value.toFixed(2)} cm
+        </span>
+      ) : null}
+
       <svg
         viewBox="0 0 16 13"
         aria-hidden="true"
         className="absolute -translate-x-1/2 overflow-visible"
-        style={layout.svgStyle}
+        style={{
+          ...layout.svgStyle,
+          pointerEvents: "none",
+        }}
       >
         {/*
           Marcador de recuo direito.
@@ -1442,6 +1495,20 @@ function RightIndentMarker({
           stroke={MARKER_STROKE}
           strokeWidth="1"
           strokeLinejoin="round"
+          pointerEvents="none"
+        />
+
+        <path
+          data-ruler-control="true"
+          data-ruler-region="right-indent"
+          d="M8 1.15L12.65 6.55V11.85H3.35V6.55Z"
+          fill={SVG_CAPTURE_FILL}
+          stroke="none"
+          pointerEvents="fill"
+          style={{ cursor: "crosshair" }}
+          onPointerEnter={() => setIsHovered(true)}
+          onPointerLeave={() => setIsHovered(false)}
+          onPointerDown={(event) => onPointerDown(event, mode)}
         />
       </svg>
     </button>

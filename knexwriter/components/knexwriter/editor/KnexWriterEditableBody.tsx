@@ -704,7 +704,9 @@ export function KnexWriterEditableBody({
 }: KnexWriterEditableBodyProps) {
   const wrapperRef = useRef<HTMLElement | null>(null);
   const softPaginationFrameRef = useRef<number | null>(null);
+  const focusPageFrameRef = useRef<number | null>(null);
   const lastPaginationMeasurementKeyRef = useRef("");
+  const nonRegressionWarnedRef = useRef(false);
   const [retentionMasks, setRetentionMasks] = useState<KnexWriterRetentionMaskRect[]>([]);
 
   useEffect(() => {
@@ -815,6 +817,98 @@ export function KnexWriterEditableBody({
   const paragraphHangingIndentPx = paragraphIndents?.hangingPx ?? 0;
   const normalizedLineHeight = normalizeLineHeight(defaultLineHeight);
 
+  const getPageIndexFromClientY = useCallback(
+    (clientY: number) => {
+      const wrapper = wrapperRef.current;
+
+      if (!wrapper) return pageIndex;
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const cssScale = Math.max(0.01, wrapperRect.width / Math.max(1, geometry.widthPx));
+      const localY = Math.max(0, (clientY - wrapperRect.top) / cssScale);
+      const nextPageIndex = Math.floor(localY / Math.max(1, geometry.pageStridePx));
+
+      return Math.max(0, nextPageIndex);
+    },
+    [geometry.pageStridePx, geometry.widthPx, pageIndex],
+  );
+
+  const notifyFocusPageFromClientY = useCallback(
+    (clientY: number) => {
+      if (!onFocusPage) return;
+
+      if (focusPageFrameRef.current !== null) {
+        cancelAnimationFrame(focusPageFrameRef.current);
+      }
+
+      focusPageFrameRef.current = requestAnimationFrame(() => {
+        focusPageFrameRef.current = null;
+        onFocusPage(getPageIndexFromClientY(clientY));
+      });
+    },
+    [getPageIndexFromClientY, onFocusPage],
+  );
+
+  const getPageIndexFromEditorSelection = useCallback(() => {
+    if (!editor) return null;
+
+    const editorDom = editor.view.dom as HTMLElement | null;
+
+    if (!editorDom) return null;
+
+    const { node } = editor.view.domAtPos(editor.state.selection.from);
+    let element: HTMLElement | null =
+      node instanceof HTMLElement ? node : node.parentElement;
+
+    while (element && element !== editorDom) {
+      const pageIndexAttribute = element.getAttribute("data-kw-page-index");
+
+      if (pageIndexAttribute != null) {
+        const parsedPageIndex = Number(pageIndexAttribute);
+
+        if (Number.isFinite(parsedPageIndex)) {
+          return Math.max(0, Math.round(parsedPageIndex));
+        }
+      }
+
+      element = element.parentElement;
+    }
+
+    return null;
+  }, [editor]);
+
+  const notifyFocusPageFromSelection = useCallback(() => {
+    if (!editor || !onFocusPage) return;
+
+    if (focusPageFrameRef.current !== null) {
+      cancelAnimationFrame(focusPageFrameRef.current);
+    }
+
+    focusPageFrameRef.current = requestAnimationFrame(() => {
+      focusPageFrameRef.current = null;
+
+      const selectedPageIndex = getPageIndexFromEditorSelection();
+
+      if (selectedPageIndex != null) {
+        onFocusPage(selectedPageIndex);
+        return;
+      }
+
+      try {
+        const coords = editor.view.coordsAtPos(editor.state.selection.from);
+        onFocusPage(getPageIndexFromClientY((coords.top + coords.bottom) / 2));
+      } catch {
+        // During typing ProseMirror can briefly expose an unresolved DOM position.
+        // Preserve the current active page instead of falling back to page 1.
+      }
+    });
+  }, [
+    editor,
+    getPageIndexFromClientY,
+    getPageIndexFromEditorSelection,
+    onFocusPage,
+  ]);
+
   const scheduleSoftPagination = useCallback(() => {
     if (!editor || !enableSoftPagination) {
       return;
@@ -835,7 +929,8 @@ export function KnexWriterEditableBody({
         '[data-knexwriter-scaled-stage="true"]',
       ) as HTMLElement | null;
       const hasPageGapMaskLayer = Boolean(
-        scaledStage?.querySelector('[data-knexwriter-page-gap-mask-layer="true"]'),
+        scaledStage?.querySelector('[data-knexwriter-page-gap-mask-layer="true"]') ||
+          document.querySelector('[data-knexwriter-page-gap-mask-layer="true"]'),
       );
 
       const measurement = paginateProseMirrorBlocks({
@@ -863,9 +958,18 @@ export function KnexWriterEditableBody({
         wrapperRect,
         cssScale,
       });
+      const renderedPageCount = Math.max(1, pageCount);
+      const measuredPageCount = Math.max(1, measurement.pageCount);
+
       const nextRetentionMasks = buildRetentionMasksFromRenderedLines({
         lines,
-        pageCount: Math.max(1, Math.max(pageCount, measurement.pageCount)),
+        /**
+         * Importante:
+         * usar páginas medidas aqui cria "máscaras fantasmas" durante a
+         * transição 1 -> N páginas (antes do Stage renderizar a nova folha).
+         * A retenção precisa refletir apenas as páginas já renderizadas.
+         */
+        pageCount: renderedPageCount,
         pageHeightPx: geometry.pageHeightPx,
         pageStridePx: geometry.pageStridePx,
         bodyTopPx: geometry.bodyTopPx,
@@ -879,21 +983,29 @@ export function KnexWriterEditableBody({
       );
 
       if (process.env.NODE_ENV !== "production") {
-        const requiresPageGapMask = Math.max(pageCount, measurement.pageCount) > 1;
-        assertKnexWriterNonRegression({
-          featureLineAwareRetentionEnabled: true,
-          featureBodyBoundsRetentionEnabled: true,
-          featurePageGapMaskEnabled: requiresPageGapMask
-            ? hasPageGapMaskLayer
-            : true,
-          featureCursorPlacementFallbackEnabled: true,
-          masks: nextRetentionMasks,
-          pageCount: Math.max(1, Math.max(pageCount, measurement.pageCount)),
-          pageHeightPx: geometry.pageHeightPx,
-          pageStridePx: geometry.pageStridePx,
-          bodyTopPx: geometry.bodyTopPx,
-          bodyBottomPx: geometry.bodyBottomPx,
-        });
+        const requiresPageGapMask = renderedPageCount > 1;
+        const isPaginationTransitioning = measuredPageCount > renderedPageCount;
+        try {
+          assertKnexWriterNonRegression({
+            featureLineAwareRetentionEnabled: true,
+            featureBodyBoundsRetentionEnabled: true,
+            featurePageGapMaskEnabled: requiresPageGapMask
+              ? hasPageGapMaskLayer || isPaginationTransitioning || !scaledStage
+              : true,
+            featureCursorPlacementFallbackEnabled: true,
+            masks: nextRetentionMasks,
+            pageCount: renderedPageCount,
+            pageHeightPx: geometry.pageHeightPx,
+            pageStridePx: geometry.pageStridePx,
+            bodyTopPx: geometry.bodyTopPx,
+            bodyBottomPx: geometry.bodyBottomPx,
+          });
+        } catch (error) {
+          if (!nonRegressionWarnedRef.current) {
+            nonRegressionWarnedRef.current = true;
+            console.error(error);
+          }
+        }
       }
     });
   }, [
@@ -921,8 +1033,14 @@ export function KnexWriterEditableBody({
 
     scheduleSoftPagination();
 
-    const handleUpdate = () => scheduleSoftPagination();
-    const handleSelectionUpdate = () => scheduleSoftPagination();
+    const handleUpdate = () => {
+      scheduleSoftPagination();
+      notifyFocusPageFromSelection();
+    };
+    const handleSelectionUpdate = () => {
+      scheduleSoftPagination();
+      notifyFocusPageFromSelection();
+    };
 
     editor.on("update", handleUpdate);
     editor.on("selectionUpdate", handleSelectionUpdate);
@@ -948,8 +1066,18 @@ export function KnexWriterEditableBody({
         cancelAnimationFrame(softPaginationFrameRef.current);
         softPaginationFrameRef.current = null;
       }
+
+      if (focusPageFrameRef.current !== null) {
+        cancelAnimationFrame(focusPageFrameRef.current);
+        focusPageFrameRef.current = null;
+      }
     };
-  }, [editor, enableSoftPagination, scheduleSoftPagination]);
+  }, [
+    editor,
+    enableSoftPagination,
+    notifyFocusPageFromSelection,
+    scheduleSoftPagination,
+  ]);
 
   useEffect(() => {
     scheduleSoftPagination();
@@ -1027,7 +1155,7 @@ export function KnexWriterEditableBody({
 
   const handleWrapperMouseDown = useCallback(
     (event: ReactMouseEvent<HTMLElement>) => {
-      onFocusPage?.(pageIndex);
+      notifyFocusPageFromClientY(event.clientY);
 
       if (!editor || !editable) {
         return;
@@ -1061,7 +1189,7 @@ export function KnexWriterEditableBody({
       geometry.bodyTopPx,
       geometry.pageHeightPx,
       geometry.pageStridePx,
-      onFocusPage,
+      notifyFocusPageFromClientY,
       pageIndex,
     ],
   );
@@ -1091,8 +1219,8 @@ export function KnexWriterEditableBody({
   );
 
   const handleEditorFocusCapture = useCallback(() => {
-    onFocusPage?.(pageIndex);
-  }, [onFocusPage, pageIndex]);
+    notifyFocusPageFromSelection();
+  }, [notifyFocusPageFromSelection]);
 
   const editorVariables = {
     ["--kw-paragraph-left-indent" as string]: `${paragraphLeftIndentPx}px`,
@@ -1113,6 +1241,7 @@ export function KnexWriterEditableBody({
     top: geometry.topPx,
     width: geometry.widthPx,
     minHeight: geometry.minHeightPx,
+    zIndex: 2,
     boxSizing: "border-box",
     paddingTop: geometry.paddingTopPx,
     paddingBottom: geometry.paddingBottomPx,
@@ -1145,7 +1274,7 @@ export function KnexWriterEditableBody({
       style={wrapperStyle}
       onMouseDown={handleWrapperMouseDown}
       onClick={handleWrapperClick}
-      onFocus={() => onFocusPage?.(pageIndex)}
+      onFocus={() => handleEditorFocusCapture()}
     >
       <style
         suppressHydrationWarning

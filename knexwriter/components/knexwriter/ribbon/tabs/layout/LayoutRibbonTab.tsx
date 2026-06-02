@@ -2,7 +2,7 @@
 import { RibbonTabLayout } from "../../shared/RibbonTabLayout";
 import { ArrangeGroup } from "./ArrangeGroup";
 import { HeaderFooterLayoutGroup } from "./HeaderFooterLayoutGroup";
-import { PageSetupGroup } from "./PageSetupGroup";
+import PageSetupGroup from "./PageSetupGroup";
 import { ParagraphLayoutGroup } from "./ParagraphLayoutGroup";
 import { RulerSettingsGroup } from "./RulerSettingsGroup";
 
@@ -17,3 +17,5 @@ export function LayoutRibbonTab(_props: WriterRibbonProps) {
     </RibbonTabLayout>
   );
 }
+
+export default LayoutRibbonTab;

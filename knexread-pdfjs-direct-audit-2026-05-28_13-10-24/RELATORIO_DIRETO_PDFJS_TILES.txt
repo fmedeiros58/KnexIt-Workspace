@@ -1,0 +1,127 @@
+﻿RELATÓRIO DIRETO PDFJS/TILES DO KNEXREAD
+Data: 05/28/2026 13:10:26
+Target: C:\knexit-workspace\knexit-workspace\knexwriter\src\modules\Knexread\native-pdf-reader
+
+VEREDITO: PDFium dominante no native-pdf-reader
+PDFJS total: 32
+PDFIUM total: 519
+
+ARQUIVOS CORE: ENGINE + RENDER + TILES/SCALE
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumEmbedPdfRuntime.ts] Score=5120 Engine=PDFIUM
+PDFJS=0 PDFIUM=305 Render=9 Tiles=5 Scale=73 Lifecycle=9 TextLayer=7 Server=1 Backend=54
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumPageRenderer.ts] Score=3915 Engine=PDFIUM
+PDFJS=0 PDFIUM=35 Render=15 Tiles=7 Scale=0 Lifecycle=65 TextLayer=0 Server=5 Backend=28
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumRuntimeLoader.ts] Score=3255 Engine=PDFIUM
+PDFJS=0 PDFIUM=45 Render=7 Tiles=4 Scale=0 Lifecycle=10 TextLayer=2 Server=2 Backend=119
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\PdfRenderBackend.ts] Score=2120 Engine=PDFIUM
+PDFJS=0 PDFIUM=8 Render=4 Tiles=8 Scale=3 Lifecycle=15 TextLayer=3 Server=7 Backend=92
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumBackend.ts] Score=1835 Engine=PDFIUM
+PDFJS=0 PDFIUM=15 Render=3 Tiles=4 Scale=0 Lifecycle=6 TextLayer=3 Server=2 Backend=56
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\server-tiles\NativeServerTileRenderer.ts] Score=1560 Engine=MISTO
+PDFJS=2 PDFIUM=1 Render=12 Tiles=0 Scale=12 Lifecycle=9 TextLayer=0 Server=10 Backend=19
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts] Score=1040 Engine=PDFIUM
+PDFJS=0 PDFIUM=1 Render=1 Tiles=1 Scale=0 Lifecycle=6 TextLayer=0 Server=24 Backend=28
+
+ARQUIVOS TILE CORE: TILES + SCALE + RENDER/LIFECYCLE
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumEmbedPdfRuntime.ts] Score=5120 Engine=PDFIUM
+PDFJS=0 PDFIUM=305 Render=9 Tiles=5 Scale=73 Lifecycle=9 TextLayer=7 Server=1 Backend=54
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx] Score=4495 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=2 Tiles=25 Scale=28 Lifecycle=48 TextLayer=2 Server=50 Backend=48
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx] Score=3090 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=22 Tiles=6 Scale=5 Lifecycle=30 TextLayer=35 Server=27 Backend=7
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\PdfRenderBackend.ts] Score=2120 Engine=PDFIUM
+PDFJS=0 PDFIUM=8 Render=4 Tiles=8 Scale=3 Lifecycle=15 TextLayer=3 Server=7 Backend=92
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\PdfJsTileRenderer.ts] Score=2080 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=9 Tiles=1 Scale=27 Lifecycle=17 TextLayer=0 Server=28 Backend=5
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\TileRenderDiagnostics.tsx] Score=1725 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=0 Tiles=8 Scale=30 Lifecycle=5 TextLayer=0 Server=24 Backend=4
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfThumbnailsPanel.tsx] Score=1090 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=1 Tiles=1 Scale=3 Lifecycle=33 TextLayer=0 Server=6 Backend=1
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\PageTileCache.ts] Score=920 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=0 Tiles=1 Scale=10 Lifecycle=12 TextLayer=0 Server=7 Backend=12
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\tiles\PdfTileGeometry.ts] Score=590 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=0 Tiles=7 Scale=2 Lifecycle=6 TextLayer=0 Server=8 Backend=1
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\server-tiles\ServerTileTypes.ts] Score=540 Engine=PDFIUM
+PDFJS=0 PDFIUM=1 Render=0 Tiles=1 Scale=2 Lifecycle=6 TextLayer=0 Server=6 Backend=11
+
+[knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\tiles\TileRenderTypes.ts] Score=445 Engine=INDEFINIDO
+PDFJS=0 PDFIUM=0 Render=0 Tiles=2 Scale=2 Lifecycle=6 TextLayer=0 Server=8 Backend=3
+
+TOP 50 GERAL
+5120 | Core=SIM TileCore=SIM Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumEmbedPdfRuntime.ts | PDFJS=0 PDFIUM=305 Render=9 Tiles=5 Scale=73 Lifecycle=9 Text=7 Server=1 Backend=54
+4495 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx | PDFJS=0 PDFIUM=0 Render=2 Tiles=25 Scale=28 Lifecycle=48 Text=2 Server=50 Backend=48
+3915 | Core=SIM TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumPageRenderer.ts | PDFJS=0 PDFIUM=35 Render=15 Tiles=7 Scale=0 Lifecycle=65 Text=0 Server=5 Backend=28
+3635 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx | PDFJS=0 PDFIUM=0 Render=3 Tiles=0 Scale=26 Lifecycle=158 Text=0 Server=79 Backend=51
+3310 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\RenderQualityController.ts | PDFJS=0 PDFIUM=33 Render=0 Tiles=0 Scale=56 Lifecycle=1 Text=0 Server=0 Backend=31
+3255 | Core=SIM TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumRuntimeLoader.ts | PDFJS=0 PDFIUM=45 Render=7 Tiles=4 Scale=0 Lifecycle=10 Text=2 Server=2 Backend=119
+3180 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\cache\PageBitmapCache.ts | PDFJS=0 PDFIUM=1 Render=0 Tiles=0 Scale=38 Lifecycle=104 Text=0 Server=0 Backend=51
+3090 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfReaderShell.tsx | PDFJS=0 PDFIUM=0 Render=22 Tiles=6 Scale=5 Lifecycle=30 Text=35 Server=27 Backend=7
+2765 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts | PDFJS=0 PDFIUM=20 Render=0 Tiles=0 Scale=68 Lifecycle=0 Text=0 Server=1 Backend=30
+2765 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfPageView.tsx | PDFJS=0 PDFIUM=0 Render=18 Tiles=0 Scale=1 Lifecycle=37 Text=17 Server=6 Backend=82
+2520 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts | PDFJS=0 PDFIUM=0 Render=13 Tiles=0 Scale=71 Lifecycle=19 Text=0 Server=2 Backend=4
+2235 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\integration\KnexPdfViewerRuntime.ts | PDFJS=0 PDFIUM=0 Render=2 Tiles=0 Scale=22 Lifecycle=28 Text=2 Server=1 Backend=99
+2120 | Core=SIM TileCore=SIM Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\PdfRenderBackend.ts | PDFJS=0 PDFIUM=8 Render=4 Tiles=8 Scale=3 Lifecycle=15 Text=3 Server=7 Backend=92
+2080 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\PdfJsTileRenderer.ts | PDFJS=0 PDFIUM=0 Render=9 Tiles=1 Scale=27 Lifecycle=17 Text=0 Server=28 Backend=5
+1910 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\RenderScheduler.ts | PDFJS=0 PDFIUM=18 Render=8 Tiles=0 Scale=0 Lifecycle=19 Text=0 Server=2 Backend=27
+1865 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\TileGridCalculator.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=25 Scale=22 Lifecycle=0 Text=0 Server=17 Backend=5
+1845 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfTextLayer.tsx | PDFJS=0 PDFIUM=2 Render=0 Tiles=0 Scale=18 Lifecycle=0 Text=80 Server=0 Backend=15
+1835 | Core=SIM TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-pdfium\PdfiumBackend.ts | PDFJS=0 PDFIUM=15 Render=3 Tiles=4 Scale=0 Lifecycle=6 Text=3 Server=2 Backend=56
+1725 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\TileRenderDiagnostics.tsx | PDFJS=0 PDFIUM=0 Render=0 Tiles=8 Scale=30 Lifecycle=5 Text=0 Server=24 Backend=4
+1705 | Core= TileCore= Engine=PDFJS | knexwriter\src\modules\Knexread\native-pdf-reader\services\pdfLoader.service.ts | PDFJS=30 PDFIUM=0 Render=2 Tiles=0 Scale=0 Lifecycle=0 Text=3 Server=0 Backend=25
+1590 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=0 Lifecycle=30 Text=0 Server=6 Backend=244
+1560 | Core=SIM TileCore= Engine=MISTO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\server-tiles\NativeServerTileRenderer.ts | PDFJS=2 PDFIUM=1 Render=12 Tiles=0 Scale=12 Lifecycle=9 Text=0 Server=10 Backend=19
+1510 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts | PDFJS=0 PDFIUM=1 Render=0 Tiles=0 Scale=34 Lifecycle=0 Text=12 Server=0 Backend=14
+1455 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-mupdf\MuPdfRuntimeLoader.ts | PDFJS=0 PDFIUM=0 Render=7 Tiles=4 Scale=0 Lifecycle=10 Text=2 Server=2 Backend=117
+1235 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-mupdf\MuPdfBackend.ts | PDFJS=0 PDFIUM=0 Render=3 Tiles=4 Scale=0 Lifecycle=6 Text=3 Server=2 Backend=56
+1095 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\text\TextCoordinateMapper.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=18 Lifecycle=0 Text=21 Server=0 Backend=9
+1090 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfThumbnailsPanel.tsx | PDFJS=0 PDFIUM=0 Render=1 Tiles=1 Scale=3 Lifecycle=33 Text=0 Server=6 Backend=1
+1060 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineState.ts | PDFJS=0 PDFIUM=4 Render=0 Tiles=0 Scale=0 Lifecycle=6 Text=0 Server=0 Backend=75
+1040 | Core=SIM TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\index.ts | PDFJS=0 PDFIUM=1 Render=1 Tiles=1 Scale=0 Lifecycle=6 Text=0 Server=24 Backend=28
+1015 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendRegistry.ts | PDFJS=0 PDFIUM=6 Render=0 Tiles=0 Scale=0 Lifecycle=1 Text=0 Server=0 Backend=56
+950 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx | PDFJS=0 PDFIUM=5 Render=0 Tiles=0 Scale=0 Lifecycle=0 Text=0 Server=0 Backend=101
+920 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\PageTileCache.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=1 Scale=10 Lifecycle=12 Text=0 Server=7 Backend=12
+865 | Core= TileCore= Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\BackendSelector.ts | PDFJS=0 PDFIUM=2 Render=1 Tiles=0 Scale=0 Lifecycle=0 Text=0 Server=0 Backend=83
+850 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=2 Scale=0 Lifecycle=0 Text=0 Server=2 Backend=56
+845 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\pdfjs\PdfJsBackend.ts | PDFJS=0 PDFIUM=0 Render=3 Tiles=0 Scale=0 Lifecycle=8 Text=3 Server=1 Backend=31
+795 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\pdfjs\PdfJsTextExtractor.ts | PDFJS=0 PDFIUM=0 Render=2 Tiles=0 Scale=0 Lifecycle=0 Text=28 Server=0 Backend=11
+675 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\future-mupdf\MuPdfPageRenderer.ts | PDFJS=0 PDFIUM=0 Render=3 Tiles=6 Scale=0 Lifecycle=0 Text=0 Server=3 Backend=21
+615 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\api\pdf-reader.controller.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=0 Lifecycle=0 Text=0 Server=36 Backend=5
+610 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\web\page.tsx | PDFJS=0 PDFIUM=0 Render=0 Tiles=2 Scale=0 Lifecycle=15 Text=6 Server=3 Backend=0
+590 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\tiles\PdfTileGeometry.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=7 Scale=2 Lifecycle=6 Text=0 Server=8 Backend=1
+575 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=0 Lifecycle=11 Text=0 Server=15 Backend=5
+540 | Core= TileCore=SIM Engine=PDFIUM | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\server-tiles\ServerTileTypes.ts | PDFJS=0 PDFIUM=1 Render=0 Tiles=1 Scale=2 Lifecycle=6 Text=0 Server=6 Backend=11
+500 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\backends\pdfjs\PdfJsPageRenderer.ts | PDFJS=0 PDFIUM=0 Render=2 Tiles=0 Scale=5 Lifecycle=1 Text=0 Server=1 Backend=16
+500 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\core\engineEvents.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=0 Lifecycle=5 Text=0 Server=0 Backend=25
+495 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\RenderTaskToken.ts | PDFJS=0 PDFIUM=0 Render=7 Tiles=0 Scale=0 Lifecycle=10 Text=0 Server=0 Backend=0
+480 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=0 Lifecycle=18 Text=0 Server=0 Backend=2
+450 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=0 Lifecycle=18 Text=0 Server=0 Backend=0
+445 | Core= TileCore=SIM Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\tiles\TileRenderTypes.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=2 Scale=2 Lifecycle=6 Text=0 Server=8 Backend=3
+440 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=5 Lifecycle=8 Text=0 Server=1 Backend=5
+415 | Core= TileCore= Engine=INDEFINIDO | knexwriter\src\modules\Knexread\native-pdf-reader\components\PdfDebugOverlay.tsx | PDFJS=0 PDFIUM=0 Render=0 Tiles=0 Scale=7 Lifecycle=4 Text=0 Server=4 Backend=3
+
+COMANDOS DE INSPEÇÃO
+Import-Csv "C:\knexit-workspace\knexit-workspace\knexread-pdfjs-direct-audit-2026-05-28_13-10-24\ranking_direto_pdfjs_tiles.csv" | Sort-Object {[int]$_.Score} -Descending | Select-Object -First 20 | Format-Table -AutoSize
+Import-Csv "C:\knexit-workspace\knexit-workspace\knexread-pdfjs-direct-audit-2026-05-28_13-10-24\hits_direto_pdfjs_tiles.csv" | Where-Object { $_.Category -in @('PDFJS','RENDER','TILES','SCALE','LIFECYCLE') } | Select-Object -First 120 | Format-Table -AutoSize
+
+INTERPRETAÇÃO
+- Se o primeiro Core=SIM tiver Engine=PDFJS, o pipeline ativo de renderização está no PDF.js.
+- Se PDFium aparecer apenas em backends/future-pdfium, ele deve ser tratado como fallback/futuro, não como motor principal.
+- A correção de duplicação deve ser feita nos arquivos com Render + Tiles + Lifecycle.
+- A correção de nitidez deve ser feita nos arquivos com Scale + Render + TextLayer.

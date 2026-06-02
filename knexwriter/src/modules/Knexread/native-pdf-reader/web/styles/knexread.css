@@ -1,0 +1,226 @@
+.knexread-page {
+  height: 100vh;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #d8dbe1;
+  color: #1f2937;
+}
+
+.knexread-page,
+.knexread-page * {
+  box-sizing: border-box;
+}
+
+[data-knexread-page-number],
+[data-knexread-translation-page-number] {
+  box-sizing: border-box;
+}
+
+.knex-pdf-text-layer {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: transparent;
+  line-height: 1;
+}
+
+.knex-pdf-text-layer__span {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+  background: transparent;
+}
+
+.knex-pdf-text-layer__span::selection,
+.knex-pdf-text-layer ::selection {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  background: rgba(80, 120, 255, 0.22) !important;
+  text-shadow: none !important;
+}
+
+.knex-pdf-text-layer__span::-moz-selection,
+.knex-pdf-text-layer ::-moz-selection {
+  color: transparent !important;
+  background: rgba(80, 120, 255, 0.22) !important;
+  text-shadow: none !important;
+}
+
+.knexread-titlebar {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background: #c23616;
+  color: #ffffff;
+}
+
+.knexread-title-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.knexread-icon-btn,
+.knexread-window-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #ffffff;
+}
+
+.knexread-icon-btn:hover,
+.knexread-window-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.knexread-window-btn.danger:hover {
+  background: rgba(244, 63, 94, 0.35);
+  border-color: rgba(253, 164, 175, 0.38);
+}
+
+.knexread-title-separator {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.24);
+  margin: 0 4px;
+}
+
+.knexread-title-meta {
+  min-width: 0;
+}
+
+.knexread-title-app {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 26px;
+  color: #ffffff;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  text-shadow: none;
+}
+
+.knexread-title-search {
+  width: clamp(220px, 30vw, 520px);
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  background: rgba(241, 245, 249, 0.95);
+  padding: 0 10px;
+  color: #1f2937;
+}
+
+.knexread-title-search input {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #111827;
+  font-size: 13px;
+}
+
+.knexread-title-search input::placeholder {
+  color: #64748b;
+}
+
+.knexread-title-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.knexread-ribbon {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #cfd4dd;
+  background: #f3f4f8;
+}
+
+.knexread-ribbon-tab {
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.knexread-ribbon-tab:hover {
+  border-color: #d4d8e3;
+  background: #eceef6;
+}
+
+.knexread-ribbon-tab.active {
+  border-color: #d1d6e1;
+  background: #ffffff;
+  color: #7c2ab0;
+}
+
+.knexread-stage {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  border-top: 1px solid #e1e4eb;
+  background: #d8dbe1;
+}
+
+.knexread-empty-state {
+  margin: 40px auto;
+  width: min(560px, calc(100% - 32px));
+  border: 1px dashed #b7becc;
+  border-radius: 12px;
+  background: #f5f6fa;
+  padding: 22px;
+  text-align: center;
+}
+
+.knexread-empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #222b3a;
+}
+
+.knexread-empty-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #556074;
+}
+
+.knexread-open-btn {
+  margin-top: 14px;
+  height: 34px;
+  border: 1px solid #8e30b5;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ad49c7 0%, #8f2db5 100%);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 12px;
+}
+
+.knexread-empty-error {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #b42318;
+}

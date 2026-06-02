@@ -1,0 +1,794 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PdfRenderQualityMode } from "../../native-pdf-reader/types";
+import type { NativePdfSession } from "../../native-pdf-reader/services";
+import type { PdfTileRenderState } from "../../native-pdf-reader/components/pdf-tiles/PdfTileCanvasTypes";
+import type {
+  KnexPdfRenderPhase,
+  KnexPdfRenderedPage as RenderedPdfPage,
+} from "../../native-pdf-reader/knex-pdf-engine";
+import { renderPdfiumPageToCanvas } from "../../backends/pdfium/PdfiumNonTextRenderer";
+
+type PdfCanvasLayerRenderSource = "pdfium" | "pdfjs" | "unknown";
+
+type PdfJsViewport = {
+  width: number;
+  height: number;
+  scale?: number;
+  transform?: number[];
+};
+
+type PdfJsRenderTask = {
+  promise: Promise<void>;
+  cancel?: () => void;
+};
+
+type PdfJsPage = {
+  getViewport: (params: { scale: number }) => PdfJsViewport;
+  render: (params: {
+    canvasContext: CanvasRenderingContext2D;
+    canvas: HTMLCanvasElement;
+    viewport: PdfJsViewport;
+    intent?: "display" | "print";
+    transform?: number[];
+    operationsFilter?: (fnId: number) => boolean;
+  }) => PdfJsRenderTask;
+};
+
+type TextOperationFilterResult = {
+  supported: boolean;
+  reason: string;
+  filter?: (fnId: number) => boolean;
+};
+
+type CommittedCanvasGeometry = {
+  cssWidth: number;
+  cssHeight: number;
+};
+
+export type PdfCanvasLayerProps = {
+  session: NativePdfSession;
+  pageNumber: number;
+  zoom: number;
+  pageCssWidth: number;
+  pageCssHeight: number;
+  renderQuality: PdfRenderQualityMode;
+  renderPhase: KnexPdfRenderPhase;
+  finalRenderVersion: number;
+  renderText: boolean;
+  onRendered?: (page: RenderedPdfPage) => void;
+  onCanvasRenderStateChange?: (state: PdfTileRenderState) => void;
+};
+
+function getDocumentId(session: NativePdfSession): string {
+  return session.id ?? session.fingerprint ?? session.fileName;
+}
+
+function getRenderScale(zoom: number): number {
+  return Math.max(0.01, zoom / 100);
+}
+
+function getDevicePixelRatio(): number {
+  if (typeof window === "undefined") return 1;
+  return Math.max(1, window.devicePixelRatio || 1);
+}
+
+/**
+ * Limites defensivos para o caminho single-canvas.
+ *
+ * Mesmo com o ZoomController limitado a 2000%, este componente não pode tentar
+ * criar um bitmap único gigantesco. Em zoom alto, o caminho recomendado é
+ * tiled-canvas; quando single-canvas for usado, ele precisa reduzir outputScale
+ * automaticamente para evitar tela preta e estouro de memória.
+ */
+const SINGLE_CANVAS_MAX_BITMAP_PIXELS = 72_000_000;
+const SINGLE_CANVAS_MAX_BITMAP_SIDE = 24_576;
+const SINGLE_CANVAS_MIN_OUTPUT_SCALE = 0.25;
+
+function getBaseOutputScale(renderQuality: PdfRenderQualityMode): number {
+  const dpr = getDevicePixelRatio();
+
+  if (renderQuality === "extreme") {
+    return Math.min(3, Math.max(2, dpr));
+  }
+
+  if (renderQuality === "high") {
+    return Math.min(2.5, Math.max(1.5, dpr));
+  }
+
+  return Math.min(2, dpr);
+}
+
+function resolveMemorySafeOutputScale(input: {
+  cssWidth: number;
+  cssHeight: number;
+  requestedOutputScale: number;
+}): number {
+  const cssWidth = Math.max(1, input.cssWidth);
+  const cssHeight = Math.max(1, input.cssHeight);
+  const requestedOutputScale = Math.max(
+    SINGLE_CANVAS_MIN_OUTPUT_SCALE,
+    input.requestedOutputScale,
+  );
+
+  const maxByArea = Math.sqrt(
+    SINGLE_CANVAS_MAX_BITMAP_PIXELS / Math.max(1, cssWidth * cssHeight),
+  );
+  const maxBySide = Math.min(
+    SINGLE_CANVAS_MAX_BITMAP_SIDE / cssWidth,
+    SINGLE_CANVAS_MAX_BITMAP_SIDE / cssHeight,
+  );
+
+  const safeOutputScale = Math.min(
+    requestedOutputScale,
+    maxByArea,
+    maxBySide,
+  );
+
+  return Math.max(
+    SINGLE_CANVAS_MIN_OUTPUT_SCALE,
+    Math.round(safeOutputScale * 1000) / 1000,
+  );
+}
+
+function resolveOutputScale(input: {
+  renderQuality: PdfRenderQualityMode;
+  cssWidth: number;
+  cssHeight: number;
+}): number {
+  return resolveMemorySafeOutputScale({
+    cssWidth: input.cssWidth,
+    cssHeight: input.cssHeight,
+    requestedOutputScale: getBaseOutputScale(input.renderQuality),
+  });
+}
+
+function createRenderIdentity(input: {
+  documentId: string;
+  pageNumber: number;
+  renderScale: number;
+  renderText: boolean;
+  renderPhase: KnexPdfRenderPhase;
+  finalRenderVersion: number;
+  outputScale: number;
+}) {
+  return [
+    "modular-single-canvas",
+    `doc=${input.documentId}`,
+    `p=${input.pageNumber}`,
+    `z=${Math.round(input.renderScale * 1000) / 1000}`,
+    `os=${Math.round(input.outputScale * 1000) / 1000}`,
+    `text=${input.renderText ? "1" : "0"}`,
+    `phase=${input.renderPhase}`,
+    `fv=${input.finalRenderVersion}`,
+  ].join("|");
+}
+
+function resolvePdfJsTextOperationFilter(): TextOperationFilterResult {
+  const ops = (globalThis as unknown as { pdfjsLib?: { OPS?: Record<string, number> } })
+    .pdfjsLib?.OPS;
+
+  if (!ops) {
+    return {
+      supported: false,
+      reason: "pdfjs-ops-unavailable",
+    };
+  }
+
+  const textOperationIds = [
+    ops.beginText,
+    ops.endText,
+    ops.setCharSpacing,
+    ops.setWordSpacing,
+    ops.setHScale,
+    ops.setLeading,
+    ops.setFont,
+    ops.setTextRenderingMode,
+    ops.setTextRise,
+    ops.moveText,
+    ops.setLeadingMoveText,
+    ops.setTextMatrix,
+    ops.nextLine,
+    ops.showText,
+    ops.showSpacedText,
+    ops.nextLineShowText,
+    ops.nextLineSetSpacingShowText,
+    ops.paintChar,
+  ].filter((value): value is number => typeof value === "number");
+
+  if (textOperationIds.length === 0) {
+    return {
+      supported: false,
+      reason: "pdfjs-text-ops-unavailable",
+    };
+  }
+
+  const blocked = new Set(textOperationIds);
+
+  return {
+    supported: true,
+    reason: "pdfjs-ops-filter",
+    filter: (fnId: number) => !blocked.has(fnId),
+  };
+}
+
+function resetCanvas(input: {
+  canvas: HTMLCanvasElement;
+  cssWidth: number;
+  cssHeight: number;
+  outputScale: number;
+}) {
+  const bitmapWidth = Math.max(1, Math.ceil(input.cssWidth * input.outputScale));
+  const bitmapHeight = Math.max(1, Math.ceil(input.cssHeight * input.outputScale));
+
+  input.canvas.width = bitmapWidth;
+  input.canvas.height = bitmapHeight;
+  input.canvas.style.width = `${input.cssWidth}px`;
+  input.canvas.style.height = `${input.cssHeight}px`;
+
+  const context = input.canvas.getContext("2d", { alpha: false });
+  if (!context) {
+    throw new Error("Canvas 2D context unavailable.");
+  }
+
+  context.save();
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, bitmapWidth, bitmapHeight);
+  context.restore();
+
+  return { context, bitmapWidth, bitmapHeight };
+}
+
+function createWorkCanvas(): HTMLCanvasElement {
+  return document.createElement("canvas");
+}
+
+function commitRenderedCanvas(input: {
+  visibleCanvas: HTMLCanvasElement;
+  renderedCanvas: HTMLCanvasElement;
+  cssWidth: number;
+  cssHeight: number;
+  setCommittedGeometry: (geometry: CommittedCanvasGeometry) => void;
+}) {
+  /*
+   * Commit atômico com CSS sempre ancorado no alvo visual.
+   *
+   * A dimensão VISUAL do canvas precisa acompanhar pageCssWidth/pageCssHeight
+   * no mesmo frame das demais camadas da página. Por isso, o CSS do canvas
+   * visível fica sempre no tamanho alvo atual.
+   *
+   * O bitmap real só é trocado quando o render em workCanvas termina. Assim:
+   * - durante o gesto de zoom, o bitmap anterior é escalado pelo próprio CSS;
+   * - quando o bitmap final chega, ele substitui o anterior sem reposicionar
+   *   a camada nem aplicar um segundo transform independente.
+   *
+   * Isso evita o deslocamento perceptível principalmente no zoom-out.
+   */
+  input.visibleCanvas.style.width = `${input.cssWidth}px`;
+  input.visibleCanvas.style.height = `${input.cssHeight}px`;
+
+  input.visibleCanvas.width = input.renderedCanvas.width;
+  input.visibleCanvas.height = input.renderedCanvas.height;
+
+  const context = input.visibleCanvas.getContext("2d", { alpha: false });
+
+  if (!context) {
+    throw new Error("Canvas 2D context unavailable.");
+  }
+
+  context.save();
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, input.visibleCanvas.width, input.visibleCanvas.height);
+  context.drawImage(input.renderedCanvas, 0, 0);
+  context.restore();
+
+  /*
+   * Libera o bitmap temporário assim que o commit é feito.
+   * Isso reduz pico de memória no fallback single-canvas, especialmente em
+   * documentos imagem ou páginas grandes.
+   */
+  if (input.renderedCanvas !== input.visibleCanvas) {
+    input.renderedCanvas.width = 1;
+    input.renderedCanvas.height = 1;
+  }
+
+  input.setCommittedGeometry({
+    cssWidth: input.cssWidth,
+    cssHeight: input.cssHeight,
+  });
+}
+
+export function PdfCanvasLayer({
+  session,
+  pageNumber,
+  zoom,
+  pageCssWidth,
+  pageCssHeight,
+  renderQuality,
+  renderPhase,
+  finalRenderVersion,
+  renderText,
+  onRendered,
+  onCanvasRenderStateChange,
+}: PdfCanvasLayerProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const documentId = useMemo(() => getDocumentId(session), [session]);
+  const renderScale = useMemo(() => getRenderScale(zoom), [zoom]);
+  const outputScale = useMemo(
+    () =>
+      resolveOutputScale({
+        renderQuality,
+        cssWidth: pageCssWidth,
+        cssHeight: pageCssHeight,
+      }),
+    [pageCssHeight, pageCssWidth, renderQuality],
+  );
+  const renderIdentity = useMemo(
+    () =>
+      createRenderIdentity({
+        documentId,
+        pageNumber,
+        renderScale,
+        renderText,
+        renderPhase,
+        finalRenderVersion,
+        outputScale,
+      }),
+    [
+      documentId,
+      finalRenderVersion,
+      outputScale,
+      pageNumber,
+      renderPhase,
+      renderScale,
+      renderText,
+    ],
+  );
+  const [status, setStatus] = useState<"idle" | "rendering" | "ready" | "error">(
+    "idle",
+  );
+  const [renderSource, setRenderSource] =
+    useState<PdfCanvasLayerRenderSource>("unknown");
+  const [committedCanvasGeometry, setCommittedCanvasGeometry] =
+    useState<CommittedCanvasGeometry>(() => ({
+      cssWidth: pageCssWidth,
+      cssHeight: pageCssHeight,
+    }));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let cancelled = false;
+    let renderTask: PdfJsRenderTask | null = null;
+    const abortController = new AbortController();
+
+    const setDataset = (input: {
+      status: string;
+      source: PdfCanvasLayerRenderSource;
+      renderer: string;
+      activeBackend?: PdfCanvasLayerRenderSource;
+      reason?: string;
+      rendered?: RenderedPdfPage;
+      nonTextFilter?: TextOperationFilterResult;
+      textSuppressionStatus?: string;
+      filteredTextOperationCount?: number;
+    }) => {
+      canvas.dataset.knexPdfPipeline = "modular-single-canvas-html-text";
+      canvas.dataset.knexPdfRenderSource = input.source;
+      canvas.dataset.knexPdfRenderer = input.renderer;
+      canvas.dataset.knexPdfActiveBackend =
+        input.activeBackend ?? input.source;
+      canvas.dataset.knexPdfPreferredBackend = "pdfium";
+      canvas.dataset.knexPdfBackendVersion = "0";
+      canvas.dataset.knexPdfRenderText = renderText ? "true" : "false";
+      canvas.dataset.knexPdfCanvasTextMode = renderText
+        ? "normal"
+        : "without-text";
+      canvas.dataset.knexPdfRenderStatus = input.status;
+      canvas.dataset.knexPdfRenderPhase = renderPhase;
+      canvas.dataset.knexPdfGenerationId = renderIdentity;
+      canvas.dataset.knexPdfRenderVersion = String(finalRenderVersion);
+      canvas.dataset.knexPdfFinalRenderVersion = String(finalRenderVersion);
+      canvas.dataset.knexPdfFallbackReason = input.reason ?? "";
+      canvas.dataset.knexPdfNonTextFilterSupported = input.nonTextFilter?.supported
+        ? "true"
+        : "false";
+      canvas.dataset.knexPdfNonTextFilterReason = input.nonTextFilter?.reason ?? "";
+      canvas.dataset.knexPdfTextSuppressionStatus =
+        input.textSuppressionStatus ?? "";
+      canvas.dataset.knexPdfFilteredTextOperations = String(
+        input.filteredTextOperationCount ?? 0,
+      );
+      canvas.dataset.knexPdfOutputScale = String(outputScale);
+      canvas.dataset.knexPdfCssWidth = String(pageCssWidth);
+      canvas.dataset.knexPdfCssHeight = String(pageCssHeight);
+      canvas.dataset.knexPdfBitmapWidth = String(canvas.width);
+      canvas.dataset.knexPdfBitmapHeight = String(canvas.height);
+      canvas.dataset.knexPdfBitmapPixels = String(canvas.width * canvas.height);
+      canvas.dataset.knexPdfMaxBitmapPixels = String(
+        SINGLE_CANVAS_MAX_BITMAP_PIXELS,
+      );
+      canvas.dataset.knexPdfMaxBitmapSide = String(SINGLE_CANVAS_MAX_BITMAP_SIDE);
+      canvas.dataset.knexPdfMemorySafeOutputScale = String(outputScale);
+
+      if (input.rendered) {
+        canvas.dataset.knexPdfPageWidthPt = String(input.rendered.pageWidthPt);
+        canvas.dataset.knexPdfPageHeightPt = String(input.rendered.pageHeightPt);
+      }
+    };
+
+    const emitState = (input: {
+      rendered?: RenderedPdfPage;
+      source: PdfCanvasLayerRenderSource;
+      filteredTextOperationCount?: number;
+    }) => {
+      onCanvasRenderStateChange?.({
+        documentId,
+        pageNumber,
+        backend: input.source,
+        renderPhase,
+        renderQuality,
+        renderScale,
+        outputScale,
+        zoom,
+        renderText,
+        canvasTextMode: renderText ? "normal" : "without-text",
+        filteredTextOperationCount: input.filteredTextOperationCount ?? 0,
+        renderIdentity,
+        renderVersion: finalRenderVersion,
+        backendVersion: 0,
+        finalRenderVersion,
+        cacheLookup: "modular-single-canvas",
+      });
+    };
+
+    const render = async () => {
+      setStatus("rendering");
+      setRenderSource("unknown");
+      const nonTextFilter = renderText
+        ? { supported: false, reason: "render-text-enabled" }
+        : resolvePdfJsTextOperationFilter();
+
+      const workCanvas = createWorkCanvas();
+      const { bitmapWidth, bitmapHeight } = resetCanvas({
+        canvas: workCanvas,
+        cssWidth: pageCssWidth,
+        cssHeight: pageCssHeight,
+        outputScale,
+      });
+
+      setDataset({
+        status: "rendering",
+        source: "unknown",
+        renderer: "modular-single-canvas",
+        nonTextFilter,
+      });
+
+      try {
+        try {
+          const pdfiumResult = await renderPdfiumPageToCanvas({
+            session,
+            pageNumber,
+            canvas: workCanvas,
+            scale: renderScale,
+            outputScale,
+            cssWidth: pageCssWidth,
+            cssHeight: pageCssHeight,
+            renderText,
+            signal: abortController.signal,
+          });
+
+          if (cancelled) return;
+
+          const rendered: RenderedPdfPage = {
+            pageNumber,
+            width: pdfiumResult.width,
+            height: pdfiumResult.height,
+            cssWidth: pdfiumResult.cssWidth,
+            cssHeight: pdfiumResult.cssHeight,
+            pageWidthPt: pdfiumResult.pageWidthPt,
+            pageHeightPt: pdfiumResult.pageHeightPt,
+            renderScale,
+            outputScale: pdfiumResult.outputScale,
+            backgroundColor: "#ffffff",
+            zoom,
+            devicePixelRatio: getDevicePixelRatio(),
+            rotation: 0,
+            renderMode: renderText ? "bitmap-only" : "hybrid-semantic",
+            hasTextLayer: !renderText,
+            textLayerMode: "semantic",
+            hybridTextEnabled: !renderText,
+            canvasActsAsBackground: !renderText,
+            renderPixelRatio: pdfiumResult.outputScale,
+            bitmapPixels: pdfiumResult.width * pdfiumResult.height,
+          };
+
+          commitRenderedCanvas({
+            visibleCanvas: canvas,
+            renderedCanvas: workCanvas,
+            cssWidth: pageCssWidth,
+            cssHeight: pageCssHeight,
+            setCommittedGeometry: setCommittedCanvasGeometry,
+          });
+
+          setRenderSource("pdfium");
+          setStatus("ready");
+          setDataset({
+            status: "ready",
+            source: "pdfium",
+            activeBackend: "pdfium",
+            renderer: renderText
+              ? "pdfium-single-canvas"
+              : "pdfium-non-text-single-canvas",
+            rendered,
+            textSuppressionStatus: pdfiumResult.textSuppressionStatus,
+            filteredTextOperationCount:
+              pdfiumResult.filteredTextOperationCount,
+          });
+          emitState({
+            rendered,
+            source: "pdfium",
+            filteredTextOperationCount:
+              pdfiumResult.filteredTextOperationCount,
+          });
+          onRendered?.(rendered);
+          return;
+        } catch (pdfiumError) {
+          if (cancelled) return;
+
+          setDataset({
+            status: "rendering",
+            source: "unknown",
+            renderer: "pdfjs-fallback-after-pdfium",
+            reason:
+              pdfiumError instanceof Error
+                ? pdfiumError.message
+                : "pdfium-render-failed",
+            nonTextFilter,
+          });
+        }
+
+        const { context } = resetCanvas({
+          canvas: workCanvas,
+          cssWidth: pageCssWidth,
+          cssHeight: pageCssHeight,
+          outputScale,
+        });
+        const page = (await session.pdf.getPage(pageNumber)) as PdfJsPage;
+        const baseViewport = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: renderScale * outputScale });
+
+        if (!renderText && !nonTextFilter.supported) {
+          const renderedBlank: RenderedPdfPage = {
+            pageNumber,
+            width: bitmapWidth,
+            height: bitmapHeight,
+            cssWidth: pageCssWidth,
+            cssHeight: pageCssHeight,
+            pageWidthPt: Math.max(1, baseViewport.width),
+            pageHeightPt: Math.max(1, baseViewport.height),
+            renderScale,
+            outputScale,
+            backgroundColor: "#ffffff",
+            zoom,
+            devicePixelRatio: getDevicePixelRatio(),
+            rotation: 0,
+            renderMode: "hybrid-semantic",
+            hasTextLayer: true,
+            textLayerMode: "semantic",
+            hybridTextEnabled: true,
+            canvasActsAsBackground: true,
+            renderPixelRatio: outputScale,
+            bitmapPixels: bitmapWidth * bitmapHeight,
+          };
+
+          if (cancelled) return;
+
+          commitRenderedCanvas({
+            visibleCanvas: canvas,
+            renderedCanvas: workCanvas,
+            cssWidth: pageCssWidth,
+            cssHeight: pageCssHeight,
+            setCommittedGeometry: setCommittedCanvasGeometry,
+          });
+
+          setRenderSource("unknown");
+          setStatus("ready");
+          setDataset({
+            status: "ready",
+            source: "unknown",
+            activeBackend: "unknown",
+            renderer: "blank-canvas-html-text",
+            reason: nonTextFilter.reason,
+            rendered: renderedBlank,
+            nonTextFilter,
+          });
+          emitState({ rendered: renderedBlank, source: "unknown" });
+          onRendered?.(renderedBlank);
+          return;
+        }
+
+        const renderParams: Parameters<PdfJsPage["render"]>[0] = {
+          canvasContext: context,
+          canvas: workCanvas,
+          viewport,
+          intent: "display",
+        };
+
+        if (!renderText && nonTextFilter.filter) {
+          renderParams.operationsFilter = nonTextFilter.filter;
+        }
+
+        renderTask = page.render(renderParams);
+        await renderTask.promise;
+
+        if (cancelled) return;
+
+        const rendered: RenderedPdfPage = {
+          pageNumber,
+          width: bitmapWidth,
+          height: bitmapHeight,
+          cssWidth: pageCssWidth,
+          cssHeight: pageCssHeight,
+          pageWidthPt: Math.max(1, baseViewport.width),
+          pageHeightPt: Math.max(1, baseViewport.height),
+          renderScale,
+          outputScale,
+          backgroundColor: "#ffffff",
+          zoom,
+          devicePixelRatio: getDevicePixelRatio(),
+          rotation: 0,
+          renderMode: renderText ? "bitmap-only" : "hybrid-semantic",
+          hasTextLayer: !renderText,
+          textLayerMode: renderText ? "semantic" : "semantic",
+          hybridTextEnabled: !renderText,
+          canvasActsAsBackground: !renderText,
+          renderPixelRatio: outputScale,
+          bitmapPixels: bitmapWidth * bitmapHeight,
+        };
+
+        commitRenderedCanvas({
+          visibleCanvas: canvas,
+          renderedCanvas: workCanvas,
+          cssWidth: pageCssWidth,
+          cssHeight: pageCssHeight,
+          setCommittedGeometry: setCommittedCanvasGeometry,
+        });
+
+        setRenderSource("pdfjs");
+        setStatus("ready");
+        setDataset({
+          status: "ready",
+          source: "pdfjs",
+          activeBackend: "pdfjs",
+          renderer: renderText ? "pdfjs-single-canvas" : "pdfjs-non-text-ops-filter",
+          rendered,
+          nonTextFilter,
+        });
+        emitState({
+          rendered,
+          source: "pdfjs",
+          filteredTextOperationCount: renderText ? 0 : 1,
+        });
+        onRendered?.(rendered);
+      } catch (error) {
+        if (cancelled) return;
+
+        setRenderSource("unknown");
+        setStatus("error");
+        setDataset({
+          status: "error",
+          source: "unknown",
+          activeBackend: "unknown",
+          renderer: "modular-single-canvas",
+          reason:
+            error instanceof Error ? error.message : "single-canvas-render-failed",
+          nonTextFilter,
+        });
+        emitState({ source: "unknown" });
+      }
+    };
+
+    void render();
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      renderTask?.cancel?.();
+    };
+  }, [
+    documentId,
+    finalRenderVersion,
+    onCanvasRenderStateChange,
+    onRendered,
+    outputScale,
+    pageCssHeight,
+    pageCssWidth,
+    pageNumber,
+    renderIdentity,
+    renderPhase,
+    renderQuality,
+    renderScale,
+    renderText,
+    session,
+    zoom,
+  ]);
+
+  const isCanvasBitmapStale =
+    Math.abs(pageCssWidth - committedCanvasGeometry.cssWidth) > 0.5 ||
+    Math.abs(pageCssHeight - committedCanvasGeometry.cssHeight) > 0.5;
+
+  return (
+    <div
+      data-knexread-single-canvas-visual-frame="true"
+      data-knex-pdf-render-status={status}
+      data-knex-pdf-render-source={renderSource}
+      data-knex-pdf-render-text={renderText ? "true" : "false"}
+      data-knex-pdf-target-css-width={pageCssWidth}
+      data-knex-pdf-target-css-height={pageCssHeight}
+      data-knex-pdf-committed-css-width={committedCanvasGeometry.cssWidth}
+      data-knex-pdf-committed-css-height={committedCanvasGeometry.cssHeight}
+      data-knex-pdf-bitmap-stale={isCanvasBitmapStale ? "true" : "false"}
+      data-knex-pdf-canvas-retarget-policy="target-size-sync-with-text"
+      data-knex-pdf-coordinate-space="render"
+      data-knex-pdf-scale-owner="PdfModularPageStage"
+      data-knex-pdf-memory-safe-output-scale={outputScale}
+      data-knex-pdf-max-bitmap-pixels={SINGLE_CANVAS_MAX_BITMAP_PIXELS}
+      data-knex-pdf-max-bitmap-side={SINGLE_CANVAS_MAX_BITMAP_SIDE}
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: `${pageCssWidth}px`,
+        minWidth: `${pageCssWidth}px`,
+        maxWidth: `${pageCssWidth}px`,
+        height: `${pageCssHeight}px`,
+        minHeight: `${pageCssHeight}px`,
+        maxHeight: `${pageCssHeight}px`,
+        overflow: "hidden",
+        background: "#ffffff",
+        contain: "layout paint size",
+        boxSizing: "border-box",
+        transform: "none",
+        transformOrigin: "0 0",
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        data-knexread-single-canvas-layer="true"
+        data-knex-pdf-render-status={status}
+        data-knex-pdf-render-source={renderSource}
+        data-knex-pdf-render-text={renderText ? "true" : "false"}
+        data-knex-pdf-target-css-width={pageCssWidth}
+        data-knex-pdf-target-css-height={pageCssHeight}
+        data-knex-pdf-committed-css-width={committedCanvasGeometry.cssWidth}
+        data-knex-pdf-committed-css-height={committedCanvasGeometry.cssHeight}
+        data-knex-pdf-bitmap-stale={isCanvasBitmapStale ? "true" : "false"}
+        data-knex-pdf-canvas-retarget-policy="target-size-sync-with-text"
+        data-knex-pdf-coordinate-space="render"
+        data-knex-pdf-scale-owner="PdfModularPageStage"
+        style={{
+          display: "block",
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: `${pageCssWidth}px`,
+          minWidth: `${pageCssWidth}px`,
+          maxWidth: `${pageCssWidth}px`,
+          height: `${pageCssHeight}px`,
+          minHeight: `${pageCssHeight}px`,
+          maxHeight: `${pageCssHeight}px`,
+          background: "#ffffff",
+          transform: "none",
+          transformOrigin: "0 0",
+          willChange: "auto",
+          imageRendering: "auto",
+          boxSizing: "border-box",
+        }}
+      />
+    </div>
+  );
+}

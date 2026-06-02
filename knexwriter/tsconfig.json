@@ -1,6 +1,9 @@
 {
   "compilerOptions": {
-    "rootDir": ".",
+    "rootDir": "..",
+    "paths": {
+      "@/*": ["./*", "../*"]
+    },
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
@@ -27,6 +30,7 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "src/modules/Knexread/native-pdf-reader/_backup_*"
   ]
 }
