@@ -301,7 +301,7 @@ export interface KnexPdfFormField {
 - **Saída**: DOM renderizado do blueprint
 
 ### **Fase 4: Modo Blueprint Ativável** (1-2 dias)
-- Adicionar flag: `window.KNEX_PDF_USE_BLUEPRINT_MODE = true`
+- Usar blueprint como padrão do palco modular; manter `window.KNEX_PDF_DISABLE_BLUEPRINT_MODE = true` apenas para fallback temporário.
 - Fazer PdfModularPageStage usar blueprint quando ativado
 - Manter canvas/HTML como fallback
 - **Saída**: Modo experimental funcional

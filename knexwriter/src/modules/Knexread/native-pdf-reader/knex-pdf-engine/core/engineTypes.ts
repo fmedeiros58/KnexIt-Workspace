@@ -11,7 +11,7 @@ export type KnexPdfRenderQualityInput =
   | "economy"
   | "very-high";
 
-export type KnexPdfBackendId = "pdfjs" | "pdfium";
+export type KnexPdfBackendId = "pdfjs" | "pdfium" | "mupdf";
 
 export type KnexPdfRuntimePlatform = "web" | "pwa" | "desktop" | "mobile";
 
@@ -374,6 +374,33 @@ export type KnexPdfSemanticTextBlock = {
    */
   lineHeight: number;
   letterSpacing: number;
+
+  /**
+   * Espaçamento entre palavras em CSS pixels.
+   *
+   * Opcional para compatibilidade com extratores/renderizadores mais antigos.
+   * Quando ausente, os renderizadores devem assumir 0.
+   */
+  wordSpacing?: number;
+
+  /**
+   * Origem dos metadados de estilo textual.
+   *
+   * Mantido opcional para permitir que extratores mais novos indiquem se o
+   * estilo veio diretamente do PDF, de fallback, OCR ou fonte desconhecida,
+   * sem obrigar todos os backends a preencherem o campo.
+   */
+  styleSource?: "pdf" | "pdf-fallback" | "ocr" | "system-fallback" | "unknown" | string;
+
+  /**
+   * Diagnóstico: o backend não trouxe uma família de fonte confiável?
+   */
+  missingFontFamily?: boolean;
+
+  /**
+   * Diagnóstico: a família de fonte veio de UI/system font em vez do PDF?
+   */
+  usedUiFontFamily?: boolean;
 
   /**
    * Ordem semântica.

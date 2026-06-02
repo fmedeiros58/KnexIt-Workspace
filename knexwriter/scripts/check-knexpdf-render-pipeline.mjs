@@ -5,73 +5,101 @@ const repoRoot = process.cwd();
 
 const checks = [
   {
-    file: "src/modules/Knexread/native-pdf-reader/components/PdfReaderShell.tsx",
-    patterns: [
-      "markViewportInteracting",
-      "finalRenderVersion",
-      "interactive-preview",
-      "warmup-preview",
-      "settled-final",
-      "createPdfRenderWindow",
-    ],
-  },
-  {
     file: "src/modules/Knexread/native-pdf-reader/components/PdfPageView.tsx",
     patterns: [
-      "renderPhase",
-      "data-knexread-page-render-phase",
-      "finalRenderVersion",
-      "isWarmupPage",
-      "renderPriority",
-      "rootMargin: nearViewportRootMargin",
-      "\"800px 0px 800px 0px\"",
+      "blueprint-default-002-no-canvas-text",
+      "shouldUseBlueprintPagePipeline",
+      "KNEX_PDF_DISABLE_BLUEPRINT_MODE",
+      "data-knexread-page-render-mode",
+      "data-knexread-page-blueprint-pipeline",
+      "PdfModularPageStage",
     ],
   },
   {
-    file: "src/modules/Knexread/native-pdf-reader/components/PdfPageCanvas.tsx",
+    file: "src/modules/Knexread/rendering/composition/PdfModularPageStage.tsx",
     patterns: [
-      "shouldDeferNonPdfJsRender",
-      "runKnexPdfRenderTask",
-      "data-knex-pdf-render-phase",
-      "knexPdfRenderQuality",
-      "canReplaceCurrentRender",
-      "createRenderIdentityKey",
-      "knexPdfRenderIdentity",
-      "knexPdfRenderAppliedAt",
-      "knexPdfiumRenderProfile",
-      "knexPdfiumColorConversion",
+      "PdfBlueprintStage",
+      "shouldUseBlueprintStage",
+      "KNEX_PDF_DISABLE_BLUEPRINT_MODE",
+      "KNEX_PDF_FORCE_LEGACY_MODULAR_STAGE",
     ],
   },
   {
-    file: "src/modules/Knexread/native-pdf-reader/knex-pdf-engine/rendering/RenderScheduler.ts",
+    file: "src/modules/Knexread/rendering/composition/PdfBlueprintStage.tsx",
     patterns: [
-      "PDFIUM_MAX_CONCURRENT_RENDERS = 1",
-      "requestIdleCallback",
-      "runKnexPdfRenderTask",
+      "buildKnexPdfPageBlueprintFromSession",
+      "PdfPagePresentationSurface",
+      "data-knexread-blueprint-stage",
+      "data-knexread-blueprint-canvas-text-render",
+      "renderText={false}",
     ],
   },
   {
-    file: "src/modules/Knexread/native-pdf-reader/knex-pdf-engine/rendering/RenderQualityController.ts",
+    file: "src/modules/Knexread/rendering/blueprint/PdfPagePresentationSurface.tsx",
     patterns: [
-      "KnexPdfRenderPhase",
-      "resolveRenderQualityForPhase",
-      "PDFIUM_INTERACTIVE_RENDER_BUDGET_MS",
-      "PDFIUM_INTERACTIVE_MAX_OUTPUT_SCALE",
-      "PDFIUM_FINAL_MAX_OUTPUT_SCALE",
-      "\"warmup-preview\"",
+      "data-knexread-presentation-surface=\"blueprint\"",
+      "shouldMountHtmlText = hasText",
+      "shouldMountHtmlText ? \"html\"",
+      "data-knexread-presentation-html-text-surface",
+      "PdfHtmlTextRenderer",
+      "PdfNonTextElementRenderer",
     ],
   },
   {
-    file: "src/modules/Knexread/native-pdf-reader/knex-pdf-engine/backends/future-pdfium/PdfiumEmbedPdfRuntime.ts",
+    file: "src/modules/Knexread/rendering/blueprint/PdfHtmlTextRenderer.tsx",
     patterns: [
-      "PdfiumRenderProfile",
-      "resolvePdfiumRenderProfile",
-      "resolvePdfiumRenderFlags",
-      "PdfiumColorConversionMode",
-      "resolvePdfiumColorConversionMode",
-      "KNEX_PDFIUM_MAX_OUTPUT_SCALE",
-      "knexPdfiumRenderProfile",
-      "knexPdfiumColorConversion",
+      "data-knexread-blueprint-html-text-renderer",
+      "data-knexread-blueprint-html-generic-ui-font-runs",
+      "getBlueprintTextElements",
+      "KnexPdfBlueprintElementRenderer",
+      "logPdfBlueprintTextDiagnostics",
+      "userSelect: \"text\"",
+    ],
+  },
+  {
+    file: "src/modules/Knexread/rendering/text/PdfTextFontResolver.ts",
+    patterns: [
+      "resolvePdfFontFamily",
+      "isUiFontFamily",
+      "\"Times New Roman\", Times, serif",
+      "Arial, Helvetica, sans-serif",
+    ],
+  },
+  {
+    file: "src/modules/Knexread/rendering/text/PdfTextStyleNormalizer.ts",
+    patterns: [
+      "normalizePdfTextRunMetrics",
+      "missingFontFamily",
+      "usedUiFontFamily",
+      "styleSource",
+    ],
+  },
+  {
+    file: "src/modules/Knexread/rendering/text/PdfTextLayerDiagnostics.ts",
+    patterns: [
+      "KNEX_PDF_DEBUG_BLUEPRINT_TEXT",
+      "[KnexPDF Blueprint Text]",
+      "genericUiFontRuns",
+    ],
+  },
+  {
+    file: "src/modules/Knexread/extraction/blueprint/KnexPdfBlueprintBuilder.ts",
+    patterns: [
+      "extractPdfNativeText",
+      "runPdfOcrPipeline",
+      "detectPdfOcrNeed",
+      "buildPdfVisualTextModel",
+      "extractImages: false",
+      "extractShapes: false",
+    ],
+  },
+  {
+    file: "src/modules/Knexread/rendering/canvas/PdfCanvasLayer.tsx",
+    patterns: [
+      "renderPdfiumPageToCanvas",
+      "renderText",
+      "data-knex-pdf-render-source",
+      "knexPdfTextSuppressionStatus",
     ],
   },
 ];
@@ -97,11 +125,11 @@ for (const check of checks) {
 }
 
 if (failures.length > 0) {
-  console.error("[KnexPDF render pipeline guard] Regression detected:");
+  console.error("[KnexPDF blueprint render pipeline guard] Regression detected:");
   for (const failure of failures) {
     console.error(`- ${failure}`);
   }
   process.exit(1);
 }
 
-console.log("[KnexPDF render pipeline guard] OK");
+console.log("[KnexPDF blueprint render pipeline guard] OK");

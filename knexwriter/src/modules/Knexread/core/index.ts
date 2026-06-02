@@ -9,3 +9,4 @@ export * from './KnexPdfRenderContracts';
 export * from './KnexPdfLayerContracts';
 export * from './KnexPdfGeometry';
 export * from './KnexPdfCapabilities';
+export * from './KnexPdfBlueprintTypes';

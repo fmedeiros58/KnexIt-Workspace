@@ -42,6 +42,11 @@ type TextOperationFilterResult = {
   filter?: (fnId: number) => boolean;
 };
 
+type CommittedCanvasGeometry = {
+  cssWidth: number;
+  cssHeight: number;
+};
+
 export type PdfCanvasLayerProps = {
   session: NativePdfSession;
   pageNumber: number;
@@ -180,6 +185,51 @@ function resetCanvas(input: {
   return { context, bitmapWidth, bitmapHeight };
 }
 
+function createWorkCanvas(): HTMLCanvasElement {
+  return document.createElement("canvas");
+}
+
+function commitRenderedCanvas(input: {
+  visibleCanvas: HTMLCanvasElement;
+  renderedCanvas: HTMLCanvasElement;
+  cssWidth: number;
+  cssHeight: number;
+  setCommittedGeometry: (geometry: CommittedCanvasGeometry) => void;
+}) {
+  const context = input.visibleCanvas.getContext("2d", { alpha: false });
+
+  if (!context) {
+    throw new Error("Canvas 2D context unavailable.");
+  }
+
+  /*
+   * Commit atômico:
+   *
+   * O canvas visível não é redimensionado no início do render.
+   * Primeiro renderizamos tudo em um canvas temporário. Só quando o bitmap novo
+   * está pronto copiamos para o canvas visível e atualizamos a dimensão CSS.
+   *
+   * Isso evita o efeito de texto "solto/agarrando" durante o zoom, causado pelo
+   * canvas visível sendo esticado para o novo tamanho antes de o conteúdo interno
+   * terminar de renderizar.
+   */
+  input.visibleCanvas.width = input.renderedCanvas.width;
+  input.visibleCanvas.height = input.renderedCanvas.height;
+  input.visibleCanvas.style.width = `${input.cssWidth}px`;
+  input.visibleCanvas.style.height = `${input.cssHeight}px`;
+
+  context.save();
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, input.visibleCanvas.width, input.visibleCanvas.height);
+  context.drawImage(input.renderedCanvas, 0, 0);
+  context.restore();
+
+  input.setCommittedGeometry({
+    cssWidth: input.cssWidth,
+    cssHeight: input.cssHeight,
+  });
+}
+
 export function PdfCanvasLayer({
   session,
   pageNumber,
@@ -226,6 +276,11 @@ export function PdfCanvasLayer({
   );
   const [renderSource, setRenderSource] =
     useState<PdfCanvasLayerRenderSource>("unknown");
+  const [committedCanvasGeometry, setCommittedCanvasGeometry] =
+    useState<CommittedCanvasGeometry>(() => ({
+      cssWidth: pageCssWidth,
+      cssHeight: pageCssHeight,
+    }));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -316,8 +371,9 @@ export function PdfCanvasLayer({
         ? { supported: false, reason: "render-text-enabled" }
         : resolvePdfJsTextOperationFilter();
 
+      const workCanvas = createWorkCanvas();
       const { bitmapWidth, bitmapHeight } = resetCanvas({
-        canvas,
+        canvas: workCanvas,
         cssWidth: pageCssWidth,
         cssHeight: pageCssHeight,
         outputScale,
@@ -335,7 +391,7 @@ export function PdfCanvasLayer({
           const pdfiumResult = await renderPdfiumPageToCanvas({
             session,
             pageNumber,
-            canvas,
+            canvas: workCanvas,
             scale: renderScale,
             outputScale,
             cssWidth: pageCssWidth,
@@ -368,6 +424,14 @@ export function PdfCanvasLayer({
             renderPixelRatio: pdfiumResult.outputScale,
             bitmapPixels: pdfiumResult.width * pdfiumResult.height,
           };
+
+          commitRenderedCanvas({
+            visibleCanvas: canvas,
+            renderedCanvas: workCanvas,
+            cssWidth: pageCssWidth,
+            cssHeight: pageCssHeight,
+            setCommittedGeometry: setCommittedCanvasGeometry,
+          });
 
           setRenderSource("pdfium");
           setStatus("ready");
@@ -407,7 +471,7 @@ export function PdfCanvasLayer({
         }
 
         const { context } = resetCanvas({
-          canvas,
+          canvas: workCanvas,
           cssWidth: pageCssWidth,
           cssHeight: pageCssHeight,
           outputScale,
@@ -442,6 +506,14 @@ export function PdfCanvasLayer({
 
           if (cancelled) return;
 
+          commitRenderedCanvas({
+            visibleCanvas: canvas,
+            renderedCanvas: workCanvas,
+            cssWidth: pageCssWidth,
+            cssHeight: pageCssHeight,
+            setCommittedGeometry: setCommittedCanvasGeometry,
+          });
+
           setRenderSource("unknown");
           setStatus("ready");
           setDataset({
@@ -460,7 +532,7 @@ export function PdfCanvasLayer({
 
         const renderParams: Parameters<PdfJsPage["render"]>[0] = {
           canvasContext: context,
-          canvas,
+          canvas: workCanvas,
           viewport,
           intent: "display",
         };
@@ -496,6 +568,14 @@ export function PdfCanvasLayer({
           renderPixelRatio: outputScale,
           bitmapPixels: bitmapWidth * bitmapHeight,
         };
+
+        commitRenderedCanvas({
+          visibleCanvas: canvas,
+          renderedCanvas: workCanvas,
+          cssWidth: pageCssWidth,
+          cssHeight: pageCssHeight,
+          setCommittedGeometry: setCommittedCanvasGeometry,
+        });
 
         setRenderSource("pdfjs");
         setStatus("ready");
@@ -563,10 +643,14 @@ export function PdfCanvasLayer({
       data-knex-pdf-render-status={status}
       data-knex-pdf-render-source={renderSource}
       data-knex-pdf-render-text={renderText ? "true" : "false"}
+      data-knex-pdf-target-css-width={pageCssWidth}
+      data-knex-pdf-target-css-height={pageCssHeight}
+      data-knex-pdf-committed-css-width={committedCanvasGeometry.cssWidth}
+      data-knex-pdf-committed-css-height={committedCanvasGeometry.cssHeight}
       style={{
         display: "block",
-        width: `${pageCssWidth}px`,
-        height: `${pageCssHeight}px`,
+        width: `${committedCanvasGeometry.cssWidth}px`,
+        height: `${committedCanvasGeometry.cssHeight}px`,
         background: "#ffffff",
       }}
     />

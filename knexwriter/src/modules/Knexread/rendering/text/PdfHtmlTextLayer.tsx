@@ -29,6 +29,17 @@ export function PdfHtmlTextLayer({
         inset: 0,
         pointerEvents: "auto",
         userSelect: "text",
+        fontFamily: '"Times New Roman", Times, serif',
+        fontSize: "1px",
+        fontWeight: 400,
+        fontStyle: "normal",
+        lineHeight: 1,
+        letterSpacing: 0,
+        wordSpacing: 0,
+        textAlign: "left",
+        textTransform: "none",
+        textDecoration: "none",
+        color: "rgb(0, 0, 0)",
       }}
     >
       {model.runs.map((run) => {
@@ -42,6 +53,15 @@ export function PdfHtmlTextLayer({
             data-pdf-text-render-mode="hybrid"
             data-pdf-confidence={run.confidence}
             data-knexread-html-text-run="true"
+            data-knexread-html-text-font-family={run.fontFamily}
+            data-knexread-html-text-font-name={run.fontName ?? ""}
+            data-knexread-html-text-style-source={run.styleSource}
+            data-knexread-html-text-missing-font-family={
+              run.missingFontFamily ? "true" : "false"
+            }
+            data-knexread-html-text-used-ui-font-family={
+              run.usedUiFontFamily ? "true" : "false"
+            }
             data-knexread-html-text-highlighted={highlighted ? "true" : "false"}
             style={{
               ...createPdfTextRunStyle(run),

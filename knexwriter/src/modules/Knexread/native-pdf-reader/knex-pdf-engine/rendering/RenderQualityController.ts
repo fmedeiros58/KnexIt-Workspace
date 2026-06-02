@@ -28,6 +28,21 @@ export type KnexPdfRenderPhase =
 
 export type KnexPdfRenderBackendKind = "pdfjs" | "pdfium";
 
+/**
+ * Entrada tolerante para pontos antigos do pipeline.
+ *
+ * "mupdf" não deve ser tratado como backend de escolha neste controller.
+ * Quando aparecer por compatibilidade/experimento antigo, normalizamos para
+ * "pdfium", que é o backend WASM suportado no fluxo atual.
+ */
+export type KnexPdfRenderBackendInput = KnexPdfRenderBackendKind | "mupdf";
+
+export function normalizeKnexPdfRenderBackendKind(
+  backend: KnexPdfRenderBackendInput,
+): KnexPdfRenderBackendKind {
+  return backend === "mupdf" ? "pdfium" : backend;
+}
+
 export const PDFIUM_INTERACTIVE_RENDER_BUDGET_MS = 120;
 export const PDFIUM_FINAL_RENDER_WARNING_MS = 800;
 
@@ -309,19 +324,20 @@ function resolveWasmFinalQualityCap(): KnexPdfRenderQuality {
   );
 }
 
-function isWasmPdfBackend(backend: KnexPdfRenderBackendKind): boolean {
-  return backend === "pdfium";
+function isWasmPdfBackend(backend: KnexPdfRenderBackendInput): boolean {
+  return normalizeKnexPdfRenderBackendKind(backend) === "pdfium";
 }
 
 export function resolveRenderQualityForPhase(input: {
-  backend: KnexPdfRenderBackendKind;
+  backend: KnexPdfRenderBackendInput;
   phase: KnexPdfRenderPhase;
   requestedQuality: KnexPdfRenderQualityInput;
   zoom: number;
 }): KnexPdfRenderQuality {
+  const backend = normalizeKnexPdfRenderBackendKind(input.backend);
   const requestedQuality = normalizeKnexPdfRenderQuality(input.requestedQuality);
 
-  if (isWasmPdfBackend(input.backend)) {
+  if (isWasmPdfBackend(backend)) {
     if (input.phase === "interactive-preview") {
       return capQualityAtStandard(requestedQuality);
     }
@@ -414,11 +430,13 @@ function resolveWasmMinOutputScaleForPhase(
 }
 
 export function clampKnexPdfOutputScaleForRenderPhase(input: {
-  backend: KnexPdfRenderBackendKind;
+  backend: KnexPdfRenderBackendInput;
   phase: KnexPdfRenderPhase;
   outputScale: number;
 }) {
-  if (!isWasmPdfBackend(input.backend)) {
+  const backend = normalizeKnexPdfRenderBackendKind(input.backend);
+
+  if (!isWasmPdfBackend(backend)) {
     return Math.max(1, safeNumber(input.outputScale, 1));
   }
 
@@ -590,7 +608,7 @@ export function explainKnexPdfOutputScale(input: {
  * quando o backend é PDFium.
  */
 export function explainKnexPdfOutputScaleForRenderPhase(input: {
-  backend: KnexPdfRenderBackendKind;
+  backend: KnexPdfRenderBackendInput;
   phase: KnexPdfRenderPhase;
   cssWidth: number;
   cssHeight: number;
@@ -604,20 +622,22 @@ export function explainKnexPdfOutputScaleForRenderPhase(input: {
     capabilities: input.capabilities,
   });
 
+  const backend = normalizeKnexPdfRenderBackendKind(input.backend);
   const clampedOutputScale = clampKnexPdfOutputScaleForRenderPhase({
-    backend: input.backend,
+    backend,
     phase: input.phase,
     outputScale: base.outputScale,
   });
 
   return {
     ...base,
-    backend: input.backend,
+    backend,
+    requestedBackend: input.backend,
     phase: input.phase,
-    wasmMinOutputScale: isWasmPdfBackend(input.backend)
+    wasmMinOutputScale: isWasmPdfBackend(backend)
       ? resolveWasmMinOutputScaleForPhase(input.phase)
       : undefined,
-    wasmMaxOutputScale: isWasmPdfBackend(input.backend)
+    wasmMaxOutputScale: isWasmPdfBackend(backend)
       ? resolveWasmMaxOutputScaleForPhase(input.phase)
       : undefined,
     unclampedOutputScale: base.outputScale,

@@ -55,7 +55,7 @@ const LINK_EXTRACTION_IDLE_DELAY_MS = 180;
  * layoutScale.
  */
 const TEXT_LAYER_BASE_SCALE = 1;
-const PAGEVIEW_AUDIT_VERSION = "tile-only-audit-001";
+const PAGEVIEW_AUDIT_VERSION = "blueprint-default-002-no-canvas-text";
 
 function safeNumber(
   value: number | null | undefined,
@@ -216,28 +216,67 @@ function readVisualTextOverrideFlags(): VisualTextOverrideFlags {
 }
 
 /**
- * Determina se o pipeline modular (HTML text sobre canvas) deve ser ativado.
- * 
- * Ativação automática (padrão):
- * - Ativado para PDFs não-legados (PDF.js 3.x+)
- * - Desativado para PDFs legados (PDF.js 2.x) para compatibilidade
- * 
- * Pode ser forçado via flags globais para testes/debug.
+ * Determina se o pipeline modular/blueprint deve ser ativado.
+ *
+ * O blueprint passa a ser o caminho oficial do Knexread. PDFs marcados como
+ * legacy não devem cair automaticamente em tiled-canvas, porque isso mantém o
+ * texto rasterizado e impede a camada HTML visual.
+ *
+ * Para voltar ao fluxo antigo, use uma flag explícita:
+ * globalThis.KNEX_PDF_DISABLE_MODULAR_PAGE_PIPELINE = true
+ * ou
+ * globalThis.KNEX_PDF_FORCE_LEGACY_TILED_CANVAS = true
  */
 function shouldUseModularPagePipeline(input: {
   isLegacyPdf: boolean;
   forceViaGlobal?: boolean;
 }): boolean {
-  // Se forçado globalmente, usar esse valor
+  void input;
+
+  if (getGlobalBoolean("KNEX_PDF_DISABLE_MODULAR_PAGE_PIPELINE")) {
+    return false;
+  }
+
+  if (getGlobalBoolean("KNEX_PDF_FORCE_LEGACY_TILED_CANVAS")) {
+    return false;
+  }
+
   if (
     getGlobalBoolean("KNEX_PDF_USE_MODULAR_PAGE_PIPELINE") ||
-    getGlobalBoolean("KNEX_PDF_FORCE_SINGLE_CANVAS_PAGE")
+    getGlobalBoolean("KNEX_PDF_FORCE_SINGLE_CANVAS_PAGE") ||
+    getGlobalBoolean("KNEX_PDF_USE_BLUEPRINT_MODE") ||
+    getGlobalBoolean("KNEX_PDF_FORCE_BLUEPRINT_STAGE")
   ) {
     return true;
   }
 
-  // Ativar automaticamente para PDFs não-legados
-  return !input.isLegacyPdf;
+  return true;
+}
+
+function shouldUseBlueprintPagePipeline(input: {
+  modularPagePipelineEnabled: boolean;
+}): boolean {
+  if (!input.modularPagePipelineEnabled) return false;
+
+  if (
+    getGlobalBoolean("KNEX_PDF_DISABLE_BLUEPRINT_MODE") ||
+    getGlobalBoolean("KNEX_PDF_FORCE_LEGACY_MODULAR_STAGE")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function getPageRenderMode(input: {
+  modularPagePipelineEnabled: boolean;
+  blueprintPagePipelineEnabled: boolean;
+}): "blueprint" | "single-canvas-html-text" | "tiled-canvas" {
+  if (!input.modularPagePipelineEnabled) return "tiled-canvas";
+
+  return input.blueprintPagePipelineEnabled
+    ? "blueprint"
+    : "single-canvas-html-text";
 }
 
 function shouldRequestVisualTextLayer(input: {
@@ -296,12 +335,11 @@ function scaleTextBlockToCss(
 /**
  * PdfPageView
  * ------------------------------------------------------------
- * Visual oficial: tiles.
+ * Visual oficial: blueprint HTML sobre surface estrutural.
  *
  * A camada textual invisível continua responsável por seleção, cópia,
- * busca e ancoragem. A camada textual visual é montada por padrão quando
- * há blocos de texto disponíveis, para melhorar a nitidez do texto sem
- * depender apenas da rasterização do canvas.
+ * busca e ancoragem quando o fallback legado está ativo. No fluxo modular,
+ * o blueprint monta texto HTML visível como apresentação principal.
  */
 export function PdfPageView({
   session,
@@ -383,9 +421,18 @@ export function PdfPageView({
   const [visualTextOverrideFlags, setVisualTextOverrideFlags] = useState(
     readVisualTextOverrideFlags,
   );
+  const initialModularPagePipelineEnabled = shouldUseModularPagePipeline({
+    isLegacyPdf: session.isLegacy,
+  });
   const [modularPagePipelineEnabled, setModularPagePipelineEnabled] = useState(
-    () => shouldUseModularPagePipeline({ isLegacyPdf: session.isLegacy }),
+    () => initialModularPagePipelineEnabled,
   );
+  const [blueprintPagePipelineEnabled, setBlueprintPagePipelineEnabled] =
+    useState(() =>
+      shouldUseBlueprintPagePipeline({
+        modularPagePipelineEnabled: initialModularPagePipelineEnabled,
+      }),
+    );
 
   const layoutScale = useMemo(
     () => getLayoutScaleFromZoom(zoom),
@@ -479,28 +526,32 @@ export function PdfPageView({
   });
 
   /*
-   * Regra refinada:
+   * Regra refinada para o modo blueprint:
    *
-   * Só removemos o texto do canvas quando já existem blocos visuais para
-   * desenhar a camada HTML. Se visualRequested=true, mas blockCount=0,
-   * mantemos o texto no canvas para evitar páginas sem texto.
+   * No blueprint, o texto visível deve vir exclusivamente do HTML/DOM da
+   * PdfPagePresentationSurface. O canvas pode continuar existindo como fallback
+   * não textual, mas nunca deve rasterizar texto quando
+   * blueprintPagePipelineEnabled=true.
    *
-   * Quando os blocos chegam, canvasRenderVersion muda e força uma nova
-   * geração dos tiles sem texto, permitindo o híbrido real.
+   * Isso evita duplicação visual: texto HTML do blueprint + texto antigo do
+   * canvas/tile.
    */
   const shouldHideCanvasTextForModularPipeline =
-    modularPagePipelineEnabled && visualTextLayerRequested && hasVisualTextBlocks;
+    blueprintPagePipelineEnabled ||
+    (modularPagePipelineEnabled && visualTextLayerRequested && hasVisualTextBlocks);
 
   const shouldRenderCanvasText =
-    !hasVisualTextBlocks ||
-    !(
-      shouldHideCanvasTextForModularPipeline ||
-      shouldHideCanvasTextWhenVisualLayerIsRequested({
-        visualTextLayerRequested,
-        hideCanvasTextWhenVisualLayerIsActive:
-          visualTextOverrideFlags.hideCanvasTextWhenVisualLayerIsActive,
-      })
-    );
+    blueprintPagePipelineEnabled
+      ? false
+      : !hasVisualTextBlocks ||
+        !(
+          shouldHideCanvasTextForModularPipeline ||
+          shouldHideCanvasTextWhenVisualLayerIsRequested({
+            visualTextLayerRequested,
+            hideCanvasTextWhenVisualLayerIsActive:
+              visualTextOverrideFlags.hideCanvasTextWhenVisualLayerIsActive,
+          })
+        );
 
   /*
    * Quando a camada visual está ativa, não montamos a camada invisível.
@@ -512,6 +563,11 @@ export function PdfPageView({
     effectiveShowTextLayer &&
     !visualTextLayerEnabled &&
     !modularPagePipelineEnabled;
+
+  const pageRenderMode = getPageRenderMode({
+    modularPagePipelineEnabled,
+    blueprintPagePipelineEnabled,
+  });
 
   /*
    * Quando alternamos entre canvas com texto e canvas sem texto, precisamos
@@ -632,6 +688,31 @@ export function PdfPageView({
       window.removeEventListener("keydown", syncModularPipelineFlag);
     };
   }, [session.isLegacy]);
+
+  useEffect(() => {
+    const syncBlueprintPipelineFlag = () => {
+      const next = shouldUseBlueprintPagePipeline({
+        modularPagePipelineEnabled,
+      });
+
+      setBlueprintPagePipelineEnabled((current) =>
+        current === next ? current : next,
+      );
+    };
+
+    syncBlueprintPipelineFlag();
+
+    const intervalId = window.setInterval(syncBlueprintPipelineFlag, 250);
+
+    window.addEventListener("focus", syncBlueprintPipelineFlag);
+    window.addEventListener("keydown", syncBlueprintPipelineFlag);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncBlueprintPipelineFlag);
+      window.removeEventListener("keydown", syncBlueprintPipelineFlag);
+    };
+  }, [modularPagePipelineEnabled]);
 
   useEffect(() => {
     const cachedSize = readCachedPageBaseSize(session, pageNumber);
@@ -935,6 +1016,8 @@ export function PdfPageView({
       layoutScale,
       textLayerScale,
       modularPagePipelineEnabled,
+      blueprintPagePipelineEnabled,
+      pageRenderMode,
       visualTextLayerEnabled,
       renderPhase,
       isZooming,
@@ -962,7 +1045,9 @@ export function PdfPageView({
     isZooming,
     layoutScale,
     modularPagePipelineEnabled,
+    blueprintPagePipelineEnabled,
     pageNumber,
+    pageRenderMode,
     renderPhase,
     renderedPage,
     shouldExtractText,
@@ -1118,11 +1203,12 @@ export function PdfPageView({
       data-knexread-page-zooming={isZooming ? "true" : "false"}
       data-knexread-page-scrolling={isScrolling ? "true" : "false"}
       data-knexread-page-render-phase={renderPhase}
-      data-knexread-page-render-mode={
-        modularPagePipelineEnabled ? "single-canvas-html-text" : "tiled-canvas"
-      }
+      data-knexread-page-render-mode={pageRenderMode}
       data-knexread-page-modular-pipeline={
         modularPagePipelineEnabled ? "true" : "false"
+      }
+      data-knexread-page-blueprint-pipeline={
+        blueprintPagePipelineEnabled ? "true" : "false"
       }
       data-knexread-page-visual-render-mode={visualRenderMode}
       data-knexread-page-visual-text-layer={visualTextLayerEnabled ? "true" : "false"}
@@ -1177,7 +1263,8 @@ export function PdfPageView({
         width={pageCssWidth}
         height={pageCssHeight}
         mode={
-          modularPagePipelineEnabled
+          pageRenderMode === "blueprint" ||
+          pageRenderMode === "single-canvas-html-text"
             ? "single-canvas-html-text"
             : "legacy-tiled-canvas"
         }
@@ -1189,7 +1276,11 @@ export function PdfPageView({
           data-knexread-page-visual-layer="true"
           data-knexread-page-visual-render-mode={visualRenderMode}
           data-knexread-page-visual-render-official={
-            modularPagePipelineEnabled ? "single-canvas" : "tiled-canvas"
+            pageRenderMode === "blueprint"
+              ? "blueprint"
+              : modularPagePipelineEnabled
+                ? "single-canvas"
+                : "tiled-canvas"
           }
           style={{
             width: `${pageCssWidth}px`,
@@ -1198,6 +1289,7 @@ export function PdfPageView({
         >
           {modularPagePipelineEnabled ? (
             <PdfModularPageStage
+              key={blueprintPagePipelineEnabled ? "blueprint" : "modular"}
               session={session}
               pageNumber={pageNumber}
               zoom={zoom}

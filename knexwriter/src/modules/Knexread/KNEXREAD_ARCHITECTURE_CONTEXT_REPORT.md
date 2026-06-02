@@ -53,6 +53,42 @@ Read this file before re-auditing the full Knexread tree. It records the current
 
 ## Latest Adjustments
 
+- Added an activatable blueprint route on top of the modular page stage:
+  - `rendering/composition/PdfBlueprintStage.tsx`
+  - `rendering/blueprint/KnexPdfBlueprintRenderer.tsx`
+  - `rendering/blueprint/KnexPdfBlueprintElementRenderer.tsx`
+  - `rendering/blueprint/PdfPagePresentationSurface.tsx`
+  - `rendering/blueprint/PdfNonTextElementRenderer.tsx`
+  - `rendering/blueprint/PdfHtmlTextRenderer.tsx`
+- `PdfModularPageStage.tsx` now routes to `PdfBlueprintStage` by default
+  whenever the modular page pipeline is active. Use
+  `globalThis.KNEX_PDF_DISABLE_BLUEPRINT_MODE = true` or
+  `globalThis.KNEX_PDF_FORCE_LEGACY_MODULAR_STAGE = true` only for explicit
+  fallback to the older single-canvas HTML stage.
+- `PdfPageView.tsx` now mirrors that route in DOM diagnostics with
+  `data-knexread-page-render-mode="blueprint"` and
+  `data-knexread-page-blueprint-pipeline="true"` when the blueprint flag is on.
+  It remounts the modular stage when the blueprint flag changes so the staged
+  route and page diagnostics stay in sync.
+- `extraction/blueprint/KnexPdfBlueprintBuilder.ts` now builds a runtime page
+  blueprint from the live PDF session. It extracts native/OCR text into visual
+  text elements and extracts PDF widget annotations as DOM form fields.
+- The blueprint stage renders a page as:
+  - `PdfPagePresentationSurface` as the DOM surface;
+  - canvas structural fallback underneath for non-text content;
+  - `PdfNonTextElementRenderer` for extracted image/shape/form-field elements;
+  - `PdfHtmlTextRenderer` for real visible HTML text spans.
+- Blueprint text now goes through a conservative native/OCR merge policy before
+  rendering. Native text remains primary; OCR blocks are added only when text and
+  geometry do not overlap likely native duplicates.
+- The blueprint canvas asks `PdfCanvasLayer` to suppress canvas text for the
+  whole blueprint route. Text presentation is owned by `PdfHtmlTextRenderer`;
+  if PDFium non-text rendering is unavailable, the existing canvas layer records
+  the fallback reason in DOM diagnostics.
+- Image and shape structural extraction are intentionally not claimed as active
+  yet. The blueprint builder defaults those flags off; non-text visual content
+  remains handled by the non-text canvas surface until a real PDF operations
+  extractor is wired.
 - Removed active MuPDF references from the Knexread engine/rendering/core scopes that were still visible in comments or backend union types.
 - Added cache key contract:
   - `cache/PdfCacheKeyBuilder.ts`
@@ -130,6 +166,32 @@ globalThis.KNEX_PDF_FORCE_SINGLE_CANVAS_PAGE = true;
 
 The legacy tiled path stays available when both globals are false.
 
+The blueprint stage is now the default modular stage. To force it on for a
+legacy document or debugging session, enable the modular pipeline:
+
+```js
+globalThis.KNEX_PDF_USE_MODULAR_PAGE_PIPELINE = true;
+```
+
+To temporarily fall back to the older modular single-canvas route:
+
+```js
+globalThis.KNEX_PDF_DISABLE_BLUEPRINT_MODE = true;
+```
+
+Expected DOM markers after activation:
+
+```js
+document.querySelector('[data-knexread-blueprint-stage="true"]')
+document.querySelector('[data-knexread-blueprint-renderer="true"]')
+document.querySelector('[data-knexread-blueprint-element-count]')
+document.querySelector('[data-knexread-blueprint-text-count]')
+document.querySelector('[data-knexread-page-render-mode="blueprint"]')
+document.querySelector('[data-knexread-presentation-surface="blueprint"]')
+document.querySelector('[data-knexread-presentation-html-text-surface="true"]')
+document.querySelector('[data-knexread-blueprint-html-text-renderer="true"]')
+```
+
 PDFium runtime activation options:
 
 ```js
@@ -176,6 +238,86 @@ Additional 2026-06-01 validation after PDFium non-text adapter wiring:
 - New-file trailing whitespace scan: passed.
 - Rendering module legacy helper scan: no matches.
 
+Additional 2026-06-01 validation after blueprint stage wiring:
+
+- TypeScript compile: passed.
+- Blueprint placeholder/stub scan: no TODO/FIXME/stub/not-implemented markers in
+  the blueprint route. Matches for `placeholder` are real HTML form field
+  attributes only.
+- Local dev server check: `http://localhost:3000` responded with HTTP 200.
+- Package lint: previously blocked before ESLint by protected extension point
+  checks for already-missing legacy/future files:
+  - `native-pdf-reader/knex-pdf-engine/backends/future-mupdf/MuPdfBackend.placeholder.ts`
+  - `native-pdf-reader/knex-pdf-engine/backends/future-mupdf/README.md`
+  - `native-pdf-reader/knex-pdf-engine/backends/future-pdfium/PdfiumBackend.placeholder.ts`
+  - `native-pdf-reader/knex-pdf-engine/backends/future-pdfium/README.md`
+  - `native-pdf-reader/knex-pdf-engine/translation/TranslationReconstructionEngine.placeholder.ts`
+
+Additional 2026-06-01 validation after presentation surface split:
+
+- TypeScript compile: passed.
+- Diff whitespace check for `src/modules/Knexread`: passed; Git only reported
+  line-ending normalization warnings.
+- `knex-pdf-engine` migration matrix created:
+  - `KNEX_PDF_ENGINE_BLUEPRINT_MIGRATION_AUDIT.md`
+- Current matrix summary:
+  - Essencial para leitura/extracao: 48 arquivo(s)
+  - Essencial para novo blueprint: 4 arquivo(s)
+  - Fallback temporario: 8 arquivo(s)
+  - Legado de apresentacao raster/canvas: 19 arquivo(s)
+
+Additional 2026-06-01 adjustment after making blueprint the default stage:
+
+- Removed `scripts/check-knexpdf-extension-points.mjs` from the lint chain and
+  deleted the script. It required legacy placeholder/guard files that
+  conflict with the controlled cleanup direction.
+- `PdfPageView.tsx` now reports `data-knexread-page-render-mode="blueprint"`
+  by default for the modular route.
+- `PdfBlueprintStage.tsx` now keeps canvas text disabled for the blueprint
+  route; visible text must come from the HTML blueprint renderer.
+- `scripts/check-knexpdf-render-pipeline.mjs` now protects the blueprint/HTML
+  route instead of the old raster presentation files.
+- Validation after this adjustment:
+  - TypeScript compile: passed.
+  - Diff whitespace check: passed; Git only reported line-ending normalization warnings.
+  - Package lint: passed with existing warnings, no errors. The blueprint render
+    pipeline guard reported OK.
+
+Additional 2026-06-01 adjustment after browser text-style audit:
+
+- Confirmed by code path that visible blueprint text is rendered through:
+  `PdfPagePresentationSurface -> PdfHtmlTextRenderer -> KnexPdfBlueprintElementRenderer -> createPdfTextRunStyle`.
+- Added PDF font/style normalization:
+  - `rendering/text/PdfTextFontResolver.ts`
+  - `rendering/text/PdfTextStyleNormalizer.ts`
+  - `rendering/text/PdfTextLayerDiagnostics.ts`
+- `PdfVisualTextModelBuilder.ts` now emits explicit text runs with
+  `fontName`, `baseline`, `wordSpacing`, `textSource`, `geometrySource`,
+  `styleSource`, `missingFontFamily`, and `usedUiFontFamily`.
+- `PdfTextCssFactory.ts` now resolves PDF font names/families before styling,
+  neutralizes inherited UI typography, and keeps HTML geometry in CSS
+  coordinates.
+- `PdfHtmlTextRenderer.tsx` and `PdfHtmlTextLayer.tsx` now reset inherited
+  UI typography on their root nodes and expose font/style diagnostics in DOM.
+- Controlled runtime diagnostics are available with:
+
+```js
+globalThis.KNEX_PDF_DEBUG_BLUEPRINT_TEXT = true;
+```
+
+Expected DOM markers for this pass:
+
+```js
+document.querySelector('[data-knexread-blueprint-html-generic-ui-font-runs]')
+document.querySelectorAll('[data-knexread-blueprint-element="text"][data-knexread-blueprint-font-family]')
+document.querySelectorAll('[data-knexread-blueprint-used-ui-font-family="true"]')
+```
+
+- Validation after this adjustment:
+  - TypeScript compile: passed.
+  - Package lint: passed with existing warnings, no errors. The blueprint render
+    pipeline guard reported OK.
+
 ## Worktree Notes
 
 - The workspace is dirty and contains changes not made in this pass.
@@ -184,12 +326,15 @@ Additional 2026-06-01 validation after PDFium non-text adapter wiring:
 
 ## Next Safe Steps
 
-1. Wire the new cache key builder into render/text/cache code paths without changing visual behavior.
-2. Validate `single-canvas-html-text` in browser with a real PDF before deleting tile files.
-3. Validate the PDFium non-text path in-browser with a real runtime and a real PDF. Confirm `data-knex-pdf-render-source="pdfium"` and `data-knex-pdf-text-suppression-status="applied"` after HTML text is ready.
-4. Register an OCR adapter for `PdfOcrPipeline` and feed the detector with image coverage/page analysis.
-5. Improve the PDFium text geometry extractor with font metadata when the runtime exposes font names/weights/transforms.
-6. Move text selection creation fully into `rendering/text` and emit annotation drafts through callbacks/services.
+1. Validate the blueprint stage in browser with a real PDF before deleting
+   fallback/legacy files.
+2. Wire the new cache key builder into render/text/cache code paths without changing visual behavior.
+3. Validate `blueprint` in browser with a real PDF before deleting tile files.
+4. Validate the PDFium non-text path in-browser with a real runtime and a real PDF. Confirm `data-knex-pdf-render-source="pdfium"` and `data-knex-pdf-text-suppression-status="applied"`.
+5. Register an OCR adapter for `PdfOcrPipeline` and feed the detector with image coverage/page analysis.
+6. Implement real PDF operation extraction for images/shapes if the blueprint is expected to replace the non-text canvas completely.
+7. Improve the PDFium text geometry extractor with font metadata when the runtime exposes font names/weights/transforms.
+8. Move text selection creation fully into `rendering/text` and emit annotation drafts through callbacks/services.
 
 ## Cleanup Policy
 

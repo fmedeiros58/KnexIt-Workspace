@@ -12,6 +12,8 @@ import {
   clampKnexPdfOutputScaleForRenderPhase,
   computeKnexPdfOutputScale,
   explainKnexPdfOutputScale,
+  normalizeKnexPdfRenderBackendKind,
+  type KnexPdfRenderBackendInput,
   type KnexPdfRenderBackendKind,
   type KnexPdfRenderPhase,
 } from "./RenderQualityController";
@@ -28,7 +30,7 @@ export type BuildKnexPdfPageGeometryInput = {
   maxBitmapPixels?: number;
   maxBitmapSide?: number;
   maxOutputScale?: number;
-  backend?: KnexPdfRenderBackendKind;
+  backend?: KnexPdfRenderBackendInput;
   renderPhase?: KnexPdfRenderPhase;
 };
 
@@ -138,8 +140,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(safeMin, Math.min(safeMax, safeValue));
 }
 
+function normalizeOptionalBackend(
+  backend: KnexPdfRenderBackendInput | undefined,
+): KnexPdfRenderBackendKind | undefined {
+  return backend ? normalizeKnexPdfRenderBackendKind(backend) : undefined;
+}
+
 function resolveTypographicOutputScaleFloor(input: {
-  backend?: KnexPdfRenderBackendKind;
+  backend?: KnexPdfRenderBackendInput;
   renderPhase?: KnexPdfRenderPhase;
 }): number {
   if (input.backend === "pdfjs") {
@@ -192,7 +200,7 @@ function resolveTypographicOutputScaleFloor(input: {
 }
 
 function resolveDefaultMaxBitmapPixels(input: {
-  backend?: KnexPdfRenderBackendKind;
+  backend?: KnexPdfRenderBackendInput;
   renderPhase?: KnexPdfRenderPhase;
 }): number {
   if (input.backend === "pdfjs") {
@@ -291,6 +299,7 @@ function computeOutputScaleLimit(input: {
 export function buildKnexPdfPageGeometry(
   input: BuildKnexPdfPageGeometryInput,
 ): KnexPdfPageGeometry {
+  const backend = normalizeOptionalBackend(input.backend);
   const rotation = normalizeKnexPdfPageRotation(input.rotation);
   const rawBaseWidth = Math.max(
     MIN_PAGE_SIDE,
@@ -330,7 +339,7 @@ export function buildKnexPdfPageGeometry(
   );
 
   const typographicMinimumOutputScale = resolveTypographicOutputScaleFloor({
-    backend: input.backend,
+    backend,
     renderPhase: input.renderPhase,
   });
 
@@ -345,9 +354,9 @@ export function buildKnexPdfPageGeometry(
     requestedMinimumOutputScale,
   );
   const phaseClampedOutputScale =
-    input.backend && input.renderPhase
+    backend && input.renderPhase
       ? clampKnexPdfOutputScaleForRenderPhase({
-          backend: input.backend,
+          backend,
           phase: input.renderPhase,
           outputScale: targetOutputScale,
         })
@@ -359,14 +368,14 @@ export function buildKnexPdfPageGeometry(
     maxBitmapPixels:
       input.maxBitmapPixels ??
       resolveDefaultMaxBitmapPixels({
-        backend: input.backend,
+        backend,
         renderPhase: input.renderPhase,
       }),
     maxBitmapSide: input.maxBitmapSide,
     maxOutputScale:
       input.maxOutputScale ??
       resolveDefaultMaxOutputScale({
-        backend: input.backend,
+        backend,
       }),
     qualityMaxOutputScale: Math.max(
       safeNumber(explanation.maxAllowedScale, KNEX_PDF_MAX_OUTPUT_SCALE),

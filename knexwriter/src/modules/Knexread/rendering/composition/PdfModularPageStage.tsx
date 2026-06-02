@@ -18,6 +18,7 @@ import {
   buildPdfVisualTextModel,
   type PdfVisualTextModel,
 } from "../text/PdfVisualTextModelBuilder";
+import { PdfBlueprintStage } from "./PdfBlueprintStage";
 
 type TextPipelineStatus =
   | "idle"
@@ -40,6 +41,24 @@ function getLayoutScale(zoom: number): number {
   return Math.max(0.01, zoom / 100);
 }
 
+function getGlobalBoolean(key: string): boolean {
+  if (typeof globalThis === "undefined") return false;
+
+  const value = (globalThis as unknown as Record<string, unknown>)[key];
+  return value === true || value === "true" || value === "1";
+}
+
+function shouldUseBlueprintStage(): boolean {
+  if (
+    getGlobalBoolean("KNEX_PDF_DISABLE_BLUEPRINT_MODE") ||
+    getGlobalBoolean("KNEX_PDF_FORCE_LEGACY_MODULAR_STAGE")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export type PdfModularPageStageProps = {
   session: NativePdfSession;
   pageNumber: number;
@@ -60,6 +79,58 @@ export type PdfModularPageStageProps = {
 };
 
 export function PdfModularPageStage({
+  session,
+  pageNumber,
+  zoom,
+  pageCssWidth,
+  pageCssHeight,
+  renderQuality,
+  renderPhase,
+  finalRenderVersion,
+  highlightedRunIds,
+  onRendered,
+  onTextBlocksChange,
+  onCanvasRenderStateChange,
+}: PdfModularPageStageProps) {
+  const [blueprintStageEnabled] = useState(shouldUseBlueprintStage);
+
+  if (blueprintStageEnabled) {
+    return (
+      <PdfBlueprintStage
+        session={session}
+        pageNumber={pageNumber}
+        zoom={zoom}
+        pageCssWidth={pageCssWidth}
+        pageCssHeight={pageCssHeight}
+        renderQuality={renderQuality}
+        renderPhase={renderPhase}
+        finalRenderVersion={finalRenderVersion}
+        onRendered={onRendered}
+        onTextBlocksChange={onTextBlocksChange}
+        onCanvasRenderStateChange={onCanvasRenderStateChange}
+      />
+    );
+  }
+
+  return (
+    <PdfLegacyModularPageStage
+      session={session}
+      pageNumber={pageNumber}
+      zoom={zoom}
+      pageCssWidth={pageCssWidth}
+      pageCssHeight={pageCssHeight}
+      renderQuality={renderQuality}
+      renderPhase={renderPhase}
+      finalRenderVersion={finalRenderVersion}
+      highlightedRunIds={highlightedRunIds}
+      onRendered={onRendered}
+      onTextBlocksChange={onTextBlocksChange}
+      onCanvasRenderStateChange={onCanvasRenderStateChange}
+    />
+  );
+}
+
+function PdfLegacyModularPageStage({
   session,
   pageNumber,
   zoom,

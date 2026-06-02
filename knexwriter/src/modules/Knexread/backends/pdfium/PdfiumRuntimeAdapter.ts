@@ -251,6 +251,11 @@ function suppressTextObjects(input: {
 
   try {
     const objectCount = Math.max(0, input.pdfium.FPDFPage_CountObjects!(input.pagePtr));
+
+    if (objectCount === 0) {
+      return { status: "unsupported", filteredTextOperationCount: 0 };
+    }
+
     let removed = 0;
 
     for (let index = objectCount - 1; index >= 0; index -= 1) {
@@ -266,7 +271,11 @@ function suppressTextObjects(input: {
       }
     }
 
-    if (removed > 0 && input.pdfium.FPDFPage_GenerateContent) {
+    if (removed === 0) {
+      return { status: "unsupported", filteredTextOperationCount: 0 };
+    }
+
+    if (input.pdfium.FPDFPage_GenerateContent) {
       try {
         input.pdfium.FPDFPage_GenerateContent(input.pagePtr);
       } catch {
@@ -318,7 +327,12 @@ function bgraToRgba(input: {
   bgra: Uint8Array;
   byteLength: number;
 }): Uint8ClampedArray {
-  const output = new Uint8ClampedArray(input.byteLength);
+  /*
+   * ImageData expects an ImageDataArray backed by an ArrayBuffer. Creating the
+   * buffer explicitly avoids ArrayBufferLike inference in stricter DOM typings.
+   */
+  const outputBuffer = new ArrayBuffer(input.byteLength);
+  const output = new Uint8ClampedArray(outputBuffer);
 
   for (let index = 0; index < input.byteLength; index += 4) {
     output[index] = input.bgra[index + 2] ?? 255;
@@ -692,6 +706,10 @@ function createEmbedPdfRuntimeAdapter(
           height,
           0xffffffff,
         );
+        const renderFlags = renderText
+          ? FPDF_ANNOT | FPDF_LCD_TEXT
+          : FPDF_ANNOT;
+
         pageState.pdfium.FPDF_RenderPageBitmap(
           bitmapPtr,
           pageState.pagePtr,
@@ -700,7 +718,7 @@ function createEmbedPdfRuntimeAdapter(
           width,
           height,
           0,
-          FPDF_ANNOT | FPDF_LCD_TEXT,
+          renderFlags,
         );
 
         if (input.signal?.aborted) throw new DOMException("Render aborted", "AbortError");
@@ -712,11 +730,8 @@ function createEmbedPdfRuntimeAdapter(
           bufferPtr,
           bufferPtr + byteLength,
         );
-        const imageData = new ImageData(
-          bgraToRgba({ bgra, byteLength }),
-          width,
-          height,
-        );
+        const rgba = bgraToRgba({ bgra, byteLength });
+        const imageData = new ImageData(rgba, width, height);
 
         context.save();
         context.setTransform(1, 0, 0, 1, 0, 0);
@@ -883,11 +898,11 @@ export class PdfiumRuntimeAdapterLoader {
       getGlobalString("KNEX_PDFIUM_RUNTIME_MODULE") ??
       getGlobalString("__KNEX_PDFIUM_RUNTIME_MODULE__") ??
       EMBED_PDF_PDFIUM_PACKAGE;
-    const module = await dynamicImportModule(importSpecifier);
+    const runtimeModule = await dynamicImportModule(importSpecifier);
 
-    const adapter = isRuntimeAdapter(module)
-      ? module
-      : createEmbedPdfRuntimeAdapter(module, {
+    const adapter = isRuntimeAdapter(runtimeModule)
+      ? runtimeModule
+      : createEmbedPdfRuntimeAdapter(runtimeModule, {
           wasmUrl:
             getGlobalString("KNEX_PDFIUM_WASM_URL") ??
             getGlobalString("__KNEX_PDFIUM_WASM_URL__"),

@@ -1,8 +1,18 @@
 /**
  * KnexPdfGeometry.ts
- * 
- * Utilitários para cálculos de geometria, escala e conversão de coordenadas.
- * Centraliza toda a lógica de dimensionamento para evitar inconsistências.
+ *
+ * Núcleo canônico de geometria do Knexread.
+ *
+ * Este arquivo centraliza:
+ * - normalização de zoom;
+ * - cálculo de escala CSS/bitmap;
+ * - conversão PDF ↔ CSS;
+ * - cálculo de dimensões de página;
+ * - cálculo de viewport/visibilidade.
+ *
+ * Regra estrutural:
+ * - Coordenadas de blueprint/HTML devem sempre estar em CSS pixels finais.
+ * - outputScale e devicePixelRatio pertencem ao canvas/bitmap, não ao DOM.
  */
 
 import type {
@@ -11,12 +21,142 @@ import type {
   KnexPdfViewport,
 } from './KnexPdfTypes';
 
+export type KnexPdfRotation = 0 | 90 | 180 | 270;
+
+export type KnexPdfPoint = {
+  x: number;
+  y: number;
+};
+
+export type KnexPdfRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type KnexPdfPageSizePt = {
+  width: number;
+  height: number;
+};
+
+export type KnexPdfCssPageSize = {
+  width: number;
+  height: number;
+};
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function safeNumber(value: unknown, fallback: number): number {
+  return isFiniteNumber(value) ? value : fallback;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getWindowDevicePixelRatio(): number {
+  if (typeof window === 'undefined') return 1;
+
+  return Math.max(1, window.devicePixelRatio || 1);
+}
+
+function normalizeRotation(value: unknown): KnexPdfRotation {
+  return value === 90 || value === 180 || value === 270 ? value : 0;
+}
+
+function normalizePageSizePt(pageSizePt: KnexPdfPageSizePt): KnexPdfPageSizePt {
+  return {
+    width: Math.max(1, safeNumber(pageSizePt.width, 1)),
+    height: Math.max(1, safeNumber(pageSizePt.height, 1)),
+  };
+}
+
+function getRectCorners(rect: KnexPdfRect): KnexPdfPoint[] {
+  return [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x, y: rect.y + rect.height },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+  ];
+}
+
+function boundsFromPoints(points: KnexPdfPoint[]): KnexPdfRect {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  const right = Math.max(...xs);
+  const bottom = Math.max(...ys);
+
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
 /**
- * Construtor de escala de renderização
+ * Utilitários numéricos compartilhados.
+ */
+export class KnexPdfGeometryMath {
+  /**
+   * Normaliza zoom para fator decimal.
+   *
+   * Aceita tanto:
+   * - 1, 1.25, 0.8
+   * - 100, 125, 80
+   *
+   * Qualquer valor acima de 10 é tratado como porcentagem, pois no reader o
+   * zoom de UI costuma circular como 100, 125, 150 etc.
+   */
+  static normalizeZoom(zoom: number | null | undefined, fallback = 1): number {
+    const value = safeNumber(zoom, fallback);
+
+    if (value <= 0) return Math.max(0.01, fallback);
+    if (value > 10) return Math.max(0.01, value / 100);
+
+    return Math.max(0.01, value);
+  }
+
+  static normalizeDevicePixelRatio(
+    devicePixelRatio: number | null | undefined,
+  ): number {
+    return Math.max(1, safeNumber(devicePixelRatio, 1));
+  }
+
+  static normalizeOutputScale(
+    outputScale: number | null | undefined,
+    fallback = 1,
+  ): number {
+    return Math.max(0.5, safeNumber(outputScale, fallback));
+  }
+
+  static roundCss(value: number): number {
+    return Math.round(value * 1000) / 1000;
+  }
+
+  static roundBitmap(value: number): number {
+    return Math.max(1, Math.round(value));
+  }
+
+  static clamp = clamp;
+}
+
+/**
+ * Construtor de escala de renderização.
  */
 export class KnexPdfRenderScaleBuilder {
   /**
-   * Calcula escala de renderização completa
+   * Calcula escala de renderização completa.
+   *
+   * Entrada:
+   * - widthPt/heightPt: dimensão da página em pontos PDF.
+   * - zoom: fator decimal ou porcentagem.
+   * - devicePixelRatio/outputScale: somente bitmap/canvas.
    */
   static build(input: {
     widthPt: number;
@@ -25,26 +165,34 @@ export class KnexPdfRenderScaleBuilder {
     devicePixelRatio: number;
     outputScale?: number;
   }): KnexPdfRenderScale {
-    const zoom = Math.max(0.01, input.zoom || 1);
-    const devicePixelRatio = Math.max(1, input.devicePixelRatio || 1);
-    const outputScale = Math.max(0.5, input.outputScale || 1);
+    const zoom = KnexPdfGeometryMath.normalizeZoom(input.zoom);
+    const devicePixelRatio =
+      KnexPdfGeometryMath.normalizeDevicePixelRatio(input.devicePixelRatio);
+    const outputScale = KnexPdfGeometryMath.normalizeOutputScale(
+      input.outputScale,
+    );
 
-    // Escala total = zoom * DPR * output scale
-    const totalScale = zoom * devicePixelRatio * outputScale;
+    const cssWidth = Math.max(
+      1,
+      KnexPdfGeometryMath.roundCss(safeNumber(input.widthPt, 1) * zoom),
+    );
+    const cssHeight = Math.max(
+      1,
+      KnexPdfGeometryMath.roundCss(safeNumber(input.heightPt, 1) * zoom),
+    );
 
-    // Dimensões CSS baseadas em zoom (em pixels)
-    const cssWidth = input.widthPt * zoom;
-    const cssHeight = input.heightPt * zoom;
-
-    // Dimensões do bitmap = CSS * DPR * output scale
-    const bitmapWidth = Math.round(cssWidth * devicePixelRatio * outputScale);
-    const bitmapHeight = Math.round(cssHeight * devicePixelRatio * outputScale);
+    const bitmapWidth = KnexPdfGeometryMath.roundBitmap(
+      cssWidth * devicePixelRatio * outputScale,
+    );
+    const bitmapHeight = KnexPdfGeometryMath.roundBitmap(
+      cssHeight * devicePixelRatio * outputScale,
+    );
 
     return {
       zoom,
       devicePixelRatio,
       outputScale,
-      totalScale,
+      totalScale: zoom * devicePixelRatio * outputScale,
       cssWidth,
       cssHeight,
       bitmapWidth,
@@ -53,7 +201,7 @@ export class KnexPdfRenderScaleBuilder {
   }
 
   /**
-   * Calcula escala ideal para HiDPI
+   * Calcula escala ideal para HiDPI.
    */
   static calculateOutputScale(
     canvas: HTMLCanvasElement,
@@ -61,16 +209,21 @@ export class KnexPdfRenderScaleBuilder {
     const ctx = canvas.getContext('2d');
     if (!ctx) return { scale: 1, canUseNativeScale: false };
 
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+    const dpr = getWindowDevicePixelRatio();
     const backingStore =
-      (ctx as any).backingStorePixelRatio ||
-      (ctx as any).webkitBackingStorePixelRatio ||
-      (ctx as any).mozBackingStorePixelRatio ||
-      (ctx as any).msBackingStorePixelRatio ||
-      (ctx as any).oBackingStorePixelRatio ||
+      (ctx as unknown as { backingStorePixelRatio?: number }).backingStorePixelRatio ||
+      (ctx as unknown as { webkitBackingStorePixelRatio?: number })
+        .webkitBackingStorePixelRatio ||
+      (ctx as unknown as { mozBackingStorePixelRatio?: number })
+        .mozBackingStorePixelRatio ||
+      (ctx as unknown as { msBackingStorePixelRatio?: number })
+        .msBackingStorePixelRatio ||
+      (ctx as unknown as { oBackingStorePixelRatio?: number })
+        .oBackingStorePixelRatio ||
       1;
 
-    const ratio = dpr / backingStore;
+    const ratio = dpr / Math.max(1, backingStore);
+
     return {
       scale: ratio > 1 ? ratio : 1,
       canUseNativeScale: ratio >= 1,
@@ -79,187 +232,290 @@ export class KnexPdfRenderScaleBuilder {
 }
 
 /**
- * Conversor de coordenadas PDF <-> CSS
+ * Conversor de coordenadas PDF <-> CSS.
+ *
+ * Convenção:
+ * - PDF: origem no canto inferior esquerdo.
+ * - CSS: origem no canto superior esquerdo.
+ * - Zoom sempre normalizado para fator decimal.
  */
 export class KnexPdfCoordinateConverter {
+  static normalizeZoom(zoom: number): number {
+    return KnexPdfGeometryMath.normalizeZoom(zoom);
+  }
+
+  static getCssPageSize(input: {
+    pageSizePt: KnexPdfPageSizePt;
+    zoom: number;
+    rotation?: KnexPdfRotation;
+  }): KnexPdfCssPageSize {
+    const pageSize = normalizePageSizePt(input.pageSizePt);
+    const zoom = KnexPdfGeometryMath.normalizeZoom(input.zoom);
+    const rotation = normalizeRotation(input.rotation);
+
+    const width = pageSize.width * zoom;
+    const height = pageSize.height * zoom;
+
+    if (rotation === 90 || rotation === 270) {
+      return {
+        width: KnexPdfGeometryMath.roundCss(height),
+        height: KnexPdfGeometryMath.roundCss(width),
+      };
+    }
+
+    return {
+      width: KnexPdfGeometryMath.roundCss(width),
+      height: KnexPdfGeometryMath.roundCss(height),
+    };
+  }
+
   /**
-   * Converte coordenadas PDF para CSS
-   *
-   * Coordenadas PDF têm origem no canto inferior-esquerdo.
-   * Coordenadas CSS têm origem no canto superior-esquerdo.
+   * Converte ponto PDF para ponto CSS.
    */
   static pdfToCss(
     pdfX: number,
     pdfY: number,
-    pageSizePt: { width: number; height: number },
+    pageSizePt: KnexPdfPageSizePt,
     zoom: number,
-    rotation: 0 | 90 | 180 | 270 = 0,
-  ): { x: number; y: number } {
-    let cssX = pdfX * zoom;
-    let cssY = (pageSizePt.height - pdfY) * zoom; // Inverte Y
+    rotation: KnexPdfRotation = 0,
+  ): KnexPdfPoint {
+    const pageSize = normalizePageSizePt(pageSizePt);
+    const z = KnexPdfGeometryMath.normalizeZoom(zoom);
+    const x = safeNumber(pdfX, 0);
+    const y = safeNumber(pdfY, 0);
 
-    // Aplica rotação
-    if (rotation === 90) {
-      const temp = cssX;
-      cssX = cssY;
-      cssY = pageSizePt.width * zoom - temp;
-    } else if (rotation === 180) {
-      cssX = pageSizePt.width * zoom - cssX;
-      cssY = pageSizePt.height * zoom - cssY;
-    } else if (rotation === 270) {
-      const temp = cssX;
-      cssX = pageSizePt.height * zoom - cssY;
-      cssY = temp;
+    switch (normalizeRotation(rotation)) {
+      case 90:
+        return {
+          x: KnexPdfGeometryMath.roundCss((pageSize.height - y) * z),
+          y: KnexPdfGeometryMath.roundCss((pageSize.width - x) * z),
+        };
+      case 180:
+        return {
+          x: KnexPdfGeometryMath.roundCss((pageSize.width - x) * z),
+          y: KnexPdfGeometryMath.roundCss(y * z),
+        };
+      case 270:
+        return {
+          x: KnexPdfGeometryMath.roundCss(y * z),
+          y: KnexPdfGeometryMath.roundCss(x * z),
+        };
+      case 0:
+      default:
+        return {
+          x: KnexPdfGeometryMath.roundCss(x * z),
+          y: KnexPdfGeometryMath.roundCss((pageSize.height - y) * z),
+        };
     }
-
-    return { x: cssX, y: cssY };
   }
 
   /**
-   * Converte coordenadas CSS para PDF
+   * Converte ponto CSS para ponto PDF.
    */
   static cssToPdf(
     cssX: number,
     cssY: number,
-    pageSizePt: { width: number; height: number },
+    pageSizePt: KnexPdfPageSizePt,
     zoom: number,
-    rotation: 0 | 90 | 180 | 270 = 0,
-  ): { x: number; y: number } {
-    let pdfX = cssX / zoom;
-    let pdfY = (pageSizePt.height * zoom - cssY) / zoom;
+    rotation: KnexPdfRotation = 0,
+  ): KnexPdfPoint {
+    const pageSize = normalizePageSizePt(pageSizePt);
+    const z = KnexPdfGeometryMath.normalizeZoom(zoom);
+    const x = safeNumber(cssX, 0);
+    const y = safeNumber(cssY, 0);
 
-    // Inverte rotação
-    if (rotation === 90) {
-      const temp = pdfX;
-      pdfX = pageSizePt.height - pdfY;
-      pdfY = temp;
-    } else if (rotation === 180) {
-      pdfX = pageSizePt.width - pdfX;
-      pdfY = pageSizePt.height - pdfY;
-    } else if (rotation === 270) {
-      const temp = pdfX;
-      pdfX = pdfY;
-      pdfY = pageSizePt.width - temp;
+    switch (normalizeRotation(rotation)) {
+      case 90:
+        return {
+          x: KnexPdfGeometryMath.roundCss(pageSize.width - y / z),
+          y: KnexPdfGeometryMath.roundCss(pageSize.height - x / z),
+        };
+      case 180:
+        return {
+          x: KnexPdfGeometryMath.roundCss(pageSize.width - x / z),
+          y: KnexPdfGeometryMath.roundCss(y / z),
+        };
+      case 270:
+        return {
+          x: KnexPdfGeometryMath.roundCss(y / z),
+          y: KnexPdfGeometryMath.roundCss(x / z),
+        };
+      case 0:
+      default:
+        return {
+          x: KnexPdfGeometryMath.roundCss(x / z),
+          y: KnexPdfGeometryMath.roundCss(pageSize.height - y / z),
+        };
     }
-
-    return { x: pdfX, y: pdfY };
   }
 
   /**
-   * Converte rect PDF para CSS
+   * Converte retângulo PDF para retângulo CSS.
    */
   static pdfRectToCss(
-    pdfRect: { x: number; y: number; width: number; height: number },
-    pageSizePt: { width: number; height: number },
+    pdfRect: KnexPdfRect,
+    pageSizePt: KnexPdfPageSizePt,
     zoom: number,
-    rotation: 0 | 90 | 180 | 270 = 0,
-  ): { x: number; y: number; width: number; height: number } {
-    const topLeft = this.pdfToCss(
-      pdfRect.x,
-      pdfRect.y + pdfRect.height,
-      pageSizePt,
-      zoom,
-      rotation,
-    );
-    const bottomRight = this.pdfToCss(
-      pdfRect.x + pdfRect.width,
-      pdfRect.y,
-      pageSizePt,
-      zoom,
-      rotation,
+    rotation: KnexPdfRotation = 0,
+  ): KnexPdfRect {
+    const normalizedRect = {
+      x: safeNumber(pdfRect.x, 0),
+      y: safeNumber(pdfRect.y, 0),
+      width: Math.max(0, safeNumber(pdfRect.width, 0)),
+      height: Math.max(0, safeNumber(pdfRect.height, 0)),
+    };
+
+    const corners = getRectCorners(normalizedRect).map((corner) =>
+      this.pdfToCss(corner.x, corner.y, pageSizePt, zoom, rotation),
     );
 
-    return {
-      x: Math.min(topLeft.x, bottomRight.x),
-      y: Math.min(topLeft.y, bottomRight.y),
-      width: Math.abs(bottomRight.x - topLeft.x),
-      height: Math.abs(bottomRight.y - topLeft.y),
-    };
+    return boundsFromPoints(corners);
   }
 
   /**
-   * Converte rect CSS para PDF
+   * Converte retângulo CSS para retângulo PDF.
    */
   static cssRectToPdf(
-    cssRect: { x: number; y: number; width: number; height: number },
-    pageSizePt: { width: number; height: number },
+    cssRect: KnexPdfRect,
+    pageSizePt: KnexPdfPageSizePt,
     zoom: number,
-    rotation: 0 | 90 | 180 | 270 = 0,
-  ): { x: number; y: number; width: number; height: number } {
-    const topLeft = this.cssToPdf(
-      cssRect.x,
-      cssRect.y,
-      pageSizePt,
-      zoom,
-      rotation,
-    );
-    const bottomRight = this.cssToPdf(
-      cssRect.x + cssRect.width,
-      cssRect.y + cssRect.height,
-      pageSizePt,
-      zoom,
-      rotation,
+    rotation: KnexPdfRotation = 0,
+  ): KnexPdfRect {
+    const normalizedRect = {
+      x: safeNumber(cssRect.x, 0),
+      y: safeNumber(cssRect.y, 0),
+      width: Math.max(0, safeNumber(cssRect.width, 0)),
+      height: Math.max(0, safeNumber(cssRect.height, 0)),
+    };
+
+    const corners = getRectCorners(normalizedRect).map((corner) =>
+      this.cssToPdf(corner.x, corner.y, pageSizePt, zoom, rotation),
     );
 
-    return {
-      x: Math.min(topLeft.x, bottomRight.x),
-      y: Math.min(topLeft.y, bottomRight.y),
-      width: Math.abs(bottomRight.x - topLeft.x),
-      height: Math.abs(bottomRight.y - topLeft.y),
-    };
+    return boundsFromPoints(corners);
+  }
+
+  /**
+   * Converte array de retângulo PDF [x1, y1, x2, y2] para CSS.
+   * Útil para annotations/widgets do PDF.js.
+   */
+  static pdfRectArrayToCss(input: {
+    rect: number[];
+    pageSizePt: KnexPdfPageSizePt;
+    zoom: number;
+    rotation?: KnexPdfRotation;
+  }): KnexPdfRect | null {
+    if (!Array.isArray(input.rect) || input.rect.length < 4) return null;
+
+    const x1 = safeNumber(input.rect[0], 0);
+    const y1 = safeNumber(input.rect[1], 0);
+    const x2 = safeNumber(input.rect[2], 0);
+    const y2 = safeNumber(input.rect[3], 0);
+
+    return this.pdfRectToCss(
+      {
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      },
+      input.pageSizePt,
+      input.zoom,
+      input.rotation ?? 0,
+    );
   }
 }
 
 /**
- * Calculador de geometria de página
+ * Calculador de geometria de página.
  */
 export class KnexPdfPageGeometryCalculator {
   /**
-   * Calcula dimensões CSS da página
+   * Calcula dimensões CSS da página.
    */
   static calculateCssDimensions(
     geometry: KnexPdfPageGeometry,
     zoom: number,
   ): { width: number; height: number } {
-    let width = geometry.widthPt * zoom;
-    let height = geometry.heightPt * zoom;
-
-    // Rotação troca dimensões (90 e 270 graus)
-    if (geometry.rotationDegrees === 90 || geometry.rotationDegrees === 270) {
-      [width, height] = [height, width];
-    }
-
-    return { width, height };
+    return KnexPdfCoordinateConverter.getCssPageSize({
+      pageSizePt: {
+        width: geometry.widthPt,
+        height: geometry.heightPt,
+      },
+      zoom,
+      rotation: normalizeRotation(geometry.rotationDegrees),
+    });
   }
 
   /**
-   * Calcula dimensões do bitmap para canvas
+   * Calcula dimensões do bitmap para canvas.
    */
   static calculateBitmapDimensions(
     geometry: KnexPdfPageGeometry,
     zoom: number,
     devicePixelRatio: number,
-    outputScale: number = 1,
+    outputScale = 1,
   ): { width: number; height: number } {
     const css = this.calculateCssDimensions(geometry, zoom);
+    const dpr = KnexPdfGeometryMath.normalizeDevicePixelRatio(devicePixelRatio);
+    const os = KnexPdfGeometryMath.normalizeOutputScale(outputScale);
+
     return {
-      width: Math.round(css.width * devicePixelRatio * outputScale),
-      height: Math.round(css.height * devicePixelRatio * outputScale),
+      width: KnexPdfGeometryMath.roundBitmap(css.width * dpr * os),
+      height: KnexPdfGeometryMath.roundBitmap(css.height * dpr * os),
+    };
+  }
+
+  static buildRenderScale(
+    geometry: KnexPdfPageGeometry,
+    zoom: number,
+    options: {
+      devicePixelRatio?: number;
+      outputScale?: number;
+    } = {},
+  ): KnexPdfRenderScale {
+    const dimensions = this.calculateCssDimensions(geometry, zoom);
+    const dpr = KnexPdfGeometryMath.normalizeDevicePixelRatio(
+      options.devicePixelRatio ?? getWindowDevicePixelRatio(),
+    );
+    const outputScale = KnexPdfGeometryMath.normalizeOutputScale(
+      options.outputScale,
+    );
+
+    const bitmapWidth = KnexPdfGeometryMath.roundBitmap(
+      dimensions.width * dpr * outputScale,
+    );
+    const bitmapHeight = KnexPdfGeometryMath.roundBitmap(
+      dimensions.height * dpr * outputScale,
+    );
+    const normalizedZoom = KnexPdfGeometryMath.normalizeZoom(zoom);
+
+    return {
+      zoom: normalizedZoom,
+      devicePixelRatio: dpr,
+      outputScale,
+      totalScale: normalizedZoom * dpr * outputScale,
+      cssWidth: dimensions.width,
+      cssHeight: dimensions.height,
+      bitmapWidth,
+      bitmapHeight,
     };
   }
 
   /**
-   * Valida dimensões (evita canvas extremamente grande)
+   * Valida dimensões para evitar canvas extremamente grande.
    */
   static validateDimensions(
     width: number,
     height: number,
     options: { maxDimension?: number; minDimension?: number } = {},
   ): boolean {
-    const maxDimension = options.maxDimension ?? 10000;
-    const minDimension = options.minDimension ?? 1;
+    const maxDimension = Math.max(1, options.maxDimension ?? 10000);
+    const minDimension = Math.max(1, options.minDimension ?? 1);
 
     return (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
       width >= minDimension &&
       width <= maxDimension &&
       height >= minDimension &&
@@ -269,7 +525,7 @@ export class KnexPdfPageGeometryCalculator {
   }
 
   /**
-   * Calcula zoom necessário para caber página em viewport
+   * Calcula zoom necessário para caber página em viewport.
    */
   static calculateFitZoom(
     geometry: KnexPdfPageGeometry,
@@ -277,25 +533,27 @@ export class KnexPdfPageGeometryCalculator {
     viewportHeight: number,
     mode: 'page-fit' | 'page-width' | 'page-height',
   ): number {
-    const pageDimensions = this.calculateCssDimensions(geometry, 1); // Zoom 1.0
+    const pageDimensions = this.calculateCssDimensions(geometry, 1);
+    const safeViewportWidth = Math.max(1, safeNumber(viewportWidth, 1));
+    const safeViewportHeight = Math.max(1, safeNumber(viewportHeight, 1));
 
     if (mode === 'page-width') {
-      return viewportWidth / pageDimensions.width;
+      return safeViewportWidth / Math.max(1, pageDimensions.width);
     }
 
     if (mode === 'page-height') {
-      return viewportHeight / pageDimensions.height;
+      return safeViewportHeight / Math.max(1, pageDimensions.height);
     }
 
-    // 'page-fit'
-    const fitWidth = viewportWidth / pageDimensions.width;
-    const fitHeight = viewportHeight / pageDimensions.height;
-    return Math.min(fitWidth, fitHeight);
+    return Math.min(
+      safeViewportWidth / Math.max(1, pageDimensions.width),
+      safeViewportHeight / Math.max(1, pageDimensions.height),
+    );
   }
 }
 
 /**
- * Gestor de viewport
+ * Gestor de viewport.
  */
 export class KnexPdfViewportManager {
   private viewport: KnexPdfViewport;
@@ -305,105 +563,108 @@ export class KnexPdfViewportManager {
     this.viewport = initialViewport;
   }
 
-  /**
-   * Registra geometria de página
-   */
   registerPageGeometry(pageIndex: number, geometry: KnexPdfPageGeometry): void {
     this.pageGeometries.set(pageIndex, geometry);
   }
 
-  /**
-   * Recupera geometria de página
-   */
   getPageGeometry(pageIndex: number): KnexPdfPageGeometry | null {
     return this.pageGeometries.get(pageIndex) ?? null;
   }
 
-  /**
-   * Atualiza viewport
-   */
   updateViewport(viewport: Partial<KnexPdfViewport>): void {
     this.viewport = { ...this.viewport, ...viewport };
   }
 
-  /**
-   * Retorna viewport atual
-   */
   getViewport(): KnexPdfViewport {
     return { ...this.viewport };
   }
 
-  /**
-   * Calcula escala de renderização
-   */
-  getRenderScale(zoom?: number): KnexPdfRenderScale {
+  getRenderScale(zoom?: number, pageIndex = 0): KnexPdfRenderScale {
     const z = zoom ?? this.viewport.zoom;
-    // Obter página atual ou primeira página disponível
-    const geometry = this.pageGeometries.get(0);
+    const geometry = this.pageGeometries.get(pageIndex) ?? this.pageGeometries.get(0);
 
     if (!geometry) {
-      // Fallback: tamanho A4 padrão
       return KnexPdfRenderScaleBuilder.build({
         widthPt: 612,
         heightPt: 792,
         zoom: z,
-        devicePixelRatio: typeof window !== 'undefined' ? window.devicePixelRatio : 1,
+        devicePixelRatio: getWindowDevicePixelRatio(),
       });
     }
 
-    return KnexPdfRenderScaleBuilder.build({
-      widthPt: geometry.widthPt,
-      heightPt: geometry.heightPt,
-      zoom: z,
-      devicePixelRatio: typeof window !== 'undefined' ? window.devicePixelRatio : 1,
+    return KnexPdfPageGeometryCalculator.buildRenderScale(geometry, z, {
+      devicePixelRatio: getWindowDevicePixelRatio(),
     });
   }
 
-  /**
-   * Calcula offset de página em relação ao viewport
-   */
+  private getPageGap(): number {
+    return Math.max(
+      0,
+      safeNumber((this.viewport as unknown as { pageGap?: number }).pageGap, 16),
+    );
+  }
+
+  private getPageHeightForOffset(pageIndex: number, fallbackHeight: number): number {
+    const geometry = this.pageGeometries.get(pageIndex);
+
+    if (!geometry) return Math.max(1, fallbackHeight);
+
+    return KnexPdfPageGeometryCalculator.calculateCssDimensions(
+      geometry,
+      this.viewport.zoom,
+    ).height;
+  }
+
   calculatePageOffset(
     pageIndex: number,
     pageHeight: number,
   ): { top: number; visible: boolean } {
-    // Implementação simplificada
-    // Em produção, isso consideraria posições acumuladas de todas as páginas
+    const safePageIndex = Math.max(0, Math.floor(pageIndex));
+    const pageGap = this.getPageGap();
+    let top = 0;
+
+    for (let index = 0; index < safePageIndex; index += 1) {
+      top += this.getPageHeightForOffset(index, pageHeight) + pageGap;
+    }
 
     return {
-      top: 0,
-      visible: true,
+      top,
+      visible: this.isPageVisible(safePageIndex, top, pageHeight),
     };
   }
 
-  /**
-   * Verifica se página é visível no viewport
-   */
   isPageVisible(
     pageIndex: number,
     pageTop: number,
     pageHeight: number,
   ): boolean {
-    const pageBottom = pageTop + pageHeight;
-    const viewportBottom = this.viewport.scrollY + this.viewport.height;
+    void pageIndex;
 
-    return pageTop < viewportBottom && pageBottom > this.viewport.scrollY;
+    const scrollY = Math.max(0, safeNumber(this.viewport.scrollY, 0));
+    const viewportHeight = Math.max(1, safeNumber(this.viewport.height, 1));
+    const pageBottom = pageTop + Math.max(1, safeNumber(pageHeight, 1));
+    const viewportBottom = scrollY + viewportHeight;
+
+    return pageTop < viewportBottom && pageBottom > scrollY;
   }
 
-  /**
-   * Calcula páginas visíveis
-   */
   getVisiblePageRange(
     pageTops: number[],
     pageHeights: number[],
   ): { startPage: number; endPage: number } {
-    let startPage = 0;
-    let endPage = Math.max(0, pageTops.length - 1);
+    let startPage = -1;
+    let endPage = -1;
 
-    for (let i = 0; i < pageTops.length; i++) {
-      if (this.isPageVisible(i, pageTops[i], pageHeights[i])) {
-        startPage = Math.min(startPage, i);
-        endPage = Math.max(endPage, i);
+    for (let index = 0; index < pageTops.length; index += 1) {
+      const pageTop = safeNumber(pageTops[index], 0);
+      const pageHeight = Math.max(1, safeNumber(pageHeights[index], 1));
+
+      if (!this.isPageVisible(index, pageTop, pageHeight)) {
+        continue;
       }
+
+      if (startPage === -1) startPage = index;
+      endPage = index;
     }
 
     return { startPage, endPage };
