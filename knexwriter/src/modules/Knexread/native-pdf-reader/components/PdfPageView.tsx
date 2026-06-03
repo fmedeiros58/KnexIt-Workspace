@@ -46,8 +46,8 @@ const FALLBACK_PAGE_HEIGHT_PT = 792;
 const MIN_LAYOUT_SCALE = 0.01;
 const MAX_LAYOUT_SCALE = 80;
 
-const TEXT_EXTRACTION_IDLE_DELAY_MS = 0;
-const LINK_EXTRACTION_IDLE_DELAY_MS = 180;
+const TEXT_EXTRACTION_IDLE_DELAY_MS = 160;
+const LINK_EXTRACTION_IDLE_DELAY_MS = 240;
 const SELECTION_AUTOSCROLL_EDGE_PX = 96;
 const SELECTION_AUTOSCROLL_MAX_STEP_PX = 28;
 
@@ -70,9 +70,10 @@ const SELECTION_VISUAL_VERTICAL_NUDGE_PX = 0;
  * layoutScale.
  */
 const TEXT_LAYER_BASE_SCALE = 1;
-const PAGEVIEW_AUDIT_VERSION = "blueprint-default-015-zoom-frame-policy-selection-guard";
+const PAGEVIEW_AUDIT_VERSION = "blueprint-default-016-scroll-zoom-interaction-freeze";
 const PAGEVIEW_CANVAS_TEXT_SUPPRESSION_SENTINEL =
   "blueprint-default-002-no-canvas-text";
+const PAGEVIEW_GLOBAL_FLAG_SYNC_MS = 1500;
 
 function safeNumber(
   value: number | null | undefined,
@@ -167,6 +168,67 @@ function getPageSizeFromRenderedPage(
     width: Math.max(1, width),
     height: Math.max(1, height),
   };
+}
+
+function getRenderedPageStableSignature(
+  page: RenderedPdfPage | null,
+): string {
+  if (!page) return "";
+
+  const geometry = page.geometry;
+
+  return [
+    page.pageNumber,
+    Math.round(safeNumber(page.width, 0) * 100) / 100,
+    Math.round(safeNumber(page.height, 0) * 100) / 100,
+    Math.round(safeNumber(page.cssWidth, 0) * 100) / 100,
+    Math.round(safeNumber(page.cssHeight, 0) * 100) / 100,
+    Math.round(safeNumber(page.renderScale, 0) * 10000) / 10000,
+    Math.round(safeNumber(page.pageWidthPt, 0) * 100) / 100,
+    Math.round(safeNumber(page.pageHeightPt, 0) * 100) / 100,
+    geometry ? Math.round(safeNumber(geometry.baseWidth, 0) * 100) / 100 : "",
+    geometry ? Math.round(safeNumber(geometry.baseHeight, 0) * 100) / 100 : "",
+    page.renderMode ?? "",
+    page.textLayerMode ?? "",
+  ].join("|");
+}
+
+function getTextBlocksStableSignature(
+  blocks: PdfTextBlock[],
+  scale: number | null | undefined,
+): string {
+  if (!blocks.length) return `empty:${safeNumber(scale, 0)}`;
+
+  const first = blocks[0];
+  const last = blocks[blocks.length - 1];
+
+  return [
+    blocks.length,
+    Math.round(safeNumber(scale, 0) * 10000) / 10000,
+    first?.id ?? "",
+    last?.id ?? "",
+    Math.round(safeNumber(first?.x, 0) * 10) / 10,
+    Math.round(safeNumber(first?.y, 0) * 10) / 10,
+    Math.round(safeNumber(last?.x, 0) * 10) / 10,
+    Math.round(safeNumber(last?.y, 0) * 10) / 10,
+  ].join("|");
+}
+
+function getCanvasTextRenderStateSignature(
+  state: PdfTileRenderState | null,
+): string {
+  if (!state) return "";
+
+  const record = state as unknown as Record<string, unknown>;
+
+  return [
+    state.pageNumber,
+    String(record.renderId ?? ""),
+    String(record.phase ?? ""),
+    String(record.status ?? ""),
+    String(record.filteredTextOperationCount ?? ""),
+    String(record.totalTextOperationCount ?? ""),
+  ].join("|");
 }
 
 function getRenderBand(input: {
@@ -1377,6 +1439,9 @@ export function PdfPageView({
     blocks: PdfTextBlock[];
     scale: number;
   } | null>(null);
+  const lastRenderedPageSignatureRef = useRef("");
+  const lastCanvasTextRenderStateSignatureRef = useRef("");
+  const lastModularTextBlocksSignatureRef = useRef("");
 
   const [renderedPage, setRenderedPage] = useState<RenderedPdfPage | null>(null);
   const [blocks, setBlocks] = useState<PdfTextBlock[]>([]);
@@ -1418,6 +1483,8 @@ export function PdfPageView({
     () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(renderZoom, zoom)),
     [renderZoom, zoom],
   );
+
+  const isViewportMoving = isZooming || isScrolling;
 
   const visualToRenderScaleRatio = useMemo(() => {
     const render = Math.max(MIN_LAYOUT_SCALE * 100, effectiveRenderZoom);
@@ -1486,12 +1553,13 @@ export function PdfPageView({
   const canRenderCanvas = shouldMountCanvasNow || holdCanvasDuringInteraction;
 
   const shouldLoadPageGeometry =
-    shouldMountCanvasNow ||
-    isActivePage ||
-    isWarmupPage ||
-    isNearViewport ||
-    priority ||
-    isPreloadRender;
+    (!isViewportMoving || isActivePage || priority) &&
+    (shouldMountCanvasNow ||
+      isActivePage ||
+      isWarmupPage ||
+      isNearViewport ||
+      priority ||
+      isPreloadRender);
 
   /*
    * Política centralizada em core/interaction/zoom-scroll.
@@ -1574,25 +1642,32 @@ export function PdfPageView({
     finalRenderVersion + (shouldRenderCanvasText ? 0 : 100_000);
 
   const shouldExtractText =
+    !isViewportMoving &&
     !modularPagePipelineEnabled &&
     zoomFrame.canRenderHighlights &&
     canRenderCanvas &&
     (isActivePage || isNearViewport || isWarmupPage || priority) &&
     (effectiveShowTextLayer || Boolean(onBlocksChange));
   const shouldExtractLinks =
+    !isViewportMoving &&
     zoomFrame.canRenderLinks &&
     canRenderCanvas &&
     (isActivePage || isNearViewport || priority);
 
   const nearViewportRootMargin = useMemo(() => {
-    if (engineState.activeBackend === "pdfjs") {
-      return isZooming ? "2200px 0px 2200px 0px" : "3200px 0px 3200px 0px";
+    const movingMargin =
+      engineState.activeBackend === "pdfjs"
+        ? "1200px 0px 1200px 0px"
+        : "1000px 0px 1000px 0px";
+
+    if (isViewportMoving) {
+      return movingMargin;
     }
 
-    return isZooming
-      ? "2000px 0px 2000px 0px"
+    return engineState.activeBackend === "pdfjs"
+      ? "3200px 0px 3200px 0px"
       : "3000px 0px 3000px 0px";
-  }, [engineState.activeBackend, isZooming]);
+  }, [engineState.activeBackend, isViewportMoving]);
 
   useEffect(() => {
     if (shouldMountCanvasNow) {
@@ -1606,7 +1681,7 @@ export function PdfPageView({
 
     const releaseTimer = window.setTimeout(() => {
       setHoldCanvasDuringInteraction(false);
-    }, 1200);
+    }, 800);
 
     return () => {
       window.clearTimeout(releaseTimer);
@@ -1618,7 +1693,9 @@ export function PdfPageView({
   }, [pageNumber, session]);
 
   useEffect(() => {
-    setGeometrySelectionPreviewRects([]);
+    setGeometrySelectionPreviewRects((current) =>
+      current.length === 0 ? current : [],
+    );
   }, [isScrolling, isZooming, pageNumber, renderPhase]);
 
   useEffect(() => {
@@ -1634,7 +1711,7 @@ export function PdfPageView({
 
     syncDebugOverlay();
 
-    const intervalId = window.setInterval(syncDebugOverlay, 250);
+    const intervalId = window.setInterval(syncDebugOverlay, PAGEVIEW_GLOBAL_FLAG_SYNC_MS);
 
     window.addEventListener("focus", syncDebugOverlay);
     window.addEventListener("keydown", syncDebugOverlay);
@@ -1661,7 +1738,7 @@ export function PdfPageView({
 
     syncVisualTextFlags();
 
-    const intervalId = window.setInterval(syncVisualTextFlags, 250);
+    const intervalId = window.setInterval(syncVisualTextFlags, PAGEVIEW_GLOBAL_FLAG_SYNC_MS);
 
     window.addEventListener("focus", syncVisualTextFlags);
     window.addEventListener("keydown", syncVisualTextFlags);
@@ -1684,7 +1761,7 @@ export function PdfPageView({
 
     syncModularPipelineFlag();
 
-    const intervalId = window.setInterval(syncModularPipelineFlag, 250);
+    const intervalId = window.setInterval(syncModularPipelineFlag, PAGEVIEW_GLOBAL_FLAG_SYNC_MS);
 
     window.addEventListener("focus", syncModularPipelineFlag);
     window.addEventListener("keydown", syncModularPipelineFlag);
@@ -1709,7 +1786,7 @@ export function PdfPageView({
 
     syncBlueprintPipelineFlag();
 
-    const intervalId = window.setInterval(syncBlueprintPipelineFlag, 250);
+    const intervalId = window.setInterval(syncBlueprintPipelineFlag, PAGEVIEW_GLOBAL_FLAG_SYNC_MS);
 
     window.addEventListener("focus", syncBlueprintPipelineFlag);
     window.addEventListener("keydown", syncBlueprintPipelineFlag);
@@ -1782,7 +1859,11 @@ export function PdfPageView({
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setIsNearViewport(Boolean(entry?.isIntersecting));
+        const nextNearViewport = Boolean(entry?.isIntersecting);
+
+        setIsNearViewport((current) =>
+          current === nextNearViewport ? current : nextNearViewport,
+        );
       },
       {
         root: null,
@@ -2083,6 +2164,13 @@ export function PdfPageView({
 
   const handleRendered = useCallback(
     (page: RenderedPdfPage) => {
+      const nextSignature = getRenderedPageStableSignature(page);
+
+      if (nextSignature === lastRenderedPageSignatureRef.current) {
+        return;
+      }
+
+      lastRenderedPageSignatureRef.current = nextSignature;
       setRenderedPage(page);
       onRendered?.(page);
     },
@@ -2093,9 +2181,57 @@ export function PdfPageView({
     (state: PdfTileRenderState) => {
       if (state.pageNumber !== pageNumber) return;
 
+      if (isViewportMoving && !debugOverlayEnabled) {
+        return;
+      }
+
+      const nextSignature = getCanvasTextRenderStateSignature(state);
+
+      if (nextSignature === lastCanvasTextRenderStateSignatureRef.current) {
+        return;
+      }
+
+      lastCanvasTextRenderStateSignatureRef.current = nextSignature;
       setCanvasTextRenderState(state);
     },
-    [pageNumber],
+    [debugOverlayEnabled, isViewportMoving, pageNumber],
+  );
+
+  const handleModularTextBlocksChange = useCallback(
+    (nextPageNumber: number, nextBlocks: PdfTextBlock[], nextScale: number) => {
+      if (nextPageNumber !== pageNumber) return;
+
+      if (nextBlocks.length > 0) {
+        lastGoodTextBlocksRef.current = {
+          pageNumber,
+          blocks: nextBlocks,
+          scale: nextScale,
+        };
+      }
+
+      const nextSignature = getTextBlocksStableSignature(nextBlocks, nextScale);
+
+      if (nextSignature === lastModularTextBlocksSignatureRef.current) {
+        return;
+      }
+
+      lastModularTextBlocksSignatureRef.current = nextSignature;
+
+      /*
+       * Durante scroll/zoom, não empurramos blocos para estado local nem para
+       * o Shell. O Shell persiste blocos e recalcula camadas; isso pode travar
+       * a rolagem. Mantemos o último conjunto bom e deixamos a nova emissão ser
+       * aplicada quando a interação estabilizar.
+       */
+      if (isViewportMoving) {
+        return;
+      }
+
+      setBlocks(nextBlocks);
+      setBlocksScale(nextScale);
+      onBlocksChange?.(nextPageNumber, nextBlocks, nextScale);
+    },
+    [isViewportMoving, onBlocksChange, pageNumber],
   );
 
   const highlightBlockIds = useMemo(() => {
@@ -2778,21 +2914,7 @@ export function PdfPageView({
               renderPhase={renderPhase}
               finalRenderVersion={canvasRenderVersion}
               highlightedRunIds={highlightBlockIds}
-              onTextBlocksChange={(nextPageNumber, nextBlocks, nextScale) => {
-                if (nextPageNumber !== pageNumber) return;
-
-                if (nextBlocks.length > 0) {
-                  lastGoodTextBlocksRef.current = {
-                    pageNumber,
-                    blocks: nextBlocks,
-                    scale: nextScale,
-                  };
-                }
-
-                setBlocks(nextBlocks);
-                setBlocksScale(nextScale);
-                onBlocksChange?.(nextPageNumber, nextBlocks, nextScale);
-              }}
+              onTextBlocksChange={handleModularTextBlocksChange}
               onCanvasRenderStateChange={handleCanvasTextRenderStateChange}
             />
           ) : (

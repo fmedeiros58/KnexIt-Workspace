@@ -159,7 +159,8 @@ type RuntimeZoomCenterAnchor = KnexPdfZoomCenterAnchor & {
   pagePairWidth?: number;
 };
 
-const SUBPIXEL_ROUNDING_FACTOR = 1000;
+const SUBPIXEL_ROUNDING_FACTOR = 10000;
+const ANCHOR_RATIO_OVERSCAN = 0.35;
 
 /**
  * Protege o motor contra NaN, Infinity, null e undefined.
@@ -190,7 +191,21 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 function clampRatio(value: number): number {
-  return clamp(value, 0, 1);
+  return clamp(value, -ANCHOR_RATIO_OVERSCAN, 1 + ANCHOR_RATIO_OVERSCAN);
+}
+
+function clampAnchorContentValue(input: {
+  value: number;
+  start: number;
+  size: number;
+}): number {
+  const overscan = Math.max(1, input.size) * ANCHOR_RATIO_OVERSCAN;
+
+  return clamp(
+    input.value,
+    input.start - overscan,
+    input.start + input.size + overscan,
+  );
 }
 
 function resolveAnchorKind(
@@ -387,8 +402,16 @@ function computeAnchoredContentPoint(input: {
   return {
     anchorViewportX,
     anchorViewportY,
-    contentAnchorX: clamp(rawContentAnchorX, input.bounds.left, input.bounds.right),
-    contentAnchorY: clamp(rawContentAnchorY, input.bounds.top, input.bounds.bottom),
+    contentAnchorX: clampAnchorContentValue({
+      value: rawContentAnchorX,
+      start: input.bounds.left,
+      size: input.bounds.width,
+    }),
+    contentAnchorY: clampAnchorContentValue({
+      value: rawContentAnchorY,
+      start: input.bounds.top,
+      size: input.bounds.height,
+    }),
   };
 }
 
@@ -598,6 +621,80 @@ function resolveContentPointForScroll(
     contentY: safeNumber(input.anchor.contentCenterY, viewportHeight / 2),
     anchorViewportX,
     anchorViewportY,
+  };
+}
+
+
+export function computeImmediateScrollForZoomCenterAnchor(input: {
+  anchor: KnexPdfZoomCenterAnchor;
+  viewportWidth: number;
+  viewportHeight: number;
+  currentScrollLeft: number;
+  currentScrollTop: number;
+  oldZoomPercent: number;
+  nextZoomPercent: number;
+  maxScrollLeft: number;
+  maxScrollTop: number;
+
+  /**
+   * Força da correção imediata.
+   *
+   * 1 = comportamento de mola direta, sem interpolação.
+   * Valores menores podem ser usados apenas em gestos artificiais, não no wheel.
+   */
+  springStrength?: number;
+}): ScrollPoint {
+  const oldZoom = Math.max(1, safeNumber(input.oldZoomPercent, 100));
+  const nextZoom = Math.max(1, safeNumber(input.nextZoomPercent, oldZoom));
+  const zoomRatio = nextZoom / oldZoom;
+  const runtimeAnchor = input.anchor as RuntimeZoomCenterAnchor;
+
+  const viewportWidth = Math.max(1, safeNumber(input.viewportWidth, 1));
+  const viewportHeight = Math.max(1, safeNumber(input.viewportHeight, 1));
+
+  const anchorViewportX = isFiniteNumber(runtimeAnchor.anchorViewportX)
+    ? clamp(runtimeAnchor.anchorViewportX, 0, viewportWidth)
+    : viewportWidth / 2;
+
+  const anchorViewportY = isFiniteNumber(runtimeAnchor.anchorViewportY)
+    ? clamp(runtimeAnchor.anchorViewportY, 0, viewportHeight)
+    : viewportHeight / 2;
+
+  const currentScrollLeft = safeNumber(input.currentScrollLeft, 0);
+  const currentScrollTop = safeNumber(input.currentScrollTop, 0);
+
+  const contentX = currentScrollLeft + anchorViewportX;
+  const contentY = currentScrollTop + anchorViewportY;
+
+  const targetScrollLeft = clamp(
+    contentX * zoomRatio - anchorViewportX,
+    0,
+    Math.max(0, safeNumber(input.maxScrollLeft, 0)),
+  );
+
+  const targetScrollTop = clamp(
+    contentY * zoomRatio - anchorViewportY,
+    0,
+    Math.max(0, safeNumber(input.maxScrollTop, 0)),
+  );
+
+  /*
+   * Para wheel zoom profissional, o padrão é 1. Isso significa resposta direta:
+   * a tela acompanha o zoom no mesmo gesto, sem curva de reentrada.
+   */
+  const springStrength = clamp(
+    safeNumber(input.springStrength, 1),
+    0,
+    1,
+  );
+
+  return {
+    scrollLeft: roundToSubpixel(
+      currentScrollLeft + (targetScrollLeft - currentScrollLeft) * springStrength,
+    ),
+    scrollTop: roundToSubpixel(
+      currentScrollTop + (targetScrollTop - currentScrollTop) * springStrength,
+    ),
   };
 }
 

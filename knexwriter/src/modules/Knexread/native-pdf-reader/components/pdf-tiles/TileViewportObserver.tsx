@@ -44,6 +44,15 @@ export type TileViewportObserverProps = {
   enabled?: boolean;
 
   /**
+   * Sinaliza que o palco está em scroll/zoom ativo.
+   *
+   * Durante interação, o observer reduz publicação de snapshot e evita escrita
+   * frequente de atributos no DOM. Isso impede que o observer concorra com a
+   * fluidez do palco.
+   */
+  interactionActive?: boolean;
+
+  /**
    * Limite defensivo para o snapshot.
    *
    * Mesmo se muitos tiles cruzarem a margem do observer, o snapshot publicado
@@ -51,11 +60,55 @@ export type TileViewportObserverProps = {
    */
   maxVisibleTileIds?: number;
 
+  /**
+   * Intervalos de publicação do snapshot.
+   *
+   * Snapshot de tile é útil para diagnóstico/prioridade, mas não deve atualizar
+   * estado React em todo micro-scroll.
+   */
+  publishThrottleMs?: number;
+  interactionPublishThrottleMs?: number;
+
+  /**
+   * Escreve data-knex-pdf-tile-viewport-visible nos tiles.
+   *
+   * Desativado por padrão porque escrita de atributo durante scroll pode
+   * invalidar estilo/paint e gerar sensação de renderização em fragmentos.
+   */
+  writeViewportAttributes?: boolean;
+
   onSnapshot?: (snapshot: TileViewportSnapshot) => void;
 };
 
 const TILE_SELECTOR =
   '[data-knex-pdf-tile="true"][data-knex-pdf-layer-visible="true"]';
+
+const DEFAULT_MAX_VISIBLE_TILE_IDS = 12;
+const DEFAULT_SNAPSHOT_PUBLISH_THROTTLE_MS = 96;
+const DEFAULT_INTERACTION_SNAPSHOT_PUBLISH_THROTTLE_MS = 260;
+
+function getNowMs(): number {
+  return typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+function setTileViewportVisibleAttribute(
+  tile: Element,
+  value: boolean,
+  enabled: boolean,
+) {
+  if (!enabled) return;
+
+  const next = value ? "true" : "false";
+
+  if (tile.getAttribute("data-knex-pdf-tile-viewport-visible") === next) {
+    return;
+  }
+
+  tile.setAttribute("data-knex-pdf-tile-viewport-visible", next);
+}
 
 function resolveAdaptiveRootMargin(input: {
   rootMargin?: string;
@@ -167,7 +220,11 @@ export function TileViewportObserver({
   zoomPercent = 100,
   rootMargin,
   enabled = true,
-  maxVisibleTileIds = 32,
+  interactionActive = false,
+  maxVisibleTileIds = DEFAULT_MAX_VISIBLE_TILE_IDS,
+  publishThrottleMs = DEFAULT_SNAPSHOT_PUBLISH_THROTTLE_MS,
+  interactionPublishThrottleMs = DEFAULT_INTERACTION_SNAPSHOT_PUBLISH_THROTTLE_MS,
+  writeViewportAttributes = false,
   onSnapshot,
 }: TileViewportObserverProps) {
   useEffect(() => {
@@ -191,12 +248,20 @@ export function TileViewportObserver({
     const visibleTileIds = new Set<string>();
     let observedTiles = new Set<Element>();
     let publishFrameId = 0;
+    let publishTimerId = 0;
     let observeFrameId = 0;
+    let lastPublishAt = 0;
 
     const clearPublishFrame = () => {
-      if (!publishFrameId) return;
-      window.cancelAnimationFrame(publishFrameId);
-      publishFrameId = 0;
+      if (publishFrameId) {
+        window.cancelAnimationFrame(publishFrameId);
+        publishFrameId = 0;
+      }
+
+      if (publishTimerId) {
+        window.clearTimeout(publishTimerId);
+        publishTimerId = 0;
+      }
     };
 
     const clearObserveFrame = () => {
@@ -227,8 +292,32 @@ export function TileViewportObserver({
     };
 
     const schedulePublishSnapshot = () => {
-      if (publishFrameId) return;
-      publishFrameId = window.requestAnimationFrame(publishSnapshotNow);
+      if (publishFrameId || publishTimerId) return;
+
+      const throttleMs = Math.max(
+        0,
+        interactionActive ? interactionPublishThrottleMs : publishThrottleMs,
+      );
+      const now = getNowMs();
+      const elapsed = now - lastPublishAt;
+
+      const requestPublish = () => {
+        publishTimerId = 0;
+        publishFrameId = window.requestAnimationFrame(() => {
+          lastPublishAt = getNowMs();
+          publishSnapshotNow();
+        });
+      };
+
+      if (elapsed >= throttleMs) {
+        requestPublish();
+        return;
+      }
+
+      publishTimerId = window.setTimeout(
+        requestPublish,
+        Math.max(0, throttleMs - elapsed),
+      );
     };
 
     const observer = new IntersectionObserver(
@@ -241,16 +330,28 @@ export function TileViewportObserver({
 
           if (!tileId || !isLayerVisible) {
             if (tileId) visibleTileIds.delete(tileId);
-            tile.setAttribute("data-knex-pdf-tile-viewport-visible", "false");
+            setTileViewportVisibleAttribute(
+              tile,
+              false,
+              writeViewportAttributes,
+            );
             continue;
           }
 
           if (entry.isIntersecting) {
             visibleTileIds.add(tileId);
-            tile.setAttribute("data-knex-pdf-tile-viewport-visible", "true");
+            setTileViewportVisibleAttribute(
+              tile,
+              true,
+              writeViewportAttributes,
+            );
           } else {
             visibleTileIds.delete(tileId);
-            tile.setAttribute("data-knex-pdf-tile-viewport-visible", "false");
+            setTileViewportVisibleAttribute(
+              tile,
+              false,
+              writeViewportAttributes,
+            );
           }
         }
 
@@ -277,7 +378,11 @@ export function TileViewportObserver({
           const tileId = tile.getAttribute("data-knex-pdf-tile-id");
           if (tileId) visibleTileIds.delete(tileId);
 
-          tile.setAttribute("data-knex-pdf-tile-viewport-visible", "false");
+          setTileViewportVisibleAttribute(
+            tile,
+            false,
+            writeViewportAttributes,
+          );
         }
       }
 
@@ -302,12 +407,18 @@ export function TileViewportObserver({
     mutationObserver.observe(container, {
       childList: true,
       subtree: true,
-      attributes: true,
-      attributeFilter: [
-        "data-knex-pdf-layer-visible",
-        "data-knex-pdf-tile",
-        "data-knex-pdf-tile-id",
-      ],
+      /*
+       * Durante interação, evitar observer de atributos. Mudanças de atributo
+       * em muitos tiles podem disparar nova varredura enquanto a tela rola.
+       */
+      attributes: !interactionActive,
+      attributeFilter: interactionActive
+        ? undefined
+        : [
+            "data-knex-pdf-layer-visible",
+            "data-knex-pdf-tile",
+            "data-knex-pdf-tile-id",
+          ],
     });
 
     return () => {
@@ -317,7 +428,11 @@ export function TileViewportObserver({
       observer.disconnect();
 
       for (const tile of observedTiles) {
-        tile.setAttribute("data-knex-pdf-tile-viewport-visible", "false");
+        setTileViewportVisibleAttribute(
+          tile,
+          false,
+          writeViewportAttributes,
+        );
       }
 
       observedTiles.clear();
@@ -326,11 +441,15 @@ export function TileViewportObserver({
   }, [
     containerRef,
     enabled,
+    interactionActive,
+    interactionPublishThrottleMs,
     maxVisibleTileIds,
     onSnapshot,
     pageNumber,
+    publishThrottleMs,
     rootMargin,
     rootRef,
+    writeViewportAttributes,
     zoomPercent,
   ]);
 

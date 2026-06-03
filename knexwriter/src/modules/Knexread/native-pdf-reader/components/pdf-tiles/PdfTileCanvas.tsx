@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { NativePdfSession } from "../../services";
 import {
   createKnexPdfTileCacheKey,
@@ -697,6 +697,19 @@ export type PdfTileCanvasProps = {
   layerSurface: "active" | "pending";
   layerVisible: boolean;
   onTileReady?: (tileId: string, generationId: string) => void;
+
+  /**
+   * Sinaliza scroll/zoom ativo.
+   *
+   * Durante interação, este componente deve preservar o bitmap já desenhado
+   * e evitar renderizações que concorram com o movimento do palco.
+   */
+  interactionActive?: boolean;
+
+  /**
+   * Quando true, renderizações não essenciais são adiadas durante interação.
+   */
+  suspendRenderDuringInteraction?: boolean;
 };
 
 export function PdfTileCanvas({
@@ -721,6 +734,8 @@ export function PdfTileCanvas({
   layerSurface,
   layerVisible,
   onTileReady,
+  interactionActive = false,
+  suspendRenderDuringInteraction = true,
 }: PdfTileCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hasDrawnBitmapRef = useRef(false);
@@ -732,27 +747,87 @@ export function PdfTileCanvas({
   const requestedBackend =
     tileRenderMode === "server-tiled" ? "server-tiled" : "pdfjs";
 
+  const statusRef = useRef<TileStatus>("idle");
+  const cacheStatusRef = useRef<TileCacheStatus>("miss");
+  const renderDurationMsRef = useRef<number | null>(null);
+  const lastReadyGenerationRef = useRef<string | null>(null);
+
+  const tileCacheKey = useMemo(
+    () =>
+      createTileCacheKey({
+        documentId,
+        geometry,
+        tile,
+        renderQuality,
+        renderPhase,
+        renderText,
+        backend: requestedBackend,
+        activeBackend,
+        renderSource: requestedRenderSource,
+        renderer: requestedRenderer,
+        backendVersion,
+        tileRows,
+        tileColumns,
+      }),
+    [
+      activeBackend,
+      backendVersion,
+      documentId,
+      geometry,
+      renderPhase,
+      renderQuality,
+      renderText,
+      requestedBackend,
+      requestedRenderer,
+      requestedRenderSource,
+      tile,
+      tileColumns,
+      tileRows,
+    ],
+  );
+
+  const setTileStatus = (next: TileStatus) => {
+    if (statusRef.current === next) return;
+
+    statusRef.current = next;
+    setStatus(next);
+  };
+
+  const setTileCacheStatus = (next: TileCacheStatus) => {
+    if (cacheStatusRef.current === next) return;
+
+    cacheStatusRef.current = next;
+    setCacheStatus(next);
+  };
+
+  const setTileRenderDurationMs = (next: number | null) => {
+    if (renderDurationMsRef.current === next) return;
+
+    renderDurationMsRef.current = next;
+    setRenderDurationMs(next);
+  };
+
+  /*
+   * Liberação de bitmap apenas no unmount real.
+   *
+   * Antes, o cleanup do efeito principal chamava releaseCanvasBitmap(canvas).
+   * Como o efeito depende de geração/renderPhase/layerVisible, isso podia
+   * apagar o bitmap antigo durante scroll/zoom antes do novo tile ficar pronto,
+   * gerando a percepção de renderização saltada.
+   */
+  useEffect(() => {
+    return () => {
+      releaseCanvasBitmap(canvasRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     let cancelled = false;
     const abortController = new AbortController();
-    const cacheKey = createTileCacheKey({
-      documentId,
-      geometry,
-      tile,
-      renderQuality,
-      renderPhase,
-      renderText,
-      backend: requestedBackend,
-      activeBackend,
-      renderSource: requestedRenderSource,
-      renderer: requestedRenderer,
-      backendVersion,
-      tileRows,
-      tileColumns,
-    });
+    const cacheKey = tileCacheKey;
     const rawCachedTile = tileBitmapCache.get(cacheKey);
     const cachedTile =
       rawCachedTile &&
@@ -765,6 +840,51 @@ export function PdfTileCanvas({
 
     if (rawCachedTile && !cachedTile) {
       tileBitmapCache.delete(rawCachedTile.key);
+    }
+
+    const shouldDeferRenderDuringInteraction =
+      interactionActive &&
+      suspendRenderDuringInteraction &&
+      !cachedTile &&
+      (
+        layerSurface === "pending" ||
+        !layerVisible ||
+        hasDrawnBitmapRef.current
+      );
+
+    if (shouldDeferRenderDuringInteraction) {
+      writeTileDataset({
+        canvas,
+        geometry,
+        tile,
+        renderPhase,
+        status: hasDrawnBitmapRef.current ? "ready" : "idle",
+        cacheStatus: rawCachedTile ? "discarded" : "miss",
+        backend: requestedBackend,
+        activeBackend,
+        preferredBackend,
+        backendVersion,
+        renderSource: requestedRenderSource,
+        renderer: requestedRenderer,
+        generationId,
+        renderVersion,
+        finalRenderVersion,
+        tileRows,
+        tileColumns,
+        layerSurface,
+        layerVisible,
+        fallbackReason: "deferred-during-scroll-zoom-interaction",
+        renderDurationMs: renderDurationMsRef.current,
+      });
+
+      /*
+       * Não iniciar renderização nova durante o movimento. Se já existe bitmap,
+       * ele permanece visível; se for pending invisível, renderiza só no settle.
+       */
+      return () => {
+        cancelled = true;
+        abortController.abort();
+      };
     }
 
     writeTileDataset({
@@ -806,9 +926,9 @@ export function PdfTileCanvas({
         });
         hasDrawnBitmapRef.current = true;
 
-        setRenderDurationMs(cachedTile.renderDurationMs);
-        setCacheStatus("hit");
-        setStatus("ready");
+        setTileRenderDurationMs(cachedTile.renderDurationMs);
+        setTileCacheStatus("hit");
+        setTileStatus("ready");
 
         writeTileDataset({
           canvas,
@@ -835,21 +955,23 @@ export function PdfTileCanvas({
           storageHit: cachedTile.storageHit,
           renderDurationMs: cachedTile.renderDurationMs,
         });
-        onTileReady?.(tile.id, generationId);
+        if (lastReadyGenerationRef.current !== generationId) {
+          lastReadyGenerationRef.current = generationId;
+          onTileReady?.(tile.id, generationId);
+        }
 
         return () => {
           cancelled = true;
           abortController.abort();
-          releaseCanvasBitmap(canvas);
         };
       } catch {
         tileBitmapCache.delete(cachedTile.key);
-        setCacheStatus("discarded");
+        setTileCacheStatus("discarded");
       }
     }
 
-    setCacheStatus("miss");
-    setStatus("rendering");
+    setTileCacheStatus("miss");
+    setTileStatus("rendering");
 
     const renderLocalTile = async (fallbackReason?: string) => {
       const workerCanvas = document.createElement("canvas");
@@ -919,14 +1041,14 @@ export function PdfTileCanvas({
             bitmapForCache.width * bitmapForCache.height * 4,
           );
 
-          setCacheStatus("stored");
+          setTileCacheStatus("stored");
           canvas.dataset.knexPdfTileCacheKey = cacheKey;
         } else {
-          setCacheStatus("miss");
+          setTileCacheStatus("miss");
         }
 
-        setRenderDurationMs(renderedTile.renderDurationMs);
-        setStatus("ready");
+        setTileRenderDurationMs(renderedTile.renderDurationMs);
+        setTileStatus("ready");
 
         writeTileDataset({
           canvas,
@@ -951,7 +1073,10 @@ export function PdfTileCanvas({
           fallbackReason,
           renderDurationMs: renderedTile.renderDurationMs,
         });
-        onTileReady?.(tile.id, generationId);
+        if (lastReadyGenerationRef.current !== generationId) {
+          lastReadyGenerationRef.current = generationId;
+          onTileReady?.(tile.id, generationId);
+        }
 
         if (isTileDebugEnabled()) {
           // eslint-disable-next-line no-console
@@ -1027,8 +1152,8 @@ export function PdfTileCanvas({
           renderDurationMs: null,
         });
 
-        setCacheStatus("miss");
-        setStatus("error");
+        setTileCacheStatus("miss");
+        setTileStatus("error");
 
         return false;
       }
@@ -1085,9 +1210,9 @@ export function PdfTileCanvas({
         }
       }
 
-      setRenderDurationMs(response.renderDurationMs);
+      setTileRenderDurationMs(response.renderDurationMs);
       setCacheStatus(response.fromCache ? "hit" : "stored");
-      setStatus("ready");
+      setTileStatus("ready");
 
       writeTileDataset({
         canvas,
@@ -1152,7 +1277,7 @@ export function PdfTileCanvas({
             layerVisible,
             renderDurationMs: null,
           });
-          setStatus("cancelled");
+          setTileStatus("cancelled");
           return;
         }
 
@@ -1181,39 +1306,38 @@ export function PdfTileCanvas({
           layerVisible,
           renderDurationMs: null,
         });
-        setStatus("error");
+        setTileStatus("error");
       }
     })();
 
     return () => {
       cancelled = true;
       abortController.abort();
-      releaseCanvasBitmap(canvas);
     };
   }, [
     activeBackend,
     backendVersion,
-    documentId,
     finalRenderVersion,
-    pdfFileId,
     generationId,
     geometry,
+    interactionActive,
     layerSurface,
     layerVisible,
     onTileReady,
+    pdfFileId,
     preferredBackend,
     priority,
     renderPhase,
-    renderQuality,
     renderVersion,
-    renderText,
     requestedBackend,
     requestedRenderer,
     requestedRenderSource,
     session,
+    suspendRenderDuringInteraction,
     tile,
-    tileRenderMode,
+    tileCacheKey,
     tileColumns,
+    tileRenderMode,
     tileRows,
   ]);
 
@@ -1227,6 +1351,12 @@ export function PdfTileCanvas({
       data-knex-pdf-generation-id={generationId}
       data-knex-pdf-layer-surface={layerSurface}
       data-knex-pdf-layer-visible={layerVisible ? "true" : "false"}
+      data-knex-pdf-tile-interaction-active={
+        interactionActive ? "true" : "false"
+      }
+      data-knex-pdf-tile-suspend-during-interaction={
+        suspendRenderDuringInteraction ? "true" : "false"
+      }
       style={{
         left: `${tile.cellCssX}px`,
         top: `${tile.cellCssY}px`,
@@ -1272,6 +1402,12 @@ export function PdfTileCanvas({
         data-knex-pdf-tile-columns={tileColumns}
         data-knex-pdf-layer-surface={layerSurface}
         data-knex-pdf-layer-visible={layerVisible ? "true" : "false"}
+        data-knex-pdf-tile-interaction-active={
+          interactionActive ? "true" : "false"
+        }
+        data-knex-pdf-tile-suspend-during-interaction={
+          suspendRenderDuringInteraction ? "true" : "false"
+        }
         data-knex-pdf-tile-css-left={tile.cssX}
         data-knex-pdf-tile-css-top={tile.cssY}
         data-knex-pdf-tile-css-width={tile.cssWidth}

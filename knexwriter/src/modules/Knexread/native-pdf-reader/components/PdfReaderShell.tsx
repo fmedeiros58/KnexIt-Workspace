@@ -33,7 +33,6 @@ import {
   calculateKnexPdfContentWidth,
   clampKnexPdfZoom,
   computeHorizontalOverflow,
-  computeWheelZoom,
   type KnexPdfRenderPhase,
   type KnexPdfRenderedPage as RenderedPdfPage,
   type KnexPdfTextBlock as PdfTextBlock,
@@ -58,11 +57,14 @@ import {
   clearKnexPdfRenderInteraction,
 } from "./PdfInteractionRenderGuard";
 import {
-  getAcceleratedPdfWheelDeltaForController,
   getAcceleratedPdfWheelScrollDelta,
   resolvePdfWheelInteractionPolicy,
-  shouldHandlePdfWheelZoom,
 } from "../../core/interaction/zoom-scroll/PdfWheelInteractionPolicy";
+import { applyVisualZoomNow } from "../../core/interaction/zoom-scroll/VisualZoomController";
+import { applyAnchorScrollNow } from "../../core/interaction/zoom-scroll/ZoomAnchorOrchestrator";
+import { RenderZoomCommitController } from "../../core/interaction/zoom-scroll/RenderZoomCommitController";
+import { classifyWheelInput } from "../../core/interaction/zoom-scroll/WheelInputController";
+import { computeWheelZoomVelocity } from "../../core/interaction/zoom-scroll/ZoomVelocityController";
 
 type KnexreadShellProps = {
   file: File;
@@ -120,9 +122,53 @@ const AUTOMATIC_READER_RENDER_QUALITY: PdfRenderQualityMode = "extreme";
  * não de rebaixar a resolução enquanto o usuário está lendo/zoomando.
  */
 const ZOOM_GESTURE_RENDER_QUALITY: PdfRenderQualityMode = "extreme";
-const ZOOM_GESTURE_SETTLE_MS = 120;
-const VIEWPORT_INTERACTION_SETTLE_MS = 180;
-const WHEEL_ZOOM_IMMEDIATE_FLUSH_MS = 16;
+const ZOOM_GESTURE_SETTLE_MS = 88;
+const VIEWPORT_INTERACTION_SETTLE_MS = 120;
+const ZOOM_ANCHOR_REFINEMENT_MS = 16;
+const ZOOM_ANCHOR_SUPPRESSION_RELEASE_MS = 40;
+/**
+ * Scroll comum.
+ *
+ * Modelo híbrido:
+ * - uma fração pequena do delta é aplicada imediatamente no próprio wheel,
+ *   eliminando a sensação de atraso;
+ * - o restante é aplicado em requestAnimationFrame com orçamento por frame,
+ *   preservando progressão e evitando blocos secos.
+ *
+ * Evitar os dois extremos:
+ * - RAF puro: fica estável, mas cria microdelay;
+ * - scrollTop direto com delta inteiro: fica instantâneo, mas engasga/salta.
+ */
+const WHEEL_SCROLL_INTERACTION_MARK_MS = 96;
+const WHEEL_SCROLL_DELTA_EPSILON = 0.01;
+
+/**
+ * Scroll fluido por velocidade.
+ *
+ * A versão híbrida anterior ainda drenava pedaços de delta por frame.
+ * Isso removia parte do atraso, mas mantinha a percepção de blocos.
+ *
+ * Nesta versão, o wheel injeta velocidade em uma simulação curta:
+ * - há um pequeno primer instantâneo para a tela responder no mesmo evento;
+ * - o restante entra como velocidade;
+ * - cada frame move uma distância proporcional ao tempo real entre frames;
+ * - a velocidade decai de forma curta e progressiva.
+ */
+const WHEEL_SCROLL_PRIMER_RATIO = 0.08;
+const WHEEL_SCROLL_PRIMER_MAX_STEP_PX = 36;
+const WHEEL_SCROLL_VELOCITY_IMPULSE = 0.018;
+const WHEEL_SCROLL_MAX_VELOCITY_PX_PER_MS = 3.8;
+const WHEEL_SCROLL_FRICTION_PER_16MS = 0.72;
+const WHEEL_SCROLL_MAX_FRAME_DT_MS = 24;
+const WHEEL_SCROLL_MIN_VELOCITY_PX_PER_MS = 0.015;
+
+function clampNumber(value: number, min: number, max: number): number {
+  const safeMin = Number.isFinite(min) ? min : 0;
+  const safeMax = Math.max(safeMin, Number.isFinite(max) ? max : safeMin);
+  const safeValue = Number.isFinite(value) ? value : safeMin;
+
+  return Math.max(safeMin, Math.min(safeMax, safeValue));
+}
 
 /**
  * Janela de qualidade ao redor do palco.
@@ -442,15 +488,18 @@ function PdfReaderShellContent({
     () =>
       resolvePdfWheelInteractionPolicy({
         /*
-         * Rolagem segue forte em zoom alto, mas o zoom por wheel precisa ser
-         * menos agressivo para não criar backlog de renderizações.
+         * Política legada preservada apenas para scroll comum durante a migração.
+         *
+         * A velocidade de zoom por wheel agora pertence ao
+         * ZoomVelocityController. Não ajuste wheelZoomMultiplier aqui esperando
+         * alterar a velocidade final do zoom.
          */
         wheelScrollMultiplier: 4,
-        wheelZoomMultiplier: 3,
-        maxWheelScrollStepPx: 260,
-        maxWheelZoomStepPercent: 18,
-        maxWheelZoomControllerDeltaPx: 140,
-        baseWheelZoomStepPercent: 4,
+        wheelZoomMultiplier: 1,
+        maxWheelScrollStepPx: 300,
+        maxWheelZoomStepPercent: 48,
+        maxWheelZoomControllerDeltaPx: 420,
+        baseWheelZoomStepPercent: 6,
         minZoomPercent: 10,
         maxZoomPercent: 2000,
         zoomModifierMode: "ctrl-or-meta",
@@ -525,9 +574,19 @@ function PdfReaderShellContent({
   const committedRenderZoomRef = useRef(renderStageZoom);
   const suppressAutoPageSyncRef = useRef(false);
   const horizontalOverflowLayoutKeyRef = useRef("");
-  const wheelDeltaRef = useRef(0);
-  const wheelFrameRef = useRef<number | null>(null);
-  const lastWheelZoomFlushAtRef = useRef(0);
+  /*
+   * A velocidade do zoom por wheel não fica mais em refs/acumuladores locais.
+   *
+   * Antes:
+   * - wheelDeltaRef acumulava delta;
+   * - scheduleWheelZoomFlush aplicava o zoom depois;
+   * - computeProgressiveWheelZoomPercent calculava velocidade dentro do Shell.
+   *
+   * Agora:
+   * - WheelInputController classifica a entrada;
+   * - ZoomVelocityController calcula a velocidade;
+   * - applyZoomTransactional aplica visualZoom imediatamente.
+   */
   const pendingZoomAnchorRef = useRef<{
     pageNumber: number;
     xPx: number;
@@ -535,7 +594,20 @@ function PdfReaderShellContent({
     anchorViewportX: number;
     anchorViewportY: number;
   } | null>(null);
-  const wheelAnchorPointRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  /*
+   * Scroll comum:
+   *
+   * O caminho principal usa velocidade contínua. O wheel injeta impulso, e o
+   * RAF transforma esse impulso em movimento progressivo. Isso evita a sensação
+   * de fragmentos/saltos de palco.
+   */
+  const wheelScrollDeltaXRef = useRef(0);
+  const wheelScrollDeltaYRef = useRef(0);
+  const wheelScrollVelocityXRef = useRef(0);
+  const wheelScrollVelocityYRef = useRef(0);
+  const wheelScrollFrameRef = useRef<number | null>(null);
+  const wheelScrollLastFrameAtRef = useRef(0);
+  const lastScrollInteractionMarkAtRef = useRef(0);
   const zoomReleaseTimerRef = useRef<number | null>(null);
 
   /**
@@ -548,6 +620,16 @@ function PdfReaderShellContent({
    * - deixamos a renderização extreme para quando o gesto estabilizar.
    */
   const zoomGestureSettleTimerRef = useRef<number | null>(null);
+
+  /*
+   * RenderZoomCommitController:
+   *
+   * O commit pesado de renderZoom/committedRenderZoom deixa de ser uma rotina
+   * manual espalhada no Shell. Este ref mantém um controlador dedicado, cuja
+   * única função é confirmar o zoom de renderização depois do settle.
+   */
+  const renderZoomCommitControllerRef =
+    useRef<RenderZoomCommitController | null>(null);
   const isZoomGestureActiveRef = useRef(false);
   const isViewportInteractingRef = useRef(false);
   const interactionSettleTimerRef = useRef<number | null>(null);
@@ -562,6 +644,39 @@ function PdfReaderShellContent({
 
   const [zoomMode, setZoomMode] = useState<PdfZoomMode>("manual");
   const [stageHasHorizontalOverflow, setStageHasHorizontalOverflow] = useState(false);
+
+  useEffect(() => {
+    const controller = new RenderZoomCommitController({
+      settleMs: ZOOM_GESTURE_SETTLE_MS,
+      onCommit: (result) => {
+        const finalVisualZoom = clampStageZoom(result.committedZoomPercent);
+
+        /*
+         * Commit final:
+         * - renderZoom/committedRenderZoom só muda depois do settle;
+         * - visualZoom já foi aplicado no momento do wheel/manual;
+         * - tiles/canvas final só devem reagir a partir daqui.
+         */
+        committedRenderZoomRef.current = finalVisualZoom;
+        setCommittedRenderZoom(finalVisualZoom);
+
+        isZoomGestureActiveRef.current = false;
+        setIsZoomGestureActive(false);
+
+        clearKnexPdfRenderInteraction("zoom");
+      },
+    });
+
+    renderZoomCommitControllerRef.current = controller;
+
+    return () => {
+      controller.dispose();
+
+      if (renderZoomCommitControllerRef.current === controller) {
+        renderZoomCommitControllerRef.current = null;
+      }
+    };
+  }, [setCommittedRenderZoom]);
 
   useEffect(() => {
     const isPdfRenderCancellation = (reason: unknown) => {
@@ -851,24 +966,44 @@ function PdfReaderShellContent({
       zoomGestureSettleTimerRef.current = null;
     }
 
+    /*
+     * Qualquer novo gesto de zoom cancela o commit pendente anterior.
+     * Assim o renderZoom só acompanha o último visualZoom estabilizado.
+     */
+    renderZoomCommitControllerRef.current?.cancel();
+
     isZoomGestureActiveRef.current = true;
     setIsZoomGestureActive(true);
     markViewportInteracting("wheel-zoom");
   }, [markViewportInteracting]);
 
-  const scheduleZoomGestureRelease = useCallback(() => {
+  const scheduleZoomGestureRelease = useCallback((nextVisualZoom?: number) => {
+    const finalVisualZoom = clampStageZoom(
+      Number.isFinite(nextVisualZoom ?? NaN)
+        ? Number(nextVisualZoom)
+        : currentZoomRef.current,
+    );
+
+    const controller = renderZoomCommitControllerRef.current;
+
+    if (controller) {
+      controller.schedule({
+        visualZoomPercent: finalVisualZoom,
+        reason: "wheel-zoom",
+      });
+      return;
+    }
+
+    /*
+     * Fallback defensivo:
+     * em condições normais, o controller sempre existe. Mantemos esta rota para
+     * evitar que o renderZoom fique preso caso o componente esteja em transição.
+     */
     if (zoomGestureSettleTimerRef.current !== null) {
       window.clearTimeout(zoomGestureSettleTimerRef.current);
     }
 
     zoomGestureSettleTimerRef.current = window.setTimeout(() => {
-      const finalVisualZoom = clampStageZoom(currentZoomRef.current);
-
-      /*
-       * Ponto estrutural:
-       * somente agora o zoom de renderização pesada é comprometido.
-       * Durante o wheel, apenas o zoom visual foi alterado.
-       */
       committedRenderZoomRef.current = finalVisualZoom;
       setCommittedRenderZoom(finalVisualZoom);
 
@@ -919,7 +1054,7 @@ function PdfReaderShellContent({
       const oldZoom = currentZoomRef.current;
       const nextZoom = clampStageZoom(nextZoomValue);
 
-      if (nextZoom === oldZoom) return;
+      if (Math.abs(nextZoom - oldZoom) <= 0.000001) return;
 
       beginZoomGesture();
 
@@ -953,6 +1088,10 @@ function PdfReaderShellContent({
             0.1,
             getPageViewZoomForStageZoom(anchorPageNumber, oldZoom) / 100,
           );
+          const nextScale = Math.max(
+            0.1,
+            getPageViewZoomForStageZoom(anchorPageNumber, nextZoom) / 100,
+          );
 
           const elementLeft = anchorRect.left - rootRect.left + root.scrollLeft;
           const elementTop = anchorRect.top - rootRect.top + root.scrollTop;
@@ -963,7 +1102,7 @@ function PdfReaderShellContent({
           const rawXPx = (root.scrollLeft + anchorViewportX - elementLeft) / oldScale;
           const rawYPx = (root.scrollTop + anchorViewportY - elementTop) / oldScale;
 
-          pendingZoomAnchorRef.current = {
+          const nextAnchor = {
             pageNumber: anchorPageNumber,
             xPx: anchorPoint
               ? Math.max(0, Math.min(elementBaseWidth, rawXPx))
@@ -972,14 +1111,45 @@ function PdfReaderShellContent({
             anchorViewportX,
             anchorViewportY,
           };
+
+          pendingZoomAnchorRef.current = nextAnchor;
+
+          /**
+           * Predição imediata da âncora.
+           *
+           * Antes, o scroll só era refinado no useLayoutEffect, depois do
+           * commit React. Isso criava a percepção de taxa de atualização lenta:
+           * primeiro a página mudava de tamanho, depois o scroll corrigia.
+           *
+           * Aqui aplicamos uma previsão no mesmo ciclo do wheel. O layoutEffect
+           * continua existindo, mas apenas para refinar pequenos desvios depois
+           * que o DOM recalcular as dimensões finais.
+           */
+          const maxScrollLeft = Math.max(0, root.scrollWidth - root.clientWidth);
+          const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
+          const clampScroll = (value: number, max: number) =>
+            Math.max(0, Math.min(Math.max(0, max), Number.isFinite(value) ? value : 0));
+
+          const predictedScrollLeft =
+            elementLeft + nextAnchor.xPx * nextScale - nextAnchor.anchorViewportX;
+          const predictedScrollTop =
+            elementTop + nextAnchor.yPx * nextScale - nextAnchor.anchorViewportY;
+
+          applyAnchorScrollNow({
+            viewportEl: root,
+            scrollLeft:
+              maxScrollLeft > 1
+                ? clampScroll(predictedScrollLeft, maxScrollLeft)
+                : root.scrollLeft,
+            scrollTop:
+              maxScrollTop > 1
+                ? clampScroll(predictedScrollTop, maxScrollTop)
+                : root.scrollTop,
+          });
         } else {
           pendingZoomAnchorRef.current = null;
         }
 
-        /**
-         * Enquanto o zoom está em transação, nenhum outro efeito pode
-         * sincronizar página ativa ou recentralizar scroll horizontal.
-         */
         suppressAutoPageSyncRef.current = true;
       } else {
         pendingZoomAnchorRef.current = null;
@@ -989,12 +1159,19 @@ function PdfReaderShellContent({
       setZoomMode(mode);
 
       /*
-       * Durante o gesto, atualizar somente o zoom visual.
-       * O renderStageZoom será atualizado apenas no settle, em
-       * scheduleZoomGestureRelease().
+       * VisualZoomController:
+       *
+       * Este é o único ponto desta função que aplica zoom visual. A função
+       * externa deixa claro que não há commit de renderização pesada aqui.
        */
-      setVisualStageZoomState(nextZoom);
-      scheduleZoomGestureRelease();
+      applyVisualZoomNow({
+        currentVisualZoomPercent: oldZoom,
+        nextVisualZoomPercent: nextZoom,
+        reason: mode,
+        setVisualZoomPercent: setVisualStageZoomState,
+      });
+
+      scheduleZoomGestureRelease(nextZoom);
     },
     [
       beginZoomGesture,
@@ -1002,7 +1179,6 @@ function PdfReaderShellContent({
       getPageAnchorElement,
       getPageViewZoomForStageZoom,
       scheduleZoomGestureRelease,
-      setStageZoom,
       showRuler,
     ],
   );
@@ -1365,6 +1541,8 @@ function PdfReaderShellContent({
         window.clearTimeout(interactionSettleTimerRef.current);
       }
 
+      renderZoomCommitControllerRef.current?.cancel();
+
       clearKnexPdfRenderInteraction();
     };
   }, []);
@@ -1472,8 +1650,7 @@ function PdfReaderShellContent({
     if (!root) return;
 
     let cancelled = false;
-    let firstFrame = 0;
-    let secondFrame = 0;
+    let refinementTimer = 0;
 
     const clampScroll = (value: number, max: number) =>
       Math.max(0, Math.min(Math.max(0, max), Number.isFinite(value) ? value : 0));
@@ -1512,54 +1689,50 @@ function PdfReaderShellContent({
         const nextScrollTop =
           maxScrollTop > 1 ? clampScroll(targetScrollTop, maxScrollTop) : 0;
 
-        if (Math.abs(root.scrollLeft - nextScrollLeft) > 0.5) {
-          root.scrollLeft = nextScrollLeft;
-        }
-
-        if (Math.abs(root.scrollTop - nextScrollTop) > 0.5) {
-          root.scrollTop = nextScrollTop;
+        if (
+          Math.abs(root.scrollLeft - nextScrollLeft) > 0.15 ||
+          Math.abs(root.scrollTop - nextScrollTop) > 0.15
+        ) {
+          applyAnchorScrollNow({
+            viewportEl: root,
+            scrollLeft: nextScrollLeft,
+            scrollTop: nextScrollTop,
+          });
         }
       }
     };
 
     /**
-     * Primeiro restore: logo após commit do layout React.
+     * Refinamento imediato no layout effect.
+     *
+     * A predição já ocorreu dentro de applyZoomTransactional. Aqui fazemos
+     * apenas o ajuste fino depois que o React aplicou a nova geometria visual.
      */
     restoreAnchor();
 
     /**
-     * Segundo restore: no frame seguinte, quando canvas/page wrappers podem ter
-     * estabilizado dimensões. Isso reduz salto residual sem permitir que o
-     * HorizontalOverflowController sobrescreva scrollLeft.
+     * Um único refinamento curto é suficiente. O antigo duplo requestAnimationFrame
+     * criava correções tardias e dava percepção de degrau no zoom.
      */
-    firstFrame = window.requestAnimationFrame(() => {
+    refinementTimer = window.setTimeout(() => {
       restoreAnchor();
+      pendingZoomAnchorRef.current = null;
 
-      secondFrame = window.requestAnimationFrame(() => {
-        restoreAnchor();
+      if (zoomReleaseTimerRef.current !== null) {
+        window.clearTimeout(zoomReleaseTimerRef.current);
+      }
 
-        pendingZoomAnchorRef.current = null;
-
-        if (zoomReleaseTimerRef.current !== null) {
-          window.clearTimeout(zoomReleaseTimerRef.current);
-        }
-
-        zoomReleaseTimerRef.current = window.setTimeout(() => {
-          suppressAutoPageSyncRef.current = false;
-          zoomReleaseTimerRef.current = null;
-        }, 120);
-      });
-    });
+      zoomReleaseTimerRef.current = window.setTimeout(() => {
+        suppressAutoPageSyncRef.current = false;
+        zoomReleaseTimerRef.current = null;
+      }, ZOOM_ANCHOR_SUPPRESSION_RELEASE_MS);
+    }, ZOOM_ANCHOR_REFINEMENT_MS);
 
     return () => {
       cancelled = true;
 
-      if (firstFrame) {
-        window.cancelAnimationFrame(firstFrame);
-      }
-
-      if (secondFrame) {
-        window.cancelAnimationFrame(secondFrame);
+      if (refinementTimer) {
+        window.clearTimeout(refinementTimer);
       }
     };
   }, [getPageAnchorElement, getPageViewZoomForStageZoom, stageZoom]);
@@ -1574,84 +1747,161 @@ function PdfReaderShellContent({
         ? performance.now()
         : Date.now();
 
-    const flushWheelZoom = () => {
-      const delta = wheelDeltaRef.current;
-      const anchorPoint = wheelAnchorPointRef.current;
+    const markScrollInteractionThrottled = () => {
+      const now = getWheelZoomTime();
 
-      wheelDeltaRef.current = 0;
-      wheelAnchorPointRef.current = null;
-      wheelFrameRef.current = null;
-
-      if (delta === 0) return;
-
-      lastWheelZoomFlushAtRef.current = getWheelZoomTime();
-
-      /**
-       * O delta já chega normalizado e acelerado pela política centralizada
-       * de wheel. Mantemos computeWheelZoom como controlador de curva para não
-       * alterar de uma vez a semântica do ZoomController.
-       */
-      const nextZoom =
-        computeWheelZoom({
-          currentZoom: currentZoomRef.current / 100,
-          deltaY: delta,
-          deltaMode: 0,
-        }) * 100;
-
-      applyZoomTransactional(
-        nextZoom,
-        "manual",
-        anchorPoint ?? undefined,
-      );
-    };
-
-    const scheduleWheelZoomFlush = () => {
-      if (wheelFrameRef.current != null) return;
-
-      const elapsedSinceFlush =
-        getWheelZoomTime() - lastWheelZoomFlushAtRef.current;
-
-      if (elapsedSinceFlush >= WHEEL_ZOOM_IMMEDIATE_FLUSH_MS) {
-        flushWheelZoom();
+      if (
+        isViewportInteractingRef.current &&
+        now - lastScrollInteractionMarkAtRef.current < WHEEL_SCROLL_INTERACTION_MARK_MS
+      ) {
         return;
       }
 
-      wheelFrameRef.current = window.requestAnimationFrame(flushWheelZoom);
+      lastScrollInteractionMarkAtRef.current = now;
+      markViewportInteracting("scroll");
+    };
+
+    const getScrollFrameTime = () =>
+      typeof performance !== "undefined" &&
+      typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+
+    const clampScrollVelocity = (value: number) =>
+      clampNumber(
+        value,
+        -WHEEL_SCROLL_MAX_VELOCITY_PX_PER_MS,
+        WHEEL_SCROLL_MAX_VELOCITY_PX_PER_MS,
+      );
+
+    const applyScrollVelocityFrame = () => {
+      const now = getScrollFrameTime();
+      const previous = wheelScrollLastFrameAtRef.current || now;
+      const dt = clampNumber(now - previous, 8, WHEEL_SCROLL_MAX_FRAME_DT_MS);
+
+      wheelScrollLastFrameAtRef.current = now;
+
+      const velocityX = wheelScrollVelocityXRef.current;
+      const velocityY = wheelScrollVelocityYRef.current;
+
+      if (Math.abs(velocityX) > WHEEL_SCROLL_MIN_VELOCITY_PX_PER_MS) {
+        stageRoot.scrollLeft += velocityX * dt;
+      }
+
+      if (Math.abs(velocityY) > WHEEL_SCROLL_MIN_VELOCITY_PX_PER_MS) {
+        stageRoot.scrollTop += velocityY * dt;
+      }
+
+      /*
+       * Decaimento por tempo, não por quantidade fixa.
+       *
+       * Assim a percepção fica parecida em monitores de 60/120/144Hz.
+       */
+      const friction = Math.pow(
+        WHEEL_SCROLL_FRICTION_PER_16MS,
+        dt / 16,
+      );
+
+      wheelScrollVelocityXRef.current *= friction;
+      wheelScrollVelocityYRef.current *= friction;
+
+      const hasVelocity =
+        Math.abs(wheelScrollVelocityXRef.current) > WHEEL_SCROLL_MIN_VELOCITY_PX_PER_MS ||
+        Math.abs(wheelScrollVelocityYRef.current) > WHEEL_SCROLL_MIN_VELOCITY_PX_PER_MS;
+
+      if (hasVelocity) {
+        wheelScrollFrameRef.current =
+          window.requestAnimationFrame(applyScrollVelocityFrame);
+        return;
+      }
+
+      wheelScrollVelocityXRef.current = 0;
+      wheelScrollVelocityYRef.current = 0;
+      wheelScrollLastFrameAtRef.current = 0;
+      wheelScrollFrameRef.current = null;
+    };
+
+    const scheduleWheelScrollFlush = () => {
+      if (wheelScrollFrameRef.current != null) return;
+      wheelScrollLastFrameAtRef.current = getScrollFrameTime();
+      wheelScrollFrameRef.current =
+        window.requestAnimationFrame(applyScrollVelocityFrame);
     };
 
     const handleWheel = (event: WheelEvent) => {
       const target = event.target as Node | null;
       if (target && !stageRoot.contains(target)) return;
 
-      if (shouldHandlePdfWheelZoom(event, wheelInteractionPolicy)) {
+      /*
+       * Entrada modular.
+       *
+       * O Shell não decide mais se o wheel é zoom por inspeção manual de
+       * ctrl/meta, nem calcula velocidade por função local.
+       *
+       * WheelInputController:
+       * - normaliza deltaMode;
+       * - identifica wheel-zoom;
+       * - identifica scroll vertical;
+       * - identifica shift+wheel horizontal.
+       */
+      const wheelInput = classifyWheelInput(event, {
+        zoomModifierMode: "ctrl-or-meta",
+        shiftWheelMeansHorizontalScroll: true,
+      });
+
+      if (wheelInput.kind === "wheel-zoom") {
         event.preventDefault();
         markViewportInteracting("wheel-zoom");
 
-        wheelDeltaRef.current += getAcceleratedPdfWheelDeltaForController({
-          deltaY: event.deltaY,
-          deltaMode: event.deltaMode,
+        /*
+         * Velocidade modular.
+         *
+         * Este é o novo ponto único para zoom-in/zoom-out por wheel.
+         * A velocidade não deve mais ser corrigida neste Shell. Para alterar
+         * sensação de velocidade, ajuste ZoomVelocityController/Constants.
+         */
+        const zoomResult = computeWheelZoomVelocity({
           currentZoomPercent: currentZoomRef.current,
-          policy: wheelInteractionPolicy,
+          deltaY: wheelInput.deltaY,
+          minZoomPercent: 10,
+          maxZoomPercent: 2000,
         });
 
-        wheelAnchorPointRef.current = {
-          clientX: event.clientX,
-          clientY: event.clientY,
-        };
+        if (Math.abs(zoomResult.deltaZoomPercent) <= 0.000001) {
+          return;
+        }
 
-        scheduleWheelZoomFlush();
+        /*
+         * Aplicação visual imediata.
+         *
+         * applyZoomTransactional ainda cuida da âncora específica por página,
+         * do visualZoom imediato e do commit posterior do renderZoom.
+         *
+         * O ganho estrutural desta versão é remover o caminho antigo:
+         * wheelDeltaRef -> setTimeout/flush -> computeProgressiveWheelZoomPercent.
+         */
+        applyZoomTransactional(
+          zoomResult.nextZoomPercent,
+          "manual",
+          {
+            clientX: event.clientX,
+            clientY: event.clientY,
+          },
+        );
         return;
       }
 
-      /**
-       * Rolagem comum acelerada.
-       *
-       * Como usamos preventDefault para substituir a rolagem nativa, o ganho de
-       * velocidade fica previsível e centralizado em PdfWheelInteractionPolicy.
-       */
+      const scrollDeltaSource =
+        wheelInput.kind === "horizontal-scroll"
+          ? wheelInput.deltaX
+          : wheelInput.deltaY;
+
       const acceleratedScrollDelta = getAcceleratedPdfWheelScrollDelta({
-        deltaY: event.deltaY,
-        deltaMode: event.deltaMode,
+        /*
+         * wheelInput já vem normalizado para pixels. Portanto deltaMode = 0.
+         */
+        deltaY: scrollDeltaSource,
+        deltaMode: 0,
         currentZoomPercent: currentZoomRef.current,
         policy: wheelInteractionPolicy,
       });
@@ -1659,32 +1909,88 @@ function PdfReaderShellContent({
       if (acceleratedScrollDelta === 0) return;
 
       event.preventDefault();
-      markViewportInteracting("scroll");
+      markScrollInteractionThrottled();
 
-      if (event.shiftKey) {
-        stageRoot.scrollLeft += acceleratedScrollDelta;
+      const injectScrollImpulse = (input: {
+        delta: number;
+        axis: "x" | "y";
+      }) => {
+        const delta = Number.isFinite(input.delta) ? input.delta : 0;
+
+        if (Math.abs(delta) <= WHEEL_SCROLL_DELTA_EPSILON) {
+          return;
+        }
+
+        const sign = delta < 0 ? -1 : 1;
+        const magnitude = Math.abs(delta);
+
+        /*
+         * Primer mínimo:
+         * a tela responde no mesmo evento wheel, mas sem aplicar o delta inteiro
+         * como bloco. Isso elimina a percepção de atraso sem quebrar a fluidez.
+         */
+        const primerMagnitude = Math.min(
+          magnitude * WHEEL_SCROLL_PRIMER_RATIO,
+          WHEEL_SCROLL_PRIMER_MAX_STEP_PX,
+        );
+
+        const primer = sign * primerMagnitude;
+        const remaining = delta - primer;
+
+        if (input.axis === "x") {
+          if (Math.abs(primer) > WHEEL_SCROLL_DELTA_EPSILON) {
+            stageRoot.scrollLeft += primer;
+          }
+
+          wheelScrollDeltaXRef.current += remaining;
+          wheelScrollVelocityXRef.current = clampScrollVelocity(
+            wheelScrollVelocityXRef.current +
+              remaining * WHEEL_SCROLL_VELOCITY_IMPULSE,
+          );
+          return;
+        }
+
+        if (Math.abs(primer) > WHEEL_SCROLL_DELTA_EPSILON) {
+          stageRoot.scrollTop += primer;
+        }
+
+        wheelScrollDeltaYRef.current += remaining;
+        wheelScrollVelocityYRef.current = clampScrollVelocity(
+          wheelScrollVelocityYRef.current +
+            remaining * WHEEL_SCROLL_VELOCITY_IMPULSE,
+        );
+      };
+
+      if (wheelInput.kind === "horizontal-scroll") {
+        injectScrollImpulse({
+          delta: acceleratedScrollDelta,
+          axis: "x",
+        });
+        scheduleWheelScrollFlush();
         return;
       }
 
-      stageRoot.scrollTop += acceleratedScrollDelta;
+      injectScrollImpulse({
+        delta: acceleratedScrollDelta,
+        axis: "y",
+      });
+      scheduleWheelScrollFlush();
     };
 
-    /**
-     * Preferir stageRoot em vez de window reduz interferência externa.
-     * passive:false é necessário para controlar Ctrl/Meta + wheel e para
-     * aplicar a rolagem acelerada sem duplicar com o comportamento nativo.
-     */
     stageRoot.addEventListener("wheel", handleWheel, { passive: false });
 
     return () => {
-      if (wheelFrameRef.current != null) {
-        window.cancelAnimationFrame(wheelFrameRef.current);
+      if (wheelScrollFrameRef.current != null) {
+        window.cancelAnimationFrame(wheelScrollFrameRef.current);
       }
 
-      wheelFrameRef.current = null;
-      wheelDeltaRef.current = 0;
-      wheelAnchorPointRef.current = null;
-      lastWheelZoomFlushAtRef.current = 0;
+      wheelScrollFrameRef.current = null;
+      wheelScrollDeltaXRef.current = 0;
+      wheelScrollDeltaYRef.current = 0;
+      wheelScrollVelocityXRef.current = 0;
+      wheelScrollVelocityYRef.current = 0;
+      wheelScrollLastFrameAtRef.current = 0;
+      lastScrollInteractionMarkAtRef.current = 0;
 
       stageRoot.removeEventListener("wheel", handleWheel);
     };
@@ -1699,6 +2005,20 @@ function PdfReaderShellContent({
     if (!stageRoot) return;
 
     const handleScroll = () => {
+      const now =
+        typeof performance !== "undefined" &&
+        typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+
+      if (
+        isViewportInteractingRef.current &&
+        now - lastScrollInteractionMarkAtRef.current < WHEEL_SCROLL_INTERACTION_MARK_MS
+      ) {
+        return;
+      }
+
+      lastScrollInteractionMarkAtRef.current = now;
       beginScrollGesture();
     };
 

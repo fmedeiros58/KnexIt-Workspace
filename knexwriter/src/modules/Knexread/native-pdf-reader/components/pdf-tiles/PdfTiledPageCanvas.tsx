@@ -535,6 +535,25 @@ function createTiledCanvasTextState(input: {
   };
 }
 
+function areTileViewportSnapshotsEquivalent(
+  a: TileViewportSnapshot | null,
+  b: TileViewportSnapshot | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  if (a.centralTileId !== b.centralTileId) return false;
+  if (a.visibleTileIds.length !== b.visibleTileIds.length) return false;
+
+  for (let index = 0; index < a.visibleTileIds.length; index += 1) {
+    if (a.visibleTileIds[index] !== b.visibleTileIds[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function createRenderedPage(input: {
   pageNumber: number;
   pageWidthPt: number;
@@ -662,7 +681,7 @@ export function PdfTiledPageCanvas({
 
     syncTileOverrideFlags();
 
-    const intervalId = window.setInterval(syncTileOverrideFlags, 250);
+    const intervalId = window.setInterval(syncTileOverrideFlags, 1_500);
 
     window.addEventListener("focus", syncTileOverrideFlags);
     window.addEventListener("keydown", syncTileOverrideFlags);
@@ -1007,11 +1026,15 @@ export function PdfTiledPageCanvas({
   const [pendingReadyCount, setPendingReadyCount] = useState(0);
   const [viewportSnapshot, setViewportSnapshot] =
     useState<TileViewportSnapshot | null>(null);
+  const latestViewportSnapshotRef = useRef<TileViewportSnapshot | null>(null);
   const pendingReadyTilesRef = useRef<Set<string>>(new Set());
   const [promotablePendingLayerId, setPromotablePendingLayerId] =
     useState<string | null>(null);
   const isInteractionActive =
     isZooming || isScrolling || renderPhase !== "settled-final";
+
+  const shouldFreezeTileRefreshDuringScroll =
+    isScrolling && activeLayer !== null;
 
   const shouldFreezeTileRefreshDuringHighZoom =
     isZooming &&
@@ -1022,12 +1045,19 @@ export function PdfTiledPageCanvas({
     visualScale >= EXTREME_ZOOM_INTERACTION_RENDER_FREEZE_SCALE;
 
   /*
-   * Durante zoom baixo/médio, podemos preparar a próxima camada em background.
-   * Em zoom alto, isso pesa demais: a camada ativa já escala por transform,
-   * então congelamos a criação da pendingLayer até o wheel estabilizar.
+   * Regra estrutural para fluidez:
+   *
+   * Durante scroll comum, a página não deve tentar criar/prometer uma nova
+   * pendingLayer. A rolagem deve apenas mover a camada ativa já pronta.
+   *
+   * Se o renderPhase muda para interactive-preview durante scroll e isso muda
+   * o generationId, não criamos nova camada naquele momento. A camada final
+   * será atualizada depois do settle, evitando saltos de renderização enquanto
+   * o palco está descendo/subindo.
    */
   const shouldRefreshTilesDuringInteraction =
     isInteractionActive &&
+    !shouldFreezeTileRefreshDuringScroll &&
     !shouldFreezeTileRefreshDuringHighZoom &&
     (isActivePage || isPageVisible || isWarmupPage);
 
@@ -1090,6 +1120,7 @@ export function PdfTiledPageCanvas({
     isInteractionActive,
     isZooming,
     pendingLayer,
+    shouldFreezeTileRefreshDuringScroll,
     shouldRefreshTilesDuringInteraction,
   ]);
 
@@ -1205,6 +1236,18 @@ export function PdfTiledPageCanvas({
   }, [pendingLayer, pendingLayerPromotable]);
 
   useEffect(() => {
+    /*
+     * Durante scroll/zoom, não publicar metadados de renderização a cada
+     * microvariação de fase/camada. Isso empurra estado para o Shell e pode
+     * reabrir a janela de renderização enquanto o usuário só quer rolar.
+     *
+     * Exceção: primeira camada, quando ainda não existe activeLayer. Nesse caso
+     * precisamos avisar o Shell para a página aparecer corretamente.
+     */
+    if (isInteractionActive && activeLayer) {
+      return;
+    }
+
     const renderedPage = createRenderedPage({
       pageNumber,
       pageWidthPt: geometry.baseWidth,
@@ -1244,6 +1287,7 @@ export function PdfTiledPageCanvas({
     );
   }, [
     activeBackend,
+    activeLayer,
     documentId,
     effectiveRenderQuality,
     engineState.backendVersion,
@@ -1257,6 +1301,7 @@ export function PdfTiledPageCanvas({
     geometry.outputScale,
     geometry.zoom,
     hasResolvedPageBaseSize,
+    isInteractionActive,
     onCanvasTextRenderStateChange,
     onRendered,
     pageNumber,
@@ -1265,6 +1310,31 @@ export function PdfTiledPageCanvas({
     serverTileDecision.renderMode,
     effectiveRenderZoom,
   ]);
+
+  const handleViewportSnapshot = useCallback(
+    (snapshot: TileViewportSnapshot) => {
+      /*
+       * TileViewportObserver pode disparar em todo micro-scroll. Esses snapshots
+       * são úteis para diagnóstico/prioridade, mas atualizar estado React por
+       * página durante a rolagem fragmenta a fluidez do palco.
+       */
+      latestViewportSnapshotRef.current = snapshot;
+
+      if (
+        isInteractionActive &&
+        !getGlobalBoolean("KNEX_PDF_DEBUG_TILE_VIEWPORT")
+      ) {
+        return;
+      }
+
+      setViewportSnapshot((current) =>
+        areTileViewportSnapshotsEquivalent(current, snapshot)
+          ? current
+          : snapshot,
+      );
+    },
+    [isInteractionActive],
+  );
 
   const visibleLayer = activeLayer;
   const visibleLayerTransform = visibleLayer
@@ -1389,6 +1459,9 @@ export function PdfTiledPageCanvas({
       data-knex-pdf-interaction-tile-refresh={
         shouldRefreshTilesDuringInteraction ? "true" : "false"
       }
+      data-knex-pdf-scroll-tile-refresh-frozen={
+        shouldFreezeTileRefreshDuringScroll ? "true" : "false"
+      }
       data-knex-pdf-high-zoom-tile-refresh-frozen={
         shouldFreezeTileRefreshDuringHighZoom ? "true" : "false"
       }
@@ -1406,9 +1479,9 @@ export function PdfTiledPageCanvas({
         TILE_LAYER_PROMOTION_IDLE_DELAY_MS
       }
       data-knex-pdf-visible-tile-count={
-        viewportSnapshot?.visibleTileIds.length ?? 0
+        (viewportSnapshot ?? latestViewportSnapshotRef.current)?.visibleTileIds.length ?? 0
       }
-      data-knex-pdf-central-tile-id={viewportSnapshot?.centralTileId ?? ""}
+      data-knex-pdf-central-tile-id={(viewportSnapshot ?? latestViewportSnapshotRef.current)?.centralTileId ?? ""}
       data-knex-pdf-render-phase={renderPhase}
       data-knex-pdf-render-quality={effectiveRenderQuality}
       data-knex-pdf-zooming={isZooming ? "true" : "false"}
@@ -1430,7 +1503,12 @@ export function PdfTiledPageCanvas({
         containerRef={frameRef}
         pageNumber={pageNumber}
         zoomPercent={effectiveVisualZoom}
-        onSnapshot={setViewportSnapshot}
+        interactionActive={isInteractionActive}
+        maxVisibleTileIds={12}
+        publishThrottleMs={120}
+        interactionPublishThrottleMs={280}
+        writeViewportAttributes={false}
+        onSnapshot={handleViewportSnapshot}
       />
 
       {visibleLayer ? (
@@ -1484,6 +1562,8 @@ export function PdfTiledPageCanvas({
             tileColumns={visibleLayer.tileColumns}
             layerSurface="active"
             layerVisible={activeLayerVisible}
+            interactionActive={isInteractionActive}
+            suspendMountingDuringInteraction={true}
           />
         </div>
       ) : null}
@@ -1542,6 +1622,8 @@ export function PdfTiledPageCanvas({
             layerSurface="pending"
             layerVisible={pendingLayerVisible}
             onTileReady={handlePendingTileReady}
+            interactionActive={isInteractionActive}
+            suspendMountingDuringInteraction={true}
           />
         </div>
       ) : null}

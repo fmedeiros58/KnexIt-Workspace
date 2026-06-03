@@ -29,6 +29,22 @@ export type TileRenderSchedulerOptions = {
    * usuário já não verá.
    */
   maxQueuedTaskAgeMs?: number;
+
+  /**
+   * Intervalo mínimo entre bombas da fila.
+   *
+   * Usar RAF/pequeno atraso entre tarefas evita que uma sequência de tiles
+   * ocupe o main thread em rajadas e prejudique o scroll/zoom.
+   */
+  pumpDelayMs?: number;
+
+  /**
+   * Quando true, a fila bombeia em requestAnimationFrame no navegador.
+   *
+   * Isso dá oportunidade para o browser aplicar scroll/layout/paint antes de
+   * iniciar a próxima tarefa de renderização.
+   */
+  useAnimationFramePump?: boolean;
 };
 
 function createAbortError() {
@@ -42,6 +58,8 @@ function createQueueOverflowError() {
 const DEFAULT_MAX_CONCURRENCY = 1;
 const DEFAULT_MAX_QUEUED_TASKS = 96;
 const DEFAULT_MAX_QUEUED_TASK_AGE_MS = 6_000;
+const DEFAULT_PUMP_DELAY_MS = 8;
+const DEFAULT_USE_ANIMATION_FRAME_PUMP = true;
 
 function safePositiveInteger(
   value: number | null | undefined,
@@ -54,6 +72,8 @@ export class TileRenderScheduler {
   private readonly maxConcurrency: number;
   private readonly maxQueuedTasks: number;
   private readonly maxQueuedTaskAgeMs: number;
+  private readonly pumpDelayMs: number;
+  private readonly useAnimationFramePump: boolean;
   private nextTaskId = 1;
   private activeCount = 0;
   private pumpScheduled = false;
@@ -72,6 +92,17 @@ export class TileRenderScheduler {
       options.maxQueuedTaskAgeMs,
       DEFAULT_MAX_QUEUED_TASK_AGE_MS,
     );
+    this.pumpDelayMs = Math.max(
+      0,
+      Math.trunc(
+        typeof options.pumpDelayMs === "number" &&
+          Number.isFinite(options.pumpDelayMs)
+          ? options.pumpDelayMs
+          : DEFAULT_PUMP_DELAY_MS,
+      ),
+    );
+    this.useAnimationFramePump =
+      options.useAnimationFramePump ?? DEFAULT_USE_ANIMATION_FRAME_PUMP;
   }
 
   get queuedCount() {
@@ -205,11 +236,26 @@ export class TileRenderScheduler {
     };
 
     if (typeof window === "undefined") {
-      setTimeout(run, 0);
+      setTimeout(run, this.pumpDelayMs);
       return;
     }
 
-    window.setTimeout(run, 0);
+    if (
+      this.useAnimationFramePump &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
+      if (this.pumpDelayMs <= 0) {
+        window.requestAnimationFrame(run);
+        return;
+      }
+
+      window.setTimeout(() => {
+        window.requestAnimationFrame(run);
+      }, this.pumpDelayMs);
+      return;
+    }
+
+    window.setTimeout(run, this.pumpDelayMs);
   }
 
   private pump() {
