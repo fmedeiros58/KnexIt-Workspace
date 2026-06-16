@@ -50,15 +50,77 @@ function resolveTileLayerMountPolicy(input: {
   zoom: number;
   layerSurface: "active" | "pending";
   layerVisible: boolean;
+  interactionActive?: boolean;
+  suspendMountingDuringInteraction?: boolean;
 }): TileMountPolicy {
   const tileCount = Math.max(0, input.tileCount);
   const zoom = Math.max(0.01, input.zoom);
   const isHiddenPending =
     input.layerSurface === "pending" && !input.layerVisible;
+  const shouldSuspendDuringInteraction =
+    input.interactionActive && input.suspendMountingDuringInteraction;
 
   if (tileCount <= 0) {
     return {
       initialBudget: 0,
+      chunkSize: 0,
+      delayMs: 0,
+    };
+  }
+
+  if (shouldSuspendDuringInteraction && isHiddenPending) {
+    /*
+     * Pending invisível durante scroll/zoom não deve montar novos canvases.
+     * A camada ativa já está visível e deve apenas deslizar pelo palco.
+     */
+    return {
+      initialBudget: 0,
+      chunkSize: 0,
+      delayMs: 0,
+    };
+  }
+
+  if (shouldSuspendDuringInteraction && input.layerVisible) {
+    /*
+     * Camada visível durante interação:
+     * montamos um orçamento inicial um pouco maior, mas suspendemos chunks
+     * temporizados. Isso evita que novos canvases apareçam em rajadas durante
+     * o scroll, que era percebido como renderização saltada.
+     */
+    if (zoom >= 16) {
+      return {
+        initialBudget: clampTileBudget(12, tileCount),
+        chunkSize: 0,
+        delayMs: 0,
+      };
+    }
+
+    if (zoom >= 12) {
+      return {
+        initialBudget: clampTileBudget(14, tileCount),
+        chunkSize: 0,
+        delayMs: 0,
+      };
+    }
+
+    if (zoom >= 8) {
+      return {
+        initialBudget: clampTileBudget(18, tileCount),
+        chunkSize: 0,
+        delayMs: 0,
+      };
+    }
+
+    if (zoom >= 4) {
+      return {
+        initialBudget: clampTileBudget(26, tileCount),
+        chunkSize: 0,
+        delayMs: 0,
+      };
+    }
+
+    return {
+      initialBudget: clampTileBudget(36, tileCount),
       chunkSize: 0,
       delayMs: 0,
     };
@@ -185,6 +247,16 @@ export type PdfTileLayerProps = {
   layerSurface: "active" | "pending";
   layerVisible: boolean;
   onTileReady?: (tileId: string, generationId: string) => void;
+
+  /**
+   * Sinal de scroll/zoom ativo vindo do PdfTiledPageCanvas.
+   */
+  interactionActive?: boolean;
+
+  /**
+   * Quando true, suspende montagem progressiva de novos tiles durante interação.
+   */
+  suspendMountingDuringInteraction?: boolean;
 };
 
 export function PdfTileLayer({
@@ -210,6 +282,8 @@ export function PdfTileLayer({
   layerSurface,
   layerVisible,
   onTileReady,
+  interactionActive = false,
+  suspendMountingDuringInteraction = true,
 }: PdfTileLayerProps) {
   const orderedTiles = useMemo(
     () =>
@@ -232,8 +306,17 @@ export function PdfTileLayer({
         zoom: geometry.zoom,
         layerSurface,
         layerVisible,
+        interactionActive,
+        suspendMountingDuringInteraction,
       }),
-    [geometry.zoom, layerSurface, layerVisible, orderedTiles.length],
+    [
+      geometry.zoom,
+      interactionActive,
+      layerSurface,
+      layerVisible,
+      orderedTiles.length,
+      suspendMountingDuringInteraction,
+    ],
   );
 
   const [mountedTileCount, setMountedTileCount] = useState(() =>
@@ -241,10 +324,21 @@ export function PdfTileLayer({
   );
 
   useEffect(() => {
-    setMountedTileCount(mountPolicy.initialBudget);
-  }, [generationId, mountPolicy.initialBudget]);
+    setMountedTileCount((current) => {
+      /*
+       * Durante interação, nunca reduzir tiles já montados. Reduzir contagem
+       * desmontaria canvases e causaria salto visual enquanto o palco rola.
+       */
+      if (interactionActive) {
+        return Math.max(current, mountPolicy.initialBudget);
+      }
+
+      return mountPolicy.initialBudget;
+    });
+  }, [generationId, interactionActive, mountPolicy.initialBudget]);
 
   useEffect(() => {
+    if (interactionActive && suspendMountingDuringInteraction) return;
     if (mountedTileCount >= orderedTiles.length) return;
     if (mountPolicy.chunkSize <= 0) return;
 
@@ -258,10 +352,12 @@ export function PdfTileLayer({
       window.clearTimeout(timerId);
     };
   }, [
+    interactionActive,
     mountedTileCount,
     mountPolicy.chunkSize,
     mountPolicy.delayMs,
     orderedTiles.length,
+    suspendMountingDuringInteraction,
   ]);
 
   const mountedTiles = useMemo(
@@ -298,6 +394,12 @@ export function PdfTileLayer({
         mountPolicy.initialBudget === 0 && mountPolicy.chunkSize === 0
           ? "true"
           : "false"
+      }
+      data-knex-pdf-tile-layer-interaction-active={
+        interactionActive ? "true" : "false"
+      }
+      data-knex-pdf-tile-layer-suspend-during-interaction={
+        suspendMountingDuringInteraction ? "true" : "false"
       }
       data-knex-pdf-tile-generation-id={generationId}
       data-knex-pdf-generation-id={generationId}
@@ -344,6 +446,8 @@ export function PdfTileLayer({
           layerSurface={layerSurface}
           layerVisible={layerVisible}
           onTileReady={onTileReady}
+          interactionActive={interactionActive}
+          suspendRenderDuringInteraction={suspendMountingDuringInteraction}
         />
       ))}
     </div>

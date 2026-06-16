@@ -16,6 +16,8 @@ type TileBitmapCacheEntry<TValue> = {
   hits: number;
 };
 
+const DEFAULT_PRUNE_INTERVAL_MS = 1_500;
+
 function estimateDefaultBytes(value: unknown): number {
   if (
     value &&
@@ -65,6 +67,7 @@ export class TileBitmapCache<TValue> {
   private readonly dispose?: (value: TValue, key: string) => void;
   private readonly entries = new Map<string, TileBitmapCacheEntry<TValue>>();
   private currentBytes = 0;
+  private lastPruneAt = 0;
 
   constructor(options: TileBitmapCacheOptions<TValue> = {}) {
     this.maxTiles = safePositiveInteger(options.maxTiles, 96);
@@ -91,12 +94,12 @@ export class TileBitmapCache<TValue> {
   }
 
   get size() {
-    this.pruneExpired();
+    this.pruneExpiredThrottled();
     return this.entries.size;
   }
 
   get bytes() {
-    this.pruneExpired();
+    this.pruneExpiredThrottled();
     return this.currentBytes;
   }
 
@@ -145,7 +148,7 @@ export class TileBitmapCache<TValue> {
 
   set(key: string, value: TValue, bytes = this.estimateBytes(value)): boolean {
     this.delete(key);
-    this.pruneExpired();
+    this.pruneExpiredThrottled();
 
     const safeBytes = Math.max(0, Math.trunc(Number.isFinite(bytes) ? bytes : 0));
 
@@ -235,6 +238,17 @@ export class TileBitmapCache<TValue> {
     return Date.now() - entry.createdAt > this.maxEntryAgeMs;
   }
 
+  private pruneExpiredThrottled() {
+    const now = Date.now();
+
+    if (now - this.lastPruneAt < DEFAULT_PRUNE_INTERVAL_MS) {
+      return;
+    }
+
+    this.lastPruneAt = now;
+    this.pruneExpired();
+  }
+
   private pruneExpired() {
     for (const entry of [...this.entries.values()]) {
       if (this.isExpired(entry)) {
@@ -244,6 +258,7 @@ export class TileBitmapCache<TValue> {
   }
 
   private prune() {
+    this.lastPruneAt = Date.now();
     this.pruneExpired();
 
     while (

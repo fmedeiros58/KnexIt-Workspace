@@ -1,0 +1,1174 @@
+﻿.\config\KnexPdfDefaultConfig.ts:64 [debounce] RENDER_DEBOUNCE_MS: 100,
+.\config\KnexPdfDefaultConfig.ts:146 [debounce] renderDebounceMs: 100,
+.\config\KnexPdfDefaultConfig.ts:154 [debounce] renderDebounceMs: 200,
+.\config\KnexPdfDefaultConfig.ts:163 [debounce] renderDebounceMs: 150,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:4 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:101 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:116 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:132 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:396 [deltaY] * baixo demais para wheel comum, porque uma roda típica pode enviar deltaY
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:523 [deltaY] * Normaliza deltaY da roda do mouse para pixels.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:531 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:536 [deltaY] const deltaY = safeNumber(input.deltaY, 0);
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:548 [deltaY] return deltaY * lineHeightPx;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:552 [deltaY] return deltaY * pageHeightPx;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:555 [deltaY] return deltaY;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:598 [deltaY] deltaY: input.deltaY,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:624 [deltaY] * O sinal é invertido em relação ao deltaY:
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:637 [deltaY] deltaY: input.deltaY,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:725 [deltaY] deltaY: input.deltaY,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:743 [deltaY] * Retorna um deltaY já acelerado para ser consumido por controladores legados.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:762 [deltaY] deltaY: input.deltaY,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:773 [deltaY] * deltaY < 0 = zoom-in.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:774 [deltaY] * deltaY > 0 = zoom-out.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:1 [deltaMode] export type PdfWheelDeltaMode = 0 | 1 | 2 | number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:5 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:60 [deltaMode] * Conversão para eventos cujo deltaMode é "linha".
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:65 [deltaMode] * Conversão para eventos cujo deltaMode é "página".
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:102 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:117 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:133 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:525 [deltaMode] * deltaMode:
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:532 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:537 [deltaMode] const deltaMode = safeNumber(input.deltaMode, 0);
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:547 [deltaMode] if (deltaMode === 1) {
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:551 [deltaMode] if (deltaMode === 2) {
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:599 [deltaMode] deltaMode: input.deltaMode,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:638 [deltaMode] deltaMode: input.deltaMode,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:726 [deltaMode] deltaMode: input.deltaMode,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:763 [deltaMode] deltaMode: input.deltaMode,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:31 [wheelZoomMultiplier] wheelZoomMultiplier?: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:88 [wheelZoomMultiplier] wheelZoomMultiplier: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:485 [wheelZoomMultiplier] wheelZoomMultiplier: resolveWheelMultiplier(
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:486 [wheelZoomMultiplier] input.wheelZoomMultiplier,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:685 [wheelZoomMultiplier] policy.wheelZoomMultiplier *
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:796 [wheelZoomMultiplier] directionSign * magnitude * policy.wheelZoomMultiplier * velocityGain;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:20 [wheelScrollMultiplier] wheelScrollMultiplier?: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:87 [wheelScrollMultiplier] wheelScrollMultiplier: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:481 [wheelScrollMultiplier] wheelScrollMultiplier: resolveWheelMultiplier(
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:482 [wheelScrollMultiplier] input.wheelScrollMultiplier,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:613 [wheelScrollMultiplier] normalizedDelta * policy.wheelScrollMultiplier * zoomScrollFactor;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:696 [getAcceleratedPdfWheelDeltaForController] * para o controlador por getAcceleratedPdfWheelDeltaForController.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:753 [getAcceleratedPdfWheelDeltaForController] export function getAcceleratedPdfWheelDeltaForController(
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:589 [getAcceleratedPdfWheelScrollDelta] export function getAcceleratedPdfWheelScrollDelta(
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:698 [getPdfWheelZoomTarget] export function getPdfWheelZoomTarget(
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:695 [computeWheelZoom] * Se o PdfReaderShell já usa computeWheelZoom, prefira passar o delta acelerado
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:746 [computeWheelZoom] * funções já existentes, como computeWheelZoom, sem refatorar tudo de uma vez.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:29 [ZoomController] * acelerado ainda passa por travas antes de chegar ao ZoomController.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:46 [ZoomController] * Limite físico do delta entregue ao ZoomController.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:48 [ZoomController] * O ZoomController já possui curva exponencial, clamp global e perfil
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:52 [ZoomController] maxWheelZoomControllerDeltaPx?: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:79 [ZoomController] * Devem acompanhar o ZoomController.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:91 [ZoomController] maxWheelZoomControllerDeltaPx: number;
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:153 [ZoomController] * Como o ZoomController agora permite 2000%, o wheel precisa ser rápido, mas
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:443 [ZoomController] function resolveZoomControllerDeltaLimit(input: {
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:448 [ZoomController] const baseLimit = Math.max(1, input.policy.maxWheelZoomControllerDeltaPx);
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:497 [ZoomController] maxWheelZoomControllerDeltaPx: resolvePositiveNumber(
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:498 [ZoomController] input.maxWheelZoomControllerDeltaPx,
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:694 [ZoomController] * Útil quando o handler não quiser chamar o ZoomController.
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:749 [ZoomController] * o ZoomController já calcula curva exponencial e clamp final. Aqui apenas
+.\core\interaction\zoom-scroll\PdfWheelInteractionPolicy.ts:797 [ZoomController] const maxControllerDelta = resolveZoomControllerDeltaLimit({
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:165 [deltaY] * Normaliza deltaY da roda do mouse para pixels.
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:173 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:178 [deltaY] const deltaY = safeNumber(input.deltaY, 0);
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:190 [deltaY] return deltaY * lineHeightPx;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:194 [deltaY] return deltaY * pageHeightPx;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:197 [deltaY] return deltaY;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:205 [deltaY] * const deltaY = getAcceleratedPdfWheelScrollDelta({
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:206 [deltaY] *   deltaY: event.deltaY,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:212 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:220 [deltaY] deltaY: input.deltaY,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:246 [deltaY] * O sinal é invertido em relação ao deltaY:
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:251 [deltaY] deltaY: number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:258 [deltaY] deltaY: input.deltaY,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:8 [deltaMode] export type PdfWheelDeltaMode = 0 | 1 | 2 | number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:167 [deltaMode] * deltaMode:
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:174 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:179 [deltaMode] const deltaMode = safeNumber(input.deltaMode, 0);
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:189 [deltaMode] if (deltaMode === 1) {
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:193 [deltaMode] if (deltaMode === 2) {
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:207 [deltaMode] *   deltaMode: event.deltaMode,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:213 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:221 [deltaMode] deltaMode: input.deltaMode,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:252 [deltaMode] deltaMode?: PdfWheelDeltaMode;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:259 [deltaMode] deltaMode: input.deltaMode,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:32 [wheelZoomMultiplier] wheelZoomMultiplier?: number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:74 [wheelZoomMultiplier] wheelZoomMultiplier: number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:354 [wheelZoomMultiplier] const wheelZoomMultiplier = resolveWheelMultiplier(
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:355 [wheelZoomMultiplier] input.wheelZoomMultiplier,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:387 [wheelZoomMultiplier] wheelZoomMultiplier,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:31 [wheelScrollMultiplier] wheelScrollMultiplier?: number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:73 [wheelScrollMultiplier] wheelScrollMultiplier: number;
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:208 [wheelScrollMultiplier] *   multiplier: zoomFrame.wheelScrollMultiplier,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:349 [wheelScrollMultiplier] const wheelScrollMultiplier = resolveWheelMultiplier(
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:350 [wheelScrollMultiplier] input.wheelScrollMultiplier,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:386 [wheelScrollMultiplier] wheelScrollMultiplier,
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:205 [getAcceleratedPdfWheelScrollDelta] * const deltaY = getAcceleratedPdfWheelScrollDelta({
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:211 [getAcceleratedPdfWheelScrollDelta] export function getAcceleratedPdfWheelScrollDelta(input: {
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:300 [settle] const isSettledFinal = input.renderPhase === "settled-final";
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:310 [settle] !input.isWarmupPage && (isSettledFinal || isInteractionFrame);
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:318 [settle] isSettledFinal &&
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:325 [settle] isSettledFinal &&
+.\core\interaction\zoom-scroll\PdfZoomFramePolicy.ts:331 [settle] isSettledFinal &&
+.\core\interaction\zoom-scroll\usePdfZoomFramePolicy.ts:44 [wheelZoomMultiplier] const wheelZoomMultiplier = input.wheelZoomMultiplier;
+.\core\interaction\zoom-scroll\usePdfZoomFramePolicy.ts:65 [wheelZoomMultiplier] wheelZoomMultiplier,
+.\core\interaction\zoom-scroll\usePdfZoomFramePolicy.ts:82 [wheelZoomMultiplier] wheelZoomMultiplier,
+.\core\interaction\zoom-scroll\usePdfZoomFramePolicy.ts:43 [wheelScrollMultiplier] const wheelScrollMultiplier = input.wheelScrollMultiplier;
+.\core\interaction\zoom-scroll\usePdfZoomFramePolicy.ts:64 [wheelScrollMultiplier] wheelScrollMultiplier,
+.\core\interaction\zoom-scroll\usePdfZoomFramePolicy.ts:81 [wheelScrollMultiplier] wheelScrollMultiplier,
+.\native-pdf-reader\components\index.ts:20 [PdfTiledPageCanvas] export * from "./pdf-tiles/PdfTiledPageCanvas";
+.\native-pdf-reader\components\index.ts:19 [PdfTileCanvas] export * from "./pdf-tiles/PdfTileCanvasTypes";
+.\native-pdf-reader\components\PdfDebugOverlay.tsx:7 [PdfTileCanvas] import type { PdfTileRenderState } from "./pdf-tiles/PdfTileCanvasTypes";
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:79 [requestAnimationFrame] typeof globalThis.requestAnimationFrame === "function"
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:81 [requestAnimationFrame] globalThis.requestAnimationFrame(callback);
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:36 [setTimeout] type PdfInteractionTimer = ReturnType<typeof globalThis.setTimeout>;
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:85 [setTimeout] globalThis.setTimeout(callback, 0);
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:188 [setTimeout] timers[kind] = globalThis.setTimeout(() => {
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:38 [settle] const MIN_SETTLE_MS = 80;
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:39 [settle] const MAX_SETTLE_MS = 1500;
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:71 [settle] function normalizeSettleMs(settleMs: number): number {
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:72 [settle] if (!Number.isFinite(settleMs)) return 280;
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:74 [settle] return Math.max(MIN_SETTLE_MS, Math.min(MAX_SETTLE_MS, Math.round(settleMs)));
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:166 [settle] settleMs: number,
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:169 [settle] const normalizedSettleMs = normalizeSettleMs(settleMs);
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:198 [settle] }, normalizedSettleMs);
+.\native-pdf-reader\components\PdfInteractionRenderGuard.ts:261 [settle] * Útil quando o Shell muda renderPhase para settled-final e precisa destravar
+.\native-pdf-reader\components\PdfPageView.tsx:591 [deltaY] deltaY: number,
+.\native-pdf-reader\components\PdfPageView.tsx:593 [deltaY] if (deltaY === 0) return;
+.\native-pdf-reader\components\PdfPageView.tsx:596 [deltaY] window.scrollBy({ top: deltaY, left: 0, behavior: "auto" });
+.\native-pdf-reader\components\PdfPageView.tsx:600 [deltaY] (container as HTMLElement).scrollTop += deltaY;
+.\native-pdf-reader\components\PdfPageView.tsx:2481 [deltaY] const deltaY = getSelectionAutoScrollDelta({
+.\native-pdf-reader\components\PdfPageView.tsx:2486 [deltaY] if (deltaY === 0) {
+.\native-pdf-reader\components\PdfPageView.tsx:2491 [deltaY] scrollSelectionContainerBy(activeContainer, deltaY);
+.\native-pdf-reader\components\PdfPageView.tsx:1360 [visualZoom] visualZoom,
+.\native-pdf-reader\components\PdfPageView.tsx:1391 [visualZoom] visualZoom?: number;
+.\native-pdf-reader\components\PdfPageView.tsx:1477 [visualZoom] const effectiveVisualZoom = useMemo(
+.\native-pdf-reader\components\PdfPageView.tsx:1478 [visualZoom] () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(visualZoom, zoom)),
+.\native-pdf-reader\components\PdfPageView.tsx:1479 [visualZoom] [visualZoom, zoom],
+.\native-pdf-reader\components\PdfPageView.tsx:1491 [visualZoom] return effectiveVisualZoom / render;
+.\native-pdf-reader\components\PdfPageView.tsx:1492 [visualZoom] }, [effectiveRenderZoom, effectiveVisualZoom]);
+.\native-pdf-reader\components\PdfPageView.tsx:1520 [visualZoom] zoom: effectiveVisualZoom,
+.\native-pdf-reader\components\PdfPageView.tsx:2106 [visualZoom] effectiveVisualZoom,
+.\native-pdf-reader\components\PdfPageView.tsx:2146 [visualZoom] effectiveVisualZoom,
+.\native-pdf-reader\components\PdfPageView.tsx:2833 [visualZoom] data-knexread-page-visual-zoom={effectiveVisualZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2879 [visualZoom] data-knexread-page-raster-visual-zoom={effectiveVisualZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2885 [visualZoom] modularPagePipelineEnabled ? effectiveVisualZoom : ""
+.\native-pdf-reader\components\PdfPageView.tsx:2908 [visualZoom] visualZoom={effectiveVisualZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2926 [visualZoom] visualZoom={effectiveVisualZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:1361 [renderZoom] renderZoom,
+.\native-pdf-reader\components\PdfPageView.tsx:1399 [renderZoom] renderZoom?: number;
+.\native-pdf-reader\components\PdfPageView.tsx:1482 [renderZoom] const effectiveRenderZoom = useMemo(
+.\native-pdf-reader\components\PdfPageView.tsx:1483 [renderZoom] () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(renderZoom, zoom)),
+.\native-pdf-reader\components\PdfPageView.tsx:1484 [renderZoom] [renderZoom, zoom],
+.\native-pdf-reader\components\PdfPageView.tsx:1490 [renderZoom] const render = Math.max(MIN_LAYOUT_SCALE * 100, effectiveRenderZoom);
+.\native-pdf-reader\components\PdfPageView.tsx:1492 [renderZoom] }, [effectiveRenderZoom, effectiveVisualZoom]);
+.\native-pdf-reader\components\PdfPageView.tsx:2107 [renderZoom] effectiveRenderZoom,
+.\native-pdf-reader\components\PdfPageView.tsx:2145 [renderZoom] effectiveRenderZoom,
+.\native-pdf-reader\components\PdfPageView.tsx:2834 [renderZoom] data-knexread-page-render-zoom={effectiveRenderZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2880 [renderZoom] data-knexread-page-raster-render-zoom={effectiveRenderZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2888 [renderZoom] !modularPagePipelineEnabled ? effectiveRenderZoom : ""
+.\native-pdf-reader\components\PdfPageView.tsx:2907 [renderZoom] zoom={effectiveRenderZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2909 [renderZoom] renderZoom={effectiveRenderZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2925 [renderZoom] zoom={effectiveRenderZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2927 [renderZoom] renderZoom={effectiveRenderZoom}
+.\native-pdf-reader\components\PdfPageView.tsx:2435 [requestAnimationFrame] selectionPreviewFrameRef.current = window.requestAnimationFrame(() => {
+.\native-pdf-reader\components\PdfPageView.tsx:2494 [requestAnimationFrame] selectionAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+.\native-pdf-reader\components\PdfPageView.tsx:2497 [requestAnimationFrame] selectionAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+.\native-pdf-reader\components\PdfPageView.tsx:1682 [setTimeout] const releaseTimer = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfPageView.tsx:1938 [setTimeout] timeoutId = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfPageView.tsx:2061 [setTimeout] timeoutId = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfPageView.tsx:1375 [settle] renderPhase = "settled-final",
+.\native-pdf-reader\components\PdfPageView.tsx:1185 [anchor] function buildGeometrySelectionAnchor(input: {
+.\native-pdf-reader\components\PdfPageView.tsx:1337 [anchor] anchor: buildGeometrySelectionAnchor({
+.\native-pdf-reader\components\PdfPageView.tsx:600 [scrollTop] (container as HTMLElement).scrollTop += deltaY;
+.\native-pdf-reader\components\PdfPageView.tsx:32 [PdfTiledPageCanvas] import { PdfTiledPageCanvas } from "./pdf-tiles/PdfTiledPageCanvas";
+.\native-pdf-reader\components\PdfPageView.tsx:2921 [PdfTiledPageCanvas] <PdfTiledPageCanvas
+.\native-pdf-reader\components\PdfPageView.tsx:31 [PdfTileCanvas] import { type PdfTileRenderState } from "./pdf-tiles/PdfTileCanvasTypes";
+.\native-pdf-reader\components\PdfReaderShell.tsx:1841 [handleWheel] const handleWheel = (event: WheelEvent) => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1943 [handleWheel] stageRoot.addEventListener("wheel", handleWheel, { passive: false });
+.\native-pdf-reader\components\PdfReaderShell.tsx:1966 [handleWheel] stageRoot.removeEventListener("wheel", handleWheel);
+.\native-pdf-reader\components\PdfReaderShell.tsx:176 [deltaY] deltaY: number;
+.\native-pdf-reader\components\PdfReaderShell.tsx:179 [deltaY] const deltaY = Number.isFinite(input.deltaY) ? input.deltaY : 0;
+.\native-pdf-reader\components\PdfReaderShell.tsx:180 [deltaY] const magnitude = Math.abs(deltaY);
+.\native-pdf-reader\components\PdfReaderShell.tsx:184 [deltaY] const isZoomOut = deltaY > 0;
+.\native-pdf-reader\components\PdfReaderShell.tsx:639 [deltaY] const wheelScrollDeltaYRef = useRef(0);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1726 [deltaY] deltaY: delta,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1850 [deltaY] deltaY: event.deltaY,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1866 [deltaY] deltaY: event.deltaY,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1920 [deltaY] wheelScrollDeltaYRef.current += remaining;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1958 [deltaY] wheelScrollDeltaYRef.current = 0;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1851 [deltaMode] deltaMode: event.deltaMode,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1867 [deltaMode] deltaMode: event.deltaMode,
+.\native-pdf-reader\components\PdfReaderShell.tsx:541 [wheelZoomMultiplier] wheelZoomMultiplier: 4.15,
+.\native-pdf-reader\components\PdfReaderShell.tsx:540 [wheelScrollMultiplier] wheelScrollMultiplier: 4,
+.\native-pdf-reader\components\PdfReaderShell.tsx:60 [getAcceleratedPdfWheelDeltaForController] getAcceleratedPdfWheelDeltaForController,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1849 [getAcceleratedPdfWheelDeltaForController] wheelDeltaRef.current += getAcceleratedPdfWheelDeltaForController({
+.\native-pdf-reader\components\PdfReaderShell.tsx:61 [getAcceleratedPdfWheelScrollDelta] getAcceleratedPdfWheelScrollDelta,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1865 [getAcceleratedPdfWheelScrollDelta] const acceleratedScrollDelta = getAcceleratedPdfWheelScrollDelta({
+.\native-pdf-reader\components\PdfReaderShell.tsx:1719 [computeWheelZoom] * O computeWheelZoom continua disponível no engine, mas aqui evitamos
+.\native-pdf-reader\components\PdfReaderShell.tsx:544 [ZoomController] maxWheelZoomControllerDeltaPx: 420,
+.\native-pdf-reader\components\PdfReaderShell.tsx:971 [visualZoom] const finalVisualZoom = clampStageZoom(currentZoomRef.current);
+.\native-pdf-reader\components\PdfReaderShell.tsx:978 [visualZoom] committedRenderZoomRef.current = finalVisualZoom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:979 [visualZoom] setCommittedRenderZoom(finalVisualZoom);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1752 [visualZoom] * uma janela mínima e aplicamos o visualZoom quase imediatamente.
+.\native-pdf-reader\components\PdfReaderShell.tsx:2963 [visualZoom] const pageVisualZoom = getPageViewZoomForStageZoom(
+.\native-pdf-reader\components\PdfReaderShell.tsx:3014 [visualZoom] visualZoom={pageVisualZoom}
+.\native-pdf-reader\components\PdfReaderShell.tsx:3078 [visualZoom] const pageVisualZoom = getPageViewZoomForStageZoom(
+.\native-pdf-reader\components\PdfReaderShell.tsx:3135 [visualZoom] visualZoom={pageVisualZoom}
+.\native-pdf-reader\components\PdfReaderShell.tsx:502 [renderZoom] * - renderStageZoom / committedRenderZoom:
+.\native-pdf-reader\components\PdfReaderShell.tsx:507 [renderZoom] const committedRenderZoom = stageZoomScale * 100;
+.\native-pdf-reader\components\PdfReaderShell.tsx:509 [renderZoom] () => committedRenderZoom,
+.\native-pdf-reader\components\PdfReaderShell.tsx:512 [renderZoom] const renderStageZoom = committedRenderZoom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:514 [renderZoom] const setCommittedRenderZoom = useCallback(
+.\native-pdf-reader\components\PdfReaderShell.tsx:617 [renderZoom] const committedRenderZoomRef = useRef(renderStageZoom);
+.\native-pdf-reader\components\PdfReaderShell.tsx:978 [renderZoom] committedRenderZoomRef.current = finalVisualZoom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:979 [renderZoom] setCommittedRenderZoom(finalVisualZoom);
+.\native-pdf-reader\components\PdfReaderShell.tsx:987 [renderZoom] }, [setCommittedRenderZoom]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1464 [renderZoom] committedRenderZoomRef.current = renderStageZoom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:2967 [renderZoom] const pageRenderZoom = getPageViewZoomForStageZoom(
+.\native-pdf-reader\components\PdfReaderShell.tsx:3013 [renderZoom] zoom={pageRenderZoom}
+.\native-pdf-reader\components\PdfReaderShell.tsx:3015 [renderZoom] renderZoom={pageRenderZoom}
+.\native-pdf-reader\components\PdfReaderShell.tsx:3082 [renderZoom] const pageRenderZoom = getPageViewZoomForStageZoom(
+.\native-pdf-reader\components\PdfReaderShell.tsx:3134 [renderZoom] zoom={pageRenderZoom}
+.\native-pdf-reader\components\PdfReaderShell.tsx:3136 [renderZoom] renderZoom={pageRenderZoom}
+.\native-pdf-reader\components\PdfReaderShell.tsx:502 [committedRenderZoom] * - renderStageZoom / committedRenderZoom:
+.\native-pdf-reader\components\PdfReaderShell.tsx:507 [committedRenderZoom] const committedRenderZoom = stageZoomScale * 100;
+.\native-pdf-reader\components\PdfReaderShell.tsx:509 [committedRenderZoom] () => committedRenderZoom,
+.\native-pdf-reader\components\PdfReaderShell.tsx:512 [committedRenderZoom] const renderStageZoom = committedRenderZoom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:514 [committedRenderZoom] const setCommittedRenderZoom = useCallback(
+.\native-pdf-reader\components\PdfReaderShell.tsx:617 [committedRenderZoom] const committedRenderZoomRef = useRef(renderStageZoom);
+.\native-pdf-reader\components\PdfReaderShell.tsx:978 [committedRenderZoom] committedRenderZoomRef.current = finalVisualZoom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:979 [committedRenderZoom] setCommittedRenderZoom(finalVisualZoom);
+.\native-pdf-reader\components\PdfReaderShell.tsx:987 [committedRenderZoom] }, [setCommittedRenderZoom]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1464 [committedRenderZoom] committedRenderZoomRef.current = renderStageZoom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:514 [setCommittedRenderZoom] const setCommittedRenderZoom = useCallback(
+.\native-pdf-reader\components\PdfReaderShell.tsx:979 [setCommittedRenderZoom] setCommittedRenderZoom(finalVisualZoom);
+.\native-pdf-reader\components\PdfReaderShell.tsx:987 [setCommittedRenderZoom] }, [setCommittedRenderZoom]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1018 [applyZoomTransactional] const applyZoomTransactional = useCallback(
+.\native-pdf-reader\components\PdfReaderShell.tsx:1146 [applyZoomTransactional] applyZoomTransactional(currentZoomRef.current + 10, "manual");
+.\native-pdf-reader\components\PdfReaderShell.tsx:1147 [applyZoomTransactional] }, [applyZoomTransactional]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1150 [applyZoomTransactional] applyZoomTransactional(currentZoomRef.current - 10, "manual");
+.\native-pdf-reader\components\PdfReaderShell.tsx:1151 [applyZoomTransactional] }, [applyZoomTransactional]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1155 [applyZoomTransactional] applyZoomTransactional(value, "manual");
+.\native-pdf-reader\components\PdfReaderShell.tsx:1157 [applyZoomTransactional] [applyZoomTransactional],
+.\native-pdf-reader\components\PdfReaderShell.tsx:1163 [applyZoomTransactional] applyZoomTransactional(140, "fit-width");
+.\native-pdf-reader\components\PdfReaderShell.tsx:1170 [applyZoomTransactional] applyZoomTransactional(
+.\native-pdf-reader\components\PdfReaderShell.tsx:1174 [applyZoomTransactional] }, [applyZoomTransactional, canonicalPageWidthPt, showRuler]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1179 [applyZoomTransactional] applyZoomTransactional(120, "fit-page");
+.\native-pdf-reader\components\PdfReaderShell.tsx:1200 [applyZoomTransactional] applyZoomTransactional(
+.\native-pdf-reader\components\PdfReaderShell.tsx:1209 [applyZoomTransactional] applyZoomTransactional,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1215 [applyZoomTransactional] applyZoomTransactional(100, "manual");
+.\native-pdf-reader\components\PdfReaderShell.tsx:1216 [applyZoomTransactional] }, [applyZoomTransactional]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1662 [applyZoomTransactional] * A predição já ocorreu dentro de applyZoomTransactional. Aqui fazemos
+.\native-pdf-reader\components\PdfReaderShell.tsx:1729 [applyZoomTransactional] applyZoomTransactional(
+.\native-pdf-reader\components\PdfReaderShell.tsx:1969 [applyZoomTransactional] applyZoomTransactional,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1704 [flushWheel] const flushWheelZoom = () => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1743 [flushWheel] flushWheelZoom();
+.\native-pdf-reader\components\PdfReaderShell.tsx:1755 [flushWheel] flushWheelZoom,
+.\native-pdf-reader\components\PdfReaderShell.tsx:136 [requestAnimationFrame] * - o restante é aplicado em requestAnimationFrame com orçamento por frame,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1572 [requestAnimationFrame] frameId = window.requestAnimationFrame(readOverflow);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1668 [requestAnimationFrame] * Um único refinamento curto é suficiente. O antigo duplo requestAnimationFrame
+.\native-pdf-reader\components\PdfReaderShell.tsx:1748 [requestAnimationFrame] * Intervalo curto em vez de requestAnimationFrame.
+.\native-pdf-reader\components\PdfReaderShell.tsx:1824 [requestAnimationFrame] window.requestAnimationFrame(applyScrollVelocityFrame);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1838 [requestAnimationFrame] window.requestAnimationFrame(applyScrollVelocityFrame);
+.\native-pdf-reader\components\PdfReaderShell.tsx:931 [setTimeout] interactionSettleTimerRef.current = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:970 [setTimeout] zoomGestureSettleTimerRef.current = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1375 [setTimeout] const timeoutId = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1413 [setTimeout] const timeoutId = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1671 [setTimeout] refinementTimer = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1679 [setTimeout] zoomReleaseTimerRef.current = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1754 [setTimeout] wheelFrameRef.current = window.setTimeout(
+.\native-pdf-reader\components\PdfReaderShell.tsx:2005 [setTimeout] const timeoutId = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:122 [settle] const ZOOM_GESTURE_SETTLE_MS = 88;
+.\native-pdf-reader\components\PdfReaderShell.tsx:123 [settle] const VIEWPORT_INTERACTION_SETTLE_MS = 120;
+.\native-pdf-reader\components\PdfReaderShell.tsx:445 [settle] * Shell, mas a fase entregue à página visível permanece settled-final.
+.\native-pdf-reader\components\PdfReaderShell.tsx:452 [settle] * enquanto apenas a página ativa recebia settled-final/extreme.
+.\native-pdf-reader\components\PdfReaderShell.tsx:460 [settle] return "settled-final";
+.\native-pdf-reader\components\PdfReaderShell.tsx:467 [settle] return "settled-final";
+.\native-pdf-reader\components\PdfReaderShell.tsx:656 [settle] const zoomGestureSettleTimerRef = useRef<number | null>(null);
+.\native-pdf-reader\components\PdfReaderShell.tsx:659 [settle] const interactionSettleTimerRef = useRef<number | null>(null);
+.\native-pdf-reader\components\PdfReaderShell.tsx:919 [settle] VIEWPORT_INTERACTION_SETTLE_MS,
+.\native-pdf-reader\components\PdfReaderShell.tsx:927 [settle] if (interactionSettleTimerRef.current !== null) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:928 [settle] window.clearTimeout(interactionSettleTimerRef.current);
+.\native-pdf-reader\components\PdfReaderShell.tsx:931 [settle] interactionSettleTimerRef.current = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:937 [settle] * Forçar uma nova rodada global no settle cria uma segunda troca visual,
+.\native-pdf-reader\components\PdfReaderShell.tsx:948 [settle] interactionSettleTimerRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:949 [settle] }, VIEWPORT_INTERACTION_SETTLE_MS);
+.\native-pdf-reader\components\PdfReaderShell.tsx:955 [settle] if (zoomGestureSettleTimerRef.current !== null) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:956 [settle] window.clearTimeout(zoomGestureSettleTimerRef.current);
+.\native-pdf-reader\components\PdfReaderShell.tsx:957 [settle] zoomGestureSettleTimerRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:966 [settle] if (zoomGestureSettleTimerRef.current !== null) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:967 [settle] window.clearTimeout(zoomGestureSettleTimerRef.current);
+.\native-pdf-reader\components\PdfReaderShell.tsx:970 [settle] zoomGestureSettleTimerRef.current = window.setTimeout(() => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:985 [settle] zoomGestureSettleTimerRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:986 [settle] }, ZOOM_GESTURE_SETTLE_MS);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1130 [settle] * settle, evitando backlog de canvas/tiles enquanto o usuário gira o wheel.
+.\native-pdf-reader\components\PdfReaderShell.tsx:1491 [settle] if (zoomGestureSettleTimerRef.current !== null) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1492 [settle] window.clearTimeout(zoomGestureSettleTimerRef.current);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1499 [settle] if (interactionSettleTimerRef.current !== null) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1500 [settle] window.clearTimeout(interactionSettleTimerRef.current);
+.\native-pdf-reader\components\PdfReaderShell.tsx:2688 [settle] : "settled-final";
+.\native-pdf-reader\components\PdfReaderShell.tsx:2982 [settle] pageRenderPhase === "settled-final" &&
+.\native-pdf-reader\components\PdfReaderShell.tsx:3097 [settle] pageRenderPhase === "settled-final" &&
+.\native-pdf-reader\components\PdfReaderShell.tsx:126 [anchor] const ZOOM_ANCHOR_REFINEMENT_MS = 16;
+.\native-pdf-reader\components\PdfReaderShell.tsx:127 [anchor] const ZOOM_ANCHOR_SUPPRESSION_RELEASE_MS = 40;
+.\native-pdf-reader\components\PdfReaderShell.tsx:623 [anchor] const pendingZoomAnchorRef = useRef<{
+.\native-pdf-reader\components\PdfReaderShell.tsx:627 [anchor] anchorViewportX: number;
+.\native-pdf-reader\components\PdfReaderShell.tsx:628 [anchor] anchorViewportY: number;
+.\native-pdf-reader\components\PdfReaderShell.tsx:630 [anchor] const wheelAnchorPointRef = useRef<{ clientX: number; clientY: number } | null>(null);
+.\native-pdf-reader\components\PdfReaderShell.tsx:833 [anchor] const getPageAnchorElement = useCallback((pageNumber: number) => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:852 [anchor] const getAnchorPageNumber = useCallback(
+.\native-pdf-reader\components\PdfReaderShell.tsx:853 [anchor] (anchorPoint?: { clientX: number; clientY: number }) => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:854 [anchor] if (!anchorPoint) return page;
+.\native-pdf-reader\components\PdfReaderShell.tsx:863 [anchor] const anchorElement = getPageAnchorElement(pageNumber);
+.\native-pdf-reader\components\PdfReaderShell.tsx:864 [anchor] const rect = anchorElement?.getBoundingClientRect();
+.\native-pdf-reader\components\PdfReaderShell.tsx:869 [anchor] anchorPoint.clientX >= rect.left &&
+.\native-pdf-reader\components\PdfReaderShell.tsx:870 [anchor] anchorPoint.clientX <= rect.right &&
+.\native-pdf-reader\components\PdfReaderShell.tsx:871 [anchor] anchorPoint.clientY >= rect.top &&
+.\native-pdf-reader\components\PdfReaderShell.tsx:872 [anchor] anchorPoint.clientY <= rect.bottom;
+.\native-pdf-reader\components\PdfReaderShell.tsx:880 [anchor] Math.min(rect.right, anchorPoint.clientX),
+.\native-pdf-reader\components\PdfReaderShell.tsx:884 [anchor] Math.min(rect.bottom, anchorPoint.clientY),
+.\native-pdf-reader\components\PdfReaderShell.tsx:887 [anchor] (nearestX - anchorPoint.clientX) ** 2 +
+.\native-pdf-reader\components\PdfReaderShell.tsx:888 [anchor] (nearestY - anchorPoint.clientY) ** 2;
+.\native-pdf-reader\components\PdfReaderShell.tsx:898 [anchor] [getPageAnchorElement, page],
+.\native-pdf-reader\components\PdfReaderShell.tsx:1022 [anchor] anchorPoint?: { clientX: number; clientY: number },
+.\native-pdf-reader\components\PdfReaderShell.tsx:1045 [anchor] const anchorViewportX = anchorPoint
+.\native-pdf-reader\components\PdfReaderShell.tsx:1046 [anchor] ? Math.max(0, Math.min(root.clientWidth, anchorPoint.clientX - rootRect.left))
+.\native-pdf-reader\components\PdfReaderShell.tsx:1049 [anchor] const anchorViewportY = anchorPoint
+.\native-pdf-reader\components\PdfReaderShell.tsx:1050 [anchor] ? Math.max(0, Math.min(root.clientHeight, anchorPoint.clientY - rootRect.top))
+.\native-pdf-reader\components\PdfReaderShell.tsx:1053 [anchor] const anchorPageNumber = getAnchorPageNumber(anchorPoint);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1054 [anchor] const anchorElement = getPageAnchorElement(anchorPageNumber);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1055 [anchor] const anchorRect = anchorElement?.getBoundingClientRect();
+.\native-pdf-reader\components\PdfReaderShell.tsx:1057 [anchor] if (anchorRect?.width && anchorRect.height) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1060 [anchor] getPageViewZoomForStageZoom(anchorPageNumber, oldZoom) / 100,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1064 [anchor] getPageViewZoomForStageZoom(anchorPageNumber, nextZoom) / 100,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1067 [anchor] const elementLeft = anchorRect.left - rootRect.left + root.scrollLeft;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1068 [anchor] const elementTop = anchorRect.top - rootRect.top + root.scrollTop;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1070 [anchor] const elementBaseWidth = anchorRect.width / oldScale;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1071 [anchor] const elementBaseHeight = anchorRect.height / oldScale;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1073 [anchor] const rawXPx = (root.scrollLeft + anchorViewportX - elementLeft) / oldScale;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1074 [anchor] const rawYPx = (root.scrollTop + anchorViewportY - elementTop) / oldScale;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1076 [anchor] const nextAnchor = {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1077 [anchor] pageNumber: anchorPageNumber,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1078 [anchor] xPx: anchorPoint
+.\native-pdf-reader\components\PdfReaderShell.tsx:1082 [anchor] anchorViewportX,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1083 [anchor] anchorViewportY,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1086 [anchor] pendingZoomAnchorRef.current = nextAnchor;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1105 [anchor] elementLeft + nextAnchor.xPx * nextScale - nextAnchor.anchorViewportX;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1107 [anchor] elementTop + nextAnchor.yPx * nextScale - nextAnchor.anchorViewportY;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1117 [anchor] pendingZoomAnchorRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1122 [anchor] pendingZoomAnchorRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1137 [anchor] getAnchorPageNumber,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1138 [anchor] getPageAnchorElement,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1562 [anchor] * scrollLeft é a transação de zoom/pendingZoomAnchorRef.
+.\native-pdf-reader\components\PdfReaderShell.tsx:1603 [anchor] const anchor = pendingZoomAnchorRef.current;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1604 [anchor] if (!anchor) return;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1615 [anchor] const restoreAnchor = () => {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1618 [anchor] const currentAnchor = pendingZoomAnchorRef.current;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1619 [anchor] if (!currentAnchor) return;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1621 [anchor] const anchorElement = getPageAnchorElement(currentAnchor.pageNumber);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1622 [anchor] const anchorRect = anchorElement?.getBoundingClientRect();
+.\native-pdf-reader\components\PdfReaderShell.tsx:1624 [anchor] if (anchorRect?.width && anchorRect.height) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1628 [anchor] getPageViewZoomForStageZoom(currentAnchor.pageNumber, stageZoom) / 100,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1631 [anchor] const elementLeft = anchorRect.left - rootRect.left + root.scrollLeft;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1632 [anchor] const elementTop = anchorRect.top - rootRect.top + root.scrollTop;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1635 [anchor] elementLeft + currentAnchor.xPx * nextScale - currentAnchor.anchorViewportX;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1638 [anchor] elementTop + currentAnchor.yPx * nextScale - currentAnchor.anchorViewportY;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1665 [anchor] restoreAnchor();
+.\native-pdf-reader\components\PdfReaderShell.tsx:1672 [anchor] restoreAnchor();
+.\native-pdf-reader\components\PdfReaderShell.tsx:1673 [anchor] pendingZoomAnchorRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1682 [anchor] }, ZOOM_ANCHOR_SUPPRESSION_RELEASE_MS);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1683 [anchor] }, ZOOM_ANCHOR_REFINEMENT_MS);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1692 [anchor] }, [getPageAnchorElement, getPageViewZoomForStageZoom, stageZoom]);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1706 [anchor] const anchorPoint = wheelAnchorPointRef.current;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1709 [anchor] wheelAnchorPointRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1732 [anchor] anchorPoint ?? undefined,
+.\native-pdf-reader\components\PdfReaderShell.tsx:1856 [anchor] wheelAnchorPointRef.current = {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1962 [anchor] wheelAnchorPointRef.current = null;
+.\native-pdf-reader\components\PdfReaderShell.tsx:2877 [anchor] className="relative isolate min-h-0 flex-1 overflow-y-auto overflow-x-auto overscroll-contain bg-zinc-200 [overflow-anchor:none] [scrollbar-gutter:stable]"
+.\native-pdf-reader\components\PdfReaderShell.tsx:141 [scrollTop] * - scrollTop direto com delta inteiro: fica instantâneo, mas engasga/salta.
+.\native-pdf-reader\components\PdfReaderShell.tsx:1068 [scrollTop] const elementTop = anchorRect.top - rootRect.top + root.scrollTop;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1074 [scrollTop] const rawYPx = (root.scrollTop + anchorViewportY - elementTop) / oldScale;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1100 [scrollTop] const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1106 [scrollTop] const predictedScrollTop =
+.\native-pdf-reader\components\PdfReaderShell.tsx:1113 [scrollTop] if (maxScrollTop > 1) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1114 [scrollTop] root.scrollTop = clampScroll(predictedScrollTop, maxScrollTop);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1632 [scrollTop] const elementTop = anchorRect.top - rootRect.top + root.scrollTop;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1637 [scrollTop] const targetScrollTop =
+.\native-pdf-reader\components\PdfReaderShell.tsx:1641 [scrollTop] const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1646 [scrollTop] const nextScrollTop =
+.\native-pdf-reader\components\PdfReaderShell.tsx:1647 [scrollTop] maxScrollTop > 1 ? clampScroll(targetScrollTop, maxScrollTop) : 0;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1653 [scrollTop] if (Math.abs(root.scrollTop - nextScrollTop) > 0.15) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1654 [scrollTop] root.scrollTop = nextScrollTop;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1802 [scrollTop] stageRoot.scrollTop += velocityY * dt;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1917 [scrollTop] stageRoot.scrollTop += primer;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1067 [scrollLeft] const elementLeft = anchorRect.left - rootRect.left + root.scrollLeft;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1073 [scrollLeft] const rawXPx = (root.scrollLeft + anchorViewportX - elementLeft) / oldScale;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1099 [scrollLeft] const maxScrollLeft = Math.max(0, root.scrollWidth - root.clientWidth);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1104 [scrollLeft] const predictedScrollLeft =
+.\native-pdf-reader\components\PdfReaderShell.tsx:1109 [scrollLeft] if (maxScrollLeft > 1) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1110 [scrollLeft] root.scrollLeft = clampScroll(predictedScrollLeft, maxScrollLeft);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1558 [scrollLeft] * Este efeito NÃO deve escrever root.scrollLeft.
+.\native-pdf-reader\components\PdfReaderShell.tsx:1562 [scrollLeft] * scrollLeft é a transação de zoom/pendingZoomAnchorRef.
+.\native-pdf-reader\components\PdfReaderShell.tsx:1631 [scrollLeft] const elementLeft = anchorRect.left - rootRect.left + root.scrollLeft;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1634 [scrollLeft] const targetScrollLeft =
+.\native-pdf-reader\components\PdfReaderShell.tsx:1640 [scrollLeft] const maxScrollLeft = Math.max(0, root.scrollWidth - root.clientWidth);
+.\native-pdf-reader\components\PdfReaderShell.tsx:1643 [scrollLeft] const nextScrollLeft =
+.\native-pdf-reader\components\PdfReaderShell.tsx:1644 [scrollLeft] maxScrollLeft > 1 ? clampScroll(targetScrollLeft, maxScrollLeft) : 0;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1649 [scrollLeft] if (Math.abs(root.scrollLeft - nextScrollLeft) > 0.15) {
+.\native-pdf-reader\components\PdfReaderShell.tsx:1650 [scrollLeft] root.scrollLeft = nextScrollLeft;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1798 [scrollLeft] stageRoot.scrollLeft += velocityX * dt;
+.\native-pdf-reader\components\PdfReaderShell.tsx:1905 [scrollLeft] stageRoot.scrollLeft += primer;
+.\native-pdf-reader\components\PdfReadingFrame.tsx:524 [requestAnimationFrame] frameIdRef.current = window.requestAnimationFrame(read);
+.\native-pdf-reader\components\PdfReadingFrame.tsx:38 [scrollTop] scrollTop: number;
+.\native-pdf-reader\components\PdfReadingFrame.tsx:152 [scrollTop] scrollTop: root.scrollTop,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:168 [scrollTop] nearlyEqual(current.scrollTop, next.scrollTop)
+.\native-pdf-reader\components\PdfReadingFrame.tsx:301 [scrollTop] scrollTop: 0,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:606 [scrollTop] const visibleStart = Math.max(0, viewport.scrollTop);
+.\native-pdf-reader\components\PdfReadingFrame.tsx:617 [scrollTop] top: tick.position - viewport.scrollTop,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:624 [scrollTop] viewport.scrollTop,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:37 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\components\PdfReadingFrame.tsx:97 [scrollLeft] * - PdfReadingFrame também escrevendo root.scrollLeft ao mesmo tempo.
+.\native-pdf-reader\components\PdfReadingFrame.tsx:100 [scrollLeft] * pixels inteiros e a preservação imperativa de scrollLeft é desligada enquanto
+.\native-pdf-reader\components\PdfReadingFrame.tsx:151 [scrollLeft] scrollLeft: root.scrollLeft,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:167 [scrollLeft] nearlyEqual(current.scrollLeft, next.scrollLeft) &&
+.\native-pdf-reader\components\PdfReadingFrame.tsx:210 [scrollLeft] * - Reposiciona scrollLeft para manter o mesmo ponto relativo da página
+.\native-pdf-reader\components\PdfReadingFrame.tsx:229 [scrollLeft] const viewportCenterBefore = root.scrollLeft + root.clientWidth / 2;
+.\native-pdf-reader\components\PdfReadingFrame.tsx:240 [scrollLeft] const desiredScrollLeft =
+.\native-pdf-reader\components\PdfReadingFrame.tsx:243 [scrollLeft] const maxScrollLeft = Math.max(0, root.scrollWidth - root.clientWidth);
+.\native-pdf-reader\components\PdfReadingFrame.tsx:244 [scrollLeft] const nextScrollLeft = clamp(desiredScrollLeft, 0, maxScrollLeft);
+.\native-pdf-reader\components\PdfReadingFrame.tsx:246 [scrollLeft] if (nearlyEqual(root.scrollLeft, nextScrollLeft)) {
+.\native-pdf-reader\components\PdfReadingFrame.tsx:250 [scrollLeft] root.scrollLeft = nextScrollLeft;
+.\native-pdf-reader\components\PdfReadingFrame.tsx:300 [scrollLeft] scrollLeft: 0,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:428 [scrollLeft] const liveScrollLeft = root.scrollLeft;
+.\native-pdf-reader\components\PdfReadingFrame.tsx:432 [scrollLeft] scrollLeft: liveScrollLeft,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:437 [scrollLeft] * A régua lê o scrollLeft real do viewport, não o scrollLeft salvo no
+.\native-pdf-reader\components\PdfReadingFrame.tsx:451 [scrollLeft] geometry.contentLeft + geometry.contentWidth / 2 - liveScrollLeft
+.\native-pdf-reader\components\PdfReadingFrame.tsx:466 [scrollLeft] * Se o PdfReadingFrame também escrever root.scrollLeft no mesmo período,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:470 [scrollLeft] * sua geometria e régua, mas não altera root.scrollLeft.
+.\native-pdf-reader\components\PdfReadingFrame.tsx:560 [scrollLeft] scrollLeft: viewport.scrollLeft,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:563 [scrollLeft] [layoutVersion, rulerMeasurementOrigin.rulerZeroX, viewport.scrollLeft],
+.\native-pdf-reader\components\PdfReadingFrame.tsx:573 [scrollLeft] viewport.scrollLeft - pageLeft - buffer,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:580 [scrollLeft] viewport.scrollLeft + viewport.width - pageLeft + buffer,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:600 [scrollLeft] viewport.scrollLeft,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:630 [scrollLeft] const viewportCenterX = viewport.scrollLeft + viewport.width / 2;
+.\native-pdf-reader\components\PdfReadingFrame.tsx:648 [scrollLeft] viewport.scrollLeft,
+.\native-pdf-reader\components\PdfReadingFrame.tsx:715 [scrollLeft] contentLeft + normalizedContentWidth / 2 - viewport.scrollLeft
+.\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:152 [settle] if (input.renderPhase === "settled-final") return 260;
+.\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:882 [settle] * ele permanece visível; se for pending invisível, renderiza só no settle.
+.\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:678 [PdfTileCanvas] export type PdfTileCanvasProps = {
+.\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:715 [PdfTileCanvas] export function PdfTileCanvas({
+.\native-pdf-reader\components\pdf-tiles\PdfTileCanvas.tsx:739 [PdfTileCanvas] }: PdfTileCanvasProps) {
+.\native-pdf-reader\components\pdf-tiles\PdfTileCanvasTypes.ts:8 [PdfTileCanvas] export type PdfTileCanvasTextMode = "normal" | "without-text" | "unknown";
+.\native-pdf-reader\components\pdf-tiles\PdfTileCanvasTypes.ts:20 [PdfTileCanvas] canvasTextMode: PdfTileCanvasTextMode;
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:74 [visualZoom] visualZoom?: number;
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:610 [visualZoom] visualZoom,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:843 [visualZoom] const effectiveVisualZoom = useMemo(
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:844 [visualZoom] () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(visualZoom, effectiveRenderZoom)),
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:845 [visualZoom] [effectiveRenderZoom, visualZoom],
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:853 [visualZoom] () => zoomPercentToScale(effectiveVisualZoom),
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:854 [visualZoom] [effectiveVisualZoom],
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1418 [visualZoom] data-knex-pdf-visual-zoom={effectiveVisualZoom}
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1505 [visualZoom] zoomPercent={effectiveVisualZoom}
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:82 [renderZoom] renderZoom?: number;
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:611 [renderZoom] renderZoom,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:839 [renderZoom] const effectiveRenderZoom = useMemo(
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:840 [renderZoom] () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(renderZoom, zoom)),
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:841 [renderZoom] [renderZoom, zoom],
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:844 [renderZoom] () => Math.max(MIN_LAYOUT_SCALE * 100, safeNumber(visualZoom, effectiveRenderZoom)),
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:845 [renderZoom] [effectiveRenderZoom, visualZoom],
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:849 [renderZoom] () => zoomPercentToScale(effectiveRenderZoom),
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:850 [renderZoom] [effectiveRenderZoom],
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:886 [renderZoom] zoom: effectiveRenderZoom,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:888 [renderZoom] [effectiveRenderZoom, renderPhase, renderQuality],
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1261 [renderZoom] zoom: effectiveRenderZoom,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1277 [renderZoom] zoom: effectiveRenderZoom,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1311 [renderZoom] effectiveRenderZoom,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1417 [renderZoom] data-knex-pdf-render-zoom={effectiveRenderZoom}
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1215 [requestAnimationFrame] const promoteFrameId = window.requestAnimationFrame(() => {
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1104 [setTimeout] const timerId = window.setTimeout(
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1186 [setTimeout] const timerId = window.setTimeout(() => {
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:172 [settle] if (input.renderPhase === "settled-final") return 768;
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:218 [settle] if (input.renderPhase === "settled-final") {
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:237 [settle] if (input.renderPhase === "settled-final") {
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:323 [settle] input.renderPhase === "settled-final" &&
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:617 [settle] renderPhase = "settled-final",
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1034 [settle] isZooming || isScrolling || renderPhase !== "settled-final";
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1055 [settle] * será atualizada depois do settle, evitando saltos de renderização enquanto
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1160 [settle] !isZooming && !isScrolling && renderPhase === "settled-final";
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:112 [debounce] const INTERACTION_TILE_LAYER_DEBOUNCE_MS = 12;
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:113 [debounce] const ZOOM_TILE_LAYER_DEBOUNCE_MS = 40;
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1107 [debounce] ? ZOOM_TILE_LAYER_DEBOUNCE_MS
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1108 [debounce] : INTERACTION_TILE_LAYER_DEBOUNCE_MS,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1477 [debounce] data-knex-pdf-zoom-tile-debounce-ms={ZOOM_TILE_LAYER_DEBOUNCE_MS}
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:30 [TileViewportObserver] TileViewportObserver,
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:32 [TileViewportObserver] } from "./TileViewportObserver";
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1317 [TileViewportObserver] * TileViewportObserver pode disparar em todo micro-scroll. Esses snapshots
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1502 [TileViewportObserver] <TileViewportObserver
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:67 [PdfTiledPageCanvas] export type PdfTiledPageCanvasProps = PdfTiledVisualPageProps & {
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:606 [PdfTiledPageCanvas] export function PdfTiledPageCanvas({
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:627 [PdfTiledPageCanvas] }: PdfTiledPageCanvasProps) {
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:33 [PdfTileLayer] import { PdfTileLayer } from "./PdfTileLayer";
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1543 [PdfTileLayer] <PdfTileLayer
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:1602 [PdfTileLayer] <PdfTileLayer
+.\native-pdf-reader\components\pdf-tiles\PdfTiledPageCanvas.tsx:27 [PdfTileCanvas] } from "./PdfTileCanvasTypes";
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:345 [setTimeout] const timerId = window.setTimeout(() => {
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:22 [PdfTiledPageCanvas] * O ponto crítico aqui é memória: o PdfTiledPageCanvas pode manter uma camada
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:252 [PdfTiledPageCanvas] * Sinal de scroll/zoom ativo vindo do PdfTiledPageCanvas.
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:370 [PdfTiledPageCanvas] * O PdfTiledPageCanvas pode manter uma camada ativa e uma pending montadas
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:24 [PdfTileLayer] * Se o PdfTileLayer montar todos os canvases de todos os tiles imediatamente,
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:227 [PdfTileLayer] export type PdfTileLayerProps = {
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:262 [PdfTileLayer] export function PdfTileLayer({
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:287 [PdfTileLayer] }: PdfTileLayerProps) {
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:11 [PdfTileCanvas] import { PdfTileCanvas } from "./PdfTileCanvas";
+.\native-pdf-reader\components\pdf-tiles\PdfTileLayer.tsx:426 [PdfTileCanvas] <PdfTileCanvas
+.\native-pdf-reader\components\pdf-tiles\TileViewportObserver.tsx:306 [requestAnimationFrame] publishFrameId = window.requestAnimationFrame(() => {
+.\native-pdf-reader\components\pdf-tiles\TileViewportObserver.tsx:401 [requestAnimationFrame] observeFrameId = window.requestAnimationFrame(observeTilesNow);
+.\native-pdf-reader\components\pdf-tiles\TileViewportObserver.tsx:317 [setTimeout] publishTimerId = window.setTimeout(
+.\native-pdf-reader\components\pdf-tiles\TileViewportObserver.tsx:11 [TileViewportObserver] export type TileViewportObserverProps = {
+.\native-pdf-reader\components\pdf-tiles\TileViewportObserver.tsx:216 [TileViewportObserver] export function TileViewportObserver({
+.\native-pdf-reader\components\pdf-tiles\TileViewportObserver.tsx:229 [TileViewportObserver] }: TileViewportObserverProps) {
+.\native-pdf-reader\hooks\usePdfSelection.ts:4 [anchor] import { buildTextAnchorFromSelection } from "../services";
+.\native-pdf-reader\hooks\usePdfSelection.ts:50 [anchor] const anchor = buildTextAnchorFromSelection({
+.\native-pdf-reader\hooks\usePdfSelection.ts:60 [anchor] anchor,
+.\native-pdf-reader\hooks\usePdfZoom.ts:83 [deltaY] deltaY: number;
+.\native-pdf-reader\hooks\usePdfZoom.ts:84 [deltaMode] deltaMode?: number;
+.\native-pdf-reader\knex-pdf-engine\index.ts:69 [computeWheelZoom] computeWheelZoom,
+.\native-pdf-reader\knex-pdf-engine\index.ts:73 [ZoomController] ZoomController,
+.\native-pdf-reader\knex-pdf-engine\index.ts:74 [ZoomController] } from "./viewport/ZoomController";
+.\native-pdf-reader\knex-pdf-engine\index.ts:81 [ZoomController] } from "./viewport/ZoomController";
+.\native-pdf-reader\knex-pdf-engine\index.ts:83 [anchor] createZoomCenterAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:84 [anchor] computeHorizontalScrollForZoomCenterAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:86 [anchor] computeScrollForZoomCenterAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:88 [anchor] describeZoomCenterAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:89 [anchor] validateZoomCenterAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:90 [anchor] } from "./viewport/ZoomCenterAnchorController";
+.\native-pdf-reader\knex-pdf-engine\index.ts:92 [anchor] ComputeScrollForZoomCenterAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\index.ts:93 [anchor] CreateZoomCenterAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\index.ts:96 [anchor] } from "./viewport/ZoomCenterAnchorController";
+.\native-pdf-reader\knex-pdf-engine\index.ts:99 [anchor] captureWheelAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:100 [anchor] captureLogicalCenterAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:103 [anchor] preserveAnchorAfterLayoutChange,
+.\native-pdf-reader\knex-pdf-engine\index.ts:104 [anchor] preserveAnchorAfterZoom,
+.\native-pdf-reader\knex-pdf-engine\index.ts:105 [anchor] restoreScrollFromAnchor,
+.\native-pdf-reader\knex-pdf-engine\index.ts:112 [anchor] ViewportAnchor,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:618 [onWheel] * function onWheel(event: WheelEvent) {
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:631 [deltaY] *     deltaY: event.deltaY,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:632 [deltaMode] *     deltaMode: event.deltaMode,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:34 [computeWheelZoom] computeWheelZoom,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:40 [computeWheelZoom] type ComputeWheelZoomInput,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:429 [computeWheelZoom] input: Omit<ComputeWheelZoomInput, "currentZoom">,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:431 [computeWheelZoom] const nextZoom = computeWheelZoom({
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:43 [ZoomController] } from "./viewport/ZoomController";
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:637 [requestAnimationFrame] *   requestAnimationFrame(() => {
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:119 [setTimeout] private backendRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:533 [setTimeout] this.backendRecoveryTimer = setTimeout(() => {
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:108 [anchor] * 1. componente captura snapshot/anchor com ScrollCoordinator;
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:425 [anchor] * O componente deve capturar anchor antes, chamar wheelZoom, aguardar layout
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:628 [anchor] *   const anchor = scrollCoordinator.captureWheelAnchor(event, before);
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:645 [anchor] *       anchor,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:653 [anchor] *       activeContentCenterX: zoomCenterAnchor.contentCenterX,
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:51 [scrollLeft] *   não deve sobrescrever scrollLeft.
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngine.ts:101 [scrollLeft] * - escrever diretamente viewport.scrollLeft;
+.\native-pdf-reader\knex-pdf-engine\KnexPdfEngineProvider.tsx:28 [settle] * Como o PDFium já está em settled-final/extreme/ratio alto e mesmo assim
+.\native-pdf-reader\knex-pdf-engine\cache\PageBitmapCache.ts:163 [settle] * Útil para impedir preview de substituir settled-final.
+.\native-pdf-reader\knex-pdf-engine\cache\PageBitmapCache.ts:224 [settle] "settled-final": 3,
+.\native-pdf-reader\knex-pdf-engine\cache\PageBitmapCache.ts:280 [settle] : "settled-final";
+.\native-pdf-reader\knex-pdf-engine\cache\PageBitmapCache.ts:290 [settle] RENDER_PHASE_RANK["settled-final"] ??
+.\native-pdf-reader\knex-pdf-engine\cache\PageBitmapCache.ts:928 [settle] * - não devolve preview se foi pedido settled-final;
+.\native-pdf-reader\knex-pdf-engine\cache\PageBitmapCache.ts:1156 [settle] return metadata.renderPhase !== "settled-final";
+.\native-pdf-reader\knex-pdf-engine\core\engineConfig.ts:35 [ZoomController] * Mantidos em harmonia com o ZoomController:
+.\native-pdf-reader\knex-pdf-engine\core\engineConfig.ts:109 [visualZoom] * - separação visualZoom/renderZoom;
+.\native-pdf-reader\knex-pdf-engine\core\engineConfig.ts:109 [renderZoom] * - separação visualZoom/renderZoom;
+.\native-pdf-reader\knex-pdf-engine\core\engineConfig.ts:110 [settle] * - renderização final apenas após settle;
+.\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:264 [anchor] export type KnexPdfZoomCenterAnchor = {
+.\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:279 [scrollLeft] desiredScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\core\engineTypes.ts:284 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts:269 [settle] (input.renderPhase === "settled-final" ? "print" : "display");
+.\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts:340 [settle] let renderSettled = false;
+.\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts:343 [settle] if (renderSettled) return;
+.\native-pdf-reader\knex-pdf-engine\rendering\HiDpiCanvasRenderer.ts:374 [settle] renderSettled = true;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:67 [settle] * settled-final: 24 / 5 = 4.8
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:70 [settle] const KNEX_PDF_PDFIUM_TARGET_TEXT_PHYSICAL_PX_SETTLED = 24;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:79 [settle] * settled-final:       17 / 5 = 3.4
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:86 [settle] const KNEX_PDF_PDFJS_TARGET_TEXT_PHYSICAL_PX_SETTLED = 17;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:97 [settle] const KNEX_PDF_GENERIC_TARGET_TEXT_PHYSICAL_PX_SETTLED = 20;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:116 [settle] const KNEX_PDF_PDFIUM_SETTLED_FINAL_MAX_BITMAP_PIXELS = 64_000_000;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:119 [settle] const KNEX_PDF_PDFJS_SETTLED_FINAL_MAX_BITMAP_PIXELS = 40_000_000;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:123 [settle] const KNEX_PDF_GENERIC_SETTLED_FINAL_MAX_BITMAP_PIXELS = 48_000_000;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:159 [settle] : KNEX_PDF_PDFJS_TARGET_TEXT_PHYSICAL_PX_SETTLED;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:173 [settle] input.renderPhase === "settled-final"
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:174 [settle] ? KNEX_PDF_PDFIUM_TARGET_TEXT_PHYSICAL_PX_SETTLED
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:188 [settle] input.renderPhase === "settled-final"
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:189 [settle] ? KNEX_PDF_GENERIC_TARGET_TEXT_PHYSICAL_PX_SETTLED
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:215 [settle] return KNEX_PDF_PDFJS_SETTLED_FINAL_MAX_BITMAP_PIXELS;
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:219 [settle] return input.renderPhase === "settled-final"
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:220 [settle] ? KNEX_PDF_PDFIUM_SETTLED_FINAL_MAX_BITMAP_PIXELS
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:224 [settle] return input.renderPhase === "settled-final"
+.\native-pdf-reader\knex-pdf-engine\rendering\PageGeometry.ts:225 [settle] ? KNEX_PDF_GENERIC_SETTLED_FINAL_MAX_BITMAP_PIXELS
+.\native-pdf-reader\knex-pdf-engine\rendering\PdfJsTileRenderer.ts:206 [ZoomController] * Os limites do ZoomController, PdfTiledPageCanvas, PdfTileLayer e PdfTileCanvas
+.\native-pdf-reader\knex-pdf-engine\rendering\PdfJsTileRenderer.ts:206 [PdfTiledPageCanvas] * Os limites do ZoomController, PdfTiledPageCanvas, PdfTileLayer e PdfTileCanvas
+.\native-pdf-reader\knex-pdf-engine\rendering\PdfJsTileRenderer.ts:206 [PdfTileLayer] * Os limites do ZoomController, PdfTiledPageCanvas, PdfTileLayer e PdfTileCanvas
+.\native-pdf-reader\knex-pdf-engine\rendering\PdfJsTileRenderer.ts:206 [PdfTileCanvas] * Os limites do ZoomController, PdfTiledPageCanvas, PdfTileLayer e PdfTileCanvas
+.\native-pdf-reader\knex-pdf-engine\rendering\PdfJsTileRenderer.ts:356 [PdfTileCanvas] * houver bleed/overscan, deve acontecer no PdfTileCanvas.tsx ao copiar para
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:9 [settle] | "zoom-settled"
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:26 [settle] settledNeighborRadius: number;
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:75 [settle] settledNeighborRadius: 1,
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:176 [settle] input.isZooming ? "zooming" : "settled",
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:310 [settle] reason === "zoom-settled"
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:311 [settle] ? this.options.settledNeighborRadius
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:385 [settle] scheduleAfterZoomSettled(input: {
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderManager.ts:396 [settle] reason: "zoom-settled",
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderQualityController.ts:27 [settle] | "settled-final";
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderQualityController.ts:66 [settle] * Se o settled-final voltar com outputScale baixo, o texto volta serrilhado.
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderQualityController.ts:81 [settle] * Agora o settled-final usa "extreme" por padrão.
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderQualityController.ts:350 [settle] * Settled-final de PDFium:
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderQualityController.ts:356 [settle] if (input.phase === "settled-final") {
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderQueue.ts:18 [settle] "settled-final": 3,
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderScheduler.ts:112 [setTimeout] setTimeout(run, 0);
+.\native-pdf-reader\knex-pdf-engine\rendering\RenderScheduler.ts:124 [setTimeout] window.setTimeout(run, 0);
+.\native-pdf-reader\knex-pdf-engine\ruler\RulerScrollSyncController.ts:5 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\ruler\RulerScrollSyncController.ts:10 [scrollLeft] scrollLeft: input.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\ruler\RulerScrollSyncController.ts:11 [scrollLeft] rulerTrackX: input.rulerZeroX - input.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\server-tiles\NativeServerTileRenderer.ts:413 [setTimeout] let timer: ReturnType<typeof setTimeout> | null = null;
+.\native-pdf-reader\knex-pdf-engine\server-tiles\NativeServerTileRenderer.ts:416 [setTimeout] timer = setTimeout(() => {
+.\native-pdf-reader\knex-pdf-engine\tiles\tileRenderQualityPolicy.ts:12 [settle] if (input.renderPhase === "settled-final") {
+.\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts:42 [requestAnimationFrame] * Quando true, a fila bombeia em requestAnimationFrame no navegador.
+.\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts:245 [requestAnimationFrame] typeof window.requestAnimationFrame === "function"
+.\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts:248 [requestAnimationFrame] window.requestAnimationFrame(run);
+.\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts:253 [requestAnimationFrame] window.requestAnimationFrame(run);
+.\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts:239 [setTimeout] setTimeout(run, this.pumpDelayMs);
+.\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts:252 [setTimeout] window.setTimeout(() => {
+.\native-pdf-reader\knex-pdf-engine\tiles\TileRenderScheduler.ts:258 [setTimeout] window.setTimeout(run, this.pumpDelayMs);
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:673 [ZoomController] * 2. ZoomController calcula nextZoom.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:209 [anchor] * - Usa activeContentCenterX, que deve vir do ZoomCenterAnchorController
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:680 [anchor] *   activeContentCenterX: anchor.contentCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:675 [scrollTop] * 4. ScrollCoordinator restaura scrollLeft/scrollTop.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:21 [scrollLeft] * Política de escrita de scrollLeft.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:27 [scrollLeft] *   preserva o scrollLeft atual se estiver dentro dos limites.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:30 [scrollLeft] *   não escreve scrollLeft. Apenas atualiza overflowX e chama hooks.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:35 [scrollLeft] *   força scrollLeft = 0. Deve ser usado com cuidado.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:51 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:52 [scrollLeft] currentScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:59 [scrollLeft] desiredScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:63 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:71 [scrollLeft] appliedScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:73 [scrollLeft] didWriteScrollLeft: boolean;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:82 [scrollLeft] * de scrollLeft ou overflow-x.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:98 [scrollLeft] * Valor máximo possível do scrollLeft.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:102 [scrollLeft] maxScrollLeft?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:107 [scrollLeft] currentScrollLeft?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:125 [scrollLeft] * o scrollLeft pela âncora visual.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:136 [scrollLeft] * Quando false, evita forçar scrollLeft = 0 quando não há overflow.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:174 [scrollLeft] export function computeMaxScrollLeft(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:184 [scrollLeft] export function computeMaxScrollLeftFromViewport(viewportEl: HTMLElement): number {
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:212 [scrollLeft] export function computeCenteredScrollLeft(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:215 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:219 [scrollLeft] const desiredScrollLeft =
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:222 [scrollLeft] return clamp(desiredScrollLeft, 0, input.maxScrollLeft);
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:239 [scrollLeft] const maxScrollLeft =
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:240 [scrollLeft] typeof input.maxScrollLeft === "number"
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:241 [scrollLeft] ? Math.max(0, safeNumber(input.maxScrollLeft, 0))
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:242 [scrollLeft] : computeMaxScrollLeft({
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:247 [scrollLeft] const currentScrollLeft = clamp(
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:248 [scrollLeft] safeNumber(input.currentScrollLeft, 0),
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:250 [scrollLeft] maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:257 [scrollLeft] maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:258 [scrollLeft] currentScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:277 [scrollLeft] const desiredScrollLeft = hasOverflow
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:278 [scrollLeft] ? computeCenteredScrollLeft({
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:281 [scrollLeft] maxScrollLeft: metrics.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:288 [scrollLeft] desiredScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:292 [scrollLeft] maxScrollLeft: metrics.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:322 [scrollLeft] desiredScrollLeft: decision.desiredScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:365 [scrollLeft] * o único responsável por restaurar o scrollLeft.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:382 [scrollLeft] * Decide se é possível preservar o scrollLeft atual.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:387 [scrollLeft] export function canPreserveCurrentScrollLeft(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:388 [scrollLeft] currentScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:389 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:391 [scrollLeft] const currentScrollLeft = safeNumber(input.currentScrollLeft, 0);
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:392 [scrollLeft] const maxScrollLeft = Math.max(0, safeNumber(input.maxScrollLeft, 0));
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:394 [scrollLeft] return currentScrollLeft >= 0 && currentScrollLeft <= maxScrollLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:418 [scrollLeft] desiredScrollLeft: decision.desiredScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:429 [scrollLeft] maxScrollLeft: input.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:430 [scrollLeft] currentScrollLeft: input.currentScrollLeft ?? input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:460 [scrollLeft] appliedScrollLeft: input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:463 [scrollLeft] didWriteScrollLeft: false,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:477 [scrollLeft] let didWriteScrollLeft = false;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:485 [scrollLeft] if (input.resetScrollWhenNoOverflow !== false && input.viewportEl.scrollLeft !== 0) {
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:486 [scrollLeft] input.viewportEl.scrollLeft = 0;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:487 [scrollLeft] didWriteScrollLeft = true;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:492 [scrollLeft] * Não escrever scrollLeft. O ScrollCoordinator já restaurou a âncora.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:495 [scrollLeft] let nextScrollLeft = decision.desiredScrollLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:498 [scrollLeft] nextScrollLeft = 0;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:502 [scrollLeft] const currentScrollLeft = clamp(
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:503 [scrollLeft] input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:505 [scrollLeft] decision.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:508 [scrollLeft] nextScrollLeft = canPreserveCurrentScrollLeft({
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:509 [scrollLeft] currentScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:510 [scrollLeft] maxScrollLeft: decision.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:512 [scrollLeft] ? currentScrollLeft
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:513 [scrollLeft] : decision.desiredScrollLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:517 [scrollLeft] nextScrollLeft = decision.desiredScrollLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:520 [scrollLeft] const clampedNextScrollLeft = clamp(
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:521 [scrollLeft] nextScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:523 [scrollLeft] decision.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:526 [scrollLeft] if (input.viewportEl.scrollLeft !== clampedNextScrollLeft) {
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:527 [scrollLeft] input.viewportEl.scrollLeft = clampedNextScrollLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:528 [scrollLeft] didWriteScrollLeft = true;
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:536 [scrollLeft] * Mesmo quando scrollWritePolicy = "none", a régua deve ler o scrollLeft real.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:543 [scrollLeft] appliedScrollLeft: input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:545 [scrollLeft] didWriteScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:554 [scrollLeft] appliedScrollLeft: input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:556 [scrollLeft] didWriteScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:596 [scrollLeft] const maxScrollLeft = computeMaxScrollLeftFromViewport(input.viewportEl);
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:603 [scrollLeft] maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:604 [scrollLeft] currentScrollLeft: input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:675 [scrollLeft] * 4. ScrollCoordinator restaura scrollLeft/scrollTop.
+.\native-pdf-reader\knex-pdf-engine\viewport\HorizontalOverflowController.ts:688 [scrollLeft] * Isso impede o HorizontalOverflowController de sobrescrever o scrollLeft
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:1058 [requestAnimationFrame] * requestAnimationFrame(() => {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:45 [anchor] export type AnchorStrategy =
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:69 [anchor] export type ViewportAnchor = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:72 [anchor] anchorViewportX: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:73 [anchor] anchorViewportY: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:104 [anchor] strategy: AnchorStrategy;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:159 [anchor] export type CaptureAnchorInput = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:161 [anchor] anchorViewportX?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:162 [anchor] anchorViewportY?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:163 [anchor] strategy?: AnchorStrategy;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:166 [anchor] export type CaptureWheelAnchorInput = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:172 [anchor] export type RestoreScrollFromAnchorInput = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:173 [anchor] anchor: ViewportAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:383 [anchor] export function captureViewportAnchor(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:384 [anchor] input: CaptureAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:385 [anchor] ): ViewportAnchor {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:386 [anchor] const anchorViewportX = clampValue(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:387 [anchor] safeNumber(input.anchorViewportX, input.snapshot.viewportWidth / 2),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:392 [anchor] const anchorViewportY = clampValue(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:393 [anchor] safeNumber(input.anchorViewportY, input.snapshot.viewportHeight / 2),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:403 [anchor] input.snapshot.scrollLeft + anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:409 [anchor] input.snapshot.scrollTop + anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:417 [anchor] anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:418 [anchor] anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:440 [anchor] export function captureWheelAnchor(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:441 [anchor] input: CaptureWheelAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:442 [anchor] ): ViewportAnchor {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:454 [anchor] return captureViewportAnchor({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:456 [anchor] anchorViewportX: insideViewport
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:459 [anchor] anchorViewportY: insideViewport
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:470 [anchor] export function captureLogicalCenterAnchor(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:473 [anchor] }): ViewportAnchor {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:474 [anchor] const anchorViewportX =
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:477 [anchor] const anchorViewportY =
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:482 [anchor] return captureViewportAnchor({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:484 [anchor] anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:485 [anchor] anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:490 [anchor] function projectAnchorContentPoint(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:491 [anchor] anchor: ViewportAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:503 [anchor] safeNumber(input.anchor.contentWidthAtCapture, 1),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:508 [anchor] safeNumber(input.anchor.contentHeightAtCapture, 1),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:522 [anchor] input.anchor.contentX * scaleX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:523 [anchor] input.anchor.normalizedX * nextContentWidth,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:527 [anchor] input.anchor.contentY * scaleY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:528 [anchor] input.anchor.normalizedY * nextContentHeight,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:541 [anchor] export function restoreScrollFromAnchor(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:542 [anchor] input: RestoreScrollFromAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:544 [anchor] const projected = projectAnchorContentPoint({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:545 [anchor] anchor: input.anchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:550 [anchor] projected.nextContentX - input.anchor.anchorViewportX;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:553 [anchor] projected.nextContentY - input.anchor.anchorViewportY;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:771 [anchor] export function preserveAnchorAfterZoom(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:773 [anchor] anchor: ViewportAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:779 [anchor] const restored = restoreScrollFromAnchor({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:780 [anchor] anchor: input.anchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:801 [anchor] export function preserveAnchorAfterLayoutChange(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:803 [anchor] anchor: ViewportAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:812 [anchor] const restored = restoreScrollFromAnchor({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:813 [anchor] anchor: input.anchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:955 [anchor] captureCenterAnchor(snapshot: ViewportSnapshot): ViewportAnchor {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:956 [anchor] return captureViewportAnchor({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:962 [anchor] captureWheelAnchor(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:965 [anchor] ): ViewportAnchor {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:966 [anchor] return captureWheelAnchor({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:973 [anchor] captureLogicalCenterAnchor(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:976 [anchor] }): ViewportAnchor {
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:977 [anchor] return captureLogicalCenterAnchor(input);
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:981 [anchor] anchor: ViewportAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:986 [anchor] return preserveAnchorAfterZoom({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:988 [anchor] anchor: input.anchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:997 [anchor] anchor: ViewportAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:1005 [anchor] return preserveAnchorAfterLayoutChange({
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:1007 [anchor] anchor: input.anchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:1053 [anchor] * const anchor = scrollCoordinator.captureWheelAnchor(event, before);
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:1066 [anchor] *     anchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:20 [scrollTop] scrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:25 [scrollTop] maxScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:63 [scrollTop] scrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:66 [scrollTop] maxScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:102 [scrollTop] scrollTopAtCapture: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:129 [scrollTop] nextScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:180 [scrollTop] keepScrollTop?: boolean;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:283 [scrollTop] const maxScrollTop = Math.max(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:290 [scrollTop] maxScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:299 [scrollTop] scrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:301 [scrollTop] maxScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:307 [scrollTop] scrollTop: roundToSubpixel(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:308 [scrollTop] clampValue(input.scrollTop, 0, input.maxScrollTop),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:368 [scrollTop] scrollTop: safeNumber(input.viewportEl.scrollTop, 0),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:371 [scrollTop] maxScrollTop: bounds.maxScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:409 [scrollTop] input.snapshot.scrollTop + anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:430 [scrollTop] scrollTopAtCapture: input.snapshot.scrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:479 [scrollTop] ? input.logicalCenter.contentCenterY - input.snapshot.scrollTop
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:552 [scrollTop] const desiredScrollTop =
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:557 [scrollTop] scrollTop: desiredScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:559 [scrollTop] maxScrollTop: input.nextSnapshot.maxScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:575 [scrollTop] const desiredScrollTop =
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:578 [scrollTop] : input.snapshot.scrollTop;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:582 [scrollTop] scrollTop: input.keepScrollTop ? input.snapshot.scrollTop : desiredScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:584 [scrollTop] maxScrollTop: input.snapshot.maxScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:627 [scrollTop] nextScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:632 [scrollTop] scrollTop: input.nextScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:634 [scrollTop] maxScrollTop: input.snapshot.maxScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:641 [scrollTop] nextScrollTop: next.scrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:689 [scrollTop] scrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:701 [scrollTop] const currentScrollTop = safeNumber(input.viewportEl.scrollTop, 0);
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:707 [scrollTop] Math.abs(currentScrollTop - input.scrollTop) > SCROLL_ASSIGNMENT_EPSILON;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:714 [scrollTop] input.viewportEl.scrollTop = input.scrollTop;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:721 [scrollTop] scrollTop: input.viewportEl.scrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:754 [scrollTop] scrollTop: input.transaction.nextScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:762 [scrollTop] requestedScrollTop: input.transaction.nextScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:787 [scrollTop] nextScrollTop: restored.scrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:820 [scrollTop] nextScrollTop: restored.scrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:843 [scrollTop] keepScrollTop: true,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:849 [scrollTop] nextScrollTop: centered.scrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:913 [scrollTop] scrollTop: input.viewportEl.scrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:19 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:24 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:62 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:65 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:101 [scrollLeft] scrollLeftAtCapture: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:128 [scrollLeft] nextScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:278 [scrollLeft] const maxScrollLeft = Math.max(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:289 [scrollLeft] maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:298 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:300 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:304 [scrollLeft] scrollLeft: roundToSubpixel(
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:305 [scrollLeft] clampValue(input.scrollLeft, 0, input.maxScrollLeft),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:367 [scrollLeft] scrollLeft: safeNumber(input.viewportEl.scrollLeft, 0),
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:370 [scrollLeft] maxScrollLeft: bounds.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:403 [scrollLeft] input.snapshot.scrollLeft + anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:429 [scrollLeft] scrollLeftAtCapture: input.snapshot.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:475 [scrollLeft] input.logicalCenter.contentCenterX - input.snapshot.scrollLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:549 [scrollLeft] const desiredScrollLeft =
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:556 [scrollLeft] scrollLeft: desiredScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:558 [scrollLeft] maxScrollLeft: input.nextSnapshot.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:571 [scrollLeft] const desiredScrollLeft =
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:581 [scrollLeft] scrollLeft: desiredScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:583 [scrollLeft] maxScrollLeft: input.snapshot.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:626 [scrollLeft] nextScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:631 [scrollLeft] scrollLeft: input.nextScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:633 [scrollLeft] maxScrollLeft: input.snapshot.maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:640 [scrollLeft] nextScrollLeft: next.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:688 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:700 [scrollLeft] const currentScrollLeft = safeNumber(input.viewportEl.scrollLeft, 0);
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:704 [scrollLeft] Math.abs(currentScrollLeft - input.scrollLeft) > SCROLL_ASSIGNMENT_EPSILON;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:710 [scrollLeft] input.viewportEl.scrollLeft = input.scrollLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:720 [scrollLeft] scrollLeft: input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:753 [scrollLeft] scrollLeft: input.transaction.nextScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:761 [scrollLeft] requestedScrollLeft: input.transaction.nextScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:786 [scrollLeft] nextScrollLeft: restored.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:819 [scrollLeft] nextScrollLeft: restored.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:848 [scrollLeft] nextScrollLeft: centered.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:869 [scrollLeft] * Não zerar scrollLeft aqui.
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:872 [scrollLeft] * scrollLeft = 0. Durante zoom, isso destrói a referência geográfica
+.\native-pdf-reader\knex-pdf-engine\viewport\ScrollCoordinator.ts:912 [scrollLeft] scrollLeft: input.viewportEl.scrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:1 [anchor] import type { KnexPdfZoomCenterAnchor } from "../core/engineTypes";
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:5 [anchor] export type KnexPdfZoomAnchorKind =
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:10 [anchor] export type CreateZoomCenterAnchorInput = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:35 [anchor] * - anchorClientX pode ser event.clientX relativo ao container;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:36 [anchor] * - anchorClientY pode ser event.clientY relativo ao container.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:41 [anchor] anchorClientX?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:42 [anchor] anchorClientY?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:56 [anchor] anchorKind?: KnexPdfZoomAnchorKind;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:61 [anchor] * Quando true e anchorKind não foi informado, usa "viewport-center".
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:80 [anchor] export type ComputeScrollForZoomCenterAnchorInput = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:81 [anchor] anchor: KnexPdfZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:128 [anchor] type RuntimeZoomCenterAnchor = KnexPdfZoomCenterAnchor & {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:129 [anchor] anchorKind?: KnexPdfZoomAnchorKind;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:136 [anchor] anchorViewportX?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:137 [anchor] anchorViewportY?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:142 [anchor] contentAnchorX?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:143 [anchor] contentAnchorY?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:150 [anchor] contentAnchorRatioX?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:151 [anchor] contentAnchorRatioY?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:163 [anchor] const ANCHOR_RATIO_OVERSCAN = 0.35;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:194 [anchor] return clamp(value, -ANCHOR_RATIO_OVERSCAN, 1 + ANCHOR_RATIO_OVERSCAN);
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:197 [anchor] function clampAnchorContentValue(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:202 [anchor] const overscan = Math.max(1, input.size) * ANCHOR_RATIO_OVERSCAN;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:211 [anchor] function resolveAnchorKind(
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:212 [anchor] input: CreateZoomCenterAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:213 [anchor] ): KnexPdfZoomAnchorKind {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:214 [anchor] if (input.anchorKind) {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:215 [anchor] return input.anchorKind;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:259 [anchor] function getAnchorContentBounds(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:298 [anchor] function getNextAnchorContentBounds(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:299 [anchor] anchor: RuntimeZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:307 [anchor] const sourcePageLeft = input.sourcePageLeft ?? input.anchor.sourcePageLeft;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:308 [anchor] const sourcePageTop = input.sourcePageTop ?? input.anchor.sourcePageTop;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:309 [anchor] const sourcePageWidth = input.sourcePageWidth ?? input.anchor.sourcePageWidth;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:311 [anchor] input.sourcePageHeight ?? input.anchor.sourcePageHeight;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:324 [anchor] return getAnchorContentBounds({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:325 [anchor] mode: input.anchor.mode,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:330 [anchor] pagePairLeft: input.pagePairLeft ?? input.anchor.pagePairLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:331 [anchor] pagePairWidth: input.pagePairWidth ?? input.anchor.pagePairWidth,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:366 [anchor] function computeAnchoredContentPoint(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:367 [anchor] anchorKind: KnexPdfZoomAnchorKind;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:372 [anchor] anchorClientX?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:373 [anchor] anchorClientY?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:378 [anchor] if (input.anchorKind === "content-center") {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:380 [anchor] anchorViewportX: input.viewportWidth / 2,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:381 [anchor] anchorViewportY: input.viewportHeight / 2,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:382 [anchor] contentAnchorX: input.fallbackContentCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:383 [anchor] contentAnchorY: input.fallbackContentCenterY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:387 [anchor] const anchorViewportX =
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:388 [anchor] input.anchorKind === "pointer" && isFiniteNumber(input.anchorClientX)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:389 [anchor] ? clamp(input.anchorClientX, 0, input.viewportWidth)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:392 [anchor] const anchorViewportY =
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:393 [anchor] input.anchorKind === "pointer" && isFiniteNumber(input.anchorClientY)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:394 [anchor] ? clamp(input.anchorClientY, 0, input.viewportHeight)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:397 [anchor] const rawContentAnchorX =
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:398 [anchor] safeNumber(input.currentScrollLeft, 0) + anchorViewportX;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:399 [anchor] const rawContentAnchorY =
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:400 [anchor] safeNumber(input.currentScrollTop, 0) + anchorViewportY;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:403 [anchor] anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:404 [anchor] anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:405 [anchor] contentAnchorX: clampAnchorContentValue({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:406 [anchor] value: rawContentAnchorX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:410 [anchor] contentAnchorY: clampAnchorContentValue({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:411 [anchor] value: rawContentAnchorY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:469 [anchor] export function createZoomCenterAnchor(
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:470 [anchor] input: CreateZoomCenterAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:471 [anchor] ): KnexPdfZoomCenterAnchor {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:496 [anchor] const anchorKind = resolveAnchorKind(input);
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:498 [anchor] const bounds = getAnchorContentBounds({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:508 [anchor] const anchoredPoint = computeAnchoredContentPoint({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:509 [anchor] anchorKind,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:514 [anchor] anchorClientX: input.anchorClientX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:515 [anchor] anchorClientY: input.anchorClientY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:521 [anchor] const contentAnchorRatioX = computeRatioWithinBounds({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:522 [anchor] value: anchoredPoint.contentAnchorX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:527 [anchor] const contentAnchorRatioY = computeRatioWithinBounds({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:528 [anchor] value: anchoredPoint.contentAnchorY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:533 [anchor] const anchor: RuntimeZoomCenterAnchor = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:537 [anchor] contentCenterX: anchoredPoint.contentAnchorX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:538 [anchor] contentCenterY: anchoredPoint.contentAnchorY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:549 [anchor] anchorKind,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:550 [anchor] anchorViewportX: anchoredPoint.anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:551 [anchor] anchorViewportY: anchoredPoint.anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:553 [anchor] contentAnchorX: anchoredPoint.contentAnchorX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:554 [anchor] contentAnchorY: anchoredPoint.contentAnchorY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:556 [anchor] contentAnchorRatioX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:557 [anchor] contentAnchorRatioY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:568 [anchor] return anchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:572 [anchor] input: ComputeScrollForZoomCenterAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:576 [anchor] anchorViewportX: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:577 [anchor] anchorViewportY: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:579 [anchor] const runtimeAnchor = input.anchor as RuntimeZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:584 [anchor] const anchorViewportX = isFiniteNumber(runtimeAnchor.anchorViewportX)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:585 [anchor] ? clamp(runtimeAnchor.anchorViewportX, 0, viewportWidth)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:588 [anchor] const anchorViewportY = isFiniteNumber(runtimeAnchor.anchorViewportY)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:589 [anchor] ? clamp(runtimeAnchor.anchorViewportY, 0, viewportHeight)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:592 [anchor] const nextBounds = getNextAnchorContentBounds({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:593 [anchor] anchor: runtimeAnchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:605 [anchor] ratioX: runtimeAnchor.contentAnchorRatioX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:606 [anchor] ratioY: runtimeAnchor.contentAnchorRatioY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:607 [anchor] fallbackX: runtimeAnchor.contentAnchorX ?? input.anchor.contentCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:608 [anchor] fallbackY: runtimeAnchor.contentAnchorY ?? input.anchor.contentCenterY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:614 [anchor] anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:615 [anchor] anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:620 [anchor] contentX: safeNumber(input.anchor.contentCenterX, viewportWidth / 2),
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:621 [anchor] contentY: safeNumber(input.anchor.contentCenterY, viewportHeight / 2),
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:622 [anchor] anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:623 [anchor] anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:628 [anchor] export function computeImmediateScrollForZoomCenterAnchor(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:629 [anchor] anchor: KnexPdfZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:642 [anchor] const runtimeAnchor = input.anchor as RuntimeZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:647 [anchor] const anchorViewportX = isFiniteNumber(runtimeAnchor.anchorViewportX)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:648 [anchor] ? clamp(runtimeAnchor.anchorViewportX, 0, viewportWidth)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:651 [anchor] const anchorViewportY = isFiniteNumber(runtimeAnchor.anchorViewportY)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:652 [anchor] ? clamp(runtimeAnchor.anchorViewportY, 0, viewportHeight)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:658 [anchor] const contentX = currentScrollLeft + anchorViewportX;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:659 [anchor] const contentY = currentScrollTop + anchorViewportY;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:663 [anchor] contentX * zoomRatio - anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:668 [anchor] contentY * zoomRatio - anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:684 [anchor] export function computeScrollForZoomCenterAnchor(
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:685 [anchor] input: ComputeScrollForZoomCenterAnchorInput,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:692 [anchor] const desiredScrollLeft = resolved.contentX - resolved.anchorViewportX;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:696 [anchor] : resolved.contentY - resolved.anchorViewportY;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:708 [anchor] export function computeHorizontalScrollForZoomCenterAnchor(input: {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:709 [anchor] anchor: KnexPdfZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:725 [anchor] anchor: input.anchor,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:738 [anchor] return clamp(resolved.contentX - resolved.anchorViewportX, 0, maxScrollLeft);
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:745 [anchor] export function validateZoomCenterAnchor(anchor: KnexPdfZoomCenterAnchor): {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:750 [anchor] const runtimeAnchor = anchor as RuntimeZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:752 [anchor] const fields: Array<keyof KnexPdfZoomCenterAnchor> = [
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:761 [anchor] if (!Number.isFinite(anchor[field])) {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:766 [anchor] if (anchor.mode === "sideBySide" && anchor.pagePairCenterX !== undefined) {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:767 [anchor] if (!Number.isFinite(anchor.pagePairCenterX)) {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:772 [anchor] if (anchor.activePageNumber < 1 || !Number.isFinite(anchor.activePageNumber)) {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:777 [anchor] runtimeAnchor.anchorKind &&
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:778 [anchor] runtimeAnchor.anchorKind !== "content-center" &&
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:779 [anchor] runtimeAnchor.anchorKind !== "viewport-center" &&
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:780 [anchor] runtimeAnchor.anchorKind !== "pointer"
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:782 [anchor] problems.push("anchorKind is invalid");
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:786 [anchor] runtimeAnchor.contentAnchorRatioX !== undefined &&
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:787 [anchor] !Number.isFinite(runtimeAnchor.contentAnchorRatioX)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:789 [anchor] problems.push("contentAnchorRatioX is not finite");
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:793 [anchor] runtimeAnchor.contentAnchorRatioY !== undefined &&
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:794 [anchor] !Number.isFinite(runtimeAnchor.contentAnchorRatioY)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:796 [anchor] problems.push("contentAnchorRatioY is not finite");
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:808 [anchor] export function describeZoomCenterAnchor(anchor: KnexPdfZoomCenterAnchor) {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:809 [anchor] const runtimeAnchor = anchor as RuntimeZoomCenterAnchor;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:812 [anchor] mode: anchor.mode,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:813 [anchor] activePageNumber: anchor.activePageNumber,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:815 [anchor] viewportCenterX: anchor.viewportCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:816 [anchor] viewportCenterY: anchor.viewportCenterY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:818 [anchor] contentCenterX: anchor.contentCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:819 [anchor] contentCenterY: anchor.contentCenterY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:821 [anchor] sourcePageCenterX: anchor.sourcePageCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:822 [anchor] pagePairCenterX: anchor.pagePairCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:824 [anchor] anchorKind: runtimeAnchor.anchorKind ?? "content-center",
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:825 [anchor] anchorViewportX: runtimeAnchor.anchorViewportX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:826 [anchor] anchorViewportY: runtimeAnchor.anchorViewportY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:828 [anchor] contentAnchorX: runtimeAnchor.contentAnchorX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:829 [anchor] contentAnchorY: runtimeAnchor.contentAnchorY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:831 [anchor] contentAnchorRatioX: runtimeAnchor.contentAnchorRatioX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:832 [anchor] contentAnchorRatioY: runtimeAnchor.contentAnchorRatioY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:834 [anchor] sourcePageLeft: runtimeAnchor.sourcePageLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:835 [anchor] sourcePageTop: runtimeAnchor.sourcePageTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:836 [anchor] sourcePageWidth: runtimeAnchor.sourcePageWidth,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:837 [anchor] sourcePageHeight: runtimeAnchor.sourcePageHeight,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:839 [anchor] pagePairLeft: runtimeAnchor.pagePairLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:840 [anchor] pagePairWidth: runtimeAnchor.pagePairWidth,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:843 [anchor] anchor.mode === "sideBySide" &&
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:844 [anchor] typeof anchor.pagePairCenterX === "number" &&
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:845 [anchor] anchor.contentCenterX === anchor.pagePairCenterX,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:29 [scrollTop] currentScrollTop?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:87 [scrollTop] maxScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:106 [scrollTop] * Quando true, mantém o scrollTop atual e só recalcula o eixo horizontal.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:109 [scrollTop] keepCurrentScrollTop?: boolean;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:111 [scrollTop] currentScrollTop?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:116 [scrollTop] scrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:371 [scrollTop] currentScrollTop?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:400 [scrollTop] safeNumber(input.currentScrollTop, 0) + anchorViewportY;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:513 [scrollTop] currentScrollTop: input.currentScrollTop,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:633 [scrollTop] currentScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:637 [scrollTop] maxScrollTop: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:656 [scrollTop] const currentScrollTop = safeNumber(input.currentScrollTop, 0);
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:659 [scrollTop] const contentY = currentScrollTop + anchorViewportY;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:667 [scrollTop] scrollTop: clamp(
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:670 [scrollTop] Math.max(0, safeNumber(input.maxScrollTop, 0)),
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:688 [scrollTop] const maxScrollTop = Math.max(0, safeNumber(input.maxScrollTop, 0));
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:694 [scrollTop] const desiredScrollTop = input.keepCurrentScrollTop
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:695 [scrollTop] ? safeNumber(input.currentScrollTop, 0)
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:700 [scrollTop] scrollTop: clamp(desiredScrollTop, 0, maxScrollTop),
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:729 [scrollTop] maxScrollTop: 0,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:28 [scrollLeft] currentScrollLeft?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:86 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:115 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:370 [scrollLeft] currentScrollLeft?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:398 [scrollLeft] safeNumber(input.currentScrollLeft, 0) + anchorViewportX;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:512 [scrollLeft] currentScrollLeft: input.currentScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:632 [scrollLeft] currentScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:636 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:655 [scrollLeft] const currentScrollLeft = safeNumber(input.currentScrollLeft, 0);
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:658 [scrollLeft] const contentX = currentScrollLeft + anchorViewportX;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:662 [scrollLeft] scrollLeft: clamp(
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:665 [scrollLeft] Math.max(0, safeNumber(input.maxScrollLeft, 0)),
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:687 [scrollLeft] const maxScrollLeft = Math.max(0, safeNumber(input.maxScrollLeft, 0));
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:692 [scrollLeft] const desiredScrollLeft = resolved.contentX - resolved.anchorViewportX;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:699 [scrollLeft] scrollLeft: clamp(desiredScrollLeft, 0, maxScrollLeft),
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:705 [scrollLeft] * Calcula apenas o scrollLeft.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:711 [scrollLeft] maxScrollLeft: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:722 [scrollLeft] const maxScrollLeft = Math.max(0, safeNumber(input.maxScrollLeft, 0));
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:728 [scrollLeft] maxScrollLeft,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomCenterAnchorController.ts:738 [scrollLeft] return clamp(resolved.contentX - resolved.anchorViewportX, 0, maxScrollLeft);
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:61 [deltaY] * WheelEvent.deltaY.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:62 [deltaY] * deltaY < 0 normalmente significa zoom in.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:63 [deltaY] * deltaY > 0 normalmente significa zoom out.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:65 [deltaY] deltaY: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:314 [deltaY] deltaY: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:317 [deltaY] const deltaY = safeNumber(input.deltaY, 0);
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:321 [deltaY] return deltaY * LINE_DELTA_PIXEL_FACTOR;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:323 [deltaY] return deltaY * PAGE_DELTA_PIXEL_FACTOR;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:326 [deltaY] return deltaY;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:626 [deltaY] deltaY: input.deltaY,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:68 [deltaMode] * WheelEvent.deltaMode.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:73 [deltaMode] deltaMode?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:315 [deltaMode] deltaMode?: number;
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:319 [deltaMode] switch (input.deltaMode ?? 0) {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:627 [deltaMode] deltaMode: input.deltaMode,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:57 [computeWheelZoom] export type ComputeWheelZoomInput = {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:621 [computeWheelZoom] export function computeWheelZoom(input: ComputeWheelZoomInput): number {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:885 [computeWheelZoom] input: Omit<ComputeWheelZoomInput, "currentZoom"> & {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:890 [computeWheelZoom] const nextZoom = computeWheelZoom({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:911 [computeWheelZoom] input: Omit<ComputeWheelZoomInput, "currentZoom">,
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:914 [computeWheelZoom] computeWheelZoom({
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:182 [ZoomController] * - entregar delta estável ao ZoomController.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:843 [ZoomController] export class ZoomController {
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:959 [setVisualZoom] * no Shell: RAF, flushWheel, debounce/settle, setVisualZoom ou restauração de
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:953 [visualZoom] * 2. Aplicar visualZoom imediatamente.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:959 [visualZoom] * no Shell: RAF, flushWheel, debounce/settle, setVisualZoom ou restauração de
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:956 [renderZoom] * 5. Confirmar renderZoom/committedRenderZoom apenas após settle.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:956 [committedRenderZoom] * 5. Confirmar renderZoom/committedRenderZoom apenas após settle.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:959 [flushWheel] * no Shell: RAF, flushWheel, debounce/settle, setVisualZoom ou restauração de
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:956 [settle] * 5. Confirmar renderZoom/committedRenderZoom apenas após settle.
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:959 [settle] * no Shell: RAF, flushWheel, debounce/settle, setVisualZoom ou restauração de
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:959 [debounce] * no Shell: RAF, flushWheel, debounce/settle, setVisualZoom ou restauração de
+.\native-pdf-reader\knex-pdf-engine\viewport\ZoomController.ts:952 [anchor] * 1. Capturar anchor antes do zoom.
+.\native-pdf-reader\services\pdfHighlight.service.ts:32 [anchor] anchor: input.selection.anchor,
+.\native-pdf-reader\services\pdfTextExtraction.service.ts:2 [anchor] import type { PdfTextAnchor } from "../types";
+.\native-pdf-reader\services\pdfTextExtraction.service.ts:6 [anchor] export function buildTextAnchorFromSelection(input: {
+.\native-pdf-reader\services\pdfTextExtraction.service.ts:10 [anchor] }): PdfTextAnchor {
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:1 [anchor] export type PdfViewportAnchor = {
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:58 [anchor] export function captureViewportAnchor(input: {
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:64 [anchor] }): PdfViewportAnchor {
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:74 [anchor] export function restoreViewportFromAnchor(input: {
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:75 [anchor] anchor: PdfViewportAnchor;
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:81 [anchor] scrollLeft: Math.max(0, input.anchor.x * input.newScale - input.clientWidth / 2),
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:82 [anchor] scrollTop: Math.max(0, input.anchor.y * input.newScale - input.clientHeight / 2),
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:60 [scrollTop] scrollTop: number;
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:66 [scrollTop] const centerY = input.scrollTop + input.clientHeight / 2;
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:82 [scrollTop] scrollTop: Math.max(0, input.anchor.y * input.newScale - input.clientHeight / 2),
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:59 [scrollLeft] scrollLeft: number;
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:65 [scrollLeft] const centerX = input.scrollLeft + input.clientWidth / 2;
+.\native-pdf-reader\services\rendering\pdfCoordinateSystem.service.ts:81 [scrollLeft] scrollLeft: Math.max(0, input.anchor.x * input.newScale - input.clientWidth / 2),
+.\native-pdf-reader\types\PdfHighlight.ts:2 [anchor] import type { PdfTextAnchor } from "./PdfTextSelection";
+.\native-pdf-reader\types\PdfHighlight.ts:23 [anchor] anchor?: PdfTextAnchor;
+.\native-pdf-reader\types\PdfReaderState.ts:61 [scrollTop] scrollTop?: number;
+.\native-pdf-reader\types\PdfTextSelection.ts:3 [anchor] export type PdfTextAnchor = {
+.\native-pdf-reader\types\PdfTextSelection.ts:17 [anchor] anchor: PdfTextAnchor;
+.\rendering\canvas\PdfCanvasLayer.tsx:80 [ZoomController] * Mesmo com o ZoomController limitado a 2000%, este componente não pode tentar
+.\rendering\canvas\PdfCanvasLayer.tsx:6 [PdfTileCanvas] import type { PdfTileRenderState } from "../../native-pdf-reader/components/pdf-tiles/PdfTileCanvasTypes";
+.\rendering\composition\PdfBlueprintStage.tsx:6 [PdfTileCanvas] import type { PdfTileRenderState } from "../../native-pdf-reader/components/pdf-tiles/PdfTileCanvasTypes";
+.\rendering\composition\PdfModularPageStage.tsx:53 [visualZoom] visualZoom: number;
+.\rendering\composition\PdfModularPageStage.tsx:56 [visualZoom] const visualScale = getLayoutScale(input.visualZoom);
+.\rendering\composition\PdfModularPageStage.tsx:97 [visualZoom] * Mantido por compatibilidade. Quando visualZoom/renderZoom não forem
+.\rendering\composition\PdfModularPageStage.tsx:106 [visualZoom] visualZoom?: number;
+.\rendering\composition\PdfModularPageStage.tsx:133 [visualZoom] visualZoom,
+.\rendering\composition\PdfModularPageStage.tsx:148 [visualZoom] const effectiveVisualZoom = safeZoomPercent(visualZoom, effectiveRenderZoom);
+.\rendering\composition\PdfModularPageStage.tsx:158 [visualZoom] visualZoom: effectiveVisualZoom,
+.\rendering\composition\PdfModularPageStage.tsx:182 [visualZoom] data-knexread-modular-visual-zoom={effectiveVisualZoom}
+.\rendering\composition\PdfModularPageStage.tsx:54 [renderZoom] renderZoom: number;
+.\rendering\composition\PdfModularPageStage.tsx:57 [renderZoom] const renderScale = getLayoutScale(input.renderZoom);
+.\rendering\composition\PdfModularPageStage.tsx:97 [renderZoom] * Mantido por compatibilidade. Quando visualZoom/renderZoom não forem
+.\rendering\composition\PdfModularPageStage.tsx:112 [renderZoom] renderZoom?: number;
+.\rendering\composition\PdfModularPageStage.tsx:134 [renderZoom] renderZoom,
+.\rendering\composition\PdfModularPageStage.tsx:147 [renderZoom] const effectiveRenderZoom = safeZoomPercent(renderZoom, zoom);
+.\rendering\composition\PdfModularPageStage.tsx:148 [renderZoom] const effectiveVisualZoom = safeZoomPercent(visualZoom, effectiveRenderZoom);
+.\rendering\composition\PdfModularPageStage.tsx:159 [renderZoom] renderZoom: effectiveRenderZoom,
+.\rendering\composition\PdfModularPageStage.tsx:183 [renderZoom] data-knexread-modular-render-zoom={effectiveRenderZoom}
+.\rendering\composition\PdfModularPageStage.tsx:214 [renderZoom] zoom={effectiveRenderZoom}
+.\rendering\composition\PdfModularPageStage.tsx:228 [renderZoom] zoom={effectiveRenderZoom}
+.\rendering\composition\PdfModularPageStage.tsx:172 [settle] * zoom-in/zoom-out, enquanto o render pesado só muda após o settle.
+.\rendering\composition\PdfModularPageStage.tsx:6 [PdfTileCanvas] import type { PdfTileRenderState } from "../../native-pdf-reader/components/pdf-tiles/PdfTileCanvasTypes";

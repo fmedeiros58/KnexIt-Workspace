@@ -478,11 +478,17 @@ export function applyHorizontalOverflowToViewport(
 
   if (!decision.hasOverflow) {
     /**
-     * Quando não há overflow real, a barra deve sumir.
-     * Em ciclos intermediários de zoom, o reset pode ser desligado para evitar
-     * salto causado por medição transitória de um frame.
+     * Durante zoom interativo, NÃO zerar scrollLeft por padrão.
+     *
+     * A medição de overflow pode oscilar por um frame enquanto o layout muda.
+     * Se este controlador zerar scrollLeft nesse intervalo, ele desfaz a
+     * âncora do ScrollCoordinator e cria sensação de salto/lentidão.
      */
-    if (input.resetScrollWhenNoOverflow !== false && input.viewportEl.scrollLeft !== 0) {
+    const shouldResetWhenNoOverflow =
+      input.resetScrollWhenNoOverflow ??
+      !shouldPreserveScrollForReason(input.reason);
+
+    if (shouldResetWhenNoOverflow && input.viewportEl.scrollLeft !== 0) {
       input.viewportEl.scrollLeft = 0;
       didWriteScrollLeft = true;
     }
@@ -532,10 +538,15 @@ export function applyHorizontalOverflowToViewport(
   const didChangeOverflowMode = previousOverflowX !== decision.mode;
 
   /**
-   * Sempre sincronizar a régua após alteração de overflow ou decisão de scroll.
-   * Mesmo quando scrollWritePolicy = "none", a régua deve ler o scrollLeft real.
+   * Sincronizar a régua apenas quando algo mudou.
+   *
+   * Antes o hook rodava mesmo quando scrollWritePolicy = "none" e nenhum
+   * scroll/overflow mudava. Durante wheel-zoom isso pode virar trabalho extra
+   * por microevento, reduzindo a sensação de resposta imediata.
    */
-  input.hooks?.onAfterScroll?.();
+  if (didWriteScrollLeft || didChangeOverflowMode) {
+    input.hooks?.onAfterScroll?.();
+  }
 
   input.hooks?.onDebug?.("horizontalOverflow.applied", {
     state,

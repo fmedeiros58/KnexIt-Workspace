@@ -209,7 +209,7 @@ export type CommitScrollTransactionInput = {
 const DEFAULT_PIXEL_TOLERANCE = 2;
 const SUBPIXEL_ROUNDING_FACTOR = 1000;
 const SCROLL_ASSIGNMENT_EPSILON = 0.01;
-const MAX_INTERACTIVE_STALE_LAYOUT_DRIFT = 3;
+const MAX_INTERACTIVE_STALE_LAYOUT_DRIFT = 8;
 
 /**
  * Evita NaN, Infinity, null e undefined entrando na geometria do viewer.
@@ -687,7 +687,7 @@ function applyScrollInstantly(input: {
   viewportEl: HTMLElement;
   scrollLeft: number;
   scrollTop: number;
-}): ScrollPoint {
+}): ScrollPoint & { changed: boolean } {
   const previousScrollBehavior = input.viewportEl.style.scrollBehavior;
 
   /**
@@ -719,6 +719,7 @@ function applyScrollInstantly(input: {
   return {
     scrollLeft: input.viewportEl.scrollLeft,
     scrollTop: input.viewportEl.scrollTop,
+    changed: shouldAssignLeft || shouldAssignTop,
   };
 }
 
@@ -754,7 +755,9 @@ export function commitScrollTransaction(
     scrollTop: input.transaction.nextScrollTop,
   });
 
-  input.hooks?.onAfterScroll?.();
+  if (result.changed) {
+    input.hooks?.onAfterScroll?.();
+  }
 
   input.hooks?.onDebug?.("scroll.transaction.committed", {
     ...result,
@@ -891,6 +894,13 @@ export function updateHorizontalOverflowAndCenter(input: {
   currentLayoutVersion: LayoutVersion;
   tolerance?: number;
   hooks?: ScrollCoordinatorHooks;
+
+  /**
+   * Durante wheel/pinch zoom, não centralizar horizontalmente. A âncora visual
+   * já foi preservada pelo ScrollCoordinator. Centralizar aqui cria salto e
+   * sensação de zoom lento.
+   */
+  reason?: ScrollReason;
 }): ScrollPoint | null {
   const decision = getHorizontalOverflowDecision({
     contentWidth: input.snapshot.contentWidth,
@@ -906,8 +916,17 @@ export function updateHorizontalOverflowAndCenter(input: {
   input.hooks?.onDebug?.("overflow.horizontal.decision", decision);
 
   if (decision.shouldHide) {
-    input.hooks?.onAfterScroll?.();
+    return {
+      scrollLeft: input.viewportEl.scrollLeft,
+      scrollTop: input.viewportEl.scrollTop,
+    };
+  }
 
+  if (isInteractiveZoomReason(input.reason ?? "manual")) {
+    /*
+     * Em zoom por wheel/pinch, não recentralizar. Isso evita que o overflow
+     * horizontal corrija o scrollLeft depois da âncora, causando salto lateral.
+     */
     return {
       scrollLeft: input.viewportEl.scrollLeft,
       scrollTop: input.viewportEl.scrollTop,
@@ -1017,6 +1036,7 @@ export class ScrollCoordinator {
     logicalCenter: LogicalContentCenter;
     currentLayoutVersion: LayoutVersion;
     tolerance?: number;
+    reason?: ScrollReason;
   }): ScrollPoint | null {
     return updateHorizontalOverflowAndCenter({
       viewportEl: this.viewportEl,
@@ -1024,6 +1044,7 @@ export class ScrollCoordinator {
       logicalCenter: input.logicalCenter,
       currentLayoutVersion: input.currentLayoutVersion,
       tolerance: input.tolerance,
+      reason: input.reason,
       hooks: this.hooks,
     });
   }

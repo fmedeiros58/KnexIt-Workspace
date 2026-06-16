@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PdfRenderQualityMode } from "../../native-pdf-reader/types";
 import type { NativePdfSession } from "../../native-pdf-reader/services";
 import type { PdfTileRenderState } from "../../native-pdf-reader/components/pdf-tiles/PdfTileCanvasTypes";
@@ -15,6 +15,20 @@ import { PdfCanvasLayer } from "../canvas/PdfCanvasLayer";
 import { PdfPagePresentationSurface } from "../blueprint/PdfPagePresentationSurface";
 
 type BlueprintStageStatus = "idle" | "building" | "ready" | "error";
+
+type BlueprintVisualGeneration = {
+  id: string;
+  blueprint: KnexPdfPageBlueprint;
+  cssWidth: number;
+  cssHeight: number;
+  scale: number;
+  status: BlueprintStageStatus;
+  reason: string;
+  warningCount: number;
+  renderPhase: KnexPdfRenderPhase;
+  finalRenderVersion: number;
+  createdAt: number;
+};
 
 export type PdfBlueprintStageProps = {
   session: NativePdfSession;
@@ -73,6 +87,24 @@ function countBlueprintNonText(blueprint: KnexPdfPageBlueprint | null): number {
   }).length;
 }
 
+function getGenerationProjectionTransform(input: {
+  targetWidth: number;
+  targetHeight: number;
+  generationWidth: number;
+  generationHeight: number;
+}): string {
+  const scaleX =
+    Math.max(1, input.targetWidth) / Math.max(1, input.generationWidth);
+  const scaleY =
+    Math.max(1, input.targetHeight) / Math.max(1, input.generationHeight);
+
+  if (Math.abs(scaleX - 1) <= 0.0001 && Math.abs(scaleY - 1) <= 0.0001) {
+    return "none";
+  }
+
+  return `matrix(${scaleX}, 0, 0, ${scaleY}, 0, 0)`;
+}
+
 export function PdfBlueprintStage({
   session,
   pageNumber,
@@ -105,14 +137,10 @@ export function PdfBlueprintStage({
 
   const [status, setStatus] = useState<BlueprintStageStatus>("idle");
   const [reason, setReason] = useState("");
-  const [blueprint, setBlueprint] = useState<KnexPdfPageBlueprint | null>(null);
+  const [activeGeneration, setActiveGeneration] =
+    useState<BlueprintVisualGeneration | null>(null);
+  const activeGenerationRef = useRef<BlueprintVisualGeneration | null>(null);
   const [warningCount, setWarningCount] = useState(0);
-  const textCount = countBlueprintText(blueprint);
-  const imageCount = countBlueprintElementsByType(blueprint, "image");
-  const shapeCount = countBlueprintElementsByType(blueprint, "shape");
-  const formFieldCount = countBlueprintElementsByType(blueprint, "form-field");
-  const annotationCount = countBlueprintElementsByType(blueprint, "annotation");
-  const nonTextCount = countBlueprintNonText(blueprint);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,23 +177,41 @@ export function PdfBlueprintStage({
 
       if (cancelled) return;
 
-      setBlueprint(result.blueprint);
-      setWarningCount(result.warnings.length);
-      setStatus(result.success ? "ready" : "error");
-      setReason(
+      const nextStatus: BlueprintStageStatus = result.success ? "ready" : "error";
+      const nextReason =
         result.errors[0] ??
-          result.warnings[0] ??
-          (result.success ? "blueprint-ready" : "blueprint-build-failed"),
-      );
+        result.warnings[0] ??
+        (result.success ? "blueprint-ready" : "blueprint-build-failed");
+
+      setWarningCount(result.warnings.length);
+      setStatus(nextStatus);
+      setReason(nextReason);
+      const nextGeneration: BlueprintVisualGeneration = {
+        id: result.blueprint.blueprintId,
+        blueprint: result.blueprint,
+        cssWidth: blueprintCssWidth,
+        cssHeight: blueprintCssHeight,
+        scale: blueprintScale,
+        status: nextStatus,
+        reason: nextReason,
+        warningCount: result.warnings.length,
+        renderPhase,
+        finalRenderVersion,
+        createdAt: Date.now(),
+      };
+      activeGenerationRef.current = nextGeneration;
+      setActiveGeneration(nextGeneration);
       onTextBlocksChange?.(pageNumber, result.textBlocks, blueprintScale);
     };
 
     void build().catch((error) => {
       if (cancelled || abortController.signal.aborted) return;
-      setBlueprint(null);
       setStatus("error");
       setReason(error instanceof Error ? error.message : "blueprint-build-failed");
-      onTextBlocksChange?.(pageNumber, [], blueprintScale);
+
+      if (!activeGenerationRef.current) {
+        onTextBlocksChange?.(pageNumber, [], blueprintScale);
+      }
     });
 
     return () => {
@@ -180,6 +226,35 @@ export function PdfBlueprintStage({
     pageNumber,
     session,
   ]);
+
+  const visibleBlueprint = activeGeneration?.blueprint ?? null;
+  const visibleCssWidth = activeGeneration?.cssWidth ?? blueprintCssWidth;
+  const visibleCssHeight = activeGeneration?.cssHeight ?? blueprintCssHeight;
+  const visibleScale = activeGeneration?.scale ?? blueprintScale;
+  const visibleRenderPhase = activeGeneration?.renderPhase ?? renderPhase;
+  const visibleFinalRenderVersion =
+    activeGeneration?.finalRenderVersion ?? finalRenderVersion;
+  const visibleReason = reason || activeGeneration?.reason || "";
+  const visibleWarningCount = activeGeneration?.warningCount ?? warningCount;
+  const visualGenerationProjection = getGenerationProjectionTransform({
+    targetWidth: pageCssWidth,
+    targetHeight: pageCssHeight,
+    generationWidth: visibleCssWidth,
+    generationHeight: visibleCssHeight,
+  });
+
+  const textCount = countBlueprintText(visibleBlueprint);
+  const imageCount = countBlueprintElementsByType(visibleBlueprint, "image");
+  const shapeCount = countBlueprintElementsByType(visibleBlueprint, "shape");
+  const formFieldCount = countBlueprintElementsByType(
+    visibleBlueprint,
+    "form-field",
+  );
+  const annotationCount = countBlueprintElementsByType(
+    visibleBlueprint,
+    "annotation",
+  );
+  const nonTextCount = countBlueprintNonText(visibleBlueprint);
 
   const nonTextFallbackSurface = (
     <div
@@ -200,13 +275,13 @@ export function PdfBlueprintStage({
       <PdfCanvasLayer
         session={session}
         pageNumber={pageNumber}
-        zoom={zoom}
-        pageCssWidth={pageCssWidth}
-        pageCssHeight={pageCssHeight}
+        zoom={visibleScale * 100}
+        pageCssWidth={visibleCssWidth}
+        pageCssHeight={visibleCssHeight}
         renderQuality={renderQuality}
         onRendered={onRendered}
-        renderPhase={renderPhase}
-        finalRenderVersion={finalRenderVersion + 200_000}
+        renderPhase={visibleRenderPhase}
+        finalRenderVersion={visibleFinalRenderVersion + 200_000}
         renderText={false}
         onCanvasRenderStateChange={onCanvasRenderStateChange}
       />
@@ -221,14 +296,23 @@ export function PdfBlueprintStage({
       data-knexread-blueprint-stage-reason={reason}
       data-knexread-blueprint-document-id={documentId}
       data-knexread-blueprint-page-number={pageNumber}
-      data-knexread-blueprint-active={blueprint ? "true" : "false"}
+      data-knexread-blueprint-active={visibleBlueprint ? "true" : "false"}
+      data-knexread-blueprint-active-generation={
+        activeGeneration?.id ?? ""
+      }
+      data-knexread-blueprint-active-generation-width={visibleCssWidth}
+      data-knexread-blueprint-active-generation-height={visibleCssHeight}
+      data-knexread-blueprint-active-generation-scale={visibleScale}
+      data-knexread-blueprint-generation-projection={
+        visualGenerationProjection
+      }
       data-knexread-blueprint-text-count={textCount}
       data-knexread-blueprint-non-text-count={nonTextCount}
       data-knexread-blueprint-image-count={imageCount}
       data-knexread-blueprint-shape-count={shapeCount}
       data-knexread-blueprint-form-field-count={formFieldCount}
       data-knexread-blueprint-annotation-count={annotationCount}
-      data-knexread-blueprint-warning-count={warningCount}
+      data-knexread-blueprint-warning-count={visibleWarningCount}
       data-knexread-blueprint-layout-scale={layoutScale}
       data-knexread-blueprint-css-width={blueprintCssWidth}
       data-knexread-blueprint-css-height={blueprintCssHeight}
@@ -246,16 +330,38 @@ export function PdfBlueprintStage({
         boxSizing: "border-box",
       }}
     >
-      <PdfPagePresentationSurface
-        blueprint={blueprint}
-        pageNumber={pageNumber}
-        cssWidth={pageCssWidth}
-        cssHeight={pageCssHeight}
-        status={status}
-        reason={reason}
-        nonTextFallbackSurface={nonTextFallbackSurface}
-        interactiveFormFields
-      />
+      <div
+        className="absolute left-0 top-0"
+        data-knexread-blueprint-active-generation-surface="true"
+        data-knexread-blueprint-active-generation-projected={
+          visualGenerationProjection !== "none" ? "true" : "false"
+        }
+        style={{
+          width: `${visibleCssWidth}px`,
+          minWidth: `${visibleCssWidth}px`,
+          maxWidth: `${visibleCssWidth}px`,
+          height: `${visibleCssHeight}px`,
+          minHeight: `${visibleCssHeight}px`,
+          maxHeight: `${visibleCssHeight}px`,
+          transform: visualGenerationProjection,
+          transformOrigin: "0 0",
+          transition: "none",
+          opacity: 1,
+          willChange:
+            visualGenerationProjection !== "none" ? "transform" : "auto",
+        }}
+      >
+        <PdfPagePresentationSurface
+          blueprint={visibleBlueprint}
+          pageNumber={pageNumber}
+          cssWidth={visibleCssWidth}
+          cssHeight={visibleCssHeight}
+          status={status}
+          reason={visibleReason}
+          nonTextFallbackSurface={nonTextFallbackSurface}
+          interactiveFormFields
+        />
+      </div>
     </div>
   );
 }

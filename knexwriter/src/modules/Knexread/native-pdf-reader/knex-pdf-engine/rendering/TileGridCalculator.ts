@@ -60,6 +60,7 @@ export type KnexPdfTileRenderPlan = {
   totalTiles: number;
   visibleTiles: number;
   estimatedBytes: number;
+  maxTileCountPerPage: number;
   reason: "not-needed" | "bitmap-too-large" | "output-scale-clamped";
   tiles: KnexPdfPageTile[];
 };
@@ -73,6 +74,22 @@ export type KnexPdfVisibleTileRect = {
 
 const DEFAULT_TILE_SIZE_CSS = 1024;
 const DEFAULT_TILE_MAX_BITMAP_PIXELS = 96_000_000;
+
+/**
+ * Limite operacional de quantidade de tiles por página.
+ *
+ * Em zoom alto, grades muito grandes geram centenas de componentes/canvas para
+ * uma única página. Mesmo que cada tile seja seguro em memória, o volume de DOM,
+ * observação, montagem e fila de render pode aparecer como scroll/zoom
+ * "em fragmentos".
+ *
+ * Este limite mantém a malha suficientemente fina para memória, mas evita
+ * explosão de componentes. O valor é conservador para páginas A4/Letter até
+ * 2000%, considerando outputScale reduzido em zoom alto.
+ */
+const DEFAULT_MAX_TILE_COUNT_PER_PAGE = 256;
+const DEFAULT_MAX_TILE_GRID_ROWS = 36;
+const DEFAULT_MAX_TILE_GRID_COLUMNS = 8;
 
 function safeNumber(
   value: number | null | undefined,
@@ -93,6 +110,65 @@ function normalizeGridInteger(value: number | undefined): number | null {
   }
 
   return Math.max(1, Math.floor(value));
+}
+
+function clampTileGridDimensions(input: {
+  rows: number;
+  columns: number;
+  pageWidth: number;
+  pageHeight: number;
+  maxTileCount?: number;
+  maxRows?: number;
+  maxColumns?: number;
+}): { rows: number; columns: number } {
+  const maxTileCount = normalizePositiveInteger(
+    input.maxTileCount ?? DEFAULT_MAX_TILE_COUNT_PER_PAGE,
+    DEFAULT_MAX_TILE_COUNT_PER_PAGE,
+  );
+  const maxRows = normalizePositiveInteger(
+    input.maxRows ?? DEFAULT_MAX_TILE_GRID_ROWS,
+    DEFAULT_MAX_TILE_GRID_ROWS,
+  );
+  const maxColumns = normalizePositiveInteger(
+    input.maxColumns ?? DEFAULT_MAX_TILE_GRID_COLUMNS,
+    DEFAULT_MAX_TILE_GRID_COLUMNS,
+  );
+
+  let rows = normalizePositiveInteger(input.rows, 1);
+  let columns = normalizePositiveInteger(input.columns, 1);
+
+  rows = Math.min(rows, maxRows);
+  columns = Math.min(columns, maxColumns);
+
+  if (rows * columns <= maxTileCount) {
+    return { rows, columns };
+  }
+
+  const aspect = Math.max(0.01, input.pageHeight / Math.max(1, input.pageWidth));
+  const targetColumns = Math.max(
+    1,
+    Math.floor(Math.sqrt(maxTileCount / aspect)),
+  );
+  const targetRows = Math.max(1, Math.floor(maxTileCount / targetColumns));
+
+  columns = Math.min(columns, Math.max(1, targetColumns), maxColumns);
+  rows = Math.min(rows, Math.max(1, targetRows), maxRows);
+
+  while (rows * columns > maxTileCount) {
+    if (rows >= columns && rows > 1) {
+      rows -= 1;
+      continue;
+    }
+
+    if (columns > 1) {
+      columns -= 1;
+      continue;
+    }
+
+    break;
+  }
+
+  return { rows, columns };
 }
 
 function intersects(a: KnexPdfVisibleTileRect, b: KnexPdfVisibleTileRect) {
@@ -161,9 +237,18 @@ export function calculateTileGrid(input: {
   const pageWidth = normalizePositiveInteger(input.pageWidth, 1);
   const pageHeight = normalizePositiveInteger(input.pageHeight, 1);
   const tileSize = input.tileSize ?? 1024;
-  const columns =
+  const requestedColumns =
     fixedColumns ?? Math.max(1, Math.ceil(pageWidth / tileSize));
-  const rows = fixedRows ?? Math.max(1, Math.ceil(pageHeight / tileSize));
+  const requestedRows =
+    fixedRows ?? Math.max(1, Math.ceil(pageHeight / tileSize));
+  const grid = clampTileGridDimensions({
+    rows: requestedRows,
+    columns: requestedColumns,
+    pageWidth,
+    pageHeight,
+  });
+  const columns = grid.columns;
+  const rows = grid.rows;
   const cells: TileGridCell[] = [];
 
   for (let tileY = 0; tileY < rows; tileY += 1) {
@@ -425,6 +510,7 @@ export function buildKnexPdfTileRenderPlan(input: {
     totalTiles: tiles.length,
     visibleTiles: tiles.filter((tile) => tile.priority === "visible").length,
     estimatedBytes: geometry.bitmapPixels * 4,
+    maxTileCountPerPage: DEFAULT_MAX_TILE_COUNT_PER_PAGE,
     reason,
     tiles,
   };

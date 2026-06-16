@@ -27,16 +27,16 @@ export type KnexPdfZoomState = {
    * 1.0 = 100%
    * 4.0 = 400%
    * 20.0 = 2000%
-   * 80.0 = 8000% apenas em configuração extrema/debug
+   *
+   * O viewer comum deve permanecer limitado a 2000%.
    */
   zoom: number;
 
   /**
    * Percentual inteiro exibido na UI.
    *
-   * Importante:
-   * a UI pode exibir inteiro, mas o layout deve usar `zoom`,
-   * pois ele preserva microvariações necessárias para fluidez.
+   * O layout deve usar `zoom`, pois ele preserva microvariações necessárias
+   * para fluidez.
    */
   zoomPercent: number;
 
@@ -79,9 +79,6 @@ export type ComputeWheelZoomInput = {
 
   /**
    * Sensibilidade base do wheel zoom.
-   *
-   * Valores muito altos geram salto.
-   * Valores muito baixos dão sensação de zoom agarrado.
    */
   sensitivity?: number;
 
@@ -92,9 +89,6 @@ export type ComputeWheelZoomInput = {
 
   /**
    * Limite opcional de delta por evento.
-   *
-   * Serve para evitar que eventos acumulados pelo navegador sejam aplicados
-   * de uma vez só, gerando o efeito elástico.
    */
   maxDeltaPixelsPerEvent?: number;
 
@@ -112,20 +106,14 @@ export type ComputeWheelZoomInput = {
 export type ComputeStepZoomInput = {
   currentZoom: number;
   direction: KnexPdfZoomDirection;
-
-  /**
-   * Quando true, usa presets em vez de multiplicador fixo.
-   */
   usePresets?: boolean;
 };
 
 export type ComputeFitZoomInput = {
   viewportWidth: number;
   viewportHeight: number;
-
   pageWidth: number;
   pageHeight: number;
-
   paddingX?: number;
   paddingY?: number;
 };
@@ -142,52 +130,62 @@ type WheelZoomFluidityProfile = {
   maxZoomFactorPerEvent: number;
 };
 
-const DEFAULT_WHEEL_ZOOM_SENSITIVITY = 0.00225;
+const DEFAULT_WHEEL_ZOOM_SENSITIVITY = 0.00235;
 const LINE_DELTA_PIXEL_FACTOR = 16;
 const PAGE_DELTA_PIXEL_FACTOR = 800;
 const ZOOM_CHANGE_EPSILON = 0.000001;
 
-/**
- * Limite seguro do leitor.
- *
- * O engineConfig pode permitir valores muito altos para testes, mas o viewer
- * interativo não deve deixar o zoom crescer indefinidamente. O teto seguro
- * abaixo fica em 2000%, bem menor que 8000%, mas suficiente para leitura
- * ampliada sem abrir completamente a porta para renderizações extremas.
- *
- * Se no futuro houver um modo técnico/debug para zoom extremo, ele deve ser
- * isolado do fluxo comum de leitura.
- */
 const KNEX_PDF_SAFE_MIN_ZOOM = 0.1;
 const KNEX_PDF_SAFE_MAX_ZOOM = 20;
 
-/**
- * Limites efetivos.
- *
- * Respeitam engineConfig quando ele for mais restritivo, mas impedem que um
- * KNEX_PDF_MAX_ZOOM muito alto, como 80.0, vaze para o leitor comum.
- */
 const EFFECTIVE_MIN_ZOOM = Math.max(KNEX_PDF_MIN_ZOOM, KNEX_PDF_SAFE_MIN_ZOOM);
 const EFFECTIVE_MAX_ZOOM = Math.min(KNEX_PDF_MAX_ZOOM, KNEX_PDF_SAFE_MAX_ZOOM);
 
 /**
- * Limites base para wheel.
+ * Multiplicador global da velocidade do wheel.
  *
- * Mantêm fluidez sem permitir saltos grandes demais. O multiplicador externo
- * do Shell pode acelerar o delta, então este controlador precisa continuar
- * sendo a trava final antes da renderização.
+ * Este é o ponto solicitado:
+ * uma volta pequena do wheel deve gerar muito mais deslocamento de zoom,
+ * tanto no zoom-in quanto no zoom-out.
+ *
+ * Importante:
+ * esse multiplicador atua antes do cálculo exponencial e antes da compressão
+ * de delta. Por isso, os limites de delta e fator por evento também foram
+ * ampliados para o x4 realmente aparecer na interface.
  */
-const DEFAULT_MAX_WHEEL_DELTA_PIXELS_PER_EVENT = 320;
-const DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT = 1.16;
-const DEFAULT_MIN_ZOOM_FACTOR_PER_EVENT =
-  1 / DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT;
+const WHEEL_ZOOM_SPEED_MULTIPLIER = 6;
 
 /**
- * Presets em percentual para o leitor comum.
+ * Limites base para wheel.
  *
- * Teto em 2000%. Esse valor ainda exige cuidado no renderizador por tiles,
- * mas é muito mais seguro que 8000% e atende ao uso de ampliação forte.
+ * Como o delta agora entra multiplicado por 6, esses tetos precisam ser mais
+ * abertos. Caso contrário, o multiplicador seria neutralizado pelo clamp.
  */
+const DEFAULT_MAX_WHEEL_DELTA_PIXELS_PER_EVENT = 1440;
+const DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT = 1.58;
+const DEFAULT_MIN_ZOOM_FACTOR_PER_EVENT = 0.42;
+
+const MAX_EXTERNAL_SENSITIVITY_MULTIPLIER = 1.12;
+const MAX_EXTERNAL_DELTA_MULTIPLIER = 1.1;
+const MIN_TRACKPAD_IMPULSE_PIXELS = 8;
+const TRACKPAD_IMPULSE_LIMIT_PIXELS = 36;
+
+/**
+ * Integração com PdfWheelInteractionPolicy:
+ *
+ * Este arquivo agora assume a aceleração principal do wheel com x6.
+ * Portanto, o PdfWheelInteractionPolicy NÃO deve aplicar outro multiplicador
+ * agressivo por cima. Ele deve ficar responsável por:
+ * - normalizar tipo de entrada;
+ * - comprimir picos absurdos;
+ * - preservar direção;
+ * - entregar delta estável ao ZoomController.
+ *
+ * Se o Policy também multiplicar por 4, 6 ou mais, os dois módulos passam a
+ * competir e o zoom fica instável: ora lento por dupla compressão, ora brusco
+ * por dupla aceleração.
+ */
+
 export const KNEX_PDF_ZOOM_PERCENT_PRESETS = [
   10,
   25,
@@ -229,11 +227,21 @@ export function clampValue(value: number, min: number, max: number): number {
 }
 
 export function roundZoom(zoom: number): number {
-  /**
-   * Não arredondar para percentual aqui.
-   * O zoom real precisa manter microvariações para não parecer saltado.
-   */
   return Math.round(zoom * 1000000) / 1000000;
+}
+
+export function getEffectiveZoomLimits(): {
+  minZoom: number;
+  maxZoom: number;
+  minZoomPercent: number;
+  maxZoomPercent: number;
+} {
+  return {
+    minZoom: EFFECTIVE_MIN_ZOOM,
+    maxZoom: EFFECTIVE_MAX_ZOOM,
+    minZoomPercent: Math.round(EFFECTIVE_MIN_ZOOM * 100),
+    maxZoomPercent: Math.round(EFFECTIVE_MAX_ZOOM * 100),
+  };
 }
 
 export function zoomToPercent(zoom: number): number {
@@ -244,13 +252,6 @@ export function percentToZoom(percent: number): number {
   return clampKnexPdfZoom(safeNumber(percent, 100) / 100);
 }
 
-/**
- * Limita o zoom real do leitor.
- *
- * Este é o ponto principal de proteção contra tela preta e sobrecarga de
- * memória. Mesmo que o engineConfig esteja aberto para testes extremos, o
- * viewer comum fica limitado ao intervalo efetivo definido acima.
- */
 export function clampKnexPdfZoom(
   zoom: number | null | undefined,
 ): number {
@@ -291,7 +292,6 @@ export function createZoomChange(input: {
 }): KnexPdfZoomChange {
   const previousZoom = clampKnexPdfZoom(input.previousZoom);
   const nextZoom = clampKnexPdfZoom(input.nextZoom);
-
   const diff = nextZoom - previousZoom;
 
   return {
@@ -327,124 +327,38 @@ export function normalizeWheelDeltaToPixels(input: {
   }
 }
 
-function getWheelZoomFluidityProfile(input: {
-  currentZoom: number;
-  signedDelta: number;
-  sensitivity?: number;
-  maxDeltaPixelsPerEvent?: number;
-  minZoomFactorPerEvent?: number;
-  maxZoomFactorPerEvent?: number;
-}): WheelZoomFluidityProfile {
-  const currentZoom = clampKnexPdfZoom(input.currentZoom);
+function applySmallDeltaImpulse(deltaPixels: number): number {
+  const safeDelta = safeNumber(deltaPixels, 0);
 
-  /**
-   * signedDelta > 0 = zoom in.
-   * signedDelta < 0 = zoom out.
-   */
-  const isZoomingOut = input.signedDelta < 0;
-
-  let sensitivity = DEFAULT_WHEEL_ZOOM_SENSITIVITY;
-  let maxDeltaPixelsPerEvent = DEFAULT_MAX_WHEEL_DELTA_PIXELS_PER_EVENT;
-  let maxZoomFactorPerEvent = DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT;
-  let minZoomFactorPerEvent = DEFAULT_MIN_ZOOM_FACTOR_PER_EVENT;
-
-  /**
-   * Em zoom alto, o usuário sente mais o travamento na volta.
-   * Por isso, a saída do zoom alto precisa ser mais responsiva do que a entrada.
-   *
-   * A ideia é:
-   * - zoom in em escala alta fica controlado para não explodir o layout;
-   * - zoom out em escala alta fica mais rápido para não parecer preso.
-   */
-  if (currentZoom >= 16) {
-    if (isZoomingOut) {
-      /*
-       * Em 1600%+, a saída precisa continuar responsiva para o usuário não
-       * ficar "preso" no zoom alto.
-       */
-      sensitivity = 0.00275;
-      maxDeltaPixelsPerEvent = 520;
-      maxZoomFactorPerEvent = 1.08;
-      minZoomFactorPerEvent = 0.78;
-    } else {
-      /*
-       * Entrada perto do teto de 2000% deve ser bem controlada para evitar
-       * renderizações sucessivas tentando ultrapassar o limite.
-       */
-      sensitivity = 0.00125;
-      maxDeltaPixelsPerEvent = 180;
-      maxZoomFactorPerEvent = 1.035;
-      minZoomFactorPerEvent = 1 / 1.035;
-    }
-  } else if (currentZoom >= 8) {
-    if (isZoomingOut) {
-      sensitivity = 0.00265;
-      maxDeltaPixelsPerEvent = 500;
-      maxZoomFactorPerEvent = 1.1;
-      minZoomFactorPerEvent = 0.8;
-    } else {
-      sensitivity = 0.00145;
-      maxDeltaPixelsPerEvent = 220;
-      maxZoomFactorPerEvent = 1.045;
-      minZoomFactorPerEvent = 1 / 1.045;
-    }
-  } else if (currentZoom >= 4) {
-    if (isZoomingOut) {
-      sensitivity = 0.00255;
-      maxDeltaPixelsPerEvent = 480;
-      maxZoomFactorPerEvent = 1.12;
-      minZoomFactorPerEvent = 0.82;
-    } else {
-      sensitivity = 0.00165;
-      maxDeltaPixelsPerEvent = 260;
-      maxZoomFactorPerEvent = 1.06;
-      minZoomFactorPerEvent = 1 / 1.06;
-    }
-  } else if (currentZoom >= 2) {
-    if (isZoomingOut) {
-      sensitivity = 0.00245;
-      maxDeltaPixelsPerEvent = 500;
-      maxZoomFactorPerEvent = 1.16;
-      minZoomFactorPerEvent = 0.84;
-    } else {
-      sensitivity = 0.00205;
-      maxDeltaPixelsPerEvent = 360;
-      maxZoomFactorPerEvent = 1.12;
-      minZoomFactorPerEvent = 1 / 1.12;
-    }
+  if (Math.abs(safeDelta) <= ZOOM_CHANGE_EPSILON) {
+    return 0;
   }
 
-  /**
-   * Overrides externos continuam respeitados.
-   * Útil caso o Shell tenha preferência própria.
-   */
-  sensitivity = Math.max(
-    0.0001,
-    safeNumber(input.sensitivity, sensitivity),
-  );
+  const sign = Math.sign(safeDelta);
+  const magnitude = Math.abs(safeDelta);
 
-  maxDeltaPixelsPerEvent = Math.max(
-    1,
-    safeNumber(input.maxDeltaPixelsPerEvent, maxDeltaPixelsPerEvent),
-  );
+  if (magnitude >= TRACKPAD_IMPULSE_LIMIT_PIXELS) {
+    return safeDelta;
+  }
 
-  maxZoomFactorPerEvent = Math.max(
-    1.001,
-    safeNumber(input.maxZoomFactorPerEvent, maxZoomFactorPerEvent),
-  );
+  const progressiveBoost =
+    MIN_TRACKPAD_IMPULSE_PIXELS +
+    magnitude * 0.86 +
+    Math.sqrt(magnitude) * 1.12;
 
-  minZoomFactorPerEvent = clampValue(
-    safeNumber(input.minZoomFactorPerEvent, minZoomFactorPerEvent),
-    0.001,
-    maxZoomFactorPerEvent,
-  );
+  return sign * Math.max(magnitude, progressiveBoost);
+}
 
-  return {
-    sensitivity,
-    maxDeltaPixelsPerEvent,
-    minZoomFactorPerEvent,
-    maxZoomFactorPerEvent,
-  };
+function getImmediateZoomOutDeltaMultiplier(currentZoom: number): number {
+  const zoom = clampKnexPdfZoom(currentZoom);
+
+  if (zoom >= 16) return 2.4;
+  if (zoom >= 12) return 2.2;
+  if (zoom >= 8) return 2;
+  if (zoom >= 4) return 1.75;
+  if (zoom >= 2) return 1.45;
+
+  return 1.15;
 }
 
 export function limitWheelDeltaForContinuousZoom(input: {
@@ -459,7 +373,26 @@ export function limitWheelDeltaForContinuousZoom(input: {
     ),
   );
 
-  return clampValue(input.deltaPixels, -maxDelta, maxDelta);
+  const delta = safeNumber(input.deltaPixels, 0);
+
+  if (Math.abs(delta) <= ZOOM_CHANGE_EPSILON) {
+    return 0;
+  }
+
+  const sign = Math.sign(delta);
+  const magnitude = Math.abs(delta);
+
+  /**
+   * Compressão suave.
+   *
+   * Como o objetivo agora é wheel x6, a compressão usa maxDelta bem maior.
+   * Assim, uma volta pequena já altera muito o zoom, mas eventos absurdamente
+   * grandes continuam saturados de forma segura.
+   */
+  const compressedMagnitude =
+    maxDelta * Math.tanh(magnitude / Math.max(1, maxDelta));
+
+  return sign * compressedMagnitude;
 }
 
 export function limitZoomFactorForContinuousZoom(input: {
@@ -491,48 +424,237 @@ export function limitZoomFactorForContinuousZoom(input: {
   );
 }
 
+function getWheelZoomFluidityProfile(input: {
+  currentZoom: number;
+  signedDelta: number;
+  sensitivity?: number;
+  maxDeltaPixelsPerEvent?: number;
+  minZoomFactorPerEvent?: number;
+  maxZoomFactorPerEvent?: number;
+}): WheelZoomFluidityProfile {
+  const currentZoom = clampKnexPdfZoom(input.currentZoom);
+  const isZoomingOut = input.signedDelta < 0;
+
+  let sensitivity = DEFAULT_WHEEL_ZOOM_SENSITIVITY;
+  let maxDeltaPixelsPerEvent = DEFAULT_MAX_WHEEL_DELTA_PIXELS_PER_EVENT;
+  let maxZoomFactorPerEvent = DEFAULT_MAX_ZOOM_FACTOR_PER_EVENT;
+  let minZoomFactorPerEvent = DEFAULT_MIN_ZOOM_FACTOR_PER_EVENT;
+
+  /**
+   * Perfil revisado para wheel x6:
+   *
+   * - zoom-in fica realmente veloz em escala baixa/média;
+   * - zoom-in em escala alta ainda freia perto do teto de 2000%;
+   * - zoom-out permanece imediato, com retorno agressivo em zoom alto.
+   */
+  if (currentZoom >= 16) {
+    if (isZoomingOut) {
+      sensitivity = 0.0084;
+      maxDeltaPixelsPerEvent = 2380;
+      maxZoomFactorPerEvent = 1.1;
+      minZoomFactorPerEvent = 0.26;
+    } else {
+      sensitivity = 0.00215;
+      maxDeltaPixelsPerEvent = 940;
+      maxZoomFactorPerEvent = 1.2;
+      minZoomFactorPerEvent = 1 / 1.2;
+    }
+  } else if (currentZoom >= 12) {
+    if (isZoomingOut) {
+      sensitivity = 0.0078;
+      maxDeltaPixelsPerEvent = 2200;
+      maxZoomFactorPerEvent = 1.2;
+      minZoomFactorPerEvent = 0.3;
+    } else {
+      sensitivity = 0.00238;
+      maxDeltaPixelsPerEvent = 840;
+      maxZoomFactorPerEvent = 1.2;
+      minZoomFactorPerEvent = 1 / 1.2;
+    }
+  } else if (currentZoom >= 8) {
+    if (isZoomingOut) {
+      sensitivity = 0.007;
+      maxDeltaPixelsPerEvent = 1980;
+      maxZoomFactorPerEvent = 1.14;
+      minZoomFactorPerEvent = 0.34;
+    } else {
+      sensitivity = 0.0027;
+      maxDeltaPixelsPerEvent = 940;
+      maxZoomFactorPerEvent = 1.36;
+      minZoomFactorPerEvent = 1 / 1.36;
+    }
+  } else if (currentZoom >= 4) {
+    if (isZoomingOut) {
+      sensitivity = 0.006;
+      maxDeltaPixelsPerEvent = 1760;
+      maxZoomFactorPerEvent = 1.18;
+      minZoomFactorPerEvent = 0.4;
+    } else {
+      sensitivity = 0.00355;
+      maxDeltaPixelsPerEvent = 1120;
+      maxZoomFactorPerEvent = 1.36;
+      minZoomFactorPerEvent = 1 / 1.36;
+    }
+  } else if (currentZoom >= 2) {
+    if (isZoomingOut) {
+      sensitivity = 0.0049;
+      maxDeltaPixelsPerEvent = 1480;
+      maxZoomFactorPerEvent = 1.36;
+      minZoomFactorPerEvent = 0.5;
+    } else {
+      sensitivity = 0.00355;
+      maxDeltaPixelsPerEvent = 1320;
+      maxZoomFactorPerEvent = 1.46;
+      minZoomFactorPerEvent = 1 / 1.46;
+    }
+  } else if (isZoomingOut) {
+    sensitivity = 0.0036;
+    maxDeltaPixelsPerEvent = 1120;
+    maxZoomFactorPerEvent = 1.36;
+    minZoomFactorPerEvent = 0.58;
+  } else {
+    sensitivity = 0.004;
+    maxDeltaPixelsPerEvent = 1440;
+    maxZoomFactorPerEvent = 1.58;
+    minZoomFactorPerEvent = 1 / 1.58;
+  }
+
+  /**
+   * Overrides externos com proteção:
+   *
+   * - em zoom-out, override conservador não pode prender o retorno;
+   * - em zoom-in, override externo não pode abrir salto acima do perfil seguro;
+   * - o x4 global já foi aplicado antes do perfil, então não aceitamos
+   *   multiplicações externas descontroladas.
+   */
+  const requestedSensitivity = input.sensitivity;
+  if (typeof requestedSensitivity === "number" && Number.isFinite(requestedSensitivity)) {
+    if (isZoomingOut) {
+      sensitivity = clampValue(
+        Math.max(requestedSensitivity, sensitivity),
+        sensitivity,
+        sensitivity * MAX_EXTERNAL_SENSITIVITY_MULTIPLIER,
+      );
+    } else {
+      sensitivity = clampValue(
+        requestedSensitivity,
+        0.0001,
+        sensitivity * MAX_EXTERNAL_SENSITIVITY_MULTIPLIER,
+      );
+    }
+  }
+
+  const requestedMaxDelta = input.maxDeltaPixelsPerEvent;
+  if (typeof requestedMaxDelta === "number" && Number.isFinite(requestedMaxDelta)) {
+    if (isZoomingOut) {
+      maxDeltaPixelsPerEvent = clampValue(
+        Math.max(requestedMaxDelta, maxDeltaPixelsPerEvent),
+        maxDeltaPixelsPerEvent,
+        maxDeltaPixelsPerEvent * MAX_EXTERNAL_DELTA_MULTIPLIER,
+      );
+    } else {
+      maxDeltaPixelsPerEvent = clampValue(
+        requestedMaxDelta,
+        1,
+        maxDeltaPixelsPerEvent,
+      );
+    }
+  }
+
+  const requestedMaxFactor = input.maxZoomFactorPerEvent;
+  if (typeof requestedMaxFactor === "number" && Number.isFinite(requestedMaxFactor)) {
+    if (isZoomingOut) {
+      maxZoomFactorPerEvent = clampValue(
+        Math.max(requestedMaxFactor, maxZoomFactorPerEvent),
+        1.001,
+        maxZoomFactorPerEvent * MAX_EXTERNAL_DELTA_MULTIPLIER,
+      );
+    } else {
+      maxZoomFactorPerEvent = clampValue(
+        requestedMaxFactor,
+        1.001,
+        maxZoomFactorPerEvent,
+      );
+    }
+  }
+
+  const requestedMinFactor = input.minZoomFactorPerEvent;
+  if (typeof requestedMinFactor === "number" && Number.isFinite(requestedMinFactor)) {
+    if (isZoomingOut) {
+      minZoomFactorPerEvent = clampValue(
+        Math.min(requestedMinFactor, minZoomFactorPerEvent),
+        0.25,
+        minZoomFactorPerEvent,
+      );
+    } else {
+      minZoomFactorPerEvent = clampValue(
+        requestedMinFactor,
+        minZoomFactorPerEvent,
+        maxZoomFactorPerEvent,
+      );
+    }
+  }
+
+  minZoomFactorPerEvent = clampValue(
+    minZoomFactorPerEvent,
+    0.001,
+    maxZoomFactorPerEvent,
+  );
+
+  return {
+    sensitivity,
+    maxDeltaPixelsPerEvent,
+    minZoomFactorPerEvent,
+    maxZoomFactorPerEvent,
+  };
+}
+
 /**
  * Calcula zoom por Ctrl + wheel ou gesto equivalente.
  *
- * Correção principal:
- * - em zoom alto, a volta fica mais responsiva;
- * - ainda há limite de delta para evitar salto elástico;
- * - o zoom real mantém microvariações;
- * - a entrada em zoom muito alto fica controlada para não travar o layout.
+ * Versão x6:
+ * - multiplica a velocidade real do wheel por 6 em zoom-in e zoom-out;
+ * - abre os limites internos para o x4 não ser neutralizado;
+ * - preserva freio em zoom-in perto de 2000%;
+ * - mantém retorno imediato em zoom-out.
  */
 export function computeWheelZoom(input: ComputeWheelZoomInput): number {
   const currentZoom = clampKnexPdfZoom(input.currentZoom);
 
-  const normalizedDelta = normalizeWheelDeltaToPixels({
-    deltaY: input.deltaY,
-    deltaMode: input.deltaMode,
-  });
+  const normalizedDelta =
+    normalizeWheelDeltaToPixels({
+      deltaY: input.deltaY,
+      deltaMode: input.deltaMode,
+    }) * WHEEL_ZOOM_SPEED_MULTIPLIER;
+
+  if (Math.abs(normalizedDelta) <= ZOOM_CHANGE_EPSILON) {
+    return currentZoom;
+  }
 
   const directionMultiplier = input.invertDirection ? 1 : -1;
-  const preliminarySignedDelta = normalizedDelta * directionMultiplier;
+  const rawSignedDelta = normalizedDelta * directionMultiplier;
+  const isZoomingOut = rawSignedDelta < 0;
+
+  const directionalSignedDelta = isZoomingOut
+    ? rawSignedDelta * getImmediateZoomOutDeltaMultiplier(currentZoom)
+    : rawSignedDelta;
 
   const profile = getWheelZoomFluidityProfile({
     currentZoom,
-    signedDelta: preliminarySignedDelta,
+    signedDelta: directionalSignedDelta,
     sensitivity: input.sensitivity,
     maxDeltaPixelsPerEvent: input.maxDeltaPixelsPerEvent,
     minZoomFactorPerEvent: input.minZoomFactorPerEvent,
     maxZoomFactorPerEvent: input.maxZoomFactorPerEvent,
   });
 
-  const limitedDelta = limitWheelDeltaForContinuousZoom({
-    deltaPixels: normalizedDelta,
+  const impulsedSignedDelta = applySmallDeltaImpulse(directionalSignedDelta);
+
+  const signedDelta = limitWheelDeltaForContinuousZoom({
+    deltaPixels: impulsedSignedDelta,
     maxDeltaPixelsPerEvent: profile.maxDeltaPixelsPerEvent,
   });
 
-  const signedDelta = limitedDelta * directionMultiplier;
-
-  /*
-   * Trava curta para evitar trabalho inútil no limite.
-   *
-   * signedDelta > 0 = zoom-in.
-   * signedDelta < 0 = zoom-out.
-   */
   if (signedDelta > 0 && currentZoom >= EFFECTIVE_MAX_ZOOM - ZOOM_CHANGE_EPSILON) {
     return EFFECTIVE_MAX_ZOOM;
   }
@@ -567,8 +689,8 @@ export function computeWheelZoom(input: ComputeWheelZoomInput): number {
 }
 
 export function getAvailableZoomPercentPresets(): number[] {
-  const minPercent = zoomToPercent(KNEX_PDF_MIN_ZOOM);
-  const maxPercent = zoomToPercent(KNEX_PDF_MAX_ZOOM);
+  const minPercent = Math.round(EFFECTIVE_MIN_ZOOM * 100);
+  const maxPercent = Math.round(EFFECTIVE_MAX_ZOOM * 100);
 
   return KNEX_PDF_ZOOM_PERCENT_PRESETS.filter(
     (percent) => percent >= minPercent && percent <= maxPercent,
@@ -654,7 +776,6 @@ export function computeFitWidthZoom(input: ComputeFitZoomInput): number {
   const viewportWidth = Math.max(1, safeNumber(input.viewportWidth, 1));
   const pageWidth = Math.max(1, safeNumber(input.pageWidth, 1));
   const paddingX = Math.max(0, safeNumber(input.paddingX, 0));
-
   const availableWidth = Math.max(1, viewportWidth - paddingX * 2);
 
   return clampKnexPdfZoom(availableWidth / pageWidth);
@@ -663,13 +784,10 @@ export function computeFitWidthZoom(input: ComputeFitZoomInput): number {
 export function computeFitPageZoom(input: ComputeFitZoomInput): number {
   const viewportWidth = Math.max(1, safeNumber(input.viewportWidth, 1));
   const viewportHeight = Math.max(1, safeNumber(input.viewportHeight, 1));
-
   const pageWidth = Math.max(1, safeNumber(input.pageWidth, 1));
   const pageHeight = Math.max(1, safeNumber(input.pageHeight, 1));
-
   const paddingX = Math.max(0, safeNumber(input.paddingX, 0));
   const paddingY = Math.max(0, safeNumber(input.paddingY, 0));
-
   const availableWidth = Math.max(1, viewportWidth - paddingX * 2);
   const availableHeight = Math.max(1, viewportHeight - paddingY * 2);
 
@@ -708,11 +826,11 @@ export function formatZoomPercent(zoom: number): string {
 }
 
 export function isZoomAtMinimum(zoom: number): boolean {
-  return clampKnexPdfZoom(zoom) <= KNEX_PDF_MIN_ZOOM + ZOOM_CHANGE_EPSILON;
+  return clampKnexPdfZoom(zoom) <= EFFECTIVE_MIN_ZOOM + ZOOM_CHANGE_EPSILON;
 }
 
 export function isZoomAtMaximum(zoom: number): boolean {
-  return clampKnexPdfZoom(zoom) >= KNEX_PDF_MAX_ZOOM - ZOOM_CHANGE_EPSILON;
+  return clampKnexPdfZoom(zoom) >= EFFECTIVE_MAX_ZOOM - ZOOM_CHANGE_EPSILON;
 }
 
 function modeFromReason(reason: KnexPdfZoomReason): KnexPdfZoomMode {
@@ -722,14 +840,6 @@ function modeFromReason(reason: KnexPdfZoomReason): KnexPdfZoomMode {
   return "custom";
 }
 
-/**
- * Classe opcional para organizar o uso no viewer.
- *
- * Mantém compatibilidade com o uso antigo:
- * - wheelZoom continua atualizando o estado imediatamente;
- * - setZoom continua confirmando o zoom;
- * - não exige que o Shell já tenha implementado previewZoom/committedZoom.
- */
 export class ZoomController {
   private state: KnexPdfZoomState;
 
@@ -762,6 +872,31 @@ export class ZoomController {
     });
 
     return change;
+  }
+
+  commitZoom(
+    nextZoom: number,
+    reason: KnexPdfZoomReason = "manual-scale",
+  ): KnexPdfZoomChange {
+    return this.setZoom(nextZoom, reason);
+  }
+
+  previewWheelZoom(
+    input: Omit<ComputeWheelZoomInput, "currentZoom"> & {
+      currentZoom?: number;
+    },
+  ): KnexPdfZoomChange {
+    const previousZoom = clampKnexPdfZoom(input.currentZoom ?? this.state.zoom);
+    const nextZoom = computeWheelZoom({
+      ...input,
+      currentZoom: previousZoom,
+    });
+
+    return createZoomChange({
+      previousZoom,
+      nextZoom,
+      reason: "wheel-zoom",
+    });
   }
 
   zoomIn(): KnexPdfZoomChange {
@@ -814,9 +949,13 @@ export class ZoomController {
 /**
  * Fluxo correto para Ctrl + wheel:
  *
- * 1. O componente captura o anchor ANTES do zoom.
- * 2. O ZoomController calcula o novo zoom real com microvariação preservada.
- * 3. O layout aplica change.nextZoom imediatamente.
- * 4. O ScrollCoordinator restaura a âncora.
- * 5. O render pesado só deve estabilizar depois do gesto.
+ * 1. Capturar anchor antes do zoom.
+ * 2. Aplicar visualZoom imediatamente.
+ * 3. Restaurar a âncora no espaço visual.
+ * 4. Manter render pesado congelado durante o gesto.
+ * 5. Confirmar renderZoom/committedRenderZoom apenas após settle.
+ *
+ * Se esta versão calcular rápido, mas a tela ainda demorar, o gargalo estará
+ * no Shell: RAF, flushWheel, debounce/settle, setVisualZoom ou restauração de
+ * âncora.
  */

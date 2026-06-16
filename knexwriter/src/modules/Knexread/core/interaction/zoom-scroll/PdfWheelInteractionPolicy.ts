@@ -1,3 +1,11 @@
+import {
+  ZOOM_SCROLL_LINE_DELTA_PX,
+  ZOOM_SCROLL_MAX_ZOOM_PERCENT,
+  ZOOM_SCROLL_MIN_ZOOM_PERCENT,
+  ZOOM_SCROLL_PAGE_DELTA_PX,
+} from "./ZoomScrollConstants";
+import { computeWheelZoomVelocity } from "./ZoomVelocityController";
+
 export type PdfWheelDeltaMode = 0 | 1 | 2 | number;
 
 export type PdfWheelLikeEvent = {
@@ -9,50 +17,56 @@ export type PdfWheelLikeEvent = {
   shiftKey?: boolean;
 };
 
-export type PdfWheelZoomModifierMode = "ctrl" | "ctrl-or-meta" | "meta" | "always";
+export type PdfWheelZoomModifierMode =
+  | "ctrl"
+  | "ctrl-or-meta"
+  | "meta"
+  | "always";
 
 export type PdfWheelInteractionPolicyInput = {
   /**
    * Multiplicador da rolagem comum da bolinha.
    *
-   * Padrão: 3x.
+   * Este campo continua ativo, porque este arquivo ainda é responsável pelo
+   * scroll comum enquanto a migração para ScrollMotionController não estiver
+   * completa em todos os pontos.
    */
   wheelScrollMultiplier?: number;
 
   /**
-   * Multiplicador do zoom via Ctrl/Meta + bolinha.
+   * Campo legado.
    *
-   * Padrão: 3x.
+   * ATENÇÃO:
+   * este valor não controla mais a velocidade final do zoom por wheel.
+   * A velocidade real agora pertence ao ZoomVelocityController.
    *
-   * Observação:
-   * este multiplicador não pode ser confundido com ausência de limite. O delta
-   * acelerado ainda passa por travas antes de chegar ao ZoomController.
+   * O campo permanece no contrato para não quebrar chamadas antigas.
    */
   wheelZoomMultiplier?: number;
 
   /**
-   * Limite máximo de deslocamento por evento wheel.
-   * Evita salto exagerado em mouse/touchpad de alta resolução.
+   * Limite máximo de deslocamento por evento wheel para scroll comum.
    */
   maxWheelScrollStepPx?: number;
 
   /**
-   * Limite máximo de variação percentual de zoom por evento quando o próprio
-   * policy calcula o alvo diretamente.
+   * Campo legado.
+   *
+   * Mantido para compatibilidade, mas neutralizado na política resolvida.
    */
   maxWheelZoomStepPercent?: number;
 
   /**
-   * Limite físico do delta entregue ao ZoomController.
+   * Campo legado.
    *
-   * O ZoomController já possui curva exponencial, clamp global e perfil
-   * adaptativo por faixa de zoom. Por isso, o wheel policy deve entregar um
-   * delta acelerado, mas não gigantesco.
+   * Mantido para compatibilidade, mas neutralizado na política resolvida.
    */
   maxWheelZoomControllerDeltaPx?: number;
 
   /**
-   * Passo base de zoom, em pontos percentuais, antes do multiplicador.
+   * Campo legado.
+   *
+   * Mantido para compatibilidade, mas neutralizado na política resolvida.
    */
   baseWheelZoomStepPercent?: number;
 
@@ -76,8 +90,7 @@ export type PdfWheelInteractionPolicyInput = {
   /**
    * Limites percentuais do leitor.
    *
-   * Devem acompanhar o ZoomController.
-   * Padrão: 10% a 2000%.
+   * Devem acompanhar ZoomScrollConstants/ZoomVelocityController.
    */
   minZoomPercent?: number;
   maxZoomPercent?: number;
@@ -85,11 +98,26 @@ export type PdfWheelInteractionPolicyInput = {
 
 export type PdfWheelInteractionPolicy = {
   wheelScrollMultiplier: number;
+
+  /**
+   * Campo legado preservado no tipo.
+   *
+   * No fluxo novo, deve permanecer neutro em 1.
+   */
   wheelZoomMultiplier: number;
+
   maxWheelScrollStepPx: number;
+
+  /**
+   * Campos legados preservados no tipo.
+   *
+   * No fluxo novo, ficam neutros e não devem ser usados para calibrar a
+   * velocidade do zoom.
+   */
   maxWheelZoomStepPercent: number;
   maxWheelZoomControllerDeltaPx: number;
   baseWheelZoomStepPercent: number;
+
   wheelLineHeightPx: number;
   wheelPageHeightPx: number;
   zoomModifierMode: PdfWheelZoomModifierMode;
@@ -104,8 +132,8 @@ export type PdfAcceleratedWheelScrollInput = {
   /**
    * Zoom atual em percentual.
    *
-   * Em zoom alto, a página fica fisicamente muito maior. Se a rolagem continuar
-   * limitada ao mesmo delta de 100%/200%, a sensação é de travamento.
+   * Em zoom alto, a página fica fisicamente maior. O scroll comum pode usar
+   * esse valor para não parecer travado.
    */
   currentZoomPercent?: number;
 
@@ -120,7 +148,6 @@ export type PdfAcceleratedWheelZoomInput = {
    * Zoom atual em percentual.
    *
    * Opcional para manter compatibilidade com chamadas antigas.
-   * Quando informado, permite reduzir agressividade perto do teto de zoom.
    */
   currentZoomPercent?: number;
 
@@ -136,28 +163,58 @@ export type PdfWheelZoomTargetInput = {
   policy?: Partial<PdfWheelInteractionPolicy>;
 };
 
+/**
+ * PdfWheelInteractionPolicy.ts
+ * -----------------------------------------------------------------------------
+ * Papel deste arquivo na arquitetura modular:
+ *
+ * ESTE ARQUIVO NÃO É MAIS O DONO DA VELOCIDADE FINAL DO ZOOM.
+ *
+ * Responsabilidades preservadas:
+ * - normalizar deltaMode para pixels;
+ * - detectar Ctrl/Meta + wheel em fluxos legados;
+ * - acelerar scroll comum;
+ * - manter compatibilidade com imports antigos.
+ *
+ * Responsabilidades retiradas:
+ * - curva própria de zoom-in;
+ * - curva própria de zoom-out;
+ * - multiplicador agressivo de zoom;
+ * - compressão própria de delta para ZoomController.
+ *
+ * A velocidade auditável do zoom agora deve ser ajustada em:
+ * - ZoomScrollConstants.ts;
+ * - ZoomVelocityController.ts.
+ */
 const DEFAULT_WHEEL_SCROLL_MULTIPLIER = 4;
-const DEFAULT_WHEEL_ZOOM_MULTIPLIER = 4;
-
-const DEFAULT_MAX_WHEEL_SCROLL_STEP_PX = 240;
 
 /**
- * Como o ZoomController agora permite 2000%, o wheel precisa ser rápido, mas
- * progressivo. Passos percentuais diretos acima disso ficam bruscos demais.
+ * Neutro por design.
+ *
+ * Mesmo que algum ponto antigo passe wheelZoomMultiplier: 4.15, a política
+ * resolvida força o valor para 1. Isso impede competição com
+ * ZoomVelocityController.
  */
-const DEFAULT_MAX_WHEEL_ZOOM_STEP_PERCENT = 18;
-const DEFAULT_MAX_WHEEL_ZOOM_CONTROLLER_DELTA_PX = 150;
-const DEFAULT_BASE_WHEEL_ZOOM_STEP_PERCENT = 4;
+const DEFAULT_WHEEL_ZOOM_MULTIPLIER = 1;
 
-const DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
-const DEFAULT_WHEEL_PAGE_HEIGHT_PX = 800;
+const DEFAULT_MAX_WHEEL_SCROLL_STEP_PX = 720;
+
+/**
+ * Campos legados neutralizados.
+ */
+const DEFAULT_MAX_WHEEL_ZOOM_STEP_PERCENT = 9999;
+const DEFAULT_MAX_WHEEL_ZOOM_CONTROLLER_DELTA_PX = 9999;
+const DEFAULT_BASE_WHEEL_ZOOM_STEP_PERCENT = 1;
+
+const DEFAULT_WHEEL_LINE_HEIGHT_PX = ZOOM_SCROLL_LINE_DELTA_PX;
+const DEFAULT_WHEEL_PAGE_HEIGHT_PX = ZOOM_SCROLL_PAGE_DELTA_PX;
 const DEFAULT_ZOOM_MODIFIER_MODE: PdfWheelZoomModifierMode = "ctrl-or-meta";
 
-const MIN_WHEEL_MULTIPLIER = 0.25;
-const MAX_WHEEL_MULTIPLIER = 4;
+const MIN_WHEEL_SCROLL_MULTIPLIER = 0.25;
+const MAX_WHEEL_SCROLL_MULTIPLIER = 8;
 
-const DEFAULT_MIN_ZOOM_PERCENT = 10;
-const DEFAULT_MAX_ZOOM_PERCENT = 2000;
+const DEFAULT_MIN_ZOOM_PERCENT = ZOOM_SCROLL_MIN_ZOOM_PERCENT;
+const DEFAULT_MAX_ZOOM_PERCENT = ZOOM_SCROLL_MAX_ZOOM_PERCENT;
 
 function safeNumber(
   value: number | null | undefined,
@@ -176,14 +233,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(safeMin, Math.min(safeMax, safeValue));
 }
 
-function clampAbs(value: number, maxAbs: number): number {
-  const safeMaxAbs = Math.max(0, safeNumber(maxAbs, 0));
-
-  if (safeMaxAbs <= 0) return 0;
-
-  return clamp(value, -safeMaxAbs, safeMaxAbs);
-}
-
 function resolvePositiveNumber(
   value: number | null | undefined,
   fallback: number,
@@ -192,14 +241,14 @@ function resolvePositiveNumber(
   return Math.max(min, safeNumber(value, fallback));
 }
 
-function resolveWheelMultiplier(
+function resolveWheelScrollMultiplier(
   value: number | null | undefined,
   fallback: number,
 ): number {
   return clamp(
     safeNumber(value, fallback),
-    MIN_WHEEL_MULTIPLIER,
-    MAX_WHEEL_MULTIPLIER,
+    MIN_WHEEL_SCROLL_MULTIPLIER,
+    MAX_WHEEL_SCROLL_MULTIPLIER,
   );
 }
 
@@ -211,6 +260,7 @@ function resolveZoomPercentLimits(input: {
     input.minZoomPercent,
     DEFAULT_MIN_ZOOM_PERCENT,
   );
+
   const maxZoomPercent = Math.max(
     minZoomPercent,
     resolvePositiveNumber(input.maxZoomPercent, DEFAULT_MAX_ZOOM_PERCENT),
@@ -219,101 +269,83 @@ function resolveZoomPercentLimits(input: {
   return { minZoomPercent, maxZoomPercent };
 }
 
-function getZoomInPressure(input: {
-  currentZoomPercent: number;
-  maxZoomPercent: number;
-}): number {
-  const currentZoomPercent = Math.max(1, safeNumber(input.currentZoomPercent, 100));
-  const maxZoomPercent = Math.max(currentZoomPercent, safeNumber(input.maxZoomPercent, DEFAULT_MAX_ZOOM_PERCENT));
-
-  return clamp(currentZoomPercent / Math.max(1, maxZoomPercent), 0, 1);
-}
-
 function resolveZoomAwareScrollFactor(input: {
   currentZoomPercent?: number;
 }): number {
-  const currentZoomPercent = safeNumber(input.currentZoomPercent, 100);
+  const currentZoomPercent = clamp(
+    safeNumber(input.currentZoomPercent, 100),
+    DEFAULT_MIN_ZOOM_PERCENT,
+    DEFAULT_MAX_ZOOM_PERCENT,
+  );
+
+  if (currentZoomPercent <= 100) return 1;
+
+  const minZoom = 100;
+  const maxZoom = DEFAULT_MAX_ZOOM_PERCENT;
+
+  const normalized =
+    (Math.sqrt(currentZoomPercent / minZoom) - 1) /
+    Math.max(0.000001, Math.sqrt(maxZoom / minZoom) - 1);
+
+  const t = clamp(normalized, 0, 1);
 
   /*
-   * A rolagem precisa crescer com o zoom visual.
+   * Curva contínua de scroll comum:
    *
-   * Em 1200%/2000%, o documento ocupa muitas vezes mais altura/largura. Um
-   * limite fixo de 240px faz a roda parecer lenta. Usamos degraus controlados,
-   * não uma multiplicação linear, para manter fluidez sem saltos absurdos.
+   * 100%  -> 1.00
+   * 200%  -> ~1.62
+   * 400%  -> ~2.50
+   * 800%  -> ~3.74
+   * 1200% -> ~4.68
+   * 1600% -> ~5.48
+   * 2000% -> ~6.20
    */
-  if (currentZoomPercent >= 1800) return 6.5;
-  if (currentZoomPercent >= 1600) return 6;
-  if (currentZoomPercent >= 1200) return 5.25;
-  if (currentZoomPercent >= 800) return 4.25;
-  if (currentZoomPercent >= 400) return 3;
-  if (currentZoomPercent >= 200) return 1.75;
-
-  return 1;
+  return 1 + 5.2 * t;
 }
 
 function resolveZoomAwareScrollStepLimit(input: {
   currentZoomPercent?: number;
   policy: PdfWheelInteractionPolicy;
 }): number {
-  const currentZoomPercent = safeNumber(input.currentZoomPercent, 100);
   const baseLimit = Math.max(1, input.policy.maxWheelScrollStepPx);
-
-  if (currentZoomPercent >= 1800) return Math.max(baseLimit, 3_000);
-  if (currentZoomPercent >= 1600) return Math.max(baseLimit, 2_700);
-  if (currentZoomPercent >= 1200) return Math.max(baseLimit, 2_300);
-  if (currentZoomPercent >= 800) return Math.max(baseLimit, 1_700);
-  if (currentZoomPercent >= 400) return Math.max(baseLimit, 1_100);
-  if (currentZoomPercent >= 200) return Math.max(baseLimit, 620);
-
-  return baseLimit;
-}
-
-/**
- * Reduz a agressividade do wheel quando o zoom-in já está perto do teto.
- *
- * Isso evita que o usuário continue gerando vários deltas grandes tentando
- * ultrapassar 2000%, o que pode disparar renderizações pesadas e tela preta.
- */
-function resolveZoomControllerDeltaLimit(input: {
-  normalizedDelta: number;
-  currentZoomPercent?: number;
-  policy: PdfWheelInteractionPolicy;
-}): number {
-  const baseLimit = Math.max(1, input.policy.maxWheelZoomControllerDeltaPx);
-  const currentZoomPercent = safeNumber(input.currentZoomPercent, 100);
-  const isZoomingIn = input.normalizedDelta < 0;
-
-  if (!isZoomingIn) {
-    /*
-     * Zoom-out em escala alta precisa ser mais forte.
-     * Caso contrário, o usuário fica "preso" em 1200%/2000% e a redução parece
-     * pesada. Aqui ampliamos apenas a trava física do delta; o ZoomController
-     * ainda faz a curva e o clamp final.
-     */
-    if (currentZoomPercent >= 1600) return Math.max(320, baseLimit * 2.8);
-    if (currentZoomPercent >= 1200) return Math.max(290, baseLimit * 2.45);
-    if (currentZoomPercent >= 800) return Math.max(250, baseLimit * 2.15);
-    if (currentZoomPercent >= 400) return Math.max(220, baseLimit * 1.75);
-
-    return Math.max(baseLimit, baseLimit * 1.35);
-  }
-
-  const pressure = getZoomInPressure({
-    currentZoomPercent,
-    maxZoomPercent: input.policy.maxZoomPercent,
+  const scrollFactor = resolveZoomAwareScrollFactor({
+    currentZoomPercent: input.currentZoomPercent,
   });
 
   /*
-   * Antes o zoom-in ficava muito contido perto do teto, causando sensação de
-   * letargia. Mantemos proteção contra estouro, mas sem reduzir o delta a ponto
-   * de o gesto parecer travado.
+   * Piso operacional:
+   * evita que configurações antigas, como maxWheelScrollStepPx = 300, cortem
+   * o delta comum da roda e gerem sensação de scroll pesado.
    */
-  if (pressure >= 0.96) return Math.max(76, baseLimit * 0.55);
-  if (pressure >= 0.9) return Math.max(90, baseLimit * 0.65);
-  if (pressure >= 0.8) return Math.max(105, baseLimit * 0.75);
-  if (pressure >= 0.6) return Math.max(120, baseLimit * 0.9);
+  const operationalBaseLimit = Math.max(baseLimit, 560);
 
-  return baseLimit;
+  return operationalBaseLimit * (0.9 + scrollFactor * 0.85);
+}
+
+function limitScrollDeltaForProgressiveScroll(input: {
+  deltaPixels: number;
+  maxDeltaPixels: number;
+}): number {
+  const maxDelta = Math.max(1, safeNumber(input.maxDeltaPixels, 1));
+  const delta = safeNumber(input.deltaPixels, 0);
+
+  if (delta === 0) return 0;
+
+  const sign = delta < 0 ? -1 : 1;
+  const magnitude = Math.abs(delta);
+
+  /*
+   * Deltas normais passam intactos.
+   * Deltas acima do orçamento são comprimidos de forma macia.
+   */
+  if (magnitude <= maxDelta) {
+    return delta;
+  }
+
+  const overflow = magnitude - maxDelta;
+  const softExtra = maxDelta * 0.16 * (1 - Math.exp(-overflow / maxDelta));
+
+  return sign * (maxDelta + softExtra);
 }
 
 export function resolvePdfWheelInteractionPolicy(
@@ -325,30 +357,29 @@ export function resolvePdfWheelInteractionPolicy(
   });
 
   return {
-    wheelScrollMultiplier: resolveWheelMultiplier(
+    wheelScrollMultiplier: resolveWheelScrollMultiplier(
       input.wheelScrollMultiplier,
       DEFAULT_WHEEL_SCROLL_MULTIPLIER,
     ),
-    wheelZoomMultiplier: resolveWheelMultiplier(
-      input.wheelZoomMultiplier,
-      DEFAULT_WHEEL_ZOOM_MULTIPLIER,
-    ),
+
+    /*
+     * Neutralização intencional:
+     * não aceitar multiplicador de zoom legado vindo de fora.
+     */
+    wheelZoomMultiplier: DEFAULT_WHEEL_ZOOM_MULTIPLIER,
+
     maxWheelScrollStepPx: resolvePositiveNumber(
       input.maxWheelScrollStepPx,
       DEFAULT_MAX_WHEEL_SCROLL_STEP_PX,
     ),
-    maxWheelZoomStepPercent: resolvePositiveNumber(
-      input.maxWheelZoomStepPercent,
-      DEFAULT_MAX_WHEEL_ZOOM_STEP_PERCENT,
-    ),
-    maxWheelZoomControllerDeltaPx: resolvePositiveNumber(
-      input.maxWheelZoomControllerDeltaPx,
-      DEFAULT_MAX_WHEEL_ZOOM_CONTROLLER_DELTA_PX,
-    ),
-    baseWheelZoomStepPercent: resolvePositiveNumber(
-      input.baseWheelZoomStepPercent,
-      DEFAULT_BASE_WHEEL_ZOOM_STEP_PERCENT,
-    ),
+
+    /*
+     * Campos legados ficam neutros.
+     */
+    maxWheelZoomStepPercent: DEFAULT_MAX_WHEEL_ZOOM_STEP_PERCENT,
+    maxWheelZoomControllerDeltaPx: DEFAULT_MAX_WHEEL_ZOOM_CONTROLLER_DELTA_PX,
+    baseWheelZoomStepPercent: DEFAULT_BASE_WHEEL_ZOOM_STEP_PERCENT,
+
     wheelLineHeightPx: resolvePositiveNumber(
       input.wheelLineHeightPx,
       DEFAULT_WHEEL_LINE_HEIGHT_PX,
@@ -370,9 +401,9 @@ export const DEFAULT_PDF_WHEEL_INTERACTION_POLICY =
  * Normaliza deltaY da roda do mouse para pixels.
  *
  * deltaMode:
- * - 0: pixels
- * - 1: linhas
- * - 2: páginas
+ * - 0: pixels;
+ * - 1: linhas;
+ * - 2: páginas.
  */
 export function normalizePdfWheelDeltaToPixels(input: {
   deltaY: number;
@@ -427,11 +458,9 @@ export function shouldHandlePdfWheelZoom(
 }
 
 /**
- * Retorna o delta de rolagem acelerado em pixels.
+ * Retorna o delta de rolagem comum acelerado em pixels.
  *
- * O sinal é preservado:
- * - delta positivo rola para baixo;
- * - delta negativo rola para cima.
+ * Este continua sendo o papel ativo deste arquivo.
  */
 export function getAcceleratedPdfWheelScrollDelta(
   input: PdfAcceleratedWheelScrollInput,
@@ -451,6 +480,7 @@ export function getAcceleratedPdfWheelScrollDelta(
   const zoomScrollFactor = resolveZoomAwareScrollFactor({
     currentZoomPercent: input.currentZoomPercent,
   });
+
   const maxScrollStep = resolveZoomAwareScrollStepLimit({
     currentZoomPercent: input.currentZoomPercent,
     policy,
@@ -459,15 +489,18 @@ export function getAcceleratedPdfWheelScrollDelta(
   const acceleratedDelta =
     normalizedDelta * policy.wheelScrollMultiplier * zoomScrollFactor;
 
-  return clampAbs(acceleratedDelta, maxScrollStep);
+  return limitScrollDeltaForProgressiveScroll({
+    deltaPixels: acceleratedDelta,
+    maxDeltaPixels: maxScrollStep,
+  });
 }
 
 /**
  * Retorna o passo de zoom em pontos percentuais.
  *
- * O sinal é invertido em relação ao deltaY:
- * - wheel para cima aproxima;
- * - wheel para baixo afasta.
+ * Compatibilidade legada:
+ * esta função não calcula mais curva própria. Ela delega para
+ * ZoomVelocityController e retorna apenas a diferença percentual.
  */
 export function getAcceleratedPdfWheelZoomStep(
   input: PdfAcceleratedWheelZoomInput,
@@ -477,67 +510,30 @@ export function getAcceleratedPdfWheelZoomStep(
     ...input.policy,
   };
 
-  const normalizedDelta = normalizePdfWheelDeltaToPixels({
+  const currentZoomPercent = safeNumber(input.currentZoomPercent, 100);
+
+  const deltaY = normalizePdfWheelDeltaToPixels({
     deltaY: input.deltaY,
     deltaMode: input.deltaMode,
     lineHeightPx: policy.wheelLineHeightPx,
     pageHeightPx: policy.wheelPageHeightPx,
   });
 
-  if (normalizedDelta === 0) return 0;
+  const result = computeWheelZoomVelocity({
+    currentZoomPercent,
+    deltaY,
+    minZoomPercent: policy.minZoomPercent,
+    maxZoomPercent: policy.maxZoomPercent,
+  });
 
-  const direction = normalizedDelta > 0 ? -1 : 1;
-  const currentZoomPercent = safeNumber(input.currentZoomPercent, 100);
-
-  if (
-    direction > 0 &&
-    currentZoomPercent >= policy.maxZoomPercent
-  ) {
-    return 0;
-  }
-
-  if (
-    direction < 0 &&
-    currentZoomPercent <= policy.minZoomPercent
-  ) {
-    return 0;
-  }
-
-  /*
-   * A intensidade aumenta levemente em eventos maiores, mas é limitada.
-   * Isso preserva velocidade sem deixar o zoom saltar de modo brusco.
-   */
-  const intensity = clamp(Math.abs(normalizedDelta) / 100, 1, 2.35);
-
-  let maxStep = policy.maxWheelZoomStepPercent;
-
-  if (direction > 0) {
-    const pressure = getZoomInPressure({
-      currentZoomPercent,
-      maxZoomPercent: policy.maxZoomPercent,
-    });
-
-    if (pressure >= 0.96) maxStep = Math.min(maxStep, 8);
-    else if (pressure >= 0.9) maxStep = Math.min(maxStep, 10);
-    else if (pressure >= 0.8) maxStep = Math.min(maxStep, 12);
-    else if (pressure >= 0.6) maxStep = Math.min(maxStep, 15);
-  }
-
-  const rawStep =
-    direction *
-    policy.baseWheelZoomStepPercent *
-    policy.wheelZoomMultiplier *
-    intensity;
-
-  return clampAbs(rawStep, maxStep);
+  return result.deltaZoomPercent;
 }
 
 /**
  * Calcula diretamente o novo zoom percentual.
  *
- * Útil quando o handler não quiser chamar o ZoomController.
- * Se o PdfReaderShell já usa computeWheelZoom, prefira passar o delta acelerado
- * para o controlador por getAcceleratedPdfWheelDeltaForController.
+ * Compatibilidade legada:
+ * o cálculo é delegado indiretamente para ZoomVelocityController.
  */
 export function getPdfWheelZoomTarget(
   input: PdfWheelZoomTargetInput,
@@ -551,6 +547,7 @@ export function getPdfWheelZoomTarget(
     input.minZoomPercent ?? policy.minZoomPercent,
     DEFAULT_MIN_ZOOM_PERCENT,
   );
+
   const maxZoomPercent = Math.max(
     minZoomPercent,
     resolvePositiveNumber(
@@ -584,15 +581,13 @@ export function getPdfWheelZoomTarget(
 }
 
 /**
- * Retorna um deltaY já acelerado para ser consumido por controladores legados.
+ * Retorna um deltaY normalizado para controladores legados.
  *
- * Mantém o sinal original do wheel. Esse helper é útil para integrar com
- * funções já existentes, como computeWheelZoom, sem refatorar tudo de uma vez.
- *
- * Importante:
- * o ZoomController já calcula curva exponencial e clamp final. Aqui apenas
- * entregamos um delta acelerado, mas com limite físico compatível com o teto
- * de 2000%.
+ * Compatibilidade legada, sem aceleração própria:
+ * - não usa wheelZoomMultiplier;
+ * - não usa curva zoom-in/out;
+ * - não usa compressão própria;
+ * - apenas respeita limites globais e devolve o delta normalizado.
  */
 export function getAcceleratedPdfWheelDeltaForController(
   input: PdfAcceleratedWheelZoomInput,
@@ -625,12 +620,5 @@ export function getAcceleratedPdfWheelDeltaForController(
     return 0;
   }
 
-  const acceleratedDelta = normalizedDelta * policy.wheelZoomMultiplier;
-  const maxControllerDelta = resolveZoomControllerDeltaLimit({
-    normalizedDelta,
-    currentZoomPercent,
-    policy,
-  });
-
-  return clampAbs(acceleratedDelta, maxControllerDelta);
+  return normalizedDelta;
 }

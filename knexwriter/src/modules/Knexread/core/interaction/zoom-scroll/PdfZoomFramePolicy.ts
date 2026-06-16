@@ -79,11 +79,23 @@ export type PdfZoomFramePolicy = {
 const DEFAULT_MIN_LAYOUT_SCALE = 0.01;
 const DEFAULT_MAX_LAYOUT_SCALE = 80;
 
-const DEFAULT_WHEEL_SCROLL_MULTIPLIER = 2;
-const DEFAULT_WHEEL_ZOOM_MULTIPLIER = 2;
+/**
+ * Política de velocidade profissional para wheel.
+ *
+ * O arquivo anterior era conservador demais:
+ * - zoom default 2x;
+ * - multiplicador máximo 4x;
+ * - passo máximo de zoom 24 pontos percentuais.
+ *
+ * Essa combinação cria exatamente a sensação de várias voltas de wheel para
+ * obter uma aproximação/afastamento relevante. Aqui o frame policy deixa de
+ * ser gargalo. O controlador principal ainda deve aplicar clamp global.
+ */
+const DEFAULT_WHEEL_SCROLL_MULTIPLIER = 4;
+const DEFAULT_WHEEL_ZOOM_MULTIPLIER = 6;
 
 const MIN_WHEEL_MULTIPLIER = 0.25;
-const MAX_WHEEL_MULTIPLIER = 4;
+const MAX_WHEEL_MULTIPLIER = 8;
 
 /**
  * Limites de segurança.
@@ -91,8 +103,8 @@ const MAX_WHEEL_MULTIPLIER = 4;
  * A rolagem pode ser rápida, mas não deve saltar blocos inteiros de página
  * por acidente. O zoom também não deve variar demais em um único evento wheel.
  */
-const DEFAULT_MAX_WHEEL_SCROLL_STEP_PX = 180;
-const DEFAULT_MAX_WHEEL_ZOOM_STEP_PERCENT = 24;
+const DEFAULT_MAX_WHEEL_SCROLL_STEP_PX = 720;
+const DEFAULT_MAX_WHEEL_ZOOM_STEP_PERCENT = 96;
 
 const DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
 const DEFAULT_WHEEL_PAGE_HEIGHT_PX = 800;
@@ -266,7 +278,7 @@ export function getAcceleratedPdfWheelZoomStep(input: {
 
   const baseStepPercent = Math.max(
     1,
-    safeNumber(input.baseStepPercent, 6),
+    safeNumber(input.baseStepPercent, 8),
   );
 
   const maxStepPercent = Math.max(
@@ -277,8 +289,26 @@ export function getAcceleratedPdfWheelZoomStep(input: {
   if (normalizedDelta === 0) return 0;
 
   const direction = normalizedDelta > 0 ? -1 : 1;
-  const intensity = Math.min(3, Math.max(1, Math.abs(normalizedDelta) / 100));
-  const rawStep = direction * baseStepPercent * multiplier * intensity;
+
+  /*
+   * Intensidade contínua e menos travada.
+   *
+   * A versão anterior saturava em 3. Em muitos mouses, isso deixa o zoom
+   * parecendo preso. Aqui a curva cresce por raiz quadrada: responde rápido
+   * em delta pequeno, mas ainda comprime deltas absurdos.
+   */
+  const magnitude = Math.abs(normalizedDelta);
+  const intensity = clamp(1 + Math.sqrt(magnitude) / 5, 1, 5.5);
+
+  /*
+   * Retorno com sensação de mola:
+   * - zoom-out recebe um ganho leve, porque o usuário espera sair do zoom alto
+   *   imediatamente;
+   * - zoom-in continua veloz, mas sem ultrapassar maxStepPercent.
+   */
+  const directionGain = direction < 0 ? 1.22 : 1;
+  const rawStep =
+    direction * baseStepPercent * multiplier * intensity * directionGain;
 
   return clampAbs(rawStep, maxStepPercent);
 }
